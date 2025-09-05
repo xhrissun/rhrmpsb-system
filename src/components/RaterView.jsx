@@ -628,7 +628,7 @@ const RaterView = ({ user }) => {
 
           {candidateDetails && vacancyDetails && (
             <div className={`sticky top-6 z-30 bg-white rounded-xl border border-gray-200 overflow-hidden mb-6 shadow-lg transition-all duration-300 ${isModalMinimized ? 'max-h-84' : 'max-h-full'}`}>
-              <div className="bg-gradient-to-r from-blue-600 to-purple-600 px-4 py-3 flex justify-between items-center">
+              <div class="bg-black px-4 py-3 flex justify-between items-center">
                 <div className="text-center flex-1">
                   <h3 className="text-2xl md:text-3xl font-bold text-white">{candidateDetails.fullName}</h3>
                   <p className="text-lg md:text-xl text-blue-100">{vacancyDetails.position}</p>
