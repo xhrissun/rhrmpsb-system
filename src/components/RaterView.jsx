@@ -627,8 +627,8 @@ const RaterView = ({ user }) => {
           </div>
 
           {candidateDetails && vacancyDetails && (
-            <div className={`sticky top-6 z-30 bg-gray-100 rounded-xl border border-gray-200 overflow-hidden mb-6 shadow-lg transition-all duration-300 ${isModalMinimized ? 'max-h-84' : 'max-h-full'}`}>
-              <div className="bg-gradient-to-r from-gray-800 to-gray-600 px-4 py-3 flex justify-between items-center">
+            <div className={`sticky top-6 z-30 bg-gray-100 rounded-xl border border-green-200 overflow-hidden mb-6 shadow-lg transition-all duration-300 ${isModalMinimized ? 'max-h-84' : 'max-h-full'}`}>
+              <div className="bg-gradient-to-r from-green-800 to-green-600 px-4 py-3 flex justify-between items-center">
                 <div className="text-center flex-1">
                   <h3 className="text-2xl md:text-3xl font-bold text-white">{candidateDetails.fullName}</h3>
                   <p className="text-lg md:text-xl text-white">{vacancyDetails.position}</p>
@@ -641,7 +641,7 @@ const RaterView = ({ user }) => {
                 </div>
                 <button
                   onClick={() => setIsModalMinimized(!isModalMinimized)}
-                  className="text-white hover:text-gray-300 focus:outline-none"
+                  className="text-white hover:text-green-200 focus:outline-none"
                 >
                   {isModalMinimized ? (
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -654,6 +654,7 @@ const RaterView = ({ user }) => {
                   )}
                 </button>
               </div>
+
 
 
               <div className="p-6 space-y-6">
