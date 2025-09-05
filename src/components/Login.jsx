@@ -57,42 +57,44 @@ const Login = ({ onLogin }) => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-6">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center px-4 sm:px-6 md:px-8">
       {/* Background Pattern */}
       <div className="absolute inset-0 opacity-40">
         <div className="h-full w-full bg-gradient-to-r from-blue-500/10 to-purple-500/10"></div>
       </div>
 
       {/* Login Card */}
-      <div className="relative w-full max-w-lg md:max-w-xl">
+      <div className="relative w-full max-w-sm sm:max-w-md md:max-w-lg lg:max-w-xl xl:max-w-2xl">
         {/* Main Card */}
-        <div className="backdrop-blur-sm bg-white/10 border border-white/20 rounded-2xl shadow-2xl p-10 space-y-10">
+        <div className="backdrop-blur-sm bg-white/10 border border-white/20 rounded-2xl shadow-2xl p-6 sm:p-8 md:p-10 lg:p-12 space-y-8 sm:space-y-10">
           {/* Header */}
           <div className="text-center space-y-3">
-            <div className="inline-flex items-center justify-center w-20 h-20 md:w-24 md:h-24 bg-white/20 rounded-2xl shadow-lg mb-6 p-3">
+            <div className="inline-flex items-center justify-center w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 lg:w-28 lg:h-28 bg-white/20 rounded-2xl shadow-lg mb-4 sm:mb-6 p-2 sm:p-3">
               <img
                 src="https://raw.githubusercontent.com/xhrissun/rhrmpsb-system/main/denr-logo.png"
                 alt="DENR Logo"
                 className="w-full h-full object-contain"
               />
             </div>
-            <h1 className="text-4xl md:text-5xl font-bold text-white">
+            <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold text-white">
               DENR CALABARZON RHRMPSB SYSTEM
             </h1>
-            <p className="text-lg md:text-xl text-slate-300">Sign in to your DENR RHRMPSB account</p>
+            <p className="text-sm sm:text-base md:text-lg lg:text-xl text-slate-300">
+              Sign in to your DENR RHRMPSB account
+            </p>
           </div>
 
           {/* Form Container */}
-          <form onSubmit={handleSubmit} className="space-y-8">
+          <form onSubmit={handleSubmit} className="space-y-6 sm:space-y-8">
             {/* Email Field */}
-            <div className="space-y-3">
-              <label htmlFor="email" className="block text-base md:text-lg font-medium text-slate-200">
+            <div className="space-y-2 sm:space-y-3">
+              <label htmlFor="email" className="block text-sm sm:text-base md:text-lg font-medium text-slate-200">
                 Email Address
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                <div className="absolute inset-y-0 left-0 pl-3 sm:pl-4 flex items-center pointer-events-none">
                   <Mail
-                    className={`h-6 w-6 md:h-7 md:w-7 transition-colors duration-200 ${
+                    className={`h-5 w-5 sm:h-6 sm:w-6 md:h-7 md:w-7 transition-colors duration-200 ${
                       focusedField === 'email' ? 'text-blue-400' : 'text-slate-400'
                     }`}
                   />
@@ -106,21 +108,21 @@ const Login = ({ onLogin }) => {
                   onChange={handleChange}
                   onFocus={() => setFocusedField('email')}
                   onBlur={() => setFocusedField('')}
-                  className="w-full pl-12 pr-4 py-4 md:py-5 bg-white/10 border border-white/20 rounded-xl text-white text-base md:text-lg placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                  className="w-full pl-10 sm:pl-12 pr-4 py-3 sm:py-4 md:py-5 bg-white/10 border border-white/20 rounded-xl text-white text-sm sm:text-base md:text-lg placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
                   placeholder="Enter your email"
                 />
               </div>
             </div>
 
             {/* Password Field */}
-            <div className="space-y-3">
-              <label htmlFor="password" className="block text-base md:text-lg font-medium text-slate-200">
+            <div className="space-y-2 sm:space-y-3">
+              <label htmlFor="password" className="block text-sm sm:text-base md:text-lg font-medium text-slate-200">
                 Password
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                <div className="absolute inset-y-0 left-0 pl-3 sm:pl-4 flex items-center pointer-events-none">
                   <Lock
-                    className={`h-6 w-6 md:h-7 md:w-7 transition-colors duration-200 ${
+                    className={`h-5 w-5 sm:h-6 sm:w-6 md:h-7 md:w-7 transition-colors duration-200 ${
                       focusedField === 'password' ? 'text-blue-400' : 'text-slate-400'
                     }`}
                   />
@@ -134,18 +136,18 @@ const Login = ({ onLogin }) => {
                   onChange={handleChange}
                   onFocus={() => setFocusedField('password')}
                   onBlur={() => setFocusedField('')}
-                  className="w-full pl-12 pr-14 py-4 md:py-5 bg-white/10 border border-white/20 rounded-xl text-white text-base md:text-lg placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                  className="w-full pl-10 sm:pl-12 pr-12 sm:pr-14 py-3 sm:py-4 md:py-5 bg-white/10 border border-white/20 rounded-xl text-white text-sm sm:text-base md:text-lg placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
                   placeholder="Enter your password"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-4 flex items-center text-slate-400 hover:text-slate-200 transition-colors duration-200"
+                  className="absolute inset-y-0 right-0 pr-3 sm:pr-4 flex items-center text-slate-400 hover:text-slate-200 transition-colors duration-200"
                 >
                   {showPassword ? (
-                    <EyeOff className="h-6 w-6 md:h-7 md:w-7" />
+                    <EyeOff className="h-5 w-5 sm:h-6 sm:w-6 md:h-7 md:w-7" />
                   ) : (
-                    <Eye className="h-6 w-6 md:h-7 md:w-7" />
+                    <Eye className="h-5 w-5 sm:h-6 sm:w-6 md:h-7 md:w-7" />
                   )}
                 </button>
               </div>
@@ -153,9 +155,9 @@ const Login = ({ onLogin }) => {
 
             {/* Error Message */}
             {error && (
-              <div className="flex items-center space-x-3 p-4 bg-red-500/20 border border-red-500/30 rounded-xl text-red-200">
-                <AlertCircle className="h-5 w-5 md:h-6 md:w-6 flex-shrink-0" />
-                <span className="text-base md:text-lg">{error}</span>
+              <div className="flex items-center space-x-2 sm:space-x-3 p-3 sm:p-4 bg-red-500/20 border border-red-500/30 rounded-xl text-red-200">
+                <AlertCircle className="h-4 w-4 sm:h-5 sm:w-5 md:h-6 md:w-6 flex-shrink-0" />
+                <span className="text-sm sm:text-base md:text-lg">{error}</span>
               </div>
             )}
 
@@ -163,17 +165,17 @@ const Login = ({ onLogin }) => {
             <button
               type="submit"
               disabled={loading}
-              className="relative w-full py-4 md:py-5 px-6 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 disabled:from-slate-600 disabled:to-slate-700 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-transparent transition-all duration-200 disabled:transform-none disabled:cursor-not-allowed overflow-hidden"
+              className="relative w-full py-3 sm:py-4 md:py-5 px-4 sm:px-6 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 disabled:from-slate-600 disabled:to-slate-700 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-transparent transition-all duration-200 disabled:transform-none disabled:cursor-not-allowed overflow-hidden"
             >
               {loading ? (
                 <div className="flex items-center justify-center">
-                  <div className="w-6 h-6 md:w-7 md:h-7 border-3 border-white/30 border-t-white rounded-full animate-spin mr-3"></div>
-                  <span className="text-base md:text-lg">Signing in...</span>
+                  <div className="w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7 border-2 sm:border-3 border-white/30 border-t-white rounded-full animate-spin mr-2 sm:mr-3"></div>
+                  <span className="text-sm sm:text-base md:text-lg">Signing in...</span>
                 </div>
               ) : (
-                <div className="flex items-center justify-center space-x-3">
-                  <span className="text-base md:text-lg">Sign In</span>
-                  <CheckCircle2 className="w-5 h-5 md:w-6 md:h-6" />
+                <div className="flex items-center justify-center space-x-2 sm:space-x-3">
+                  <span className="text-sm sm:text-base md:text-lg">Sign In</span>
+                  <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5 md:w-6 md:h-6" />
                 </div>
               )}
             </button>
@@ -182,7 +184,7 @@ const Login = ({ onLogin }) => {
             <div className="text-center">
               <button
                 type="button"
-                className="text-base md:text-lg text-slate-300 hover:text-white transition-colors duration-200 underline-offset-4 hover:underline"
+                className="text-sm sm:text-base md:text-lg text-slate-300 hover:text-white transition-colors duration-200 underline-offset-4 hover:underline"
               >
                 Forgot your password? Please ask the Administrator for assistance
               </button>
@@ -190,14 +192,14 @@ const Login = ({ onLogin }) => {
           </form>
 
           {/* Footer */}
-          <div className="text-center text-base md:text-lg text-slate-400">
+          <div className="text-center text-sm sm:text-base md:text-lg text-slate-400">
             <p>Secure • Reliable • Professional</p>
           </div>
         </div>
 
         {/* Decorative Elements */}
-        <div className="absolute -top-4 -left-4 w-28 h-28 bg-blue-500/20 rounded-full blur-xl"></div>
-        <div className="absolute -bottom-4 -right-4 w-36 h-36 bg-purple-500/20 rounded-full blur-xl"></div>
+        <div className="absolute -top-4 -left-4 w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 bg-blue-500/20 rounded-full blur-xl"></div>
+        <div className="absolute -bottom-4 -right-4 w-32 h-32 sm:w-36 sm:h-36 md:w-40 md:h-40 bg-purple-500/20 rounded-full blur-xl"></div>
       </div>
     </div>
   );
