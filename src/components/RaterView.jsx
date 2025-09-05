@@ -441,7 +441,7 @@ const RaterView = ({ user }) => {
             {competency.name}
           </h4>
           <div
-            className={`inline-flex items-center px-4 py-2 md:px-6 md:py-3 text-sm md:text-base lg:text-lg font-medium rounded-full ${
+            className={`flex justify-center items-center px-4 py-2 md:px-6 md:py-3 text-sm md:text-base lg:text-lg font-medium rounded-full text-center w-full max-w-xs mx-auto ${
               currentRating
                 ? 'bg-green-100 text-green-800 border border-green-200'
                 : 'bg-gray-100 text-gray-600 border border-gray-200'
@@ -627,21 +627,21 @@ const RaterView = ({ user }) => {
           </div>
 
           {candidateDetails && vacancyDetails && (
-            <div className={`sticky top-6 z-30 bg-white rounded-xl border border-gray-200 overflow-hidden mb-6 shadow-lg transition-all duration-300 ${isModalMinimized ? 'max-h-84' : 'max-h-full'}`}>
-              <div class="bg-black px-4 py-3 flex justify-between items-center">
+            <div className={`sticky top-6 z-30 bg-gray-100 rounded-xl border border-gray-200 overflow-hidden mb-6 shadow-lg transition-all duration-300 ${isModalMinimized ? 'max-h-84' : 'max-h-full'}`}>
+              <div className="bg-gray-900 px-4 py-3 flex justify-between items-center">
                 <div className="text-center flex-1">
                   <h3 className="text-2xl md:text-3xl font-bold text-white">{candidateDetails.fullName}</h3>
-                  <p className="text-lg md:text-xl text-blue-100">{vacancyDetails.position}</p>
-                  <p className="text-base md:text-lg text-blue-200">{vacancyDetails.assignment} • Item # {vacancyDetails.itemNumber} • Salary Grade {vacancyDetails.salaryGrade}</p>
+                  <p className="text-lg md:text-xl text-white">{vacancyDetails.position}</p>
+                  <p className="text-base md:text-lg text-white">{vacancyDetails.assignment} • Item # {vacancyDetails.itemNumber} • Salary Grade {vacancyDetails.salaryGrade}</p>
                   {vacancyDetails.salaryGrade < 18 && (
-                    <p className="text-sm md:text-base text-yellow-200 font-medium mt-1">
+                    <p className="text-sm md:text-base text-white font-medium mt-1">
                       ⚠ Leadership competencies not required (SG {vacancyDetails.salaryGrade})
                     </p>
                   )}
                 </div>
                 <button
                   onClick={() => setIsModalMinimized(!isModalMinimized)}
-                  className="text-white hover:text-blue-200 focus:outline-none"
+                  className="text-white hover:text-gray-300 focus:outline-none"
                 >
                   {isModalMinimized ? (
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
