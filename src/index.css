@@ -14,7 +14,7 @@
   }
   
   .btn-secondary {
-    @apply bg-gray-200 text-gray-800 px-3 py-1.5 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-xs sm:px-4 sm:py-2 sm:text-sm;
+    @apply bg-gray-200 text-gray-800 px-2 py-1 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-xs sm:px-3 sm:py-1.5 sm:text-sm;
   }
   
   .btn-danger {
@@ -58,55 +58,54 @@
   }
   
   .navbar {
-    @apply bg-white shadow-sm border-b border-gray-200 px-4 py-3 flex items-center justify-between w-full box-border;
+    @apply bg-white shadow-sm border-b border-gray-200 px-3 py-2 flex items-center justify-between w-full box-border;
   }
 
   .navbar-title-container {
-    @apply flex items-center flex-1 min-w-0;
+    @apply flex items-center flex-1 min-w-0 mr-2;
   }
 
   .navbar-title {
-    @apply font-bold text-gray-900 truncate text-sm sm:text-base;
-    font-size: clamp(10px, 3.5vw, 12px);
+    @apply font-bold text-gray-900 whitespace-nowrap;
+    font-size: clamp(8px, 2.8vw, 10px);
+    line-height: 1.2;
   }
 
   .navbar-user-type {
-    @apply ml-2 px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full whitespace-nowrap;
+    @apply ml-1 px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded-full whitespace-nowrap text-[8px] sm:text-xs;
   }
 
   .navbar-buttons {
-    @apply flex items-center space-x-2;
+    @apply flex items-center space-x-1 sm:space-x-2;
   }
 
   .navbar-button {
-    @apply px-2 py-1.5 rounded-lg text-xs transition-colors min-w-[48px] text-center whitespace-nowrap sm:px-3 sm:py-1.5 sm:text-sm;
+    @apply px-2 py-1 rounded-lg text-[10px] transition-colors min-w-[44px] text-center whitespace-nowrap sm:px-2.5 sm:py-1 sm:text-xs;
   }
 
   .navbar-welcome {
-    @apply text-xs text-gray-600 sm:text-sm;
+    @apply hidden sm:inline text-[10px] sm:text-xs text-gray-600;
   }
 
-  /* Responsive adjustments for small screens */
-  @media (max-width: 768px) {
+  @media (min-width: 768px) {
     .navbar {
-      @apply px-3 py-2;
+      @apply px-4 py-3;
     }
 
     .navbar-title {
-      @apply max-w-[100px];
-      font-size: clamp(8px, 3vw, 10px);
+      font-size: clamp(12px, 3.5vw, 14px);
     }
 
     .navbar-user-type {
-      @apply px-1.5 text-[10px];
+      @apply ml-2 px-2 py-1;
     }
 
     .navbar-buttons {
-      @apply space-x-1;
+      @apply space-x-2;
     }
 
-    .navbar-welcome {
-      @apply hidden sm:inline;
+    .navbar-button {
+      @apply px-3 py-1.5 text-sm;
     }
   }
 }
