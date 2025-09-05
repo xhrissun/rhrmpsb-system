@@ -71,8 +71,8 @@ const Login = React.memo(({ onLogin }) => {
             <div className="inline-flex items-center justify-center w-12 h-12 sm:w-16 sm:h-16 bg-white/20 rounded-2xl shadow-lg mb-4 p-2">
               <picture>
                 <source
-                  srcSet="https://raw.githubusercontent.com/xhrissun/rhrmpsb-system/main/denr-logo.webp"
-                  type="image/webp"
+                  srcSet="https://raw.githubusercontent.com/xhrissun/rhrmpsb-system/main/denr-logo.png"
+                  type="image/png"
                 />
                 <img
                   src="https://raw.githubusercontent.com/xhrissun/rhrmpsb-system/main/denr-logo.png"
