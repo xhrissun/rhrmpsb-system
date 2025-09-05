@@ -507,7 +507,7 @@ const RaterView = ({ user }) => {
                 <span
                   className={`text-sm md:text-lg lg:text-xl font-medium mt-3 text-center w-16 md:w-24 lg:w-28 ${
                     currentRating === value
-                      ? 'text-blue-600 bg-blue-50'
+                      ? 'text-blue-600'
                       : 'text-gray-500 hover:text-gray-700'
                   }`}
                 >
