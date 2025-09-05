@@ -11,11 +11,8 @@ const app = express();
 
 // Environment-based CORS configuration
 const corsOptions = {
-  origin: process.env.NODE_ENV === 'production' 
-    ? [
-        'https://xhrissun.github.io',
-        //'https://your-domain.com' // Add your custom domain if you have one
-      ]
+origin: process.env.NODE_ENV === 'production' 
+    ? ['https://xhrissun.github.io/rhrmpsb-system']
     : ['http://localhost:3000', 'http://localhost:5173'],
   credentials: true,
   optionsSuccessStatus: 200

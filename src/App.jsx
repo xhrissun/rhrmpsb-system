@@ -1,15 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 import { authAPI } from './utils/api';
 
-function App() {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+// Child component to handle authentication logic with useLocation
+function AuthHandler({ setUser, setLoading }) {
+  const location = useLocation();
 
   useEffect(() => {
     const initAuth = async () => {
+      // Skip auth check if on login page
+      if (location.pathname === '/login' || location.pathname === '/rhrmpsb-system/login') {
+        setLoading(false);
+        return;
+      }
+
       const token = localStorage.getItem('token');
       const savedUser = localStorage.getItem('user');
 
@@ -28,7 +34,14 @@ function App() {
     };
 
     initAuth();
-  }, []);
+  }, [location, setUser, setLoading]);
+
+  return null; // This component only handles side effects, no rendering
+}
+
+function App() {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   const handleLogin = (userData) => {
     setUser(userData.user);
@@ -50,28 +63,26 @@ function App() {
     );
   }
 
-  // Use basename for GitHub Pages deployment if needed
   const basename = import.meta.env.PROD ? '/rhrmpsb-system' : '/';
 
   return (
     <Router basename={basename}>
+      <AuthHandler setUser={setUser} setLoading={setLoading} />
       <div className="App">
         <Routes>
-          <Route 
-            path="/login" 
-            element={
-              user ? <Navigate to="/" replace /> : <Login onLogin={handleLogin} />
-            } 
+          <Route
+            path="/login"
+            element={user ? <Navigate to="/" replace /> : <Login onLogin={handleLogin} />}
           />
-          <Route 
-            path="/" 
+          <Route
+            path="/"
             element={
               user ? (
                 <Dashboard user={user} onLogout={handleLogout} />
               ) : (
                 <Navigate to="/login" replace />
               )
-            } 
+            }
           />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

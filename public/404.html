@@ -1,13 +1,15 @@
-<!-- 404.html -->
+<!-- public/404.html -->
 <!DOCTYPE html>
 <html>
   <head>
     <meta charset="utf-8">
-    <title>Single Page Apps for GitHub Pages</title>
+    <title>Single Page App Redirect</title>
     <script type="text/javascript">
-      // Redirect to the index.html with the requested path
+      // Redirect to index.html with the correct path
       const path = window.location.pathname;
-      window.location.replace('/rhrmpsb-system/' + (path.startsWith('/rhrmpsb-system/') ? path.slice('/rhrmpsb-system/'.length) : path));
+      const basePath = '/rhrmpsb-system/';
+      const newPath = path.startsWith(basePath) ? path.slice(basePath.length) : path;
+      window.location.replace(basePath + (newPath || ''));
     </script>
   </head>
   <body>
