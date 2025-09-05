@@ -433,43 +433,43 @@ const Dashboard = ({ user, onLogout }) => {
   return (
     <div className="min-h-screen bg-gray-50">
       <nav className="navbar">
-        <div className="flex items-center">
+        <div className="navbar-title-container">
           <img
             src="https://github.com/xhrissun/rhrmpsb-system/blob/main/denr-logo.png?raw=true"
             alt="DENR Logo"
-            className="w-10 h-10 mr-3 object-contain"
+            className="w-8 h-8 mr-2 object-contain" // Reduced logo size
             onError={(e) => {
               e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCA0MCA0MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjQwIiBoZWlnaHQ9IjQwIiBmaWxsPSIjRjNGNEY2Ii8+Cjwvc3ZnPg==';
             }}
           />
-          <h1 className="text-s font-bold text-gray-900">The DENR CALABARZON Competency Rating System</h1>
-          <span className="ml-4 px-3 py-1 bg-gray-100 text-gray-600 text-sm rounded-full">
+          <h1 className="navbar-title">The DENR CALABARZON Competency Rating System</h1>
+          <span className="navbar-user-type">
             {user.userType.charAt(0).toUpperCase() + user.userType.slice(1)}
           </span>
         </div>
-        <div className="flex items-center space-x-4">
-          <span className="text-sm text-gray-600">
-            Welcome, {user.name}
+        <div className="navbar-buttons">
+          <span className="navbar-welcome">
+            {user.name}
           </span>
           <button
             onClick={() => setCreatorModalOpen(true)}
-            className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
+            className="navbar-button bg-blue-600 text-white hover:bg-blue-700"
             title="About the Developer"
           >
-            About Me
+            About
           </button>
           {user.userType === USER_TYPES.ADMIN && (
             <button
               onClick={handleOpenUserSelection}
-              className="px-3 py-1.5 bg-orange-600 text-white text-sm rounded-lg hover:bg-orange-700 transition-colors"
+              className="navbar-button bg-orange-600 text-white hover:bg-orange-700"
               title="Change user password"
             >
-              Change Password
+              Password
             </button>
           )}
           <button
             onClick={handleLogout}
-            className="btn-secondary text-sm"
+            className="navbar-button btn-secondary"
           >
             Logout
           </button>
