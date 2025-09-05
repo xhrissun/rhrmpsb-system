@@ -14,7 +14,7 @@
   }
   
   .btn-secondary {
-    @apply bg-gray-200 text-gray-800 px-4 py-2 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors;
+    @apply bg-gray-200 text-gray-800 px-3 py-1.5 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-xs sm:px-4 sm:py-2 sm:text-sm;
   }
   
   .btn-danger {
@@ -58,6 +58,55 @@
   }
   
   .navbar {
-    @apply bg-white shadow-sm border-b border-gray-200 px-6 py-4 flex items-center justify-between;
+    @apply bg-white shadow-sm border-b border-gray-200 px-4 py-3 flex items-center justify-between w-full box-border;
+  }
+
+  .navbar-title-container {
+    @apply flex items-center flex-1 min-w-0;
+  }
+
+  .navbar-title {
+    @apply font-bold text-gray-900 truncate text-sm sm:text-base;
+    font-size: clamp(10px, 3.5vw, 12px);
+  }
+
+  .navbar-user-type {
+    @apply ml-2 px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full whitespace-nowrap;
+  }
+
+  .navbar-buttons {
+    @apply flex items-center space-x-2;
+  }
+
+  .navbar-button {
+    @apply px-2 py-1.5 rounded-lg text-xs transition-colors min-w-[48px] text-center whitespace-nowrap sm:px-3 sm:py-1.5 sm:text-sm;
+  }
+
+  .navbar-welcome {
+    @apply text-xs text-gray-600 sm:text-sm;
+  }
+
+  /* Responsive adjustments for small screens */
+  @media (max-width: 768px) {
+    .navbar {
+      @apply px-3 py-2;
+    }
+
+    .navbar-title {
+      @apply max-w-[100px];
+      font-size: clamp(8px, 3vw, 10px);
+    }
+
+    .navbar-user-type {
+      @apply px-1.5 text-[10px];
+    }
+
+    .navbar-buttons {
+      @apply space-x-1;
+    }
+
+    .navbar-welcome {
+      @apply hidden sm:inline;
+    }
   }
 }
