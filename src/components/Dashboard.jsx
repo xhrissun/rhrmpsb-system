@@ -1,4 +1,3 @@
-// Updated Dashboard.jsx
 import React, { useState, useEffect } from 'react';
 import RaterView from './RaterView';
 import SecretariatView from './SecretariatView';
@@ -18,7 +17,6 @@ const PasswordChangeModal = ({ isOpen, onClose, selectedUser, onSuccess }) => {
     e.preventDefault();
     setError('');
 
-    // Validation
     if (!newPassword.trim()) {
       setError('New password is required');
       return;
@@ -38,11 +36,8 @@ const PasswordChangeModal = ({ isOpen, onClose, selectedUser, onSuccess }) => {
 
     try {
       const result = await usersAPI.changePassword(selectedUser._id, newPassword);
-      
-      // Success
       onSuccess(result.message);
       handleClose();
-      
     } catch (error) {
       console.error('Password change error:', error);
       setError(error.response?.data?.message || 'Failed to change password');
@@ -63,22 +58,22 @@ const PasswordChangeModal = ({ isOpen, onClose, selectedUser, onSuccess }) => {
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+      <div className="bg-white rounded-xl p-6 w-full max-w-md mx-4 shadow-xl">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold text-gray-900">
+          <h2 className="text-xl font-semibold text-gray-800">
             Change Password
           </h2>
           <button
             onClick={handleClose}
-            className="text-gray-400 hover:text-gray-600"
+            className="text-gray-500 hover:text-gray-700 transition-colors"
           >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
 
-        <div className="mb-4 p-3 bg-gray-50 rounded-lg">
+        <div className="mb-4 p-3 bg-gray-100 rounded-lg">
           <p className="text-sm text-gray-600">
             <span className="font-medium">User:</span> {selectedUser.name}
           </p>
@@ -91,7 +86,7 @@ const PasswordChangeModal = ({ isOpen, onClose, selectedUser, onSuccess }) => {
         </div>
 
         {error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+          <div className="mb-4 p-2 bg-red-50 border border-red-200 rounded-lg">
             <p className="text-sm text-red-600">{error}</p>
           </div>
         )}
@@ -106,7 +101,7 @@ const PasswordChangeModal = ({ isOpen, onClose, selectedUser, onSuccess }) => {
                 type={showPasswords ? 'text' : 'password'}
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 placeholder="Enter new password"
                 disabled={isLoading}
                 required
@@ -123,7 +118,7 @@ const PasswordChangeModal = ({ isOpen, onClose, selectedUser, onSuccess }) => {
                 type={showPasswords ? 'text' : 'password'}
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 placeholder="Confirm new password"
                 disabled={isLoading}
                 required
@@ -139,12 +134,12 @@ const PasswordChangeModal = ({ isOpen, onClose, selectedUser, onSuccess }) => {
               onChange={(e) => setShowPasswords(e.target.checked)}
               className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
             />
-            <label htmlFor="showPasswords" className="ml-2 block text-sm text-gray-700">
+            <label htmlFor="showPasswords" className="ml-2 block text-sm text-gray-600">
               Show passwords
             </label>
           </div>
 
-          <div className="text-xs text-gray-500 bg-yellow-50 p-2 rounded border">
+          <div className="text-xs text-gray-600 bg-blue-50 p-2 rounded border border-blue-100">
             <p className="font-medium mb-1">Password Requirements:</p>
             <ul className="list-disc list-inside space-y-1">
               <li>At least 6 characters long</li>
@@ -157,14 +152,14 @@ const PasswordChangeModal = ({ isOpen, onClose, selectedUser, onSuccess }) => {
               type="button"
               onClick={handleClose}
               disabled={isLoading}
-              className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50"
+              className="px-4 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isLoading}
-              className="px-4 py-2 bg-red-600 text-white hover:bg-red-700 rounded-lg transition-colors disabled:opacity-50 flex items-center"
+              className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 flex items-center"
             >
               {isLoading ? (
                 <>
@@ -191,62 +186,62 @@ const CreatorProfileModal = ({ isOpen, onClose }) => {
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg p-8 w-full max-w-2xl mx-4">
-        <div className="flex justify-between items-center mb-8">
-          <h3 className="text-2xl font-bold text-gray-900 italic text-center flex-1">
-            "Serving Through Innovation"
+      <div className="bg-white rounded-xl p-6 w-full max-w-md mx-4 shadow-xl">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-xl font-semibold text-gray-800 text-center flex-1">
+            About the Developer
           </h3>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 ml-4"
+            className="text-gray-500 hover:text-gray-700 transition-colors"
           >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
 
-        <div className="text-center space-y-6">
+        <div className="text-center space-y-4">
           <img
             src="https://github.com/xhrissun/rhrmpsb-system/blob/main/profile.jpg?raw=true"
             alt="Creator Photo"
-            className="w-40 h-40 rounded-full mx-auto object-cover border-4 border-gray-200 shadow-lg"
+            className="w-24 h-24 rounded-full mx-auto object-cover border-2 border-gray-200 shadow-sm"
             onError={(e) => {
               e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgdmlld0JveD0iMCAwIDEyOCAxMjgiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIxMjgiIGhlaWdodD0iMTI4IiBmaWxsPSIjRjNGNEY2Ii8+CjxjaXJjbGUgY3g9IjY0IiBjeT0iNDQiIHI9IjIwIiBmaWxsPSIjOUNBM0FGIi8+CjxwYXRoIGQ9Ik0zMiA5NkMzMiA4MC41MzYgNDQuNTM2IDY4IDYwIDY4aDhDODMuNDY0IDY4IDk2IDgwLjUzNiA5NiA5NnYzMkgzMlY5NloiIGZpbGw9IiM5Q0EzQUYiLz4KPC9zdmc+';
             }}
           />
           
           <div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">
-              DAN CHRISTIAN BONACUA SABAO, LPT, CHRM
+            <h2 className="text-lg font-semibold text-gray-800">
+              Dan Christian Bonacua Sabao, LPT, CHRM
             </h2>
-            <p className="text-blue-600 font-medium text-lg">
+            <p className="text-blue-600 font-medium text-sm">
               Administrative Officer I | DENR IV-A
             </p>
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-3">
             <div className="flex justify-center items-center">
-              <span className="mr-3 text-2xl">📧</span>
+              <span className="mr-2 text-lg">📧</span>
               <a
                 href="mailto:dan.c.b.sabao.adm@gmail.com"
-                className="text-blue-600 hover:text-blue-800 underline text-lg"
+                className="text-blue-600 hover:text-blue-800 text-sm"
               >
                 dan.c.b.sabao.adm@gmail.com
               </a>
             </div>
 
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 max-w-md mx-auto">
-              <h4 className="font-semibold text-gray-900 mb-3 text-xl text-center">☕ Support My Work</h4>
-              <div className="space-y-2 text-center">
-                <p className="text-lg"><strong>PayMaya:</strong> @vlax</p>
-                <p className="text-lg">
+            <div className="bg-gray-100 border border-gray-200 rounded-lg p-4">
+              <h4 className="font-medium text-gray-800 text-sm mb-2">Support My Work</h4>
+              <div className="space-y-1 text-sm">
+                <p><strong>PayMaya:</strong> @vlax</p>
+                <p>
                   <strong>PayPal:</strong>{' '}
                   <a
                     href="https://paypal.me/tetralax"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-blue-600 hover:text-blue-800 underline"
+                    className="text-blue-600 hover:text-blue-800"
                   >
                     paypal.me/tetralax
                   </a>
@@ -254,11 +249,9 @@ const CreatorProfileModal = ({ isOpen, onClose }) => {
               </div>
             </div>
 
-            <div className="max-w-lg mx-auto">
-              <p className="text-gray-700 leading-relaxed text-center">
-                💡 Developer of the <strong>DENR CALABARZON Competency Rating System</strong>, leveraging advanced skills in VBA, JavaScript, and systems integration to deliver efficient, user-friendly, and reliable digital solutions for organizational needs.
-              </p>
-            </div>
+            <p className="text-gray-600 text-sm leading-relaxed">
+              Developer of the <strong>DENR CALABARZON Competency Rating System</strong>, leveraging expertise in VBA, JavaScript, and systems integration to deliver efficient, user-friendly digital solutions.
+            </p>
           </div>
         </div>
       </div>
@@ -285,16 +278,16 @@ const UserSelectionModal = ({ isOpen, onClose, users, onSelectUser }) => {
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-40">
-      <div className="bg-white rounded-lg p-6 w-full max-w-2xl mx-4 max-h-96 overflow-hidden">
+      <div className="bg-white rounded-xl p-6 w-full max-w-lg mx-4 shadow-xl">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold text-gray-900">
-            Select User to Change Password
+          <h2 className="text-xl font-semibold text-gray-800">
+            Select User
           </h2>
           <button
             onClick={handleClose}
-            className="text-gray-400 hover:text-gray-600"
+            className="text-gray-500 hover:text-gray-700 transition-colors"
           >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
@@ -306,11 +299,11 @@ const UserSelectionModal = ({ isOpen, onClose, users, onSelectUser }) => {
             placeholder="Search users by name, email, or role..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
           />
         </div>
 
-        <div className="overflow-y-auto max-h-64">
+        <div className="max-h-64 overflow-y-auto">
           <div className="space-y-2">
             {filteredUsers.map((user) => (
               <div
@@ -323,11 +316,11 @@ const UserSelectionModal = ({ isOpen, onClose, users, onSelectUser }) => {
               >
                 <div className="flex justify-between items-center">
                   <div>
-                    <div className="font-medium text-gray-900">{user.name}</div>
-                    <div className="text-sm text-gray-500">{user.email}</div>
+                    <div className="font-medium text-gray-800 text-sm">{user.name}</div>
+                    <div className="text-xs text-gray-500">{user.email}</div>
                   </div>
                   <div className="text-right">
-                    <div className="text-sm font-medium text-gray-900">
+                    <div className="text-sm font-medium text-gray-800">
                       {user.userType}
                     </div>
                     {user.raterType && (
@@ -343,7 +336,7 @@ const UserSelectionModal = ({ isOpen, onClose, users, onSelectUser }) => {
           
           {filteredUsers.length === 0 && (
             <div className="text-center py-8">
-              <p className="text-gray-500">No users found</p>
+              <p className="text-gray-500 text-sm">No users found</p>
             </div>
           )}
         </div>
@@ -362,7 +355,6 @@ const Dashboard = ({ user, onLogout }) => {
   const [successMessage, setSuccessMessage] = useState('');
   const [creatorModalOpen, setCreatorModalOpen] = useState(false);
 
-  // Fetch users if admin
   useEffect(() => {
     if (user.userType === USER_TYPES.ADMIN) {
       fetchUsers();
@@ -379,7 +371,6 @@ const Dashboard = ({ user, onLogout }) => {
   };
 
   const handleLogout = () => {
-    // Clear persisted UI state
     localStorage.removeItem(`rater_${user._id}_selectedAssignment`);
     localStorage.removeItem(`rater_${user._id}_selectedPosition`);
     localStorage.removeItem(`rater_${user._id}_selectedItemNumber`);
@@ -389,8 +380,6 @@ const Dashboard = ({ user, onLogout }) => {
     localStorage.removeItem(`secretariat_${user._id}_selectedItemNumber`);
     localStorage.removeItem(`secretariat_${user._id}_selectedCandidate`);
     localStorage.removeItem(`admin_${user._id}_activeTab`);
-    
-    // Call the provided onLogout function (which should clear token and user)
     onLogout();
   };
 
@@ -443,7 +432,6 @@ const Dashboard = ({ user, onLogout }) => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Navigation Bar */}
       <nav className="navbar">
         <div className="flex items-center">
           <h1 className="text-s font-bold text-gray-900">The DENR CALABARZON Competency Rating System</h1>
@@ -455,8 +443,6 @@ const Dashboard = ({ user, onLogout }) => {
           <span className="text-sm text-gray-600">
             Welcome, {user.name}
           </span>
-          
-          {/* About Me button */}
           <button
             onClick={() => setCreatorModalOpen(true)}
             className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
@@ -464,8 +450,6 @@ const Dashboard = ({ user, onLogout }) => {
           >
             About Me
           </button>
-          
-          {/* Admin-only password change button */}
           {user.userType === USER_TYPES.ADMIN && (
             <button
               onClick={handleOpenUserSelection}
@@ -475,7 +459,6 @@ const Dashboard = ({ user, onLogout }) => {
               Change Password
             </button>
           )}
-          
           <button
             onClick={handleLogout}
             className="btn-secondary text-sm"
@@ -485,7 +468,6 @@ const Dashboard = ({ user, onLogout }) => {
         </div>
       </nav>
 
-      {/* Success Message */}
       {successMessage && (
         <div className="mx-6 mt-6 bg-green-50 border border-green-200 rounded-lg p-4">
           <div className="flex">
@@ -514,18 +496,15 @@ const Dashboard = ({ user, onLogout }) => {
         </div>
       )}
 
-      {/* Main Content */}
       <main className="p-6">
         {renderContent()}
       </main>
 
-      {/* Creator Profile Modal */}
       <CreatorProfileModal
         isOpen={creatorModalOpen}
         onClose={() => setCreatorModalOpen(false)}
       />
 
-      {/* User Selection Modal */}
       <UserSelectionModal
         isOpen={userSelectionModal}
         onClose={handleCloseUserSelection}
@@ -533,7 +512,6 @@ const Dashboard = ({ user, onLogout }) => {
         onSelectUser={handleSelectUser}
       />
 
-      {/* Password Change Modal */}
       <PasswordChangeModal
         isOpen={passwordChangeModal.isOpen}
         onClose={handleClosePasswordModal}
