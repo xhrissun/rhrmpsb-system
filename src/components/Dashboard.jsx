@@ -185,6 +185,85 @@ const PasswordChangeModal = ({ isOpen, onClose, selectedUser, onSuccess }) => {
   );
 };
 
+// Creator Profile Modal Component
+const CreatorProfileModal = ({ isOpen, onClose }) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg p-6 w-full max-w-lg mx-4 max-h-96 overflow-y-auto">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-xl font-bold text-gray-900 italic">
+            "Serving Through Innovation"
+          </h3>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="text-center space-y-4">
+          <img
+            src="https://github.com/xhrissun/rhrmpsb-system/blob/main/profile.jpg?raw=true"
+            alt="Creator Photo"
+            className="w-32 h-32 rounded-full mx-auto object-cover border-4 border-gray-200"
+            onError={(e) => {
+              e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgdmlld0JveD0iMCAwIDEyOCAxMjgiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIxMjgiIGhlaWdodD0iMTI4IiBmaWxsPSIjRjNGNEY2Ii8+CjxjaXJjbGUgY3g9IjY0IiBjeT0iNDQiIHI9IjIwIiBmaWxsPSIjOUNBM0FGIi8+CjxwYXRoIGQ9Ik0zMiA5NkMzMiA4MC41MzYgNDQuNTM2IDY4IDYwIDY4aDhDODMuNDY0IDY4IDk2IDgwLjUzNiA5NiA5NnYzMkgzMlY5NloiIGZpbGw9IiM5Q0EzQUYiLz4KPC9zdmc+';
+            }}
+          />
+          
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">
+              DAN CHRISTIAN BONACUA SABAO, LPT, CHRM
+            </h2>
+            <p className="text-blue-600 font-medium">
+              Administrative Officer I | DENR IV-A
+            </p>
+          </div>
+
+          <div className="text-left space-y-3">
+            <p className="text-gray-700 flex items-center">
+              <span className="mr-2">📧</span>
+              <a
+                href="mailto:dan.c.b.sabao.adm@gmail.com"
+                className="text-blue-600 hover:text-blue-800 underline"
+              >
+                dan.c.b.sabao.adm@gmail.com
+              </a>
+            </p>
+
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <h4 className="font-semibold text-gray-900 mb-2">☕ Support My Work</h4>
+              <div className="space-y-1 text-sm">
+                <p><strong>PayMaya:</strong> @vlax</p>
+                <p>
+                  <strong>PayPal:</strong>{' '}
+                  <a
+                    href="https://paypal.me/tetralax"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:text-blue-800 underline"
+                  >
+                    paypal.me/tetralax
+                  </a>
+                </p>
+              </div>
+            </div>
+
+            <p className="text-gray-700 text-sm leading-relaxed">
+              💡 Developer of the <strong>DENR CALABARZON Competency Rating System</strong>, leveraging advanced skills in VBA, JavaScript, and systems integration to deliver efficient, user-friendly, and reliable digital solutions for organizational needs.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // User Selection Modal Component
 const UserSelectionModal = ({ isOpen, onClose, users, onSelectUser }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -279,6 +358,7 @@ const Dashboard = ({ user, onLogout }) => {
     user: null
   });
   const [successMessage, setSuccessMessage] = useState('');
+  const [creatorModalOpen, setCreatorModalOpen] = useState(false);
 
   // Fetch users if admin
   useEffect(() => {
@@ -374,6 +454,15 @@ const Dashboard = ({ user, onLogout }) => {
             Welcome, {user.name}
           </span>
           
+          {/* About Me button */}
+          <button
+            onClick={() => setCreatorModalOpen(true)}
+            className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
+            title="About the Developer"
+          >
+            About Me
+          </button>
+          
           {/* Admin-only password change button */}
           {user.userType === USER_TYPES.ADMIN && (
             <button
@@ -427,6 +516,12 @@ const Dashboard = ({ user, onLogout }) => {
       <main className="p-6">
         {renderContent()}
       </main>
+
+      {/* Creator Profile Modal */}
+      <CreatorProfileModal
+        isOpen={creatorModalOpen}
+        onClose={() => setCreatorModalOpen(false)}
+      />
 
       {/* User Selection Modal */}
       <UserSelectionModal
