@@ -50,8 +50,11 @@ function App() {
     );
   }
 
+  // Use basename for GitHub Pages deployment if needed
+  const basename = import.meta.env.PROD ? '/' : '/';
+
   return (
-    <Router>
+    <Router basename={basename}>
       <div className="App">
         <Routes>
           <Route 
