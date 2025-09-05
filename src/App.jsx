@@ -51,7 +51,7 @@ function App() {
   }
 
   // Use basename for GitHub Pages deployment if needed
-  const basename = import.meta.env.PROD ? '/' : '/';
+  const basename = import.meta.env.PROD ? '/rhrmpsb-system' : '/';
 
   return (
     <Router basename={basename}>

@@ -1,5 +1,6 @@
 import axios from 'axios';
 
+
 // API Configuration
 const API_BASE_URL = import.meta.env.PROD 
   ? 'https://rhrmpsb-system.onrender.com/api' 
@@ -44,7 +45,9 @@ api.interceptors.response.use(
       localStorage.removeItem('secretariat_selectedItemNumber');
       localStorage.removeItem('secretariat_selectedCandidate');
       localStorage.removeItem('admin_activeTab');
-      window.location.href = '/login';
+      // Use base path for redirect
+      const basePath = import.meta.env.PROD ? '/rhrmpsb-system' : '';
+      window.location.href = `${basePath}/login`;
     }
     return Promise.reject(error);
   }
