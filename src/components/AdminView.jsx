@@ -1,0 +1,1719 @@
+import React, { useState, useEffect } from 'react';
+import usePersistedState from '../utils/usePersistedState';
+import { usersAPI, vacanciesAPI, candidatesAPI, competenciesAPI } from '../utils/api';
+import { parseCSV, exportToCSV } from '../utils/helpers';
+import { USER_TYPES, RATER_TYPES, SALARY_GRADES, CANDIDATE_STATUS } from '../utils/constants';
+import InterviewSummaryGenerator from './InterviewSummaryGenerator';
+
+const AdminView = ({ user }) => {
+  // Use usePersistedState for activeTab
+  const [activeTab, setActiveTab] = usePersistedState(`admin_${user._id}_activeTab`, 'users');
+  const [users, setUsers] = useState([]);
+  const [vacancies, setVacancies] = useState([]);
+  const [candidates, setCandidates] = useState([]);
+  const [competencies, setCompetencies] = useState([]);
+  const [assignments, setAssignments] = useState([]);
+  const [showModal, setShowModal] = useState(false);
+  const [modalType, setModalType] = useState('');
+  const [editingItem, setEditingItem] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  // Validate activeTab
+  useEffect(() => {
+    const validTabs = ['users', 'vacancies', 'candidates', 'competencies', 'assignments', 'interviewSummary'];
+    if (activeTab && !validTabs.includes(activeTab)) {
+      setActiveTab('users');
+    }
+  }, [activeTab, setActiveTab]);
+
+  // Load all data on component mount
+  useEffect(() => {
+    loadAllData();
+  }, []);
+
+  const loadAllData = async () => {
+    try {
+      setLoading(true);
+      const [usersData, vacanciesData, candidatesData, competenciesData] = await Promise.all([
+        usersAPI.getAll(),
+        vacanciesAPI.getAll(),
+        candidatesAPI.getAll(),
+        competenciesAPI.getAll()
+      ]);
+
+      setUsers(usersData);
+      setVacancies(vacanciesData);
+      setCandidates(candidatesData);
+      setCompetencies(competenciesData);
+
+      // Load assignments with fallback
+      try {
+        const assignmentsData = await vacanciesAPI.getAssignments();
+        setAssignments(assignmentsData);
+      } catch (assignmentError) {
+        console.error('Failed to load assignments, using fallback:', assignmentError);
+        const uniqueAssignments = [...new Set(
+          vacanciesData
+            .map(v => v.assignment)
+            .filter(a => a && a.trim() !== '')
+        )].sort();
+        setAssignments(uniqueAssignments);
+      }
+    } catch (error) {
+      console.error('Failed to load data:', error);
+      alert('Failed to load data. Please refresh the page.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Reload specific data when needed
+  const loadData = async () => {
+    await loadAllData();
+  };
+
+  const handleAdd = (type) => {
+    setModalType(type);
+    setEditingItem(null);
+    setShowModal(true);
+  };
+
+  const handleEdit = (item, type) => {
+    setModalType(type);
+    setEditingItem(item);
+    setShowModal(true);
+  };
+
+  const handleDelete = async (id, type) => {
+    if (!window.confirm('Are you sure you want to delete this item?')) return;
+
+    try {
+      switch (type) {
+        case 'user':
+          await usersAPI.delete(id);
+          break;
+        case 'vacancy':
+          await vacanciesAPI.delete(id);
+          break;
+        case 'candidate':
+          await candidatesAPI.delete(id);
+          break;
+        case 'competency':
+          await competenciesAPI.delete(id);
+          break;
+      }
+      loadData();
+      alert('Item deleted successfully!');
+    } catch (error) {
+      console.error('Failed to delete item:', error);
+      alert('Failed to delete item. Please try again.');
+    }
+  };
+
+  const handleCSVUpload = async (file, type) => {
+    try {
+      const formData = new FormData();
+      formData.append('csv', file);
+
+      switch (type) {
+        case 'vacancies':
+          await vacanciesAPI.uploadCSV(formData);
+          break;
+        case 'candidates':
+          await candidatesAPI.uploadCSV(formData);
+          break;
+        case 'competencies':
+          await competenciesAPI.uploadCSV(formData);
+          break;
+      }
+
+      loadData();
+      alert('CSV uploaded successfully!');
+    } catch (error) {
+      console.error('Failed to upload CSV:', error);
+      alert('Failed to upload CSV. Please check the format and try again.');
+    }
+  };
+
+  // CSV Export Functions
+  const downloadCSV = (data, filename) => {
+    const blob = new Blob([data], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', filename);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const convertToCSV = (array) => {
+    if (array.length === 0) return '';
+
+    const headers = Object.keys(array[0]);
+    const csvContent = [
+      headers.join(','),
+      ...array.map(row =>
+        headers.map(header => {
+          const value = row[header];
+          if (typeof value === 'object' && value !== null) {
+            return `"${JSON.stringify(value).replace(/"/g, '""')}"`;
+          }
+          if (typeof value === 'string' && (value.includes(',') || value.includes('"') || value.includes('\n'))) {
+            return `"${value.replace(/"/g, '""')}"`;
+          }
+          return value || '';
+        }).join(',')
+      )
+    ].join('\n');
+
+    return csvContent;
+  };
+
+  const handleExportCSV = (type) => {
+    try {
+      let data = [];
+      let filename = '';
+
+      switch (type) {
+        case 'users':
+          data = users.map(user => ({
+            name: user.name,
+            email: user.email,
+            userType: user.userType,
+            raterType: user.raterType || '',
+            position: user.position || '',
+            designation: user.designation || '',
+            administrativePrivilege: user.administrativePrivilege || false
+          }));
+          filename = 'users_template.csv';
+          break;
+
+        case 'vacancies':
+          data = vacancies.map(vacancy => ({
+            itemNumber: vacancy.itemNumber,
+            position: vacancy.position,
+            assignment: vacancy.assignment,
+            salaryGrade: vacancy.salaryGrade,
+            education: vacancy.qualifications?.education || '',
+            training: vacancy.qualifications?.training || '',
+            experience: vacancy.qualifications?.experience || '',
+            eligibility: vacancy.qualifications?.eligibility || ''
+          }));
+          filename = 'vacancies_template.csv';
+          break;
+
+        case 'candidates':
+          data = candidates.map(candidate => ({
+            fullName: candidate.fullName,
+            itemNumber: candidate.itemNumber,
+            gender: candidate.gender,
+            dateOfBirth: candidate.dateOfBirth,
+            age: candidate.age,
+            eligibility: candidate.eligibility,
+            professionalLicense: candidate.professionalLicense || '',
+            letterOfIntent: candidate.letterOfIntent || '',
+            personalDataSheet: candidate.personalDataSheet || '',
+            workExperienceSheet: candidate.workExperienceSheet || '',
+            proofOfEligibility: candidate.proofOfEligibility || '',
+            certificates: candidate.certificates || '',
+            ipcr: candidate.ipcr || '',
+            certificateOfEmployment: candidate.certificateOfEmployment || '',
+            diploma: candidate.diploma || '',
+            transcriptOfRecords: candidate.transcriptOfRecords || '',
+            status: candidate.status
+          }));
+          filename = 'candidates_template.csv';
+          break;
+
+        case 'competencies':
+          data = competencies.map(competency => {
+            const vacancyIds = Array.isArray(competency.vacancyIds) ? competency.vacancyIds :
+              competency.vacancyId ? [competency.vacancyId] : [];
+            const vacancyItemNumbers = vacancyIds
+              .map(id => vacancies.find(v => v._id === id)?.itemNumber)
+              .filter(Boolean)
+              .join(';');
+            return {
+              name: competency.name,
+              type: competency.type,
+              vacancyItemNumbers: vacancyItemNumbers,
+              isFixed: competency.isFixed === true ? 'true' : 'false'
+            };
+          });
+          filename = 'competencies_template.csv';
+          break;
+
+        default:
+          throw new Error('Invalid export type');
+      }
+
+      if (data.length === 0) {
+        alert(`No ${type} data to export. Please add some ${type} first.`);
+        return;
+      }
+
+      const csvContent = convertToCSV(data);
+      downloadCSV(csvContent, filename);
+      alert(`${type.charAt(0).toUpperCase() + type.slice(1)} CSV exported successfully!`);
+    } catch (error) {
+      console.error('Failed to export CSV:', error);
+      alert('Failed to export CSV. Please try again.');
+    }
+  };
+
+  const handleExportEmptyTemplate = (type) => {
+    let templateData = {};
+    let filename = '';
+
+    switch (type) {
+      case 'users':
+        templateData = {
+          name: 'John Doe',
+          email: 'john.doe@example.com',
+          userType: 'rater',
+          raterType: 'Member',
+          position: 'Manager',
+          designation: 'Senior Manager',
+          administrativePrivilege: false
+        };
+        filename = 'users_empty_template.csv';
+        break;
+
+      case 'vacancies':
+        templateData = {
+          itemNumber: 'ITEM-001',
+          position: 'Software Engineer',
+          assignment: 'IT Department',
+          salaryGrade: 15,
+          education: 'Bachelor\'s degree in Computer Science',
+          training: 'Programming courses',
+          experience: '2 years of software development',
+          eligibility: 'CS Professional'
+        };
+        filename = 'vacancies_empty_template.csv';
+        break;
+
+      case 'candidates':
+        templateData = {
+          fullName: 'Jane Smith',
+          itemNumber: 'ITEM-001',
+          gender: 'Female',
+          dateOfBirth: '1990-01-01',
+          age: 33,
+          eligibility: 'CS Professional',
+          professionalLicense: 'https://drive.google.com/file/d/example1',
+          letterOfIntent: 'https://drive.google.com/file/d/example2',
+          personalDataSheet: 'https://drive.google.com/file/d/example3',
+          workExperienceSheet: 'https://drive.google.com/file/d/example4',
+          proofOfEligibility: 'https://drive.google.com/file/d/example5',
+          certificates: 'https://drive.google.com/file/d/example6',
+          ipcr: 'https://drive.google.com/file/d/example7',
+          certificateOfEmployment: 'https://drive.google.com/file/d/example8',
+          diploma: 'https://drive.google.com/file/d/example9',
+          transcriptOfRecords: 'https://drive.google.com/file/d/example10',
+          status: 'general_list'
+        };
+        filename = 'candidates_empty_template.csv';
+        break;
+
+      case 'competencies':
+        templateData = {
+          name: 'Communication Skills',
+          type: 'basic',
+          vacancyItemNumbers: 'ITEM-001;ITEM-002',
+          isFixed: 'false'
+        };
+        filename = 'competencies_empty_template.csv';
+        break;
+    }
+
+    const csvContent = convertToCSV([templateData]);
+    downloadCSV(csvContent, filename);
+    alert(`Empty ${type} template exported successfully!`);
+  };
+
+  const UserModal = () => {
+    const [formData, setFormData] = useState(
+      editingItem || {
+        name: '',
+        email: '',
+        password: '',
+        userType: USER_TYPES.RATER,
+        raterType: '',
+        position: '',
+        designation: '',
+        administrativePrivilege: false
+      }
+    );
+
+    const handleSubmit = async (e) => {
+      e.preventDefault();
+      try {
+        if (editingItem) {
+          await usersAPI.update(editingItem._id, formData);
+        } else {
+          await usersAPI.create(formData);
+        }
+        setShowModal(false);
+        loadData();
+        alert(`User ${editingItem ? 'updated' : 'created'} successfully!`);
+      } catch (error) {
+        console.error('Failed to save user:', error);
+        alert('Failed to save user. Please try again.');
+      }
+    };
+
+    return (
+      <div className="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="modal-content bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6 overflow-y-auto max-h-[90vh]">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-bold">
+              {editingItem ? 'Edit User' : 'Add User'}
+            </h2>
+            <button onClick={() => setShowModal(false)} className="text-gray-500 hover:text-gray-700">✕</button>
+          </div>
+          <form onSubmit={handleSubmit} className="space-y-3 text-sm">
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Name</label>
+              <input
+                type="text"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                className="input-field w-full border rounded px-2 py-1 text-sm"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Email</label>
+              <input
+                type="email"
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                className="input-field w-full border rounded px-2 py-1 text-sm"
+                required
+              />
+            </div>
+            {!editingItem && (
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Password</label>
+                <input
+                  type="password"
+                  value={formData.password}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  className="input-field w-full border rounded px-2 py-1 text-sm"
+                  required
+                />
+              </div>
+            )}
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">User Type</label>
+              <select
+                value={formData.userType}
+                onChange={(e) => setFormData({ ...formData, userType: e.target.value })}
+                className="select-field w-full border rounded px-2 py-1 text-sm"
+                required
+              >
+                {Object.values(USER_TYPES).map(type => (
+                  <option key={type} value={type}>
+                    {type.charAt(0).toUpperCase() + type.slice(1)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {formData.userType === USER_TYPES.RATER && (
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Rater Type</label>
+                <select
+                  value={formData.raterType}
+                  onChange={(e) => setFormData({ ...formData, raterType: e.target.value })}
+                  className="select-field w-full border rounded px-2 py-1 text-sm"
+                >
+                  <option value="">Select Rater Type</option>
+                  {Object.values(RATER_TYPES).map(type => (
+                    <option key={type} value={type}>{type}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Position</label>
+              <input
+                type="text"
+                value={formData.position}
+                onChange={(e) => setFormData({ ...formData, position: e.target.value })}
+                className="input-field w-full border rounded px-2 py-1 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Designation</label>
+              <input
+                type="text"
+                value={formData.designation}
+                onChange={(e) => setFormData({ ...formData, designation: e.target.value })}
+                className="input-field w-full border rounded px-2 py-1 text-sm"
+              />
+            </div>
+            {formData.userType === USER_TYPES.SECRETARIAT && (
+              <div>
+                <label className="flex items-center text-sm">
+                  <input
+                    type="checkbox"
+                    checked={formData.administrativePrivilege}
+                    onChange={(e) => setFormData({ ...formData, administrativePrivilege: e.target.checked })}
+                    className="mr-2"
+                  />
+                  Administrative Privilege
+                </label>
+              </div>
+            )}
+            <div className="flex justify-end space-x-2">
+              <button type="button" onClick={() => setShowModal(false)} className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300">
+                Cancel
+              </button>
+              <button type="submit" className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600">
+                {editingItem ? 'Update' : 'Create'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  };
+
+  const VacancyModal = () => {
+    const [formData, setFormData] = useState(
+      editingItem ? {
+        ...editingItem,
+        qualifications: {
+          education: editingItem.qualifications?.education || '',
+          training: editingItem.qualifications?.training || '',
+          experience: editingItem.qualifications?.experience || '',
+          eligibility: editingItem.qualifications?.eligibility || ''
+        }
+      } : {
+        itemNumber: '',
+        position: '',
+        assignment: '',
+        salaryGrade: 1,
+        qualifications: {
+          education: '',
+          training: '',
+          experience: '',
+          eligibility: ''
+        }
+      }
+    );
+
+    const handleSubmit = async (e) => {
+      e.preventDefault();
+      try {
+        if (editingItem) {
+          await vacanciesAPI.update(editingItem._id, formData);
+        } else {
+          await vacanciesAPI.create(formData);
+        }
+        setShowModal(false);
+        loadData();
+        alert(`Vacancy ${editingItem ? 'updated' : 'created'} successfully!`);
+      } catch (error) {
+        console.error('Failed to save vacancy:', error);
+        alert('Failed to save vacancy. Please try again.');
+      }
+    };
+
+    return (
+      <div className="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="modal-content bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6 overflow-y-auto max-h-[90vh]">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-bold">
+              {editingItem ? 'Edit Vacancy' : 'Add Vacancy'}
+            </h2>
+            <button onClick={() => setShowModal(false)} className="text-gray-500 hover:text-gray-700">✕</button>
+          </div>
+          <form onSubmit={handleSubmit} className="space-y-3 text-sm">
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Item Number</label>
+              <input
+                type="text"
+                value={formData.itemNumber}
+                onChange={(e) => setFormData({ ...formData, itemNumber: e.target.value })}
+                className="input-field w-full border rounded px-2 py-1 text-sm"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Position</label>
+              <input
+                type="text"
+                value={formData.position}
+                onChange={(e) => setFormData({ ...formData, position: e.target.value })}
+                className="input-field w-full border rounded px-2 py-1 text-sm"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Assignment</label>
+              <input
+                type="text"
+                value={formData.assignment}
+                onChange={(e) => setFormData({ ...formData, assignment: e.target.value })}
+                className="input-field w-full border rounded px-2 py-1 text-sm"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Salary Grade</label>
+              <select
+                value={formData.salaryGrade}
+                onChange={(e) => setFormData({ ...formData, salaryGrade: parseInt(e.target.value) })}
+                className="select-field w-full border rounded px-2 py-1 text-sm"
+                required
+              >
+                {SALARY_GRADES.map(grade => (
+                  <option key={grade} value={grade}>{grade}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Education</label>
+              <textarea
+                value={formData.qualifications.education}
+                onChange={(e) => setFormData({ 
+                  ...formData, 
+                  qualifications: { ...formData.qualifications, education: e.target.value }
+                })}
+                className="input-field w-full border rounded px-2 py-1 text-sm"
+                rows={2}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Training</label>
+              <textarea
+                value={formData.qualifications.training}
+                onChange={(e) => setFormData({ 
+                  ...formData, 
+                  qualifications: { ...formData.qualifications, training: e.target.value }
+                })}
+                className="input-field w-full border rounded px-2 py-1 text-sm"
+                rows={2}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Experience</label>
+              <textarea
+                value={formData.qualifications.experience}
+                onChange={(e) => setFormData({ 
+                  ...formData, 
+                  qualifications: { ...formData.qualifications, experience: e.target.value }
+                })}
+                className="input-field w-full border rounded px-2 py-1 text-sm"
+                rows={2}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Eligibility</label>
+              <textarea
+                value={formData.qualifications.eligibility}
+                onChange={(e) => setFormData({ 
+                  ...formData, 
+                  qualifications: { ...formData.qualifications, eligibility: e.target.value }
+                })}
+                className="input-field w-full border rounded px-2 py-1 text-sm"
+                rows={2}
+              />
+            </div>
+            <div className="flex justify-end space-x-2">
+              <button type="button" onClick={() => setShowModal(false)} className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300">
+                Cancel
+              </button>
+              <button type="submit" className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600">
+                {editingItem ? 'Update' : 'Create'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  };
+
+  const CandidateModal = () => {
+    const [formData, setFormData] = useState(() => {
+      const defaultData = {
+        fullName: '',
+        itemNumber: '',
+        gender: '',
+        dateOfBirth: '',
+        age: '',
+        eligibility: '',
+        professionalLicense: '',
+        letterOfIntent: '',
+        personalDataSheet: '',
+        workExperienceSheet: '',
+        proofOfEligibility: '',
+        certificates: '',
+        ipcr: '',
+        certificateOfEmployment: '',
+        diploma: '',
+        transcriptOfRecords: '',
+        status: CANDIDATE_STATUS.GENERAL_LIST
+      };
+
+      if (editingItem) {
+        return {
+          ...defaultData,
+          ...editingItem,
+          dateOfBirth: editingItem.dateOfBirth ? editingItem.dateOfBirth.split('T')[0] : ''
+        };
+      }
+
+      return defaultData;
+    });
+
+    const handleSubmit = async (e) => {
+      e.preventDefault();
+      try {
+        const submitData = {
+          fullName: formData.fullName || '',
+          itemNumber: formData.itemNumber || '',
+          gender: formData.gender || '',
+          dateOfBirth: formData.dateOfBirth || null,
+          age: formData.age || null,
+          eligibility: formData.eligibility || '',
+          professionalLicense: formData.professionalLicense || '',
+          letterOfIntent: formData.letterOfIntent || '',
+          personalDataSheet: formData.personalDataSheet || '',
+          workExperienceSheet: formData.workExperienceSheet || '',
+          proofOfEligibility: formData.proofOfEligibility || '',
+          certificates: formData.certificates || '',
+          ipcr: formData.ipcr || '',
+          certificateOfEmployment: formData.certificateOfEmployment || '',
+          diploma: formData.diploma || '',
+          transcriptOfRecords: formData.transcriptOfRecords || '',
+          status: formData.status || CANDIDATE_STATUS.GENERAL_LIST
+        };
+
+        if (editingItem) {
+          await candidatesAPI.update(editingItem._id, submitData);
+        } else {
+          await candidatesAPI.create(submitData);
+        }
+        setShowModal(false);
+        loadData();
+        alert(`Candidate ${editingItem ? 'updated' : 'created'} successfully!`);
+      } catch (error) {
+        console.error('Failed to save candidate:', error);
+        alert('Failed to save candidate. Please try again.');
+      }
+    };
+
+    return (
+      <div className="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="modal-content bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 p-6 overflow-y-auto max-h-[90vh]">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-bold">
+              {editingItem ? 'Edit Candidate' : 'Add Candidate'}
+            </h2>
+            <button onClick={() => setShowModal(false)} className="text-gray-500 hover:text-gray-700">✕</button>
+          </div>
+          <form onSubmit={handleSubmit} className="space-y-3 text-sm grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Full Name</label>
+              <input
+                type="text"
+                value={formData.fullName}
+                onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
+                className="input-field w-full border rounded px-2 py-1 text-sm"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Item Number</label>
+              <input
+                type="text"
+                value={formData.itemNumber}
+                onChange={(e) => setFormData({ ...formData, itemNumber: e.target.value })}
+                className="input-field w-full border rounded px-2 py-1 text-sm"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Gender</label>
+              <select
+                value={formData.gender}
+                onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
+                className="select-field w-full border rounded px-2 py-1 text-sm"
+                required
+              >
+                <option value="">Select Gender</option>
+                <option value="MALE/LALAKI">Male/Lalaki</option>
+                <option value="FEMALE/BABAE">Female/Babae</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Date of Birth</label>
+              <input
+                type="date"
+                value={formData.dateOfBirth}
+                onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })}
+                className="input-field w-full border rounded px-2 py-1 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Age</label>
+              <input
+                type="number"
+                value={formData.age}
+                onChange={(e) => setFormData({ ...formData, age: e.target.value })}
+                className="input-field w-full border rounded px-2 py-1 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Eligibility</label>
+              <input
+                type="text"
+                value={formData.eligibility}
+                onChange={(e) => setFormData({ ...formData, eligibility: e.target.value })}
+                className="input-field w-full border rounded px-2 py-1 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Professional License</label>
+              <input
+                type="text"
+                value={formData.professionalLicense}
+                onChange={(e) => setFormData({ ...formData, professionalLicense: e.target.value })}
+                className="input-field w-full border rounded px-2 py-1 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Letter of Intent</label>
+              <input
+                type="text"
+                value={formData.letterOfIntent}
+                onChange={(e) => setFormData({ ...formData, letterOfIntent: e.target.value })}
+                className="input-field w-full border rounded px-2 py-1 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Personal Data Sheet</label>
+              <input
+                type="text"
+                value={formData.personalDataSheet}
+                onChange={(e) => setFormData({ ...formData, personalDataSheet: e.target.value })}
+                className="input-field w-full border rounded px-2 py-1 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Work Experience Sheet</label>
+              <input
+                type="text"
+                value={formData.workExperienceSheet}
+                onChange={(e) => setFormData({ ...formData, workExperienceSheet: e.target.value })}
+                className="input-field w-full border rounded px-2 py-1 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Proof of Eligibility</label>
+              <input
+                type="text"
+                value={formData.proofOfEligibility}
+                onChange={(e) => setFormData({ ...formData, proofOfEligibility: e.target.value })}
+                className="input-field w-full border rounded px-2 py-1 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Certificates</label>
+              <input
+                type="text"
+                value={formData.certificates}
+                onChange={(e) => setFormData({ ...formData, certificates: e.target.value })}
+                className="input-field w-full border rounded px-2 py-1 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">IPCR</label>
+              <input
+                type="text"
+                value={formData.ipcr}
+                onChange={(e) => setFormData({ ...formData, ipcr: e.target.value })}
+                className="input-field w-full border rounded px-2 py-1 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Certificate of Employment</label>
+              <input
+                type="text"
+                value={formData.certificateOfEmployment}
+                onChange={(e) => setFormData({ ...formData, certificateOfEmployment: e.target.value })}
+                className="input-field w-full border rounded px-2 py-1 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Diploma</label>
+              <input
+                type="text"
+                value={formData.diploma}
+                onChange={(e) => setFormData({ ...formData, diploma: e.target.value })}
+                className="input-field w-full border rounded px-2 py-1 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Transcript of Records</label>
+              <input
+                type="text"
+                value={formData.transcriptOfRecords}
+                onChange={(e) => setFormData({ ...formData, transcriptOfRecords: e.target.value })}
+                className="input-field w-full border rounded px-2 py-1 text-sm"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-xs font-medium text-gray-700 mb-1">Status</label>
+              <select
+                value={formData.status}
+                onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                className="select-field w-full border rounded px-2 py-1 text-sm"
+                required
+              >
+                {Object.values(CANDIDATE_STATUS).map(status => (
+                  <option key={status} value={status}>{status}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex justify-end space-x-2 md:col-span-2">
+              <button type="button" onClick={() => setShowModal(false)} className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300">
+                Cancel
+              </button>
+              <button type="submit" className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600">
+                {editingItem ? 'Update' : 'Create'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  };
+
+  const CompetencyModal = () => {
+    const [formData, setFormData] = useState(() => {
+      const defaultData = {
+        name: '',
+        type: 'basic',
+        selectedVacancies: [],
+        isFixed: false
+      };
+
+      if (editingItem) {
+        const vacancyIds = Array.isArray(editingItem.vacancyIds) 
+          ? editingItem.vacancyIds 
+          : editingItem.vacancyId 
+            ? [editingItem.vacancyId] 
+            : [];
+        return {
+          name: editingItem.name || '',
+          type: editingItem.type || 'basic',
+          selectedVacancies: vacancyIds,
+          isFixed: editingItem.isFixed || false
+        };
+      }
+
+      return defaultData;
+    });
+
+    const handleVacancyChange = (vacancyId, checked) => {
+      if (checked) {
+        setFormData(prev => ({
+          ...prev,
+          selectedVacancies: [...prev.selectedVacancies, vacancyId]
+        }));
+      } else {
+        setFormData(prev => ({
+          ...prev,
+          selectedVacancies: prev.selectedVacancies.filter(id => id !== vacancyId)
+        }));
+      }
+    };
+
+    const handleSubmit = async (e) => {
+      e.preventDefault();
+      try {
+        const submitData = {
+          name: formData.name,
+          type: formData.type,
+          vacancyIds: formData.isFixed ? [] : formData.selectedVacancies,
+          isFixed: formData.isFixed
+        };
+
+        if (editingItem) {
+          await competenciesAPI.update(editingItem._id, submitData);
+        } else {
+          await competenciesAPI.create(submitData);
+        }
+        setShowModal(false);
+        loadData();
+        alert(`Competency ${editingItem ? 'updated' : 'created'} successfully!`);
+      } catch (error) {
+        console.error('Failed to save competency:', error);
+        alert('Failed to save competency. Please try again.');
+      }
+    };
+
+    return (
+      <div className="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="modal-content bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6 overflow-y-auto max-h-[90vh]">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-bold">
+              {editingItem ? 'Edit Competency' : 'Add Competency'}
+            </h2>
+            <button onClick={() => setShowModal(false)} className="text-gray-500 hover:text-gray-700">✕</button>
+          </div>
+          <form onSubmit={handleSubmit} className="space-y-3 text-sm">
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Competency Name</label>
+              <input
+                type="text"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                className="input-field w-full border rounded px-2 py-1 text-sm"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Type</label>
+              <select
+                value={formData.type}
+                onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+                className="select-field w-full border rounded px-2 py-1 text-sm"
+                required
+              >
+                <option value="basic">Basic</option>
+                <option value="organizational">Organizational</option>
+                <option value="leadership">Leadership</option>
+                <option value="minimum">Minimum</option>
+              </select>
+            </div>
+            <div>
+              <label className="flex items-center text-sm">
+                <input
+                  type="checkbox"
+                  checked={formData.isFixed}
+                  onChange={(e) => setFormData({ ...formData, isFixed: e.target.checked })}
+                  className="mr-2"
+                />
+                Fixed Competency (applies to all vacancies)
+              </label>
+            </div>
+            {!formData.isFixed && (
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Select Vacancies (leave empty to apply to all vacancies)
+                </label>
+                <div className="max-h-40 overflow-y-auto border border-gray-300 rounded-md p-2 space-y-1 text-sm">
+                  {vacancies.map(vacancy => (
+                    <label key={vacancy._id} className="flex items-center text-xs">
+                      <input
+                        type="checkbox"
+                        checked={formData.selectedVacancies.includes(vacancy._id)}
+                        onChange={(e) => handleVacancyChange(vacancy._id, e.target.checked)}
+                        className="mr-2"
+                      />
+                      {vacancy.itemNumber} - {vacancy.position}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="flex justify-end space-x-2">
+              <button type="button" onClick={() => setShowModal(false)} className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300">
+                Cancel
+              </button>
+              <button type="submit" className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600">
+                {editingItem ? 'Update' : 'Create'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  };
+
+  const VacancyAssignmentModal = () => {
+    const [formData, setFormData] = useState(() => {
+      if (editingItem) {
+        return {
+          assignmentType: editingItem.assignedVacancies || 'all',
+          assignedAssignment: editingItem.assignedAssignment || '',
+          assignedItemNumbers: editingItem.assignedItemNumbers || []
+        };
+      }
+      return {
+        assignmentType: 'all',
+        assignedAssignment: '',
+        assignedItemNumbers: []
+      };
+    });
+
+    const handleItemNumberChange = (itemNumber, checked) => {
+      if (checked) {
+        setFormData(prev => ({
+          ...prev,
+          assignedItemNumbers: [...prev.assignedItemNumbers, itemNumber]
+        }));
+      } else {
+        setFormData(prev => ({
+          ...prev,
+          assignedItemNumbers: prev.assignedItemNumbers.filter(item => item !== itemNumber)
+        }));
+      }
+    };
+
+    const handleSubmit = async (e) => {
+      e.preventDefault();
+      try {
+        const submitData = {
+          assignmentType: formData.assignmentType,
+          assignedAssignment: formData.assignmentType === 'assignment' ? formData.assignedAssignment : null,
+          assignedItemNumbers: formData.assignmentType === 'specific' ? formData.assignedItemNumbers : []
+        };
+
+        await usersAPI.assignVacancies(editingItem._id, submitData);
+        setShowModal(false);
+        loadData();
+        alert('Vacancy assignment updated successfully!');
+      } catch (error) {
+        console.error('Failed to assign vacancies:', error);
+        alert('Failed to assign vacancies. Please try again.');
+      }
+    };
+
+    return (
+      <div className="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="modal-content bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6 overflow-y-auto max-h-[90vh]">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-bold">
+              Assign Vacancies to {editingItem?.name}
+            </h2>
+            <button onClick={() => setShowModal(false)} className="text-gray-500 hover:text-gray-700">✕</button>
+          </div>
+          <form onSubmit={handleSubmit} className="space-y-3 text-sm">
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Assignment Type</label>
+              <div className="space-y-2">
+                <label className="flex items-center text-sm">
+                  <input
+                    type="radio"
+                    name="assignmentType"
+                    value="all"
+                    checked={formData.assignmentType === 'all'}
+                    onChange={(e) => setFormData({ ...formData, assignmentType: e.target.value })}
+                    className="mr-2"
+                  />
+                  All Vacancies
+                </label>
+                <label className="flex items-center text-sm">
+                  <input
+                    type="radio"
+                    name="assignmentType"
+                    value="assignment"
+                    checked={formData.assignmentType === 'assignment'}
+                    onChange={(e) => setFormData({ ...formData, assignmentType: e.target.value })}
+                    className="mr-2"
+                  />
+                  By Assignment/Department (from vacancy.assignment field)
+                </label>
+                <label className="flex items-center text-sm">
+                  <input
+                    type="radio"
+                    name="assignmentType"
+                    value="specific"
+                    checked={formData.assignmentType === 'specific'}
+                    onChange={(e) => setFormData({ ...formData, assignmentType: e.target.value })}
+                    className="mr-2"
+                  />
+                  Specific Item Numbers
+                </label>
+              </div>
+            </div>
+
+            {formData.assignmentType === 'assignment' && (
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Select Assignment</label>
+                <select
+                  value={formData.assignedAssignment}
+                  onChange={(e) => setFormData({ ...formData, assignedAssignment: e.target.value })}
+                  className="select-field w-full border rounded px-2 py-1 text-sm"
+                  required
+                >
+                  <option value="">Select Assignment</option>
+                  {assignments.map(assignment => (
+                    <option key={assignment} value={assignment}>{assignment}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-600 mt-1">
+                  This will assign all vacancies where vacancy.assignment matches the selected value.
+                </p>
+              </div>
+            )}
+
+            {formData.assignmentType === 'specific' && (
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Select Item Numbers</label>
+                <div className="max-h-40 overflow-y-auto border border-gray-300 rounded-md p-2 space-y-1 text-sm">
+                  {vacancies.map(vacancy => (
+                    <label key={vacancy._id} className="flex items-center text-xs">
+                      <input
+                        type="checkbox"
+                        checked={formData.assignedItemNumbers.includes(vacancy.itemNumber)}
+                        onChange={(e) => handleItemNumberChange(vacancy.itemNumber, e.target.checked)}
+                        className="mr-2"
+                      />
+                      {vacancy.itemNumber} - {vacancy.position} ({vacancy.assignment})
+                    </label>
+                  ))}
+                </div>
+                {formData.assignedItemNumbers.length === 0 && (
+                  <p className="text-xs text-red-600 mt-1">Please select at least one item number.</p>
+                )}
+              </div>
+            )}
+
+            <div className="flex justify-end space-x-2">
+              <button type="button" onClick={() => setShowModal(false)} className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300">
+                Cancel
+              </button>
+              <button 
+                type="submit" 
+                className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600"
+                disabled={
+                  (formData.assignmentType === 'assignment' && !formData.assignedAssignment) ||
+                  (formData.assignmentType === 'specific' && formData.assignedItemNumbers.length === 0)
+                }
+              >
+                Assign Vacancies
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  };
+
+  const getStatusColor = (status) => {
+    switch (status) {
+      case CANDIDATE_STATUS.GENERAL_LIST:
+        return 'bg-blue-100 text-blue-800';
+      case CANDIDATE_STATUS.LONG_LIST:
+        return 'bg-yellow-100 text-yellow-800';
+      case CANDIDATE_STATUS.FOR_REVIEW:
+        return 'bg-orange-100 text-orange-800';
+      case CANDIDATE_STATUS.DISQUALIFIED:
+        return 'bg-red-100 text-red-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const getStatusLabel = (status) => {
+    switch (status) {
+      case CANDIDATE_STATUS.GENERAL_LIST:
+        return 'General List';
+      case CANDIDATE_STATUS.LONG_LIST:
+        return 'Long List';
+      case CANDIDATE_STATUS.FOR_REVIEW:
+        return 'For Review';
+      case CANDIDATE_STATUS.DISQUALIFIED:
+        return 'Disqualified';
+      default:
+        return status;
+    }
+  };
+
+  const getAssignmentDisplay = (user) => {
+    if (user.assignedVacancies === 'all') {
+      return 'All Vacancies';
+    } else if (user.assignedVacancies === 'assignment') {
+      return `Assignment: ${user.assignedAssignment || 'Not Set'}`;
+    } else if (user.assignedVacancies === 'specific') {
+      const count = user.assignedItemNumbers?.length || 0;
+      return `Specific Items (${count})`;
+    }
+    return 'All Vacancies';
+  };
+
+  const renderUsers = () => (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-bold text-gray-900">Users Management</h2>
+        <div className="flex space-x-2">
+          <button
+            onClick={() => handleExportCSV('users')}
+            className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
+            disabled={users.length === 0}
+          >
+            Export CSV
+          </button>
+          <button
+            onClick={() => handleExportEmptyTemplate('users')}
+            className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
+          >
+            Download Template
+          </button>
+          <button onClick={() => handleAdd('user')} className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600">
+            Add User
+          </button>
+        </div>
+      </div>
+      <div className="card bg-white rounded-lg shadow overflow-hidden">
+        <div className="overflow-x-hidden">
+          <table className="min-w-full divide-y divide-gray-200 text-sm">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User Type</th>
+                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rater Type</th>
+                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Position</th>
+                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {users.map(user => (
+                <tr key={user._id}>
+                  <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{user.name}</td>
+                  <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{user.email}</td>
+                  <td className="table-cell px-4 py-2">
+                    <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded text-xs">
+                      {user.userType}
+                    </span>
+                  </td>
+                  <td className="table-cell px-4 py-2 text-xs">{user.raterType || '-'}</td>
+                  <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{user.position || '-'}</td>
+                  <td className="table-cell px-4 py-2">
+                    <button
+                      onClick={() => handleEdit(user, 'user')}
+                      className="btn-secondary px-2 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300 mr-1"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => handleDelete(user._id, 'user')}
+                      className="btn-danger px-2 py-1 rounded text-xs bg-red-500 text-white hover:bg-red-600"
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderVacancies = () => (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-bold text-gray-900">Vacancies Management</h2>
+        <div className="flex space-x-2">
+          <button
+            onClick={() => handleExportCSV('vacancies')}
+            className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
+            disabled={vacancies.length === 0}
+          >
+            Export CSV
+          </button>
+          <button
+            onClick={() => handleExportEmptyTemplate('vacancies')}
+            className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
+          >
+            Download Template
+          </button>
+          <input
+            type="file"
+            accept=".csv"
+            onChange={(e) => e.target.files[0] && handleCSVUpload(e.target.files[0], 'vacancies')}
+            className="hidden"
+            id="vacancy-csv-upload"
+          />
+          <label htmlFor="vacancy-csv-upload" className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300 cursor-pointer">
+            Upload CSV
+          </label>
+          <button onClick={() => handleAdd('vacancy')} className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600">
+            Add Vacancy
+          </button>
+        </div>
+      </div>
+      <div className="card bg-white rounded-lg shadow overflow-hidden">
+        <div className="overflow-x-hidden">
+          <table className="min-w-full divide-y divide-gray-200 text-sm">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Item Number</th>
+                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Position</th>
+                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Assignment</th>
+                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Salary Grade</th>
+                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {vacancies.map(vacancy => (
+                <tr key={vacancy._id}>
+                  <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{vacancy.itemNumber}</td>
+                  <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{vacancy.position}</td>
+                  <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{vacancy.assignment}</td>
+                  <td className="table-cell px-4 py-2 text-xs">{vacancy.salaryGrade}</td>
+                  <td className="table-cell px-4 py-2">
+                    <button
+                      onClick={() => handleEdit(vacancy, 'vacancy')}
+                      className="btn-secondary px-2 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300 mr-1"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => handleDelete(vacancy._id, 'vacancy')}
+                      className="btn-danger px-2 py-1 rounded text-xs bg-red-500 text-white hover:bg-red-600"
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderCandidates = () => (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-bold text-gray-900">Candidates Management</h2>
+        <div className="flex space-x-2">
+          <button
+            onClick={() => handleExportCSV('candidates')}
+            className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
+            disabled={candidates.length === 0}
+          >
+            Export CSV
+          </button>
+          <button
+            onClick={() => handleExportEmptyTemplate('candidates')}
+            className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
+          >
+            Download Template
+          </button>
+          <input
+            type="file"
+            accept=".csv"
+            onChange={(e) => e.target.files[0] && handleCSVUpload(e.target.files[0], 'candidates')}
+            className="hidden"
+            id="candidate-csv-upload"
+          />
+          <label htmlFor="candidate-csv-upload" className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300 cursor-pointer">
+            Upload CSV
+          </label>
+          <button onClick={() => handleAdd('candidate')} className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600">
+            Add Candidate
+          </button>
+        </div>
+      </div>
+      <div className="card bg-white rounded-lg shadow overflow-hidden">
+        <div className="overflow-x-hidden">
+          <table className="min-w-full divide-y divide-gray-200 text-sm">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Item Number</th>
+                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Gender</th>
+                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Age</th>
+                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {candidates.map(candidate => (
+                <tr key={candidate._id}>
+                  <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{candidate.fullName}</td>
+                  <td className="table-cell px-4 py-2 text-xs">{candidate.itemNumber}</td>
+                  <td className="table-cell px-4 py-2 text-xs">{candidate.gender}</td>
+                  <td className="table-cell px-4 py-2 text-xs">{candidate.age}</td>
+                  <td className="table-cell px-4 py-2">
+                    <span className={`px-2 py-1 rounded text-xs ${getStatusColor(candidate.status)}`}>
+                      {getStatusLabel(candidate.status)}
+                    </span>
+                  </td>
+                  <td className="table-cell px-4 py-2">
+                    <button
+                      onClick={() => handleEdit(candidate, 'candidate')}
+                      className="btn-secondary px-2 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300 mr-1"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => handleDelete(candidate._id, 'candidate')}
+                      className="btn-danger px-2 py-1 rounded text-xs bg-red-500 text-white hover:bg-red-600"
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderCompetencies = () => (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-bold text-gray-900">Competencies Management</h2>
+        <div className="flex space-x-2">
+          <button
+            onClick={() => handleExportCSV('competencies')}
+            className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
+            disabled={competencies.length === 0}
+          >
+            Export CSV
+          </button>
+          <button
+            onClick={() => handleExportEmptyTemplate('competencies')}
+            className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
+          >
+            Download Template
+          </button>
+          <input
+            type="file"
+            accept=".csv"
+            onChange={(e) => e.target.files[0] && handleCSVUpload(e.target.files[0], 'competencies')}
+            className="hidden"
+            id="competency-csv-upload"
+          />
+          <label htmlFor="competency-csv-upload" className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300 cursor-pointer">
+            Upload CSV
+          </label>
+          <button onClick={() => handleAdd('competency')} className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600">
+            Add Competency
+          </button>
+        </div>
+      </div>
+      <div className="card bg-white rounded-lg shadow overflow-hidden">
+        <div className="overflow-x-hidden">
+          <table className="min-w-full divide-y divide-gray-200 text-sm">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vacancies</th>
+                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fixed</th>
+                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {competencies.map(competency => {
+                const vacancyIds = Array.isArray(competency.vacancyIds) 
+                  ? competency.vacancyIds 
+                  : competency.vacancyId 
+                    ? [competency.vacancyId] 
+                    : [];
+                const vacancyNames = vacancyIds
+                  .map(id => vacancies.find(v => v._id === id)?.itemNumber)
+                  .filter(Boolean)
+                  .join(', ') || 'All Vacancies';
+                
+                return (
+                  <tr key={competency._id}>
+                    <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{competency.name}</td>
+                    <td className="table-cell px-4 py-2">
+                      <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded text-xs capitalize">
+                        {competency.type}
+                      </span>
+                    </td>
+                    <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{vacancyNames}</td>
+                    <td className="table-cell px-4 py-2">
+                      <span className={`px-2 py-1 rounded text-xs ${competency.isFixed ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                        {competency.isFixed ? 'Yes' : 'No'}
+                      </span>
+                    </td>
+                    <td className="table-cell px-4 py-2">
+                      <button
+                        onClick={() => handleEdit(competency, 'competency')}
+                        className="btn-secondary px-2 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300 mr-1"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDelete(competency._id, 'competency')}
+                        className="btn-danger px-2 py-1 rounded text-xs bg-red-500 text-white hover:bg-red-600"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderVacancyAssignments = () => (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-bold text-gray-900">Vacancy Assignments</h2>
+        <div className="text-xs text-gray-600">
+          Manage which vacancies each user can access
+        </div>
+      </div>
+      <div className="card bg-white rounded-lg shadow overflow-hidden">
+        <div className="overflow-x-hidden">
+          <table className="min-w-full divide-y divide-gray-200 text-sm">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
+                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User Type</th>
+                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Current Assignment</th>
+                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Details</th>
+                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {users.map(user => (
+                <tr key={user._id}>
+                  <td className="table-cell px-4 py-2">
+                    <div>
+                      <div className="font-medium text-xs">{user.name}</div>
+                      <div className="text-xs text-gray-500">{user.email}</div>
+                    </div>
+                  </td>
+                  <td className="table-cell px-4 py-2">
+                    <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded text-xs">
+                      {user.userType}
+                    </span>
+                  </td>
+                  <td className="table-cell px-4 py-2">
+                    <span className={`px-2 py-1 rounded text-xs ${
+                      user.assignedVacancies === 'all' ? 'bg-green-100 text-green-800' :
+                      user.assignedVacancies === 'assignment' ? 'bg-blue-100 text-blue-800' :
+                      user.assignedVacancies === 'specific' ? 'bg-purple-100 text-purple-800' :
+                      'bg-gray-100 text-gray-800'
+                    }`}>
+                      {getAssignmentDisplay(user)}
+                    </span>
+                  </td>
+                  <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">
+                    {user.assignedVacancies === 'assignment' && user.assignedAssignment && (
+                      <div className="text-xs text-gray-600">
+                        Assignment: {user.assignedAssignment}
+                      </div>
+                    )}
+                    {user.assignedVacancies === 'specific' && user.assignedItemNumbers?.length > 0 && (
+                      <div className="text-xs text-gray-600">
+                        Items: {user.assignedItemNumbers.slice(0, 3).join(', ')}
+                        {user.assignedItemNumbers.length > 3 && ` +${user.assignedItemNumbers.length - 3} more`}
+                      </div>
+                    )}
+                  </td>
+                  <td className="table-cell px-4 py-2">
+                    <button
+                      onClick={() => handleEdit(user, 'assignment')}
+                      className="btn-secondary px-2 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
+                    >
+                      Assign Vacancies
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderInterviewSummary = () => (
+    <div className="space-y-4">
+      <InterviewSummaryGenerator user={user} />
+    </div>
+  );
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-gray-900"></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-h-screen bg-gray-100">
+      {/* Sidebar */}
+      <div className="sidebar w-48 bg-gray-800 text-white p-4 flex-shrink-0">
+        <h2 className="text-base font-bold mb-4">Admin Panel</h2>
+        <nav className="space-y-2">
+          <button
+            onClick={() => setActiveTab('users')}
+            className={`sidebar-item w-full text-left px-3 py-2 rounded text-sm ${activeTab === 'users' ? 'bg-gray-700' : 'hover:bg-gray-700'}`}
+          >
+            User Types
+          </button>
+          <button
+            onClick={() => setActiveTab('vacancies')}
+            className={`sidebar-item w-full text-left px-3 py-2 rounded text-sm ${activeTab === 'vacancies' ? 'bg-gray-700' : 'hover:bg-gray-700'}`}
+          >
+            Vacancies
+          </button>
+          <button
+            onClick={() => setActiveTab('candidates')}
+            className={`sidebar-item w-full text-left px-3 py-2 rounded text-sm ${activeTab === 'candidates' ? 'bg-gray-700' : 'hover:bg-gray-700'}`}
+          >
+            General List
+          </button>
+          <button
+            onClick={() => setActiveTab('competencies')}
+            className={`sidebar-item w-full text-left px-3 py-2 rounded text-sm ${activeTab === 'competencies' ? 'bg-gray-700' : 'hover:bg-gray-700'}`}
+          >
+            Competencies
+          </button>
+          <button
+            onClick={() => setActiveTab('assignments')}
+            className={`sidebar-item w-full text-left px-3 py-2 rounded text-sm ${activeTab === 'assignments' ? 'bg-gray-700' : 'hover:bg-gray-700'}`}
+          >
+            Vacancy Assignments
+          </button>
+          <button
+            onClick={() => setActiveTab('interviewSummary')}
+            className={`sidebar-item w-full text-left px-3 py-2 rounded text-sm ${activeTab === 'interviewSummary' ? 'bg-gray-700' : 'hover:bg-gray-700'}`}
+          >
+            Interview Summary
+          </button>
+        </nav>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 p-6 overflow-auto">
+        {activeTab === 'users' && renderUsers()}
+        {activeTab === 'vacancies' && renderVacancies()}
+        {activeTab === 'candidates' && renderCandidates()}
+        {activeTab === 'competencies' && renderCompetencies()}
+        {activeTab === 'assignments' && renderVacancyAssignments()}
+        {activeTab === 'interviewSummary' && renderInterviewSummary()}
+      </div>
+
+      {/* Modals */}
+      {showModal && modalType === 'user' && <UserModal />}
+      {showModal && modalType === 'vacancy' && <VacancyModal />}
+      {showModal && modalType === 'candidate' && <CandidateModal />}
+      {showModal && modalType === 'competency' && <CompetencyModal />}
+      {showModal && modalType === 'assignment' && <VacancyAssignmentModal />}
+    </div>
+  );
+};
+
+export default AdminView;
