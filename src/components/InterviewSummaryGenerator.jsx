@@ -371,6 +371,16 @@ const InterviewSummaryGenerator = ({ user }) => {
     7: { cellWidth: colRating, halign: 'center' }
   };
 
+  // Helper function to get competency prefix
+  const getCompetencyPrefix = (type) => {
+    switch(type) {
+      case 'basic': return 'BASIC CC';
+      case 'organizational': return 'ORG CC';
+      case 'leadership': return 'LEAD CC';
+      case 'minimum': return 'MIN CC';
+      default: return 'CC';
+    }
+  };
   // --- Helper to render a competency group table ---
   const makeCompTable = (groupTitle, competencies, type) => {
     doc.autoTable({
@@ -379,7 +389,7 @@ const InterviewSummaryGenerator = ({ user }) => {
         groupTitle, 'CHAIR', 'VICE', 'GAD', 'DENREU', 'REGMEM', 'END-U', 'AVE'
       ]],
       body: competencies.map(comp => [
-        `${comp.name}`, // Remove the automatic indexing here since we now have ordinal
+        `${getCompetencyPrefix(type)}${comp.ordinal} - ${comp.name}`,
         getRatingDisplay(comp.code, 'CHAIR'),
         getRatingDisplay(comp.code, 'VICE'),
         getRatingDisplay(comp.code, 'GAD'),
@@ -434,11 +444,7 @@ doc.setFontSize(10);
 doc.text(`CER SCORE: ${cerScore1}`, scoreBoxX + scoreBoxWidth/2, y + .3, { align: 'center' });
 
 // For basic competencies
-makeCompTable('BASIC COMPETENCIES', 
-  groupedCompetencies.basic.map(comp => ({
-    ...comp,
-    name: `BASIC CC${comp.ordinal} - ${comp.name}`
-  })), 'basic');
+makeCompTable('BASIC COMPETENCIES', groupedCompetencies.basic, 'basic');
 
 // --- Section II: Potential - Place heading and force table positioning ---
 let potentialSectionY = doc.lastAutoTable.finalY + 8;
@@ -496,17 +502,9 @@ doc.text(`CER SCORE: ${cerScore2}`, scoreBox2X + scoreBoxWidth/2, potentialSecti
 
   if (shouldShowLeadership()) {
   // For leadership competencies
-  makeCompTable('LEADERSHIP COMPETENCIES', 
-    groupedCompetencies.leadership.map(comp => ({
-      ...comp,
-      name: `LEAD CC${comp.ordinal} - ${comp.name}`
-    })), 'leadership');
+  makeCompTable('LEADERSHIP COMPETENCIES', groupedCompetencies.leadership, 'leadership');
   }
-  makeCompTable('MINIMUM COMPETENCIES', 
-    groupedCompetencies.minimum.map(comp => ({
-      ...comp,
-      name: `MIN CC${comp.ordinal} - ${comp.name}`
-    })), 'minimum');
+  makeCompTable('MINIMUM COMPETENCIES', groupedCompetencies.minimum, 'minimum');
 
   y = doc.lastAutoTable.finalY + 6;
 
