@@ -321,6 +321,7 @@ const InterviewSummaryGenerator = ({ user }) => {
     return salaryGrade >= 18 && groupedCompetencies.leadership.length > 0;
   };
 
+  // --- Para sa PDF Generation ----
   const exportToPDF = () => {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const scores = calculateFinalScores();
@@ -381,6 +382,7 @@ const InterviewSummaryGenerator = ({ user }) => {
       default: return 'CC';
     }
   };
+
   // --- Helper to render a competency group table ---
   const makeCompTable = (groupTitle, competencies, type) => {
     doc.autoTable({
@@ -389,7 +391,7 @@ const InterviewSummaryGenerator = ({ user }) => {
         groupTitle, 'CHAIR', 'VICE', 'GAD', 'DENREU', 'REGMEM', 'END-U', 'AVE'
       ]],
       body: competencies.map(comp => [
-        `${getCompetencyPrefix(type)}${comp.ordinal} - ${comp.name}`,
+        `${getCompetencyPrefix(type)}${comp.ordinal} - ${comp.name}`, // Fixed: using comp.ordinal
         getRatingDisplay(comp.code, 'CHAIR'),
         getRatingDisplay(comp.code, 'VICE'),
         getRatingDisplay(comp.code, 'GAD'),
@@ -411,7 +413,7 @@ const InterviewSummaryGenerator = ({ user }) => {
         ),
         { content: calculateFinalScores().breakdown[type].toFixed(2), styles: { fontStyle: 'bold', halign: 'center' } }
       ]],
-      styles: { fontSize: 5.2, cellPadding: 0.8, valign: 'middle' }, // Increased from 5 to 6
+      styles: { fontSize: 5.2, cellPadding: 0.8, valign: 'middle' },
       headStyles: { halign: 'center', fontStyle: 'bold' },
       columnStyles: columnWidths,
       theme: 'grid',
@@ -421,57 +423,57 @@ const InterviewSummaryGenerator = ({ user }) => {
     y = doc.lastAutoTable.finalY;
   };
 
-// --- Section I: Psycho-Social ---
-y += 4;
-doc.setFont('helvetica', 'bold');
-doc.setFontSize(10);
-doc.text('I. PSYCHO-SOCIAL ATTRIBUTES AND PERSONALITY TRAITS', xLeft, y);
+  // --- Section I: Psycho-Social ---
+  y += 4;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  doc.text('I. PSYCHO-SOCIAL ATTRIBUTES AND PERSONALITY TRAITS', xLeft, y);
 
-// Create box for CER Score
-const cerScore1 = scores.psychoSocial.toFixed(2);
-const scoreBoxWidth = 40;
-const scoreBoxHeight = 6;
-const scoreBoxX = 190 - scoreBoxWidth;
-const scoreBoxY = y - 4;
+  // Create box for CER Score
+  const cerScore1 = scores.psychoSocial.toFixed(2);
+  const scoreBoxWidth = 40;
+  const scoreBoxHeight = 6;
+  const scoreBoxX = 190 - scoreBoxWidth;
+  const scoreBoxY = y - 4;
 
-// Draw heavy border box
-doc.setLineWidth(.3); // Heavy border
-doc.rect(scoreBoxX, scoreBoxY, scoreBoxWidth, scoreBoxHeight);
+  // Draw heavy border box
+  doc.setLineWidth(.3);
+  doc.rect(scoreBoxX, scoreBoxY, scoreBoxWidth, scoreBoxHeight);
 
-// Add CER score text inside the box
-doc.setFont('helvetica', 'bold');
-doc.setFontSize(10);
-doc.text(`CER SCORE: ${cerScore1}`, scoreBoxX + scoreBoxWidth/2, y + .3, { align: 'center' });
+  // Add CER score text inside the box
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  doc.text(`CER SCORE: ${cerScore1}`, scoreBoxX + scoreBoxWidth/2, y + .3, { align: 'center' });
 
-// For basic competencies
-makeCompTable('BASIC COMPETENCIES', groupedCompetencies.basic, 'basic');
+  // For basic competencies
+  makeCompTable('BASIC COMPETENCIES', groupedCompetencies.basic, 'basic');
 
-// --- Section II: Potential - Place heading and force table positioning ---
-let potentialSectionY = doc.lastAutoTable.finalY + 8;
-doc.setFont('helvetica', 'bold');
-doc.setFontSize(10);
-doc.text('II. POTENTIAL', xLeft, potentialSectionY);
+  // --- Section II: Potential - Place heading and force table positioning ---
+  let potentialSectionY = doc.lastAutoTable.finalY + 8;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  doc.text('II. POTENTIAL', xLeft, potentialSectionY);
 
-// Create box for CER Score
-const cerScore2 = scores.potential.toFixed(2);
-const scoreBox2X = 190 - scoreBoxWidth;
-const scoreBox2Y = potentialSectionY - 4;
+  // Create box for CER Score
+  const cerScore2 = scores.potential.toFixed(2);
+  const scoreBox2X = 190 - scoreBoxWidth;
+  const scoreBox2Y = potentialSectionY - 4;
 
-// Draw heavy border box
-doc.setLineWidth(.3); // Heavy border
-doc.rect(scoreBox2X, scoreBox2Y, scoreBoxWidth, scoreBoxHeight);
+  // Draw heavy border box
+  doc.setLineWidth(.3);
+  doc.rect(scoreBox2X, scoreBox2Y, scoreBoxWidth, scoreBoxHeight);
 
-// Add CER score text inside the box
-doc.setFont('helvetica', 'bold');
-doc.setFontSize(10);
-doc.text(`CER SCORE: ${cerScore2}`, scoreBox2X + scoreBoxWidth/2, potentialSectionY + .3, { align: 'center' });
+  // Add CER score text inside the box
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  doc.text(`CER SCORE: ${cerScore2}`, scoreBox2X + scoreBoxWidth/2, potentialSectionY + .3, { align: 'center' });
 
-  // ORGANIZATIONAL TABLE - with forced positioning
+  // ORGANIZATIONAL TABLE - with forced positioning and FIXED ordinal usage
   doc.autoTable({
     startY: potentialSectionY + 4,
     head: [['ORGANIZATIONAL COMPETENCIES', 'CHAIR', 'VICE', 'GAD', 'DENREU', 'REGMEM', 'END-U', 'AVE']],
     body: groupedCompetencies.organizational.map(comp => [
-      `ORG CC${comp.ordinal} - ${comp.name}`,
+      `ORG CC${comp.ordinal} - ${comp.name}`, // Fixed: using comp.ordinal
       getRatingDisplay(comp.code, 'CHAIR'),
       getRatingDisplay(comp.code, 'VICE'),
       getRatingDisplay(comp.code, 'GAD'),
@@ -493,7 +495,7 @@ doc.text(`CER SCORE: ${cerScore2}`, scoreBox2X + scoreBoxWidth/2, potentialSecti
       ),
       { content: calculateFinalScores().breakdown.organizational.toFixed(2), styles: { fontStyle: 'bold', halign: 'center' } }
     ]],
-    styles: { fontSize: 5.2, cellPadding: 0.8, valign: 'middle' }, // Increased from 5 to 6
+    styles: { fontSize: 5.2, cellPadding: 0.8, valign: 'middle' },
     headStyles: { halign: 'center', fontStyle: 'bold' },
     columnStyles: columnWidths,
     theme: 'grid',
@@ -501,18 +503,18 @@ doc.text(`CER SCORE: ${cerScore2}`, scoreBox2X + scoreBoxWidth/2, potentialSecti
   });
 
   if (shouldShowLeadership()) {
-  // For leadership competencies
-  makeCompTable('LEADERSHIP COMPETENCIES', groupedCompetencies.leadership, 'leadership');
+    // For leadership competencies
+    makeCompTable('LEADERSHIP COMPETENCIES', groupedCompetencies.leadership, 'leadership');
   }
   makeCompTable('MINIMUM COMPETENCIES', groupedCompetencies.minimum, 'minimum');
 
   y = doc.lastAutoTable.finalY + 6;
 
   // --- Dynamic Signatories based on actual raters who rated this candidate ---
-  doc.setFont('helvetica', 'italic'); // Changed to italic
-  doc.setFontSize(7); // Made smaller
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(7);
   doc.text('Certified True and Correct:', xLeft, y);
-  y += 10; // Reduced spacing
+  y += 10;
 
   // Get unique rater IDs from the ratings for this candidate
   const raterIdsWhoRated = [...new Set(ratings.map(rating => rating.raterId._id.toString()))];
@@ -533,7 +535,6 @@ doc.text(`CER SCORE: ${cerScore2}`, scoreBox2X + scoreBoxWidth/2, potentialSecti
     const indexA = raterTypeOrder.indexOf(a.raterType);
     const indexB = raterTypeOrder.indexOf(b.raterType);
     
-    // If raterType not found in order array, put it at the end
     if (indexA === -1 && indexB === -1) return 0;
     if (indexA === -1) return 1;
     if (indexB === -1) return -1;
@@ -543,9 +544,9 @@ doc.text(`CER SCORE: ${cerScore2}`, scoreBox2X + scoreBoxWidth/2, potentialSecti
 
   // Create signatories array with actual rater data including both raterType and designation
   const signatories = sortedRaters.map(rater => [
-    rater.name.toUpperCase(), // Use 'name' field, not 'fullName'
-    rater.position, // Rater type (e.g., "Chairperson")
-    rater.raterType // Designation/position (e.g., "Regional Director")
+    rater.name.toUpperCase(),
+    rater.position,
+    rater.raterType
   ]);
 
   // Render signatories in a 2-column layout
@@ -558,12 +559,12 @@ doc.text(`CER SCORE: ${cerScore2}`, scoreBox2X + scoreBoxWidth/2, potentialSecti
     
     // Name (bold, smaller)
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7); // Made smaller
+    doc.setFontSize(7);
     doc.text(name, x + colWidth / 2, rowY, { align: 'center' });
     
     // Rater Type (normal, smaller)
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6); // Made smaller
+    doc.setFontSize(6);
     doc.text(raterType, x + colWidth / 2, rowY + 3, { align: 'center' });
     
     // Designation (if available, normal, smaller)
@@ -574,7 +575,7 @@ doc.text(`CER SCORE: ${cerScore2}`, scoreBox2X + scoreBoxWidth/2, potentialSecti
     col++;
     if (col === 2) {
       col = 0;
-      rowY += 16; // Increased spacing to compensate for smaller text and additional line
+      rowY += 16;
     }
   });
 
