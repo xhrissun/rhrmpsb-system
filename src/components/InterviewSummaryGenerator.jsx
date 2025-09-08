@@ -328,7 +328,7 @@ const InterviewSummaryGenerator = ({ user }) => {
   // --- Header ---
   doc.setFontSize(7.5);
   doc.setFont('helvetica', 'bold');
-  doc.text('Department of Environment and Natural Resources', 105, 10, { align: 'center' });
+  doc.text('Department of Environment and Natural Resources', 105, 16, { align: 'center' });
   doc.text('Regional Office (CALABARZON)', 105, 13, { align: 'center' });
   doc.text('Human Resource Merit Promotion and Selection Board (HRMPSB)', 105, 16, { align: 'center' });
   doc.setFontSize(12);
@@ -345,9 +345,9 @@ const InterviewSummaryGenerator = ({ user }) => {
     ['Office:', vacancyDetails?.assignment || ''],
     ['Vacancy:', vacancyDetails?.position || ''],
     ['Item Number:', selectedItem || ''],
-    ['Date of Interview:', new Date().toLocaleDateString()]
+    ['Date of Interview:', new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })]
   ];
-  
+
   details.forEach(([label, value]) => {
     doc.setFont('helvetica', 'bold');
     doc.text(label, xLeft, y);
