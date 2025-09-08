@@ -89,6 +89,10 @@ app.use('*', (req, res) => {
   res.status(404).json({ message: 'Endpoint not found' });
 });
 
+app.get('/ping', (req, res) => {
+  res.send('pong');
+});
+
 // Start server
 const PORT = process.env.PORT || 5001;
 app.listen(PORT, '0.0.0.0', () => {
