@@ -391,7 +391,7 @@ const InterviewSummaryGenerator = ({ user }) => {
         groupTitle, 'CHAIR', 'VICE', 'GAD', 'DENREU', 'REGMEM', 'END-U', 'AVE'
       ]],
       body: competencies.map(comp => [
-        `${getCompetencyPrefix(type)}${comp.ordinal} - ${comp.name}`, // Fixed: using comp.ordinal
+        `${getCompetencyPrefix(type)}${comp.ordinal}. ${comp.name}`, // Fixed: added period after ordinal
         getRatingDisplay(comp.code, 'CHAIR'),
         getRatingDisplay(comp.code, 'VICE'),
         getRatingDisplay(comp.code, 'GAD'),
@@ -473,7 +473,7 @@ const InterviewSummaryGenerator = ({ user }) => {
     startY: potentialSectionY + 4,
     head: [['ORGANIZATIONAL COMPETENCIES', 'CHAIR', 'VICE', 'GAD', 'DENREU', 'REGMEM', 'END-U', 'AVE']],
     body: groupedCompetencies.organizational.map(comp => [
-      `ORG CC${comp.ordinal} - ${comp.name}`, // Fixed: using comp.ordinal
+      `ORG CC${comp.ordinal}. ${comp.name}`, // Fixed: added period after ordinal
       getRatingDisplay(comp.code, 'CHAIR'),
       getRatingDisplay(comp.code, 'VICE'),
       getRatingDisplay(comp.code, 'GAD'),
@@ -683,7 +683,7 @@ const InterviewSummaryGenerator = ({ user }) => {
                     <tbody className="bg-white divide-y divide-gray-200">
                       {groupedCompetencies.basic.map((comp, index) => (
                         <tr key={comp.code}>
-                          <td className="px-6 py-4 whitespace-nowrap">{`BASIC CC${comp.ordinal} - ${comp.name}`}</td>
+                          <td className="px-6 py-4 whitespace-nowrap">{`BASIC CC${comp.ordinal}. ${comp.name}`}</td>
                           <td className="px-6 py-4 whitespace-nowrap">{getRatingDisplay(comp.code, 'CHAIR')}</td>
                           <td className="px-6 py-4 whitespace-nowrap">{getRatingDisplay(comp.code, 'VICE')}</td>
                           <td className="px-6 py-4 whitespace-nowrap">{getRatingDisplay(comp.code, 'GAD')}</td>
@@ -769,7 +769,7 @@ const InterviewSummaryGenerator = ({ user }) => {
                     <tbody className="bg-white divide-y divide-gray-200">
                       {groupedCompetencies.organizational.map((comp, index) => (
                         <tr key={comp.code}>
-                          <td className="px-6 py-4 whitespace-nowrap">{`ORG CC${comp.ordinal} - ${comp.name}`}</td>
+                          <td className="px-6 py-4 whitespace-nowrap">{`ORG CC${comp.ordinal}. ${comp.name}`}</td>
                           <td className="px-6 py-4 whitespace-nowrap">{getRatingDisplay(comp.code, 'CHAIR')}</td>
                           <td className="px-6 py-4 whitespace-nowrap">{getRatingDisplay(comp.code, 'VICE')}</td>
                           <td className="px-6 py-4 whitespace-nowrap">{getRatingDisplay(comp.code, 'GAD')}</td>
@@ -855,7 +855,7 @@ const InterviewSummaryGenerator = ({ user }) => {
                     <tbody className="bg-white divide-y divide-gray-200">
                       {groupedCompetencies.leadership.map((comp, index) => (
                         <tr key={comp.code}>
-                          <td className="px-6 py-4 whitespace-nowrap">{`LEAD CC${comp.ordinal} - ${comp.name}`}</td>
+                          <td className="px-6 py-4 whitespace-nowrap">{`LEAD CC${comp.ordinal}. ${comp.name}`}</td>
                           <td className="px-6 py-4 whitespace-nowrap">{getRatingDisplay(comp.code, 'CHAIR')}</td>
                           <td className="px-6 py-4 whitespace-nowrap">{getRatingDisplay(comp.code, 'VICE')}</td>
                           <td className="px-6 py-4 whitespace-nowrap">{getRatingDisplay(comp.code, 'GAD')}</td>
@@ -941,7 +941,7 @@ const InterviewSummaryGenerator = ({ user }) => {
                     <tbody className="bg-white divide-y divide-gray-200">
                       {groupedCompetencies.minimum.map((comp, index) => (
                         <tr key={comp.code}>
-                          <td className="px-6 py-4 whitespace-nowrap">{`MIN CC${comp.ordinal} - ${comp.name}`}</td>
+                          <td className="px-6 py-4 whitespace-nowrap">{`MIN CC${comp.ordinal}. ${comp.name}`}</td>
                           <td className="px-6 py-4 whitespace-nowrap">{getRatingDisplay(comp.code, 'CHAIR')}</td>
                           <td className="px-6 py-4 whitespace-nowrap">{getRatingDisplay(comp.code, 'VICE')}</td>
                           <td className="px-6 py-4 whitespace-nowrap">{getRatingDisplay(comp.code, 'GAD')}</td>
