@@ -171,10 +171,10 @@ const InterviewSummaryGenerator = ({ user }) => {
             
             setCompetencies(sortedCompetencies);
             setGroupedCompetencies({
-              basic: sortedCompetencies.filter(c => c.type === 'basic'),
-              organizational: sortedCompetencies.filter(c => c.type === 'organizational'),
-              leadership: sortedCompetencies.filter(c => c.type === 'leadership'),
-              minimum: sortedCompetencies.filter(c => c.type === 'minimum')
+              basic: sortedCompetencies.filter(c => c.type === 'basic').map((c, index) => ({ ...c, ordinal: index + 1 })),
+              organizational: sortedCompetencies.filter(c => c.type === 'organizational').map((c, index) => ({ ...c, ordinal: index + 1 })),
+              leadership: sortedCompetencies.filter(c => c.type === 'leadership').map((c, index) => ({ ...c, ordinal: index + 1 })),
+              minimum: sortedCompetencies.filter(c => c.type === 'minimum').map((c, index) => ({ ...c, ordinal: index + 1 }))
             });
           }
         } catch (error) {
@@ -328,7 +328,7 @@ const InterviewSummaryGenerator = ({ user }) => {
   // --- Header ---
   doc.setFontSize(7.5);
   doc.setFont('helvetica', 'bold');
-  doc.text('Department of Environment and Natural Resources', 105, 16, { align: 'center' });
+  doc.text('Department of Environment and Natural Resources', 105, 10, { align: 'center' });
   doc.text('Regional Office (CALABARZON)', 105, 13, { align: 'center' });
   doc.text('Human Resource Merit Promotion and Selection Board (HRMPSB)', 105, 16, { align: 'center' });
   doc.setFontSize(12);
@@ -379,7 +379,7 @@ const InterviewSummaryGenerator = ({ user }) => {
         groupTitle, 'CHAIR', 'VICE', 'GAD', 'DENREU', 'REGMEM', 'END-U', 'AVE'
       ]],
       body: competencies.map(comp => [
-        comp.name,
+        `${comp.name}`, // Remove the automatic indexing here since we now have ordinal
         getRatingDisplay(comp.code, 'CHAIR'),
         getRatingDisplay(comp.code, 'VICE'),
         getRatingDisplay(comp.code, 'GAD'),
@@ -433,7 +433,12 @@ doc.setFont('helvetica', 'bold');
 doc.setFontSize(10);
 doc.text(`CER SCORE: ${cerScore1}`, scoreBoxX + scoreBoxWidth/2, y + .3, { align: 'center' });
 
-makeCompTable('BASIC COMPETENCIES', groupedCompetencies.basic, 'basic');
+// For basic competencies
+makeCompTable('BASIC COMPETENCIES', 
+  groupedCompetencies.basic.map(comp => ({
+    ...comp,
+    name: `BASIC CC${comp.ordinal} - ${comp.name}`
+  })), 'basic');
 
 // --- Section II: Potential - Place heading and force table positioning ---
 let potentialSectionY = doc.lastAutoTable.finalY + 8;
@@ -460,7 +465,7 @@ doc.text(`CER SCORE: ${cerScore2}`, scoreBox2X + scoreBoxWidth/2, potentialSecti
     startY: potentialSectionY + 4,
     head: [['ORGANIZATIONAL COMPETENCIES', 'CHAIR', 'VICE', 'GAD', 'DENREU', 'REGMEM', 'END-U', 'AVE']],
     body: groupedCompetencies.organizational.map(comp => [
-      comp.name,
+      `ORG CC${comp.ordinal} - ${comp.name}`,
       getRatingDisplay(comp.code, 'CHAIR'),
       getRatingDisplay(comp.code, 'VICE'),
       getRatingDisplay(comp.code, 'GAD'),
@@ -490,9 +495,18 @@ doc.text(`CER SCORE: ${cerScore2}`, scoreBox2X + scoreBoxWidth/2, potentialSecti
   });
 
   if (shouldShowLeadership()) {
-    makeCompTable('LEADERSHIP COMPETENCIES', groupedCompetencies.leadership, 'leadership');
+  // For leadership competencies
+  makeCompTable('LEADERSHIP COMPETENCIES', 
+    groupedCompetencies.leadership.map(comp => ({
+      ...comp,
+      name: `LEAD CC${comp.ordinal} - ${comp.name}`
+    })), 'leadership');
   }
-  makeCompTable('MINIMUM COMPETENCIES', groupedCompetencies.minimum, 'minimum');
+  makeCompTable('MINIMUM COMPETENCIES', 
+    groupedCompetencies.minimum.map(comp => ({
+      ...comp,
+      name: `MIN CC${comp.ordinal} - ${comp.name}`
+    })), 'minimum');
 
   y = doc.lastAutoTable.finalY + 6;
 
@@ -670,7 +684,7 @@ doc.text(`CER SCORE: ${cerScore2}`, scoreBox2X + scoreBoxWidth/2, potentialSecti
                     <tbody className="bg-white divide-y divide-gray-200">
                       {groupedCompetencies.basic.map((comp, index) => (
                         <tr key={comp.code}>
-                          <td className="px-6 py-4 whitespace-nowrap">{`BASIC CC${index + 1} - ${comp.name}`}</td>
+                          <td className="px-6 py-4 whitespace-nowrap">{`BASIC CC${comp.ordinal} - ${comp.name}`}</td>
                           <td className="px-6 py-4 whitespace-nowrap">{getRatingDisplay(comp.code, 'CHAIR')}</td>
                           <td className="px-6 py-4 whitespace-nowrap">{getRatingDisplay(comp.code, 'VICE')}</td>
                           <td className="px-6 py-4 whitespace-nowrap">{getRatingDisplay(comp.code, 'GAD')}</td>
@@ -756,7 +770,7 @@ doc.text(`CER SCORE: ${cerScore2}`, scoreBox2X + scoreBoxWidth/2, potentialSecti
                     <tbody className="bg-white divide-y divide-gray-200">
                       {groupedCompetencies.organizational.map((comp, index) => (
                         <tr key={comp.code}>
-                          <td className="px-6 py-4 whitespace-nowrap">{`ORG CC${index + 1} - ${comp.name}`}</td>
+                          <td className="px-6 py-4 whitespace-nowrap">{`ORG CC${comp.ordinal} - ${comp.name}`}</td>
                           <td className="px-6 py-4 whitespace-nowrap">{getRatingDisplay(comp.code, 'CHAIR')}</td>
                           <td className="px-6 py-4 whitespace-nowrap">{getRatingDisplay(comp.code, 'VICE')}</td>
                           <td className="px-6 py-4 whitespace-nowrap">{getRatingDisplay(comp.code, 'GAD')}</td>
@@ -842,7 +856,7 @@ doc.text(`CER SCORE: ${cerScore2}`, scoreBox2X + scoreBoxWidth/2, potentialSecti
                     <tbody className="bg-white divide-y divide-gray-200">
                       {groupedCompetencies.leadership.map((comp, index) => (
                         <tr key={comp.code}>
-                          <td className="px-6 py-4 whitespace-nowrap">{`LEAD CC${index + 1} - ${comp.name}`}</td>
+                          <td className="px-6 py-4 whitespace-nowrap">{`LEAD CC${comp.ordinal} - ${comp.name}`}</td>
                           <td className="px-6 py-4 whitespace-nowrap">{getRatingDisplay(comp.code, 'CHAIR')}</td>
                           <td className="px-6 py-4 whitespace-nowrap">{getRatingDisplay(comp.code, 'VICE')}</td>
                           <td className="px-6 py-4 whitespace-nowrap">{getRatingDisplay(comp.code, 'GAD')}</td>
@@ -928,7 +942,7 @@ doc.text(`CER SCORE: ${cerScore2}`, scoreBox2X + scoreBoxWidth/2, potentialSecti
                     <tbody className="bg-white divide-y divide-gray-200">
                       {groupedCompetencies.minimum.map((comp, index) => (
                         <tr key={comp.code}>
-                          <td className="px-6 py-4 whitespace-nowrap">{`MIN CC${index + 1} - ${comp.name}`}</td>
+                          <td className="px-6 py-4 whitespace-nowrap">{`MIN CC${comp.ordinal} - ${comp.name}`}</td>
                           <td className="px-6 py-4 whitespace-nowrap">{getRatingDisplay(comp.code, 'CHAIR')}</td>
                           <td className="px-6 py-4 whitespace-nowrap">{getRatingDisplay(comp.code, 'VICE')}</td>
                           <td className="px-6 py-4 whitespace-nowrap">{getRatingDisplay(comp.code, 'GAD')}</td>
