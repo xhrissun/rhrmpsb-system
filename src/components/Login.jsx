@@ -56,10 +56,10 @@ const Login = React.memo(({ onLogin }) => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4 sm:p-6">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-green-900 to-slate-900 flex items-center justify-center p-4 sm:p-6">
       {/* Background Pattern */}
       <div className="absolute inset-0 opacity-30 sm:opacity-40">
-        <div className="h-full w-full bg-gradient-to-r from-blue-500/10 to-purple-500/10"></div>
+        <div className="h-full w-full bg-gradient-to-r from-blue-500/10 to-green-500/10"></div>
       </div>
 
       {/* Login Card */}
