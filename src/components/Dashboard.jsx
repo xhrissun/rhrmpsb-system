@@ -250,7 +250,7 @@ const CreatorProfileModal = ({ isOpen, onClose }) => {
             </div>
 
             <p className="text-gray-600 text-sm leading-relaxed">
-              Developer of the <strong>DENR CALABARZON Competency Rating System</strong>, leveraging expertise in VBA, JavaScript, and systems integration to deliver efficient, user-friendly digital solutions.
+              Developer of the <strong>DENR CALABARZON Competency-Based Rating System</strong>, leveraging expertise in VBA, JavaScript, and systems integration to deliver efficient, user-friendly digital solutions.
             </p>
           </div>
         </div>
@@ -442,7 +442,7 @@ const Dashboard = ({ user, onLogout }) => {
               e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCA0MCA0MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjQwIiBoZWlnaHQ9IjQwIiBmaWxsPSIjRjNGNEY2Ii8+Cjwvc3ZnPg==';
             }}
           />
-          <h1 className="navbar-title">The DENR CALABARZON Competency Rating System</h1>
+          <h1 className="navbar-title">The DENR CALABARZON Competency-Based Rating System</h1>
           <span className="navbar-user-type">
             {user.userType.charAt(0).toUpperCase() + user.userType.slice(1)}
           </span>
