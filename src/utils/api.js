@@ -248,10 +248,14 @@ export const ratingsAPI = {
     });
     return response.data;
   },
-  checkExistingRatings: async (candidateId, raterId) => {
+  
+  // UPDATED: Check existing ratings by item number
+  checkExistingRatings: async (candidateId, raterId, itemNumber) => {
     const response = await api.get(`/ratings/candidate/${candidateId}`);
     const raterRatings = response.data.filter(rating => 
-      rating.raterId && rating.raterId._id === raterId
+      rating.raterId && 
+      rating.raterId._id === raterId &&
+      rating.itemNumber === itemNumber  // Filter by itemNumber
     );
     return {
       hasExisting: raterRatings.length > 0,
@@ -259,8 +263,14 @@ export const ratingsAPI = {
       ratings: raterRatings
     };
   },
-  resetRatings: async (candidateId, raterId) => {
-    const response = await api.delete(`/ratings/candidate/${candidateId}/rater/${raterId}`);
+  
+  // UPDATED: Reset ratings by item number
+  resetRatings: async (candidateId, raterId, itemNumber) => {
+    // Encode item number to handle special characters
+    const encodedItemNumber = encodeURIComponent(itemNumber);
+    const response = await api.delete(
+      `/ratings/candidate/${candidateId}/rater/${raterId}/item/${encodedItemNumber}`
+    );
     return response.data;
   }
 };
