@@ -425,7 +425,15 @@ const AdminView = ({ user }) => {
     </div>
   );
 
-  const FilterableHeader = ({ label, filterKey, sortKey }) => (
+  const FilterableHeader = React.memo(({ label, filterKey, sortKey }) => {
+  const currentFilterValue = filters[filterKey] || '';
+  
+  const handleFilterChange = (e) => {
+    const newValue = e.target.value;
+    setFilters(prev => ({ ...prev, [filterKey]: newValue }));
+  };
+
+  return (
     <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
       <div className="flex flex-col space-y-1">
         <div className="flex items-center space-x-1">
@@ -434,6 +442,7 @@ const AdminView = ({ user }) => {
             <button
               onClick={() => handleSort(sortKey)}
               className="text-gray-400 hover:text-gray-600"
+              type="button"
             >
               {sortConfig.key === sortKey ? (
                 sortConfig.direction === 'asc' ? '▲' : '▼'
@@ -445,8 +454,8 @@ const AdminView = ({ user }) => {
           <input
             type="text"
             placeholder="Filter..."
-            value={filters[filterKey] || ''}
-            onChange={(e) => setFilters({ ...filters, [filterKey]: e.target.value })}
+            value={currentFilterValue}
+            onChange={handleFilterChange}
             className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
             onClick={(e) => e.stopPropagation()}
           />
@@ -454,6 +463,7 @@ const AdminView = ({ user }) => {
       </div>
     </th>
   );
+});
 
 
   const UserModal = () => {
@@ -1161,22 +1171,167 @@ const AdminView = ({ user }) => {
   };
 
   const VacancyAssignmentModal = () => {
-    const [formData, setFormData] = useState(() => {
-      if (editingItem) {
+      const [formData, setFormData] = useState(() => {
+        if (editingItem) {
+          return {
+            assignmentType: editingItem.assignedVacancies || 'all',
+            assignedAssignment: editingItem.assignedAssignment || '',
+            assignedItemNumbers: editingItem.assignedItemNumbers || []
+          };
+        }
         return {
-          assignmentType: editingItem.assignedVacancies || 'all',
-          assignedAssignment: editingItem.assignedAssignment || '',
-          assignedItemNumbers: editingItem.assignedItemNumbers || []
+          assignmentType: 'all',
+          assignedAssignment: '',
+          assignedItemNumbers: []
         };
-      }
-      return {
-        assignmentType: 'all',
-        assignedAssignment: '',
-        assignedItemNumbers: []
-      };
-    });
+      });
 
-    // Add this component after VacancyAssignmentModal (around line 1180)
+      const handleItemNumberChange = (itemNumber, checked) => {
+        if (checked) {
+          setFormData(prev => ({
+            ...prev,
+            assignedItemNumbers: [...prev.assignedItemNumbers, itemNumber]
+          }));
+        } else {
+          setFormData(prev => ({
+            ...prev,
+            assignedItemNumbers: prev.assignedItemNumbers.filter(item => item !== itemNumber)
+          }));
+        }
+      };
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        try {
+          const submitData = {
+            assignmentType: formData.assignmentType,
+            assignedAssignment: formData.assignmentType === 'assignment' ? formData.assignedAssignment : null,
+            assignedItemNumbers: formData.assignmentType === 'specific' ? formData.assignedItemNumbers : []
+          };
+
+          await usersAPI.assignVacancies(editingItem._id, submitData);
+          setShowModal(false);
+          loadData();
+          alert('Vacancy assignment updated successfully!');
+        } catch (error) {
+          console.error('Failed to assign vacancies:', error);
+          alert('Failed to assign vacancies. Please try again.');
+        }
+      };
+
+      return (
+        <div className="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="modal-content bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6 overflow-y-auto max-h-[90vh]">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-bold">
+                Assign Vacancies to {editingItem?.name}
+              </h2>
+              <button onClick={() => setShowModal(false)} className="text-gray-500 hover:text-gray-700">✕</button>
+            </div>
+            <form onSubmit={handleSubmit} className="space-y-3 text-sm">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Assignment Type</label>
+                <div className="space-y-2">
+                  <label className="flex items-center text-sm">
+                    <input
+                      type="radio"
+                      name="assignmentType"
+                      value="all"
+                      checked={formData.assignmentType === 'all'}
+                      onChange={(e) => setFormData({ ...formData, assignmentType: e.target.value })}
+                      className="mr-2"
+                    />
+                    All Vacancies
+                  </label>
+                  <label className="flex items-center text-sm">
+                    <input
+                      type="radio"
+                      name="assignmentType"
+                      value="assignment"
+                      checked={formData.assignmentType === 'assignment'}
+                      onChange={(e) => setFormData({ ...formData, assignmentType: e.target.value })}
+                      className="mr-2"
+                    />
+                    By Assignment/Department (from vacancy.assignment field)
+                  </label>
+                  <label className="flex items-center text-sm">
+                    <input
+                      type="radio"
+                      name="assignmentType"
+                      value="specific"
+                      checked={formData.assignmentType === 'specific'}
+                      onChange={(e) => setFormData({ ...formData, assignmentType: e.target.value })}
+                      className="mr-2"
+                    />
+                    Specific Item Numbers
+                  </label>
+                </div>
+              </div>
+
+              {formData.assignmentType === 'assignment' && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Select Assignment</label>
+                  <select
+                    value={formData.assignedAssignment}
+                    onChange={(e) => setFormData({ ...formData, assignedAssignment: e.target.value })}
+                    className="select-field w-full border rounded px-2 py-1 text-sm"
+                    required
+                  >
+                    <option value="">Select Assignment</option>
+                    {assignments.map(assignment => (
+                      <option key={assignment} value={assignment}>{assignment}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-600 mt-1">
+                    This will assign all vacancies where vacancy.assignment matches the selected value.
+                  </p>
+                </div>
+              )}
+
+              {formData.assignmentType === 'specific' && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Select Item Numbers</label>
+                  <div className="max-h-40 overflow-y-auto border border-gray-300 rounded-md p-2 space-y-1 text-sm">
+                    {vacancies.map(vacancy => (
+                      <label key={vacancy._id} className="flex items-center text-xs">
+                        <input
+                          type="checkbox"
+                          checked={formData.assignedItemNumbers.includes(vacancy.itemNumber)}
+                          onChange={(e) => handleItemNumberChange(vacancy.itemNumber, e.target.checked)}
+                          className="mr-2"
+                        />
+                        {vacancy.itemNumber} - {vacancy.position} ({vacancy.assignment})
+                      </label>
+                    ))}
+                  </div>
+                  {formData.assignedItemNumbers.length === 0 && (
+                    <p className="text-xs text-red-600 mt-1">Please select at least one item number.</p>
+                  )}
+                </div>
+              )}
+
+              <div className="flex justify-end space-x-2">
+                <button type="button" onClick={() => setShowModal(false)} className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300">
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600"
+                  disabled={
+                    (formData.assignmentType === 'assignment' && !formData.assignedAssignment) ||
+                    (formData.assignmentType === 'specific' && formData.assignedItemNumbers.length === 0)
+                  }
+                >
+                  Assign Vacancies
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      );
+    };
+
+  // VacancyDetailsModal - This should be AFTER VacancyAssignmentModal
   const VacancyDetailsModal = () => {
     if (!selectedVacancy) return null;
 
@@ -1251,151 +1406,6 @@ const AdminView = ({ user }) => {
               </button>
             </div>
           </div>
-        </div>
-      </div>
-    );
-  };
-
-    const handleItemNumberChange = (itemNumber, checked) => {
-      if (checked) {
-        setFormData(prev => ({
-          ...prev,
-          assignedItemNumbers: [...prev.assignedItemNumbers, itemNumber]
-        }));
-      } else {
-        setFormData(prev => ({
-          ...prev,
-          assignedItemNumbers: prev.assignedItemNumbers.filter(item => item !== itemNumber)
-        }));
-      }
-    };
-
-    const handleSubmit = async (e) => {
-      e.preventDefault();
-      try {
-        const submitData = {
-          assignmentType: formData.assignmentType,
-          assignedAssignment: formData.assignmentType === 'assignment' ? formData.assignedAssignment : null,
-          assignedItemNumbers: formData.assignmentType === 'specific' ? formData.assignedItemNumbers : []
-        };
-
-        await usersAPI.assignVacancies(editingItem._id, submitData);
-        setShowModal(false);
-        loadData();
-        alert('Vacancy assignment updated successfully!');
-      } catch (error) {
-        console.error('Failed to assign vacancies:', error);
-        alert('Failed to assign vacancies. Please try again.');
-      }
-    };
-
-    return (
-      <div className="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div className="modal-content bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6 overflow-y-auto max-h-[90vh]">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-bold">
-              Assign Vacancies to {editingItem?.name}
-            </h2>
-            <button onClick={() => setShowModal(false)} className="text-gray-500 hover:text-gray-700">✕</button>
-          </div>
-          <form onSubmit={handleSubmit} className="space-y-3 text-sm">
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Assignment Type</label>
-              <div className="space-y-2">
-                <label className="flex items-center text-sm">
-                  <input
-                    type="radio"
-                    name="assignmentType"
-                    value="all"
-                    checked={formData.assignmentType === 'all'}
-                    onChange={(e) => setFormData({ ...formData, assignmentType: e.target.value })}
-                    className="mr-2"
-                  />
-                  All Vacancies
-                </label>
-                <label className="flex items-center text-sm">
-                  <input
-                    type="radio"
-                    name="assignmentType"
-                    value="assignment"
-                    checked={formData.assignmentType === 'assignment'}
-                    onChange={(e) => setFormData({ ...formData, assignmentType: e.target.value })}
-                    className="mr-2"
-                  />
-                  By Assignment/Department (from vacancy.assignment field)
-                </label>
-                <label className="flex items-center text-sm">
-                  <input
-                    type="radio"
-                    name="assignmentType"
-                    value="specific"
-                    checked={formData.assignmentType === 'specific'}
-                    onChange={(e) => setFormData({ ...formData, assignmentType: e.target.value })}
-                    className="mr-2"
-                  />
-                  Specific Item Numbers
-                </label>
-              </div>
-            </div>
-
-            {formData.assignmentType === 'assignment' && (
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Select Assignment</label>
-                <select
-                  value={formData.assignedAssignment}
-                  onChange={(e) => setFormData({ ...formData, assignedAssignment: e.target.value })}
-                  className="select-field w-full border rounded px-2 py-1 text-sm"
-                  required
-                >
-                  <option value="">Select Assignment</option>
-                  {assignments.map(assignment => (
-                    <option key={assignment} value={assignment}>{assignment}</option>
-                  ))}
-                </select>
-                <p className="text-xs text-gray-600 mt-1">
-                  This will assign all vacancies where vacancy.assignment matches the selected value.
-                </p>
-              </div>
-            )}
-
-            {formData.assignmentType === 'specific' && (
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Select Item Numbers</label>
-                <div className="max-h-40 overflow-y-auto border border-gray-300 rounded-md p-2 space-y-1 text-sm">
-                  {vacancies.map(vacancy => (
-                    <label key={vacancy._id} className="flex items-center text-xs">
-                      <input
-                        type="checkbox"
-                        checked={formData.assignedItemNumbers.includes(vacancy.itemNumber)}
-                        onChange={(e) => handleItemNumberChange(vacancy.itemNumber, e.target.checked)}
-                        className="mr-2"
-                      />
-                      {vacancy.itemNumber} - {vacancy.position} ({vacancy.assignment})
-                    </label>
-                  ))}
-                </div>
-                {formData.assignedItemNumbers.length === 0 && (
-                  <p className="text-xs text-red-600 mt-1">Please select at least one item number.</p>
-                )}
-              </div>
-            )}
-
-            <div className="flex justify-end space-x-2">
-              <button type="button" onClick={() => setShowModal(false)} className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300">
-                Cancel
-              </button>
-              <button 
-                type="submit" 
-                className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600"
-                disabled={
-                  (formData.assignmentType === 'assignment' && !formData.assignedAssignment) ||
-                  (formData.assignmentType === 'specific' && formData.assignedItemNumbers.length === 0)
-                }
-              >
-                Assign Vacancies
-              </button>
-            </div>
-          </form>
         </div>
       </div>
     );
