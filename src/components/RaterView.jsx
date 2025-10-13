@@ -227,9 +227,14 @@ const RaterView = ({ user }) => {
   const loadExistingRatings = async () => {
     try {
       const existingRatings = await ratingsAPI.getByCandidate(selectedCandidate);
+      
+      // CRITICAL: Filter by both rater AND item number
       const raterRatings = existingRatings.filter(rating =>
-        rating.raterId && rating.raterId._id === user._id
+        rating.raterId && 
+        rating.raterId._id === user._id &&
+        rating.itemNumber === selectedItemNumber  // Only load ratings for THIS item number
       );
+      
       const ratingsMap = {};
       raterRatings.forEach(rating => {
         if (rating.competencyId && rating.competencyId._id) {
@@ -278,7 +283,13 @@ const RaterView = ({ user }) => {
       return;
     }
     try {
-      const existingRatings = await ratingsAPI.checkExistingRatings(selectedCandidate, user._id);
+      // Check if ratings exist for THIS specific candidate + item number combination
+      const existingRatings = await ratingsAPI.checkExistingRatings(
+        selectedCandidate, 
+        user._id,
+        selectedItemNumber  // Pass item number to check
+      );
+      
       if (existingRatings.hasExisting) {
         setIsUpdateSubmission(true);
         setIsPasswordModalOpen(true); // Prompt for password if updating
@@ -319,7 +330,8 @@ const RaterView = ({ user }) => {
           raterId: user._id,
           competencyId,
           competencyType,
-          score: parseInt(score)
+          score: parseInt(score),
+          itemNumber: selectedItemNumber  // CRITICAL: Include itemNumber with each rating
         };
       });
 
@@ -344,9 +356,16 @@ const RaterView = ({ user }) => {
       const isValid = await authAPI.verifyPassword(user._id, password);
       if (isValid) {
         try {
-          await ratingsAPI.resetRatings(selectedCandidate, user._id);
+          // Delete ratings for THIS specific candidate + rater + item number
+          await ratingsAPI.resetRatings(
+            selectedCandidate, 
+            user._id,
+            selectedItemNumber  // CRITICAL: Pass item number to delete only those ratings
+          );
           setRatings({});
           setIsPasswordModalOpen(false);
+          setPassword('');
+          setPasswordError('');
           setSuccessModalType('delete');
           setIsSuccessModalOpen(true);
         } catch (error) {
