@@ -87,6 +87,18 @@ const AdminView = ({ user }) => {
     }
   };
 
+  const handleFilterChange = (key, value) => {
+  setFilters(prev => {
+    const newFilters = { ...prev };
+    if (value === '') {
+      delete newFilters[key];
+    } else {
+      newFilters[key] = value;
+    }
+    return newFilters;
+  });
+};
+
 
   // Validate activeTab
   useEffect(() => {
@@ -411,59 +423,53 @@ const AdminView = ({ user }) => {
     alert(`Empty ${type} template exported successfully!`);
   };
 
+// Optimized components - place before UserModal (around line 420)
+const SearchBar = React.memo(({ placeholder, value, onChange }) => (
+  <div className="mb-4">
+    <input
+      type="text"
+      placeholder={placeholder}
+      value={value}
+      onChange={onChange}
+      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+    />
+  </div>
+));
 
-    // Add this component before the UserModal component (around line 284)
-  const SearchBar = ({ placeholder = "Search..." }) => (
-    <div className="mb-4">
-      <input
-        type="text"
-        placeholder={placeholder}
-        value={searchTerm}
-        onChange={(e) => setSearchTerm(e.target.value)}
-        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-      />
-    </div>
-  );
+SearchBar.displayName = 'SearchBar';
 
-  const FilterableHeader = React.memo(({ label, filterKey, sortKey }) => {
-  const currentFilterValue = filters[filterKey] || '';
-  
-  const handleFilterChange = (e) => {
-    const newValue = e.target.value;
-    setFilters(prev => ({ ...prev, [filterKey]: newValue }));
-  };
-
-  return (
-    <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-      <div className="flex flex-col space-y-1">
-        <div className="flex items-center space-x-1">
-          <span>{label}</span>
-          {sortKey && (
-            <button
-              onClick={() => handleSort(sortKey)}
-              className="text-gray-400 hover:text-gray-600"
-              type="button"
-            >
-              {sortConfig.key === sortKey ? (
-                sortConfig.direction === 'asc' ? '▲' : '▼'
-              ) : '⇅'}
-            </button>
-          )}
-        </div>
-        {filterKey && (
-          <input
-            type="text"
-            placeholder="Filter..."
-            value={currentFilterValue}
-            onChange={handleFilterChange}
-            className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
-            onClick={(e) => e.stopPropagation()}
-          />
+const FilterableHeader = React.memo(({ label, filterKey, sortKey, filterValue, onFilterChange, onSort, sortConfig }) => (
+  <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+    <div className="flex flex-col space-y-1">
+      <div className="flex items-center space-x-1">
+        <span>{label}</span>
+        {sortKey && (
+          <button
+            onClick={() => onSort(sortKey)}
+            className="text-gray-400 hover:text-gray-600"
+            type="button"
+          >
+            {sortConfig.key === sortKey ? (
+              sortConfig.direction === 'asc' ? '▲' : '▼'
+            ) : '⇅'}
+          </button>
         )}
       </div>
-    </th>
-  );
-});
+      {filterKey && (
+        <input
+          type="text"
+          placeholder="Filter..."
+          value={filterValue}
+          onChange={(e) => onFilterChange(filterKey, e.target.value)}
+          className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+          onClick={(e) => e.stopPropagation()}
+        />
+      )}
+    </div>
+  </th>
+));
+
+FilterableHeader.displayName = 'FilterableHeader';
 
 
   const UserModal = () => {
@@ -1480,18 +1486,22 @@ const AdminView = ({ user }) => {
           </div>
         </div>
         
-        <SearchBar placeholder="Search users by name, email, type, or position..." />
+        <SearchBar 
+          placeholder="Search users by name, email, type, or position..." 
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
         
         <div className="card bg-white rounded-lg shadow overflow-hidden">
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200 text-sm">
               <thead className="bg-gray-50">
                 <tr>
-                  <FilterableHeader label="Name" filterKey="name" sortKey="name" />
-                  <FilterableHeader label="Email" filterKey="email" sortKey="email" />
-                  <FilterableHeader label="User Type" filterKey="userType" sortKey="userType" />
-                  <FilterableHeader label="Rater Type" filterKey="raterType" sortKey="raterType" />
-                  <FilterableHeader label="Position" filterKey="position" sortKey="position" />
+                  <FilterableHeader label="Name" filterKey="name" sortKey="name" filterValue={filters.name || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Email" filterKey="email" sortKey="email" filterValue={filters.email || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="User Type" filterKey="userType" sortKey="userType" filterValue={filters.userType || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Rater Type" filterKey="raterType" sortKey="raterType" filterValue={filters.raterType || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Position" filterKey="position" sortKey="position" filterValue={filters.position || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
                   <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
@@ -1575,17 +1585,21 @@ const AdminView = ({ user }) => {
           </div>
         </div>
         
-        <SearchBar placeholder="Search vacancies by item number, position, assignment, or salary grade..." />
+        <SearchBar 
+          placeholder="Search vacancies by item number, position, assignment, or salary grade..." 
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
         
         <div className="card bg-white rounded-lg shadow overflow-hidden">
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200 text-sm">
               <thead className="bg-gray-50">
                 <tr>
-                  <FilterableHeader label="Item Number" filterKey="itemNumber" sortKey="itemNumber" />
-                  <FilterableHeader label="Position" filterKey="position" sortKey="position" />
-                  <FilterableHeader label="Assignment" filterKey="assignment" sortKey="assignment" />
-                  <FilterableHeader label="Salary Grade" filterKey="salaryGrade" sortKey="salaryGrade" />
+                  <FilterableHeader label="Item Number" filterKey="itemNumber" sortKey="itemNumber" filterValue={filters.itemNumber || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Position" filterKey="position" sortKey="position" filterValue={filters.position || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Assignment" filterKey="assignment" sortKey="assignment" filterValue={filters.assignment || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Salary Grade" filterKey="salaryGrade" sortKey="salaryGrade" filterValue={filters.salaryGrade || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
                   <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
@@ -1664,18 +1678,22 @@ const AdminView = ({ user }) => {
           </div>
         </div>
         
-        <SearchBar placeholder="Search candidates by name, item number, gender, age, or status..." />
+        <SearchBar 
+          placeholder="Search candidates by name, item number, gender, age, or status..." 
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
         
         <div className="card bg-white rounded-lg shadow overflow-hidden">
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200 text-sm">
               <thead className="bg-gray-50">
                 <tr>
-                  <FilterableHeader label="Name" filterKey="fullName" sortKey="fullName" />
-                  <FilterableHeader label="Item Number" filterKey="itemNumber" sortKey="itemNumber" />
-                  <FilterableHeader label="Gender" filterKey="gender" sortKey="gender" />
-                  <FilterableHeader label="Age" filterKey="age" sortKey="age" />
-                  <FilterableHeader label="Status" filterKey="status" sortKey="status" />
+                  <FilterableHeader label="Name" filterKey="fullName" sortKey="fullName" filterValue={filters.fullName || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Item Number" filterKey="itemNumber" sortKey="itemNumber" filterValue={filters.itemNumber || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Gender" filterKey="gender" sortKey="gender" filterValue={filters.gender || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Age" filterKey="age" sortKey="age" filterValue={filters.age || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Status" filterKey="status" sortKey="status" filterValue={filters.status || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
                   <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
@@ -1766,17 +1784,21 @@ const AdminView = ({ user }) => {
           </div>
         </div>
         
-        <SearchBar placeholder="Search competencies by name or type..." />
+        <SearchBar 
+          placeholder="Search competencies by name or type..." 
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
         
         <div className="card bg-white rounded-lg shadow overflow-hidden">
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200 text-sm">
               <thead className="bg-gray-50">
                 <tr>
-                  <FilterableHeader label="Name" filterKey="name" sortKey="name" />
-                  <FilterableHeader label="Type" filterKey="type" sortKey="type" />
+                  <FilterableHeader label="Name" filterKey="name" sortKey="name" filterValue={filters.name || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Type" filterKey="type" sortKey="type" filterValue={filters.type || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
                   <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vacancies</th>
-                  <FilterableHeader label="Fixed" filterKey="isFixed" sortKey="isFixed" />
+                  <FilterableHeader label="Fixed" filterKey="isFixed" sortKey="isFixed" filterValue={filters.isFixed || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
                   <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
@@ -1850,15 +1872,19 @@ const AdminView = ({ user }) => {
           </div>
         </div>
         
-        <SearchBar placeholder="Search users by name, email, or type..." />
+        <SearchBar 
+          placeholder="Search users by name, email, or type..." 
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
         
         <div className="card bg-white rounded-lg shadow overflow-hidden">
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200 text-sm">
               <thead className="bg-gray-50">
                 <tr>
-                  <FilterableHeader label="User" filterKey="name" sortKey="name" />
-                  <FilterableHeader label="User Type" filterKey="userType" sortKey="userType" />
+                  <FilterableHeader label="User" filterKey="name" sortKey="name" filterValue={filters.name || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="User Type" filterKey="userType" sortKey="userType" filterValue={filters.userType || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
                   <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Current Assignment</th>
                   <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Details</th>
                   <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
