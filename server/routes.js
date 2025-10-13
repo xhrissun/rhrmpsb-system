@@ -768,11 +768,24 @@ router.post('/ratings/submit', authMiddleware, async (req, res) => {
   try {
     const { ratings, isUpdate = false } = req.body;
     
-    // Check if any ratings already exist for this rater and candidate combination
+    if (!ratings || ratings.length === 0) {
+      return res.status(400).json({ message: 'No ratings provided' });
+    }
+
+    // Validate that all ratings have itemNumber
+    const missingItemNumber = ratings.some(r => !r.itemNumber);
+    if (missingItemNumber) {
+      return res.status(400).json({ message: 'All ratings must include itemNumber' });
+    }
+    
+    // Check if any ratings already exist for this rater, candidate, and item number combination
     const candidateIds = [...new Set(ratings.map(r => r.candidateId))];
+    const itemNumbers = [...new Set(ratings.map(r => r.itemNumber))];
+    
     const existingRatings = await Rating.find({
       candidateId: { $in: candidateIds },
-      raterId: req.user._id
+      raterId: req.user._id,
+      itemNumber: { $in: itemNumbers }
     });
     
     const hasExistingRatings = existingRatings.length > 0;
@@ -780,7 +793,7 @@ router.post('/ratings/submit', authMiddleware, async (req, res) => {
     // If there are existing ratings but this isn't marked as an update, return error
     if (hasExistingRatings && !isUpdate) {
       return res.status(409).json({ 
-        message: 'Existing ratings found',
+        message: 'Existing ratings found for this candidate and item number',
         requiresUpdate: true,
         existingCount: existingRatings.length
       });
@@ -793,7 +806,8 @@ router.post('/ratings/submit', authMiddleware, async (req, res) => {
         candidateId: ratingData.candidateId,
         raterId: req.user._id,
         competencyId: ratingData.competencyId,
-        competencyType: ratingData.competencyType
+        competencyType: ratingData.competencyType,
+        itemNumber: ratingData.itemNumber  // CRITICAL: Include itemNumber in filter
       };
       
       const update = {
@@ -852,6 +866,33 @@ router.delete('/ratings/candidate/:candidateId/rater/:raterId', authMiddleware, 
     res.json({ message: 'Ratings reset successfully' });
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
+  }
+});
+
+router.delete('/ratings/candidate/:candidateId/rater/:raterId/item/:itemNumber', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'rater') {
+    return res.status(403).json({ message: 'Access denied' });
+  }
+  
+  try {
+    const { candidateId, raterId, itemNumber } = req.params;
+    
+    // Decode item number in case it has special characters
+    const decodedItemNumber = decodeURIComponent(itemNumber);
+    
+    const result = await Rating.deleteMany({
+      candidateId: candidateId,
+      raterId: raterId,
+      itemNumber: decodedItemNumber
+    });
+    
+    res.json({ 
+      message: 'Ratings reset successfully',
+      deletedCount: result.deletedCount
+    });
+  } catch (error) {
+    console.error('Rating deletion error:', error);
+    res.status(500).json({ message: 'Server error: ' + error.message });
   }
 });
 
