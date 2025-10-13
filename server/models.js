@@ -289,6 +289,12 @@ const ratingSchema = new mongoose.Schema({
   competencyType: {
     type: String,
     enum: ['basic', 'organizational', 'leadership', 'minimum']
+  },
+  // NEW: Add itemNumber to tie ratings to specific vacancy applications
+  itemNumber: {
+    type: String,
+    required: true,
+    trim: true
   }
 }, {
   timestamps: true
@@ -352,6 +358,16 @@ ratingSchema.statics.findByCandidate = function(candidateId) {
 ratingSchema.statics.findByRater = function(raterId) {
   return this.find({ raterId: raterId })
     .populate('candidateId', 'fullName itemNumber')
+    .populate('competencyId', 'name type');
+};
+
+// NEW: Find ratings by candidate and item number
+ratingSchema.statics.findByCandidateAndItem = function(candidateId, itemNumber) {
+  return this.find({ 
+    candidateId: candidateId,
+    itemNumber: itemNumber 
+  })
+    .populate('raterId', 'name raterType position designation')
     .populate('competencyId', 'name type');
 };
 
