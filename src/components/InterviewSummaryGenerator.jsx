@@ -188,6 +188,7 @@ const InterviewSummaryGenerator = ({ user }) => {
     }
   }, [selectedItem]);
 
+  // UPDATED: Filter ratings by selectedItem (itemNumber)
   useEffect(() => {
     if (selectedCandidate) {
       const fetchCandidateData = async () => {
@@ -199,7 +200,13 @@ const InterviewSummaryGenerator = ({ user }) => {
           ]);
           
           setCandidateDetails(candidateData);
-          setRatings(ratingsData);
+          
+          // CRITICAL: Only show ratings for the selected item number
+          const filteredRatings = ratingsData.filter(rating => 
+            rating.itemNumber === selectedItem
+          );
+          
+          setRatings(filteredRatings);
         } catch (error) {
           console.error('Failed to load candidate data or ratings:', error);
           alert('Failed to load candidate data or ratings. Please try again.');
@@ -212,7 +219,7 @@ const InterviewSummaryGenerator = ({ user }) => {
       setCandidateDetails(null);
       setRatings([]);
     }
-  }, [selectedCandidate]);
+  }, [selectedCandidate, selectedItem]); // CRITICAL: Add selectedItem dependency
 
   const getRaterTypeCode = (raterType) => {
     switch (raterType) {
@@ -236,16 +243,19 @@ const InterviewSummaryGenerator = ({ user }) => {
       : allRaters.includes(raterType);
   };
 
+  // UPDATED: Filter by itemNumber
   const getRatingDisplay = (competencyCode, raterType) => {
     if (!isRaterRequired(raterType)) return 'NA';
     
     const rating = ratings.find(r => 
       r.competencyId.name.toUpperCase().replace(/ /g, '_') === competencyCode &&
-      getRaterTypeCode(r.raterId.raterType) === raterType
+      getRaterTypeCode(r.raterId.raterType) === raterType &&
+      r.itemNumber === selectedItem  // CRITICAL: Filter by item number
     );
     return rating ? rating.score.toFixed(2) : '-';
   };
 
+  // UPDATED: Filter by itemNumber
   const calculateRowAverage = (competencyCode, competencyType) => {
     const raterTypes = ['CHAIR', 'VICE', 'GAD', 'DENREU', 'REGMEM', 'END-USER'];
     const validRatings = raterTypes
@@ -254,7 +264,8 @@ const InterviewSummaryGenerator = ({ user }) => {
         const rating = ratings.find(r => 
           r.competencyId.name.toUpperCase().replace(/ /g, '_') === competencyCode && 
           getRaterTypeCode(r.raterId.raterType) === raterType &&
-          r.competencyType === competencyType
+          r.competencyType === competencyType &&
+          r.itemNumber === selectedItem  // CRITICAL: Filter by item number
         );
         return rating ? rating.score : 0;
       })
@@ -321,86 +332,170 @@ const InterviewSummaryGenerator = ({ user }) => {
     return salaryGrade >= 18 && groupedCompetencies.leadership.length > 0;
   };
 
-  // --- Para sa PDF Generation ----
+  // UPDATED: PDF Generation with itemNumber filtering
   const exportToPDF = () => {
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  const scores = calculateFinalScores();
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const scores = calculateFinalScores();
 
-  // --- Header ---
-  doc.setFontSize(7.5);
-  doc.setFont('helvetica', 'bold');
-  doc.text('Department of Environment and Natural Resources', 105, 10, { align: 'center' });
-  doc.text('Regional Office (CALABARZON)', 105, 13, { align: 'center' });
-  doc.text('Human Resource Merit Promotion and Selection Board (HRMPSB)', 105, 16, { align: 'center' });
-  doc.setFontSize(12);
-  doc.text('SUMMARY OF INTERVIEW SCORES', 105, 22, { align: 'center' });
-
-  // --- Candidate Info (aligned with tabs) ---
-  doc.setFontSize(8);
-  let y = 28;
-  const xLeft = 20;
-  const xTab = 70;
-
-  const details = [
-    ['Name of Candidate:', candidateDetails?.fullName || ''],
-    ['Office:', vacancyDetails?.assignment || ''],
-    ['Vacancy:', vacancyDetails?.position || ''],
-    ['Item Number:', selectedItem || ''],
-    ['Date of Interview:', new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })]
-  ];
-
-  details.forEach(([label, value]) => {
+    // --- Header ---
+    doc.setFontSize(7.5);
     doc.setFont('helvetica', 'bold');
-    doc.text(label, xLeft, y);
-    doc.setFont('helvetica', 'normal');
-    doc.text(value, xTab, y);
-    y += 3.5;
-  });
+    doc.text('Department of Environment and Natural Resources', 105, 10, { align: 'center' });
+    doc.text('Regional Office (CALABARZON)', 105, 13, { align: 'center' });
+    doc.text('Human Resource Merit Promotion and Selection Board (HRMPSB)', 105, 16, { align: 'center' });
+    doc.setFontSize(12);
+    doc.text('SUMMARY OF INTERVIEW SCORES', 105, 22, { align: 'center' });
 
-  // --- Column Widths ---
-  const colCompetency = 116;
-  const colRating = 10.5;
+    // --- Candidate Info (aligned with tabs) ---
+    doc.setFontSize(8);
+    let y = 28;
+    const xLeft = 20;
+    const xTab = 70;
 
-  const columnWidths = {
-    0: { cellWidth: colCompetency, halign: 'left' },
-    1: { cellWidth: colRating, halign: 'center' },
-    2: { cellWidth: colRating, halign: 'center' },
-    3: { cellWidth: colRating, halign: 'center' },
-    4: { cellWidth: colRating, halign: 'center' },
-    5: { cellWidth: colRating, halign: 'center' },
-    6: { cellWidth: colRating, halign: 'center' },
-    7: { cellWidth: colRating, halign: 'center' }
-  };
+    const details = [
+      ['Name of Candidate:', candidateDetails?.fullName || ''],
+      ['Office:', vacancyDetails?.assignment || ''],
+      ['Vacancy:', vacancyDetails?.position || ''],
+      ['Item Number:', selectedItem || ''],
+      ['Date of Interview:', new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })]
+    ];
 
-  // --- Helper to render a competency group table ---
-  const makeCompTable = (groupTitle, competencies, type) => {
+    details.forEach(([label, value]) => {
+      doc.setFont('helvetica', 'bold');
+      doc.text(label, xLeft, y);
+      doc.setFont('helvetica', 'normal');
+      doc.text(value, xTab, y);
+      y += 3.5;
+    });
+
+    // --- Column Widths ---
+    const colCompetency = 116;
+    const colRating = 10.5;
+
+    const columnWidths = {
+      0: { cellWidth: colCompetency, halign: 'left' },
+      1: { cellWidth: colRating, halign: 'center' },
+      2: { cellWidth: colRating, halign: 'center' },
+      3: { cellWidth: colRating, halign: 'center' },
+      4: { cellWidth: colRating, halign: 'center' },
+      5: { cellWidth: colRating, halign: 'center' },
+      6: { cellWidth: colRating, halign: 'center' },
+      7: { cellWidth: colRating, halign: 'center' }
+    };
+
+    // UPDATED: Helper to render a competency group table with itemNumber filtering
+    const makeCompTable = (groupTitle, competencies, type) => {
+      doc.autoTable({
+        startY: doc.lastAutoTable ? doc.lastAutoTable.finalY + 4 : y + 4,
+        head: [[
+          groupTitle, 'CHAIR', 'VICE', 'GAD', 'DENREU', 'REGMEM', 'END-U', 'AVE'
+        ]],
+        body: competencies.map(comp => [
+          `${comp.ordinal}. ${comp.name}`,
+          getRatingDisplay(comp.code, 'CHAIR'),
+          getRatingDisplay(comp.code, 'VICE'),
+          getRatingDisplay(comp.code, 'GAD'),
+          getRatingDisplay(comp.code, 'DENREU'),
+          getRatingDisplay(comp.code, 'REGMEM'),
+          getRatingDisplay(comp.code, 'END-USER'),
+          { content: calculateRowAverage(comp.code, type).toFixed(2), styles: { fontStyle: 'bold' } }
+        ]),
+        foot: [[
+          { content: 'TOTAL', styles: { halign: 'center', fontStyle: 'bold' } },
+          ...['CHAIR','VICE','GAD','DENREU','REGMEM','END-USER'].map(rt =>
+            ({ content: (competencies.reduce((sum, comp) => {
+              const r = ratings.find(r =>
+                r.competencyId.name.toUpperCase().replace(/ /g, '_') === comp.code &&
+                getRaterTypeCode(r.raterId.raterType) === rt &&
+                r.itemNumber === selectedItem  // CRITICAL: Filter by item number
+              );
+              return sum + (r ? r.score : 0);
+            }, 0) / Math.max(1, competencies.length)).toFixed(2), styles: { halign: 'center' } })
+          ),
+          { content: calculateFinalScores().breakdown[type].toFixed(2), styles: { fontStyle: 'bold', halign: 'center' } }
+        ]],
+        styles: { fontSize: 5.2, cellPadding: 0.8, valign: 'middle' },
+        headStyles: { halign: 'center', fontStyle: 'bold' },
+        columnStyles: columnWidths,
+        theme: 'grid',
+        margin: { left: 10, right: 14 }
+      });
+
+      y = doc.lastAutoTable.finalY;
+    };
+
+    // --- Section I: Psycho-Social ---
+    y += 4;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.text('I. PSYCHO-SOCIAL ATTRIBUTES AND PERSONALITY TRAITS', xLeft, y);
+
+    // Create box for CER Score
+    const cerScore1 = scores.psychoSocial.toFixed(2);
+    const scoreBoxWidth = 40;
+    const scoreBoxHeight = 6;
+    const scoreBoxX = 190 - scoreBoxWidth;
+    const scoreBoxY = y - 4;
+
+    // Draw heavy border box
+    doc.setLineWidth(.3);
+    doc.rect(scoreBoxX, scoreBoxY, scoreBoxWidth, scoreBoxHeight);
+
+    // Add CER score text inside the box
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.text(`CER SCORE: ${cerScore1}`, scoreBoxX + scoreBoxWidth/2, y + .3, { align: 'center' });
+
+    // For basic competencies
+    makeCompTable('BASIC COMPETENCIES', groupedCompetencies.basic, 'basic');
+
+    // --- Section II: Potential - Place heading and force table positioning ---
+    let potentialSectionY = doc.lastAutoTable.finalY + 8;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.text('II. POTENTIAL', xLeft, potentialSectionY);
+
+    // Create box for CER Score
+    const cerScore2 = scores.potential.toFixed(2);
+    const scoreBox2X = 190 - scoreBoxWidth;
+    const scoreBox2Y = potentialSectionY - 4;
+
+    // Draw heavy border box
+    doc.setLineWidth(.3);
+    doc.rect(scoreBox2X, scoreBox2Y, scoreBoxWidth, scoreBoxHeight);
+
+    // Add CER score text inside the box
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.text(`CER SCORE: ${cerScore2}`, scoreBox2X + scoreBoxWidth/2, potentialSectionY + .3, { align: 'center' });
+
+    // ORGANIZATIONAL TABLE - with forced positioning
     doc.autoTable({
-      startY: doc.lastAutoTable ? doc.lastAutoTable.finalY + 4 : y + 4,
-      head: [[
-        groupTitle, 'CHAIR', 'VICE', 'GAD', 'DENREU', 'REGMEM', 'END-U', 'AVE'
-      ]],
-      body: competencies.map(comp => [
-        `${comp.ordinal}. ${comp.name}`, // FIXED: Remove redundant prefix
+      startY: potentialSectionY + 4,
+      head: [['ORGANIZATIONAL COMPETENCIES', 'CHAIR', 'VICE', 'GAD', 'DENREU', 'REGMEM', 'END-U', 'AVE']],
+      body: groupedCompetencies.organizational.map(comp => [
+        `${comp.ordinal}. ${comp.name}`,
         getRatingDisplay(comp.code, 'CHAIR'),
         getRatingDisplay(comp.code, 'VICE'),
         getRatingDisplay(comp.code, 'GAD'),
         getRatingDisplay(comp.code, 'DENREU'),
         getRatingDisplay(comp.code, 'REGMEM'),
         getRatingDisplay(comp.code, 'END-USER'),
-        { content: calculateRowAverage(comp.code, type).toFixed(2), styles: { fontStyle: 'bold' } }
+        { content: calculateRowAverage(comp.code, 'organizational').toFixed(2), styles: { fontStyle: 'bold' } }
       ]),
       foot: [[
         { content: 'TOTAL', styles: { halign: 'center', fontStyle: 'bold' } },
         ...['CHAIR','VICE','GAD','DENREU','REGMEM','END-USER'].map(rt =>
-          ({ content: (competencies.reduce((sum, comp) => {
+          ({ content: (groupedCompetencies.organizational.reduce((sum, comp) => {
             const r = ratings.find(r =>
               r.competencyId.name.toUpperCase().replace(/ /g, '_') === comp.code &&
-              getRaterTypeCode(r.raterId.raterType) === rt
+              getRaterTypeCode(r.raterId.raterType) === rt &&
+              r.itemNumber === selectedItem  // CRITICAL: Filter by item number
             );
             return sum + (r ? r.score : 0);
-          }, 0) / Math.max(1, competencies.length)).toFixed(2), styles: { halign: 'center' } })
+          }, 0) / Math.max(1, groupedCompetencies.organizational.length)).toFixed(2), styles: { halign: 'center' } })
         ),
-        { content: calculateFinalScores().breakdown[type].toFixed(2), styles: { fontStyle: 'bold', halign: 'center' } }
+        { content: calculateFinalScores().breakdown.organizational.toFixed(2), styles: { fontStyle: 'bold', halign: 'center' } }
       ]],
       styles: { fontSize: 5.2, cellPadding: 0.8, valign: 'middle' },
       headStyles: { halign: 'center', fontStyle: 'bold' },
@@ -409,168 +504,86 @@ const InterviewSummaryGenerator = ({ user }) => {
       margin: { left: 10, right: 14 }
     });
 
-    y = doc.lastAutoTable.finalY;
-  };
+    if (shouldShowLeadership()) {
+      // For leadership competencies
+      makeCompTable('LEADERSHIP COMPETENCIES', groupedCompetencies.leadership, 'leadership');
+    }
+    makeCompTable('MINIMUM COMPETENCIES', groupedCompetencies.minimum, 'minimum');
 
-  // --- Section I: Psycho-Social ---
-  y += 4;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.text('I. PSYCHO-SOCIAL ATTRIBUTES AND PERSONALITY TRAITS', xLeft, y);
+    y = doc.lastAutoTable.finalY + 6;
 
-  // Create box for CER Score
-  const cerScore1 = scores.psychoSocial.toFixed(2);
-  const scoreBoxWidth = 40;
-  const scoreBoxHeight = 6;
-  const scoreBoxX = 190 - scoreBoxWidth;
-  const scoreBoxY = y - 4;
-
-  // Draw heavy border box
-  doc.setLineWidth(.3);
-  doc.rect(scoreBoxX, scoreBoxY, scoreBoxWidth, scoreBoxHeight);
-
-  // Add CER score text inside the box
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.text(`CER SCORE: ${cerScore1}`, scoreBoxX + scoreBoxWidth/2, y + .3, { align: 'center' });
-
-  // For basic competencies
-  makeCompTable('BASIC COMPETENCIES', groupedCompetencies.basic, 'basic');
-
-  // --- Section II: Potential - Place heading and force table positioning ---
-  let potentialSectionY = doc.lastAutoTable.finalY + 8;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.text('II. POTENTIAL', xLeft, potentialSectionY);
-
-  // Create box for CER Score
-  const cerScore2 = scores.potential.toFixed(2);
-  const scoreBox2X = 190 - scoreBoxWidth;
-  const scoreBox2Y = potentialSectionY - 4;
-
-  // Draw heavy border box
-  doc.setLineWidth(.3);
-  doc.rect(scoreBox2X, scoreBox2Y, scoreBoxWidth, scoreBoxHeight);
-
-  // Add CER score text inside the box
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.text(`CER SCORE: ${cerScore2}`, scoreBox2X + scoreBoxWidth/2, potentialSectionY + .3, { align: 'center' });
-
-  // ORGANIZATIONAL TABLE - with forced positioning and FIXED ordinal usage
-  doc.autoTable({
-    startY: potentialSectionY + 4,
-    head: [['ORGANIZATIONAL COMPETENCIES', 'CHAIR', 'VICE', 'GAD', 'DENREU', 'REGMEM', 'END-U', 'AVE']],
-    body: groupedCompetencies.organizational.map(comp => [
-      `${comp.ordinal}. ${comp.name}`, // FIXED: Remove redundant prefix
-      getRatingDisplay(comp.code, 'CHAIR'),
-      getRatingDisplay(comp.code, 'VICE'),
-      getRatingDisplay(comp.code, 'GAD'),
-      getRatingDisplay(comp.code, 'DENREU'),
-      getRatingDisplay(comp.code, 'REGMEM'),
-      getRatingDisplay(comp.code, 'END-USER'),
-      { content: calculateRowAverage(comp.code, 'organizational').toFixed(2), styles: { fontStyle: 'bold' } }
-    ]),
-    foot: [[
-      { content: 'TOTAL', styles: { halign: 'center', fontStyle: 'bold' } },
-      ...['CHAIR','VICE','GAD','DENREU','REGMEM','END-USER'].map(rt =>
-        ({ content: (groupedCompetencies.organizational.reduce((sum, comp) => {
-          const r = ratings.find(r =>
-            r.competencyId.name.toUpperCase().replace(/ /g, '_') === comp.code &&
-            getRaterTypeCode(r.raterId.raterType) === rt
-          );
-          return sum + (r ? r.score : 0);
-        }, 0) / Math.max(1, groupedCompetencies.organizational.length)).toFixed(2), styles: { halign: 'center' } })
-      ),
-      { content: calculateFinalScores().breakdown.organizational.toFixed(2), styles: { fontStyle: 'bold', halign: 'center' } }
-    ]],
-    styles: { fontSize: 5.2, cellPadding: 0.8, valign: 'middle' },
-    headStyles: { halign: 'center', fontStyle: 'bold' },
-    columnStyles: columnWidths,
-    theme: 'grid',
-    margin: { left: 10, right: 14 }
-  });
-
-  if (shouldShowLeadership()) {
-    // For leadership competencies
-    makeCompTable('LEADERSHIP COMPETENCIES', groupedCompetencies.leadership, 'leadership');
-  }
-  makeCompTable('MINIMUM COMPETENCIES', groupedCompetencies.minimum, 'minimum');
-
-  y = doc.lastAutoTable.finalY + 6;
-
-  // --- Dynamic Signatories based on actual raters who rated this candidate ---
-  doc.setFont('helvetica', 'italic');
-  doc.setFontSize(7);
-  doc.text('Certified True and Correct:', xLeft, y);
-  y += 10;
-
-  // Get unique rater IDs from the ratings for this candidate
-  const raterIdsWhoRated = [...new Set(ratings.map(rating => rating.raterId._id.toString()))];
-  
-  // Filter raters to only include those who actually rated this candidate
-  const ratersWhoRated = raters.filter(rater => 
-    rater && 
-    rater.name && 
-    rater.raterType &&
-    raterIdsWhoRated.includes(rater._id.toString())
-  );
-
-  // Create signatories array from actual raters data
-  const raterTypeOrder = ['Chairperson', 'Vice-Chairperson', 'End-User', 'Regular Member', 'DENREU', 'Gender and Development'];
-  
-  // Sort raters according to the specified order
-  const sortedRaters = ratersWhoRated.sort((a, b) => {
-    const indexA = raterTypeOrder.indexOf(a.raterType);
-    const indexB = raterTypeOrder.indexOf(b.raterType);
-    
-    if (indexA === -1 && indexB === -1) return 0;
-    if (indexA === -1) return 1;
-    if (indexB === -1) return -1;
-    
-    return indexA - indexB;
-  });
-
-  // Create signatories array with actual rater data including both raterType and designation
-  const signatories = sortedRaters.map(rater => [
-    rater.name.toUpperCase(),
-    rater.position,
-    rater.raterType
-  ]);
-
-  // Render signatories in a 2-column layout
-  const colWidth = 90;
-  let col = 0;
-  let rowY = y;
-  
-  signatories.forEach(([name, raterType, designation]) => {
-    const x = xLeft + (col * colWidth);
-    
-    // Name (bold, smaller)
-    doc.setFont('helvetica', 'bold');
+    // --- Dynamic Signatories based on actual raters who rated this candidate ---
+    doc.setFont('helvetica', 'italic');
     doc.setFontSize(7);
-    doc.text(name, x + colWidth / 2, rowY, { align: 'center' });
-    
-    // Rater Type (normal, smaller)
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6);
-    doc.text(raterType, x + colWidth / 2, rowY + 3, { align: 'center' });
-    
-    // Designation (if available, normal, smaller)
-    if (designation) {
-      doc.text(designation, x + colWidth / 2, rowY + 6, { align: 'center' });
-    }
+    doc.text('Certified True and Correct:', xLeft, y);
+    y += 10;
 
-    col++;
-    if (col === 2) {
-      col = 0;
-      rowY += 16;
-    }
-  });
+    // Get unique rater IDs from the ratings for this candidate
+    const raterIdsWhoRated = [...new Set(ratings.map(rating => rating.raterId._id.toString()))];
+    
+    // Filter raters to only include those who actually rated this candidate
+    const ratersWhoRated = raters.filter(rater => 
+      rater && 
+      rater.name && 
+      rater.raterType &&
+      raterIdsWhoRated.includes(rater._id.toString())
+    );
 
-  // --- Save ---
-  doc.save(`Interview_Summary_${candidateDetails?.fullName || 'Report'}.pdf`);
-};
+    // Create signatories array from actual raters data
+    const raterTypeOrder = ['Chairperson', 'Vice-Chairperson', 'End-User', 'Regular Member', 'DENREU', 'Gender and Development'];
+    
+    // Sort raters according to the specified order
+    const sortedRaters = ratersWhoRated.sort((a, b) => {
+      const indexA = raterTypeOrder.indexOf(a.raterType);
+      const indexB = raterTypeOrder.indexOf(b.raterType);
+      
+      if (indexA === -1 && indexB === -1) return 0;
+      if (indexA === -1) return 1;
+      if (indexB === -1) return -1;
+      
+      return indexA - indexB;
+    });
+
+    // Create signatories array with actual rater data including both raterType and designation
+    const signatories = sortedRaters.map(rater => [
+      rater.name.toUpperCase(),
+      rater.position,
+      rater.raterType
+    ]);
+
+    // Render signatories in a 2-column layout
+    const colWidth = 90;
+    let col = 0;
+    let rowY = y;
+    
+    signatories.forEach(([name, raterType, designation]) => {
+      const x = xLeft + (col * colWidth);
+      
+      // Name (bold, smaller)
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.text(name, x + colWidth / 2, rowY, { align: 'center' });
+      
+      // Rater Type (normal, smaller)
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6);
+      doc.text(raterType, x + colWidth / 2, rowY + 3, { align: 'center' });
+      
+      // Designation (if available, normal, smaller)
+      if (designation) {
+        doc.text(designation, x + colWidth / 2, rowY + 6, { align: 'center' });
+      }
+
+      col++;
+      if (col === 2) {
+        col = 0;
+        rowY += 16;
+      }
+    });
+
+    // --- Save ---
+    doc.save(`Interview_Summary_${candidateDetails?.fullName || 'Report'}.pdf`);
+  };
 
   return (
     <div className="container mx-auto p-4">
@@ -687,28 +700,32 @@ const InterviewSummaryGenerator = ({ user }) => {
                         <td className="px-6 py-4 whitespace-nowrap">{salaryGrade <= 14 ? 'NA' : (groupedCompetencies.basic.reduce((sum, comp) => {
                           const rating = ratings.find(r => 
                             r.competencyId.name.toUpperCase().replace(/ /g, '_') === comp.code &&
-                            getRaterTypeCode(r.raterId.raterType) === 'CHAIR'
+                            getRaterTypeCode(r.raterId.raterType) === 'CHAIR' &&
+                            r.itemNumber === selectedItem
                           );
                           return sum + (rating ? rating.score : 0);
                         }, 0) / Math.max(1, groupedCompetencies.basic.length)).toFixed(2)}</td>
                         <td className="px-6 py-4 whitespace-nowrap">{salaryGrade <= 14 ? 'NA' : (groupedCompetencies.basic.reduce((sum, comp) => {
                           const rating = ratings.find(r => 
                             r.competencyId.name.toUpperCase().replace(/ /g, '_') === comp.code &&
-                            getRaterTypeCode(r.raterId.raterType) === 'VICE'
+                            getRaterTypeCode(r.raterId.raterType) === 'VICE' &&
+                            r.itemNumber === selectedItem
                           );
                           return sum + (rating ? rating.score : 0);
                         }, 0) / Math.max(1, groupedCompetencies.basic.length)).toFixed(2)}</td>
                         <td className="px-6 py-4 whitespace-nowrap">{salaryGrade <= 14 ? 'NA' : (groupedCompetencies.basic.reduce((sum, comp) => {
                           const rating = ratings.find(r => 
                             r.competencyId.name.toUpperCase().replace(/ /g, '_') === comp.code &&
-                            getRaterTypeCode(r.raterId.raterType) === 'GAD'
+                            getRaterTypeCode(r.raterId.raterType) === 'GAD' &&
+                            r.itemNumber === selectedItem
                           );
                           return sum + (rating ? rating.score : 0);
                         }, 0) / Math.max(1, groupedCompetencies.basic.length)).toFixed(2)}</td>
                         <td className="px-6 py-4 whitespace-nowrap">{salaryGrade <= 14 ? 'NA' : (groupedCompetencies.basic.reduce((sum, comp) => {
                           const rating = ratings.find(r => 
                             r.competencyId.name.toUpperCase().replace(/ /g, '_') === comp.code &&
-                            getRaterTypeCode(r.raterId.raterType) === 'DENREU'
+                            getRaterTypeCode(r.raterId.raterType) === 'DENREU' &&
+                            r.itemNumber === selectedItem
                           );
                           return sum + (rating ? rating.score : 0);
                         }, 0) / Math.max(1, groupedCompetencies.basic.length)).toFixed(2)}</td>
@@ -716,7 +733,8 @@ const InterviewSummaryGenerator = ({ user }) => {
                           {(groupedCompetencies.basic.reduce((sum, comp) => {
                             const rating = ratings.find(r => 
                               r.competencyId.name.toUpperCase().replace(/ /g, '_') === comp.code &&
-                              getRaterTypeCode(r.raterId.raterType) === 'REGMEM'
+                              getRaterTypeCode(r.raterId.raterType) === 'REGMEM' &&
+                              r.itemNumber === selectedItem
                             );
                             return sum + (rating ? rating.score : 0);
                           }, 0) / Math.max(1, groupedCompetencies.basic.length)).toFixed(2)}
@@ -725,7 +743,8 @@ const InterviewSummaryGenerator = ({ user }) => {
                           {(groupedCompetencies.basic.reduce((sum, comp) => {
                             const rating = ratings.find(r => 
                               r.competencyId.name.toUpperCase().replace(/ /g, '_') === comp.code &&
-                              getRaterTypeCode(r.raterId.raterType) === 'END-USER'
+                              getRaterTypeCode(r.raterId.raterType) === 'END-USER' &&
+                              r.itemNumber === selectedItem
                             );
                             return sum + (rating ? rating.score : 0);
                           }, 0) / Math.max(1, groupedCompetencies.basic.length)).toFixed(2)}
@@ -773,28 +792,32 @@ const InterviewSummaryGenerator = ({ user }) => {
                         <td className="px-6 py-4 whitespace-nowrap">{salaryGrade <= 14 ? 'NA' : (groupedCompetencies.organizational.reduce((sum, comp) => {
                           const rating = ratings.find(r => 
                             r.competencyId.name.toUpperCase().replace(/ /g, '_') === comp.code &&
-                            getRaterTypeCode(r.raterId.raterType) === 'CHAIR'
+                            getRaterTypeCode(r.raterId.raterType) === 'CHAIR' &&
+                            r.itemNumber === selectedItem
                           );
                           return sum + (rating ? rating.score : 0);
                         }, 0) / Math.max(1, groupedCompetencies.organizational.length)).toFixed(2)}</td>
                         <td className="px-6 py-4 whitespace-nowrap">{salaryGrade <= 14 ? 'NA' : (groupedCompetencies.organizational.reduce((sum, comp) => {
                           const rating = ratings.find(r => 
                             r.competencyId.name.toUpperCase().replace(/ /g, '_') === comp.code &&
-                            getRaterTypeCode(r.raterId.raterType) === 'VICE'
+                            getRaterTypeCode(r.raterId.raterType) === 'VICE' &&
+                            r.itemNumber === selectedItem
                           );
                           return sum + (rating ? rating.score : 0);
                         }, 0) / Math.max(1, groupedCompetencies.organizational.length)).toFixed(2)}</td>
                         <td className="px-6 py-4 whitespace-nowrap">{salaryGrade <= 14 ? 'NA' : (groupedCompetencies.organizational.reduce((sum, comp) => {
                           const rating = ratings.find(r => 
                             r.competencyId.name.toUpperCase().replace(/ /g, '_') === comp.code &&
-                            getRaterTypeCode(r.raterId.raterType) === 'GAD'
+                            getRaterTypeCode(r.raterId.raterType) === 'GAD' &&
+                            r.itemNumber === selectedItem
                           );
                           return sum + (rating ? rating.score : 0);
                         }, 0) / Math.max(1, groupedCompetencies.organizational.length)).toFixed(2)}</td>
                         <td className="px-6 py-4 whitespace-nowrap">{salaryGrade <= 14 ? 'NA' : (groupedCompetencies.organizational.reduce((sum, comp) => {
                           const rating = ratings.find(r => 
                             r.competencyId.name.toUpperCase().replace(/ /g, '_') === comp.code &&
-                            getRaterTypeCode(r.raterId.raterType) === 'DENREU'
+                            getRaterTypeCode(r.raterId.raterType) === 'DENREU' &&
+                            r.itemNumber === selectedItem
                           );
                           return sum + (rating ? rating.score : 0);
                         }, 0) / Math.max(1, groupedCompetencies.organizational.length)).toFixed(2)}</td>
@@ -802,7 +825,8 @@ const InterviewSummaryGenerator = ({ user }) => {
                           {(groupedCompetencies.organizational.reduce((sum, comp) => {
                             const rating = ratings.find(r => 
                               r.competencyId.name.toUpperCase().replace(/ /g, '_') === comp.code &&
-                              getRaterTypeCode(r.raterId.raterType) === 'REGMEM'
+                              getRaterTypeCode(r.raterId.raterType) === 'REGMEM' &&
+                              r.itemNumber === selectedItem
                             );
                             return sum + (rating ? rating.score : 0);
                           }, 0) / Math.max(1, groupedCompetencies.organizational.length)).toFixed(2)}
@@ -811,7 +835,8 @@ const InterviewSummaryGenerator = ({ user }) => {
                           {(groupedCompetencies.organizational.reduce((sum, comp) => {
                             const rating = ratings.find(r => 
                               r.competencyId.name.toUpperCase().replace(/ /g, '_') === comp.code &&
-                              getRaterTypeCode(r.raterId.raterType) === 'END-USER'
+                              getRaterTypeCode(r.raterId.raterType) === 'END-USER' &&
+                              r.itemNumber === selectedItem
                             );
                             return sum + (rating ? rating.score : 0);
                           }, 0) / Math.max(1, groupedCompetencies.organizational.length)).toFixed(2)}
@@ -859,28 +884,32 @@ const InterviewSummaryGenerator = ({ user }) => {
                         <td className="px-6 py-4 whitespace-nowrap">{salaryGrade <= 14 ? 'NA' : (groupedCompetencies.leadership.reduce((sum, comp) => {
                           const rating = ratings.find(r => 
                             r.competencyId.name.toUpperCase().replace(/ /g, '_') === comp.code &&
-                            getRaterTypeCode(r.raterId.raterType) === 'CHAIR'
+                            getRaterTypeCode(r.raterId.raterType) === 'CHAIR' &&
+                            r.itemNumber === selectedItem
                           );
                           return sum + (rating ? rating.score : 0);
                         }, 0) / Math.max(1, groupedCompetencies.leadership.length)).toFixed(2)}</td>
                         <td className="px-6 py-4 whitespace-nowrap">{salaryGrade <= 14 ? 'NA' : (groupedCompetencies.leadership.reduce((sum, comp) => {
                           const rating = ratings.find(r => 
                             r.competencyId.name.toUpperCase().replace(/ /g, '_') === comp.code &&
-                            getRaterTypeCode(r.raterId.raterType) === 'VICE'
+                            getRaterTypeCode(r.raterId.raterType) === 'VICE' &&
+                            r.itemNumber === selectedItem
                           );
                           return sum + (rating ? rating.score : 0);
                         }, 0) / Math.max(1, groupedCompetencies.leadership.length)).toFixed(2)}</td>
                         <td className="px-6 py-4 whitespace-nowrap">{salaryGrade <= 14 ? 'NA' : (groupedCompetencies.leadership.reduce((sum, comp) => {
                           const rating = ratings.find(r => 
                             r.competencyId.name.toUpperCase().replace(/ /g, '_') === comp.code &&
-                            getRaterTypeCode(r.raterId.raterType) === 'GAD'
+                            getRaterTypeCode(r.raterId.raterType) === 'GAD' &&
+                            r.itemNumber === selectedItem
                           );
                           return sum + (rating ? rating.score : 0);
                         }, 0) / Math.max(1, groupedCompetencies.leadership.length)).toFixed(2)}</td>
                         <td className="px-6 py-4 whitespace-nowrap">{salaryGrade <= 14 ? 'NA' : (groupedCompetencies.leadership.reduce((sum, comp) => {
                           const rating = ratings.find(r => 
                             r.competencyId.name.toUpperCase().replace(/ /g, '_') === comp.code &&
-                            getRaterTypeCode(r.raterId.raterType) === 'DENREU'
+                            getRaterTypeCode(r.raterId.raterType) === 'DENREU' &&
+                            r.itemNumber === selectedItem
                           );
                           return sum + (rating ? rating.score : 0);
                         }, 0) / Math.max(1, groupedCompetencies.leadership.length)).toFixed(2)}</td>
@@ -888,7 +917,8 @@ const InterviewSummaryGenerator = ({ user }) => {
                           {(groupedCompetencies.leadership.reduce((sum, comp) => {
                             const rating = ratings.find(r => 
                               r.competencyId.name.toUpperCase().replace(/ /g, '_') === comp.code &&
-                              getRaterTypeCode(r.raterId.raterType) === 'REGMEM'
+                              getRaterTypeCode(r.raterId.raterType) === 'REGMEM' &&
+                              r.itemNumber === selectedItem
                             );
                             return sum + (rating ? rating.score : 0);
                           }, 0) / Math.max(1, groupedCompetencies.leadership.length)).toFixed(2)}
@@ -897,7 +927,8 @@ const InterviewSummaryGenerator = ({ user }) => {
                           {(groupedCompetencies.leadership.reduce((sum, comp) => {
                             const rating = ratings.find(r => 
                               r.competencyId.name.toUpperCase().replace(/ /g, '_') === comp.code &&
-                              getRaterTypeCode(r.raterId.raterType) === 'END-USER'
+                              getRaterTypeCode(r.raterId.raterType) === 'END-USER' &&
+                              r.itemNumber === selectedItem
                             );
                             return sum + (rating ? rating.score : 0);
                           }, 0) / Math.max(1, groupedCompetencies.leadership.length)).toFixed(2)}
@@ -945,28 +976,32 @@ const InterviewSummaryGenerator = ({ user }) => {
                         <td className="px-6 py-4 whitespace-nowrap">{salaryGrade <= 14 ? 'NA' : (groupedCompetencies.minimum.reduce((sum, comp) => {
                           const rating = ratings.find(r => 
                             r.competencyId.name.toUpperCase().replace(/ /g, '_') === comp.code &&
-                            getRaterTypeCode(r.raterId.raterType) === 'CHAIR'
+                            getRaterTypeCode(r.raterId.raterType) === 'CHAIR' &&
+                            r.itemNumber === selectedItem
                           );
                           return sum + (rating ? rating.score : 0);
                         }, 0) / Math.max(1, groupedCompetencies.minimum.length)).toFixed(2)}</td>
                         <td className="px-6 py-4 whitespace-nowrap">{salaryGrade <= 14 ? 'NA' : (groupedCompetencies.minimum.reduce((sum, comp) => {
                           const rating = ratings.find(r => 
                             r.competencyId.name.toUpperCase().replace(/ /g, '_') === comp.code &&
-                            getRaterTypeCode(r.raterId.raterType) === 'VICE'
+                            getRaterTypeCode(r.raterId.raterType) === 'VICE' &&
+                            r.itemNumber === selectedItem
                           );
                           return sum + (rating ? rating.score : 0);
                         }, 0) / Math.max(1, groupedCompetencies.minimum.length)).toFixed(2)}</td>
                         <td className="px-6 py-4 whitespace-nowrap">{salaryGrade <= 14 ? 'NA' : (groupedCompetencies.minimum.reduce((sum, comp) => {
                           const rating = ratings.find(r => 
                             r.competencyId.name.toUpperCase().replace(/ /g, '_') === comp.code &&
-                            getRaterTypeCode(r.raterId.raterType) === 'GAD'
+                            getRaterTypeCode(r.raterId.raterType) === 'GAD' &&
+                            r.itemNumber === selectedItem
                           );
                           return sum + (rating ? rating.score : 0);
                         }, 0) / Math.max(1, groupedCompetencies.minimum.length)).toFixed(2)}</td>
                         <td className="px-6 py-4 whitespace-nowrap">{salaryGrade <= 14 ? 'NA' : (groupedCompetencies.minimum.reduce((sum, comp) => {
                           const rating = ratings.find(r => 
                             r.competencyId.name.toUpperCase().replace(/ /g, '_') === comp.code &&
-                            getRaterTypeCode(r.raterId.raterType) === 'DENREU'
+                            getRaterTypeCode(r.raterId.raterType) === 'DENREU' &&
+                            r.itemNumber === selectedItem
                           );
                           return sum + (rating ? rating.score : 0);
                         }, 0) / Math.max(1, groupedCompetencies.minimum.length)).toFixed(2)}</td>
@@ -974,7 +1009,8 @@ const InterviewSummaryGenerator = ({ user }) => {
                           {(groupedCompetencies.minimum.reduce((sum, comp) => {
                             const rating = ratings.find(r => 
                               r.competencyId.name.toUpperCase().replace(/ /g, '_') === comp.code &&
-                              getRaterTypeCode(r.raterId.raterType) === 'REGMEM'
+                              getRaterTypeCode(r.raterId.raterType) === 'REGMEM' &&
+                              r.itemNumber === selectedItem
                             );
                             return sum + (rating ? rating.score : 0);
                           }, 0) / Math.max(1, groupedCompetencies.minimum.length)).toFixed(2)}
@@ -983,7 +1019,8 @@ const InterviewSummaryGenerator = ({ user }) => {
                           {(groupedCompetencies.minimum.reduce((sum, comp) => {
                             const rating = ratings.find(r => 
                               r.competencyId.name.toUpperCase().replace(/ /g, '_') === comp.code &&
-                              getRaterTypeCode(r.raterId.raterType) === 'END-USER'
+                              getRaterTypeCode(r.raterId.raterType) === 'END-USER' &&
+                              r.itemNumber === selectedItem
                             );
                             return sum + (rating ? rating.score : 0);
                           }, 0) / Math.max(1, groupedCompetencies.minimum.length)).toFixed(2)}
