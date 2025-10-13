@@ -17,6 +17,76 @@ const AdminView = ({ user }) => {
   const [modalType, setModalType] = useState('');
   const [editingItem, setEditingItem] = useState(null);
   const [loading, setLoading] = useState(true);
+  // Add these state variables after line 17 (after const [loading, setLoading] = useState(true);)
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filters, setFilters] = useState({});
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
+  const [showVacancyModal, setShowVacancyModal] = useState(false);
+  const [selectedVacancy, setSelectedVacancy] = useState(null);
+
+
+  // Add these functions after the state declarations and before loadAllData
+  const handleSort = (key) => {
+    let direction = 'asc';
+    if (sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const filterAndSortData = (data, searchFields) => {
+    let filteredData = [...data];
+
+    // Apply search
+    if (searchTerm) {
+      filteredData = filteredData.filter(item =>
+        searchFields.some(field => {
+          const value = field.split('.').reduce((obj, key) => obj?.[key], item);
+          return value?.toString().toLowerCase().includes(searchTerm.toLowerCase());
+        })
+      );
+    }
+
+    // Apply column filters
+    Object.keys(filters).forEach(key => {
+      if (filters[key]) {
+        filteredData = filteredData.filter(item => {
+          const value = key.split('.').reduce((obj, k) => obj?.[k], item);
+          return value?.toString().toLowerCase().includes(filters[key].toLowerCase());
+        });
+      }
+    });
+
+    // Apply sorting
+    if (sortConfig.key) {
+      filteredData.sort((a, b) => {
+        const aValue = sortConfig.key.split('.').reduce((obj, key) => obj?.[key], a);
+        const bValue = sortConfig.key.split('.').reduce((obj, key) => obj?.[key], b);
+
+        if (aValue === null || aValue === undefined) return 1;
+        if (bValue === null || bValue === undefined) return -1;
+
+        if (aValue < bValue) {
+          return sortConfig.direction === 'asc' ? -1 : 1;
+        }
+        if (aValue > bValue) {
+          return sortConfig.direction === 'asc' ? 1 : -1;
+        }
+        return 0;
+      });
+    }
+
+    return filteredData;
+  };
+
+  const handleItemNumberClick = (itemNumber) => {
+    const vacancy = vacancies.find(v => v.itemNumber === itemNumber);
+    if (vacancy) {
+      setSelectedVacancy(vacancy);
+      setShowVacancyModal(true);
+    }
+  };
+
 
   // Validate activeTab
   useEffect(() => {
@@ -30,6 +100,13 @@ const AdminView = ({ user }) => {
   useEffect(() => {
     loadAllData();
   }, []);
+
+  // Add this useEffect to reset filters when changing tabs
+  useEffect(() => {
+    setSearchTerm('');
+    setFilters({});
+    setSortConfig({ key: null, direction: 'asc' });
+  }, [activeTab]);
 
   const loadAllData = async () => {
     try {
@@ -333,6 +410,51 @@ const AdminView = ({ user }) => {
     downloadCSV(csvContent, filename);
     alert(`Empty ${type} template exported successfully!`);
   };
+
+
+    // Add this component before the UserModal component (around line 284)
+  const SearchBar = ({ placeholder = "Search..." }) => (
+    <div className="mb-4">
+      <input
+        type="text"
+        placeholder={placeholder}
+        value={searchTerm}
+        onChange={(e) => setSearchTerm(e.target.value)}
+        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+      />
+    </div>
+  );
+
+  const FilterableHeader = ({ label, filterKey, sortKey }) => (
+    <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+      <div className="flex flex-col space-y-1">
+        <div className="flex items-center space-x-1">
+          <span>{label}</span>
+          {sortKey && (
+            <button
+              onClick={() => handleSort(sortKey)}
+              className="text-gray-400 hover:text-gray-600"
+            >
+              {sortConfig.key === sortKey ? (
+                sortConfig.direction === 'asc' ? '▲' : '▼'
+              ) : '⇅'}
+            </button>
+          )}
+        </div>
+        {filterKey && (
+          <input
+            type="text"
+            placeholder="Filter..."
+            value={filters[filterKey] || ''}
+            onChange={(e) => setFilters({ ...filters, [filterKey]: e.target.value })}
+            className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+            onClick={(e) => e.stopPropagation()}
+          />
+        )}
+      </div>
+    </th>
+  );
+
 
   const UserModal = () => {
     const [formData, setFormData] = useState(
@@ -1054,6 +1176,86 @@ const AdminView = ({ user }) => {
       };
     });
 
+    // Add this component after VacancyAssignmentModal (around line 1180)
+  const VacancyDetailsModal = () => {
+    if (!selectedVacancy) return null;
+
+    return (
+      <div className="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="modal-content bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 p-6 overflow-y-auto max-h-[90vh]">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-bold text-gray-900">Vacancy Details</h2>
+            <button onClick={() => setShowVacancyModal(false)} className="text-gray-500 hover:text-gray-700 text-2xl">✕</button>
+          </div>
+          
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Item Number</label>
+                <p className="mt-1 text-sm text-gray-900">{selectedVacancy.itemNumber}</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Position</label>
+                <p className="mt-1 text-sm text-gray-900">{selectedVacancy.position}</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Assignment</label>
+                <p className="mt-1 text-sm text-gray-900">{selectedVacancy.assignment}</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Salary Grade</label>
+                <p className="mt-1 text-sm text-gray-900">{selectedVacancy.salaryGrade}</p>
+              </div>
+            </div>
+
+            <div className="border-t pt-4">
+              <h3 className="text-lg font-semibold text-gray-900 mb-3">Qualifications</h3>
+              
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Education</label>
+                  <p className="mt-1 text-sm text-gray-900 whitespace-pre-wrap">
+                    {selectedVacancy.qualifications?.education || 'Not specified'}
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Training</label>
+                  <p className="mt-1 text-sm text-gray-900 whitespace-pre-wrap">
+                    {selectedVacancy.qualifications?.training || 'Not specified'}
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Experience</label>
+                  <p className="mt-1 text-sm text-gray-900 whitespace-pre-wrap">
+                    {selectedVacancy.qualifications?.experience || 'Not specified'}
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Eligibility</label>
+                  <p className="mt-1 text-sm text-gray-900 whitespace-pre-wrap">
+                    {selectedVacancy.qualifications?.eligibility || 'Not specified'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end mt-6">
+              <button
+                onClick={() => setShowVacancyModal(false)}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
     const handleItemNumberChange = (itemNumber, checked) => {
       if (checked) {
         setFormData(prev => ({
@@ -1241,401 +1443,479 @@ const AdminView = ({ user }) => {
     return 'All Vacancies';
   };
 
-  const renderUsers = () => (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <h2 className="text-xl font-bold text-gray-900">Users Management</h2>
-        <div className="flex space-x-2">
-          <button
-            onClick={() => handleExportCSV('users')}
-            className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
-            disabled={users.length === 0}
-          >
-            Export CSV
-          </button>
-          <button
-            onClick={() => handleExportEmptyTemplate('users')}
-            className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
-          >
-            Download Template
-          </button>
-          <button onClick={() => handleAdd('user')} className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600">
-            Add User
-          </button>
-        </div>
-      </div>
-      <div className="card bg-white rounded-lg shadow overflow-hidden">
-        <div className="overflow-x-hidden">
-          <table className="min-w-full divide-y divide-gray-200 text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
-                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User Type</th>
-                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rater Type</th>
-                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Position</th>
-                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {users.map(user => (
-                <tr key={user._id}>
-                  <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{user.name}</td>
-                  <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{user.email}</td>
-                  <td className="table-cell px-4 py-2">
-                    <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded text-xs">
-                      {user.userType}
-                    </span>
-                  </td>
-                  <td className="table-cell px-4 py-2 text-xs">{user.raterType || '-'}</td>
-                  <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{user.position || '-'}</td>
-                  <td className="table-cell px-4 py-2">
-                    <button
-                      onClick={() => handleEdit(user, 'user')}
-                      className="btn-secondary px-2 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300 mr-1"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(user._id, 'user')}
-                      className="btn-danger px-2 py-1 rounded text-xs bg-red-500 text-white hover:bg-red-600"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
+  const renderUsers = () => {
+    const filteredUsers = filterAndSortData(users, ['name', 'email', 'userType', 'raterType', 'position']);
 
-  const renderVacancies = () => (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <h2 className="text-xl font-bold text-gray-900">Vacancies Management</h2>
-        <div className="flex space-x-2">
-          <button
-            onClick={() => handleExportCSV('vacancies')}
-            className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
-            disabled={vacancies.length === 0}
-          >
-            Export CSV
-          </button>
-          <button
-            onClick={() => handleExportEmptyTemplate('vacancies')}
-            className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
-          >
-            Download Template
-          </button>
-          <input
-            type="file"
-            accept=".csv"
-            onChange={(e) => e.target.files[0] && handleCSVUpload(e.target.files[0], 'vacancies')}
-            className="hidden"
-            id="vacancy-csv-upload"
-          />
-          <label htmlFor="vacancy-csv-upload" className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300 cursor-pointer">
-            Upload CSV
-          </label>
-          <button onClick={() => handleAdd('vacancy')} className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600">
-            Add Vacancy
-          </button>
+    return (
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <h2 className="text-xl font-bold text-gray-900">Users Management</h2>
+          <div className="flex space-x-2">
+            <button
+              onClick={() => handleExportCSV('users')}
+              className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
+              disabled={users.length === 0}
+            >
+              Export CSV
+            </button>
+            <button
+              onClick={() => handleExportEmptyTemplate('users')}
+              className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
+            >
+              Download Template
+            </button>
+            <button onClick={() => handleAdd('user')} className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600">
+              Add User
+            </button>
+          </div>
         </div>
-      </div>
-      <div className="card bg-white rounded-lg shadow overflow-hidden">
-        <div className="overflow-x-hidden">
-          <table className="min-w-full divide-y divide-gray-200 text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Item Number</th>
-                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Position</th>
-                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Assignment</th>
-                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Salary Grade</th>
-                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {vacancies.map(vacancy => (
-                <tr key={vacancy._id}>
-                  <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{vacancy.itemNumber}</td>
-                  <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{vacancy.position}</td>
-                  <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{vacancy.assignment}</td>
-                  <td className="table-cell px-4 py-2 text-xs">{vacancy.salaryGrade}</td>
-                  <td className="table-cell px-4 py-2">
-                    <button
-                      onClick={() => handleEdit(vacancy, 'vacancy')}
-                      className="btn-secondary px-2 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300 mr-1"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(vacancy._id, 'vacancy')}
-                      className="btn-danger px-2 py-1 rounded text-xs bg-red-500 text-white hover:bg-red-600"
-                    >
-                      Delete
-                    </button>
-                  </td>
+        
+        <SearchBar placeholder="Search users by name, email, type, or position..." />
+        
+        <div className="card bg-white rounded-lg shadow overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200 text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <FilterableHeader label="Name" filterKey="name" sortKey="name" />
+                  <FilterableHeader label="Email" filterKey="email" sortKey="email" />
+                  <FilterableHeader label="User Type" filterKey="userType" sortKey="userType" />
+                  <FilterableHeader label="Rater Type" filterKey="raterType" sortKey="raterType" />
+                  <FilterableHeader label="Position" filterKey="position" sortKey="position" />
+                  <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderCandidates = () => (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <h2 className="text-xl font-bold text-gray-900">Candidates Management</h2>
-        <div className="flex space-x-2">
-          <button
-            onClick={() => handleExportCSV('candidates')}
-            className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
-            disabled={candidates.length === 0}
-          >
-            Export CSV
-          </button>
-          <button
-            onClick={() => handleExportEmptyTemplate('candidates')}
-            className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
-          >
-            Download Template
-          </button>
-          <input
-            type="file"
-            accept=".csv"
-            onChange={(e) => e.target.files[0] && handleCSVUpload(e.target.files[0], 'candidates')}
-            className="hidden"
-            id="candidate-csv-upload"
-          />
-          <label htmlFor="candidate-csv-upload" className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300 cursor-pointer">
-            Upload CSV
-          </label>
-          <button onClick={() => handleAdd('candidate')} className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600">
-            Add Candidate
-          </button>
-        </div>
-      </div>
-      <div className="card bg-white rounded-lg shadow overflow-hidden">
-        <div className="overflow-x-hidden">
-          <table className="min-w-full divide-y divide-gray-200 text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Item Number</th>
-                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Gender</th>
-                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Age</th>
-                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {candidates.map(candidate => (
-                <tr key={candidate._id}>
-                  <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{candidate.fullName}</td>
-                  <td className="table-cell px-4 py-2 text-xs">{candidate.itemNumber}</td>
-                  <td className="table-cell px-4 py-2 text-xs">{candidate.gender}</td>
-                  <td className="table-cell px-4 py-2 text-xs">{candidate.age}</td>
-                  <td className="table-cell px-4 py-2">
-                    <span className={`px-2 py-1 rounded text-xs ${getStatusColor(candidate.status)}`}>
-                      {getStatusLabel(candidate.status)}
-                    </span>
-                  </td>
-                  <td className="table-cell px-4 py-2">
-                    <button
-                      onClick={() => handleEdit(candidate, 'candidate')}
-                      className="btn-secondary px-2 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300 mr-1"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(candidate._id, 'candidate')}
-                      className="btn-danger px-2 py-1 rounded text-xs bg-red-500 text-white hover:bg-red-600"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderCompetencies = () => (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <h2 className="text-xl font-bold text-gray-900">Competencies Management</h2>
-        <div className="flex space-x-2">
-          <button
-            onClick={() => handleExportCSV('competencies')}
-            className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
-            disabled={competencies.length === 0}
-          >
-            Export CSV
-          </button>
-          <button
-            onClick={() => handleExportEmptyTemplate('competencies')}
-            className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
-          >
-            Download Template
-          </button>
-          <input
-            type="file"
-            accept=".csv"
-            onChange={(e) => e.target.files[0] && handleCSVUpload(e.target.files[0], 'competencies')}
-            className="hidden"
-            id="competency-csv-upload"
-          />
-          <label htmlFor="competency-csv-upload" className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300 cursor-pointer">
-            Upload CSV
-          </label>
-          <button onClick={() => handleAdd('competency')} className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600">
-            Add Competency
-          </button>
-        </div>
-      </div>
-      <div className="card bg-white rounded-lg shadow overflow-hidden">
-        <div className="overflow-x-hidden">
-          <table className="min-w-full divide-y divide-gray-200 text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vacancies</th>
-                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fixed</th>
-                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {competencies.map(competency => {
-                const vacancyIds = Array.isArray(competency.vacancyIds) 
-                  ? competency.vacancyIds 
-                  : competency.vacancyId 
-                    ? [competency.vacancyId] 
-                    : [];
-                const vacancyNames = vacancyIds
-                  .map(id => vacancies.find(v => v._id === id)?.itemNumber)
-                  .filter(Boolean)
-                  .join(', ') || 'All Vacancies';
-                
-                return (
-                  <tr key={competency._id}>
-                    <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{competency.name}</td>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredUsers.map(user => (
+                  <tr key={user._id}>
+                    <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{user.name}</td>
+                    <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{user.email}</td>
                     <td className="table-cell px-4 py-2">
-                      <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded text-xs capitalize">
-                        {competency.type}
+                      <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded text-xs">
+                        {user.userType}
                       </span>
                     </td>
-                    <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{vacancyNames}</td>
-                    <td className="table-cell px-4 py-2">
-                      <span className={`px-2 py-1 rounded text-xs ${competency.isFixed ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
-                        {competency.isFixed ? 'Yes' : 'No'}
-                      </span>
-                    </td>
+                    <td className="table-cell px-4 py-2 text-xs">{user.raterType || '-'}</td>
+                    <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{user.position || '-'}</td>
                     <td className="table-cell px-4 py-2">
                       <button
-                        onClick={() => handleEdit(competency, 'competency')}
+                        onClick={() => handleEdit(user, 'user')}
                         className="btn-secondary px-2 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300 mr-1"
                       >
                         Edit
                       </button>
                       <button
-                        onClick={() => handleDelete(competency._id, 'competency')}
+                        onClick={() => handleDelete(user._id, 'user')}
                         className="btn-danger px-2 py-1 rounded text-xs bg-red-500 text-white hover:bg-red-600"
                       >
                         Delete
                       </button>
                     </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                ))}
+                {filteredUsers.length === 0 && (
+                  <tr>
+                    <td colSpan="6" className="px-4 py-8 text-center text-gray-500">
+                      No users found matching your search criteria.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
-  const renderVacancyAssignments = () => (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <h2 className="text-xl font-bold text-gray-900">Vacancy Assignments</h2>
-        <div className="text-xs text-gray-600">
-          Manage which vacancies each user can access
+  const renderVacancies = () => {
+    const filteredVacancies = filterAndSortData(vacancies, ['itemNumber', 'position', 'assignment', 'salaryGrade']);
+
+    return (
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <h2 className="text-xl font-bold text-gray-900">Vacancies Management</h2>
+          <div className="flex space-x-2">
+            <button
+              onClick={() => handleExportCSV('vacancies')}
+              className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
+              disabled={vacancies.length === 0}
+            >
+              Export CSV
+            </button>
+            <button
+              onClick={() => handleExportEmptyTemplate('vacancies')}
+              className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
+            >
+              Download Template
+            </button>
+            <input
+              type="file"
+              accept=".csv"
+              onChange={(e) => e.target.files[0] && handleCSVUpload(e.target.files[0], 'vacancies')}
+              className="hidden"
+              id="vacancy-csv-upload"
+            />
+            <label htmlFor="vacancy-csv-upload" className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300 cursor-pointer">
+              Upload CSV
+            </label>
+            <button onClick={() => handleAdd('vacancy')} className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600">
+              Add Vacancy
+            </button>
+          </div>
         </div>
-      </div>
-      <div className="card bg-white rounded-lg shadow overflow-hidden">
-        <div className="overflow-x-hidden">
-          <table className="min-w-full divide-y divide-gray-200 text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
-                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User Type</th>
-                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Current Assignment</th>
-                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Details</th>
-                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {users.map(user => (
-                <tr key={user._id}>
-                  <td className="table-cell px-4 py-2">
-                    <div>
-                      <div className="font-medium text-xs">{user.name}</div>
-                      <div className="text-xs text-gray-500">{user.email}</div>
-                    </div>
-                  </td>
-                  <td className="table-cell px-4 py-2">
-                    <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded text-xs">
-                      {user.userType}
-                    </span>
-                  </td>
-                  <td className="table-cell px-4 py-2">
-                    <span className={`px-2 py-1 rounded text-xs ${
-                      user.assignedVacancies === 'all' ? 'bg-green-100 text-green-800' :
-                      user.assignedVacancies === 'assignment' ? 'bg-blue-100 text-blue-800' :
-                      user.assignedVacancies === 'specific' ? 'bg-purple-100 text-purple-800' :
-                      'bg-gray-100 text-gray-800'
-                    }`}>
-                      {getAssignmentDisplay(user)}
-                    </span>
-                  </td>
-                  <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">
-                    {user.assignedVacancies === 'assignment' && user.assignedAssignment && (
-                      <div className="text-xs text-gray-600">
-                        Assignment: {user.assignedAssignment}
-                      </div>
-                    )}
-                    {user.assignedVacancies === 'specific' && user.assignedItemNumbers?.length > 0 && (
-                      <div className="text-xs text-gray-600">
-                        Items: {user.assignedItemNumbers.slice(0, 3).join(', ')}
-                        {user.assignedItemNumbers.length > 3 && ` +${user.assignedItemNumbers.length - 3} more`}
-                      </div>
-                    )}
-                  </td>
-                  <td className="table-cell px-4 py-2">
-                    <button
-                      onClick={() => handleEdit(user, 'assignment')}
-                      className="btn-secondary px-2 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
-                    >
-                      Assign Vacancies
-                    </button>
-                  </td>
+        
+        <SearchBar placeholder="Search vacancies by item number, position, assignment, or salary grade..." />
+        
+        <div className="card bg-white rounded-lg shadow overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200 text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <FilterableHeader label="Item Number" filterKey="itemNumber" sortKey="itemNumber" />
+                  <FilterableHeader label="Position" filterKey="position" sortKey="position" />
+                  <FilterableHeader label="Assignment" filterKey="assignment" sortKey="assignment" />
+                  <FilterableHeader label="Salary Grade" filterKey="salaryGrade" sortKey="salaryGrade" />
+                  <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredVacancies.map(vacancy => (
+                  <tr key={vacancy._id}>
+                    <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{vacancy.itemNumber}</td>
+                    <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{vacancy.position}</td>
+                    <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{vacancy.assignment}</td>
+                    <td className="table-cell px-4 py-2 text-xs">{vacancy.salaryGrade}</td>
+                    <td className="table-cell px-4 py-2">
+                      <button
+                        onClick={() => handleEdit(vacancy, 'vacancy')}
+                        className="btn-secondary px-2 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300 mr-1"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDelete(vacancy._id, 'vacancy')}
+                        className="btn-danger px-2 py-1 rounded text-xs bg-red-500 text-white hover:bg-red-600"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {filteredVacancies.length === 0 && (
+                  <tr>
+                    <td colSpan="5" className="px-4 py-8 text-center text-gray-500">
+                      No vacancies found matching your search criteria.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
+
+  const renderCandidates = () => {
+    const filteredCandidates = filterAndSortData(candidates, ['fullName', 'itemNumber', 'gender', 'age', 'status']);
+
+    return (
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <h2 className="text-xl font-bold text-gray-900">Candidates Management</h2>
+          <div className="flex space-x-2">
+            <button
+              onClick={() => handleExportCSV('candidates')}
+              className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
+              disabled={candidates.length === 0}
+            >
+              Export CSV
+            </button>
+            <button
+              onClick={() => handleExportEmptyTemplate('candidates')}
+              className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
+            >
+              Download Template
+            </button>
+            <input
+              type="file"
+              accept=".csv"
+              onChange={(e) => e.target.files[0] && handleCSVUpload(e.target.files[0], 'candidates')}
+              className="hidden"
+              id="candidate-csv-upload"
+            />
+            <label htmlFor="candidate-csv-upload" className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300 cursor-pointer">
+              Upload CSV
+            </label>
+            <button onClick={() => handleAdd('candidate')} className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600">
+              Add Candidate
+            </button>
+          </div>
+        </div>
+        
+        <SearchBar placeholder="Search candidates by name, item number, gender, age, or status..." />
+        
+        <div className="card bg-white rounded-lg shadow overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200 text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <FilterableHeader label="Name" filterKey="fullName" sortKey="fullName" />
+                  <FilterableHeader label="Item Number" filterKey="itemNumber" sortKey="itemNumber" />
+                  <FilterableHeader label="Gender" filterKey="gender" sortKey="gender" />
+                  <FilterableHeader label="Age" filterKey="age" sortKey="age" />
+                  <FilterableHeader label="Status" filterKey="status" sortKey="status" />
+                  <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredCandidates.map(candidate => (
+                  <tr key={candidate._id}>
+                    <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{candidate.fullName}</td>
+                    <td className="table-cell px-4 py-2 text-xs">
+                      <button
+                        onClick={() => handleItemNumberClick(candidate.itemNumber)}
+                        className="text-blue-600 hover:text-blue-800 hover:underline"
+                      >
+                        {candidate.itemNumber}
+                      </button>
+                    </td>
+                    <td className="table-cell px-4 py-2 text-xs">{candidate.gender}</td>
+                    <td className="table-cell px-4 py-2 text-xs">{candidate.age}</td>
+                    <td className="table-cell px-4 py-2">
+                      <span className={`px-2 py-1 rounded text-xs ${getStatusColor(candidate.status)}`}>
+                        {getStatusLabel(candidate.status)}
+                      </span>
+                    </td>
+                    <td className="table-cell px-4 py-2">
+                      <button
+                        onClick={() => handleEdit(candidate, 'candidate')}
+                        className="btn-secondary px-2 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300 mr-1"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDelete(candidate._id, 'candidate')}
+                        className="btn-danger px-2 py-1 rounded text-xs bg-red-500 text-white hover:bg-red-600"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {filteredCandidates.length === 0 && (
+                  <tr>
+                    <td colSpan="6" className="px-4 py-8 text-center text-gray-500">
+                      No candidates found matching your search criteria.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderCompetencies = () => {
+    const filteredCompetencies = filterAndSortData(competencies, ['name', 'type']);
+
+    return (
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <h2 className="text-xl font-bold text-gray-900">Competencies Management</h2>
+          <div className="flex space-x-2">
+            <button
+              onClick={() => handleExportCSV('competencies')}
+              className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
+              disabled={competencies.length === 0}
+            >
+              Export CSV
+            </button>
+            <button
+              onClick={() => handleExportEmptyTemplate('competencies')}
+              className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
+            >
+              Download Template
+            </button>
+            <input
+              type="file"
+              accept=".csv"
+              onChange={(e) => e.target.files[0] && handleCSVUpload(e.target.files[0], 'competencies')}
+              className="hidden"
+              id="competency-csv-upload"
+            />
+            <label htmlFor="competency-csv-upload" className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300 cursor-pointer">
+              Upload CSV
+            </label>
+            <button onClick={() => handleAdd('competency')} className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600">
+              Add Competency
+            </button>
+          </div>
+        </div>
+        
+        <SearchBar placeholder="Search competencies by name or type..." />
+        
+        <div className="card bg-white rounded-lg shadow overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200 text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <FilterableHeader label="Name" filterKey="name" sortKey="name" />
+                  <FilterableHeader label="Type" filterKey="type" sortKey="type" />
+                  <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vacancies</th>
+                  <FilterableHeader label="Fixed" filterKey="isFixed" sortKey="isFixed" />
+                  <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredCompetencies.map(competency => {
+                  const vacancyIds = Array.isArray(competency.vacancyIds) 
+                    ? competency.vacancyIds 
+                    : competency.vacancyId 
+                      ? [competency.vacancyId] 
+                      : [];
+                  const vacancyNames = vacancyIds
+                    .map(id => vacancies.find(v => v._id === id)?.itemNumber)
+                    .filter(Boolean)
+                    .join(', ') || 'All Vacancies';
+                  
+                  return (
+                    <tr key={competency._id}>
+                      <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{competency.name}</td>
+                      <td className="table-cell px-4 py-2">
+                        <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded text-xs capitalize">
+                          {competency.type}
+                        </span>
+                      </td>
+                      <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{vacancyNames}</td>
+                      <td className="table-cell px-4 py-2">
+                        <span className={`px-2 py-1 rounded text-xs ${competency.isFixed ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                          {competency.isFixed ? 'Yes' : 'No'}
+                        </span>
+                      </td>
+                      <td className="table-cell px-4 py-2">
+                        <button
+                          onClick={() => handleEdit(competency, 'competency')}
+                          className="btn-secondary px-2 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300 mr-1"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDelete(competency._id, 'competency')}
+                          className="btn-danger px-2 py-1 rounded text-xs bg-red-500 text-white hover:bg-red-600"
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {filteredCompetencies.length === 0 && (
+                  <tr>
+                    <td colSpan="5" className="px-4 py-8 text-center text-gray-500">
+                      No competencies found matching your search criteria.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderVacancyAssignments = () => {
+    const filteredUsers = filterAndSortData(users, ['name', 'email', 'userType']);
+
+    return (
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <h2 className="text-xl font-bold text-gray-900">Vacancy Assignments</h2>
+          <div className="text-xs text-gray-600">
+            Manage which vacancies each user can access
+          </div>
+        </div>
+        
+        <SearchBar placeholder="Search users by name, email, or type..." />
+        
+        <div className="card bg-white rounded-lg shadow overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200 text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <FilterableHeader label="User" filterKey="name" sortKey="name" />
+                  <FilterableHeader label="User Type" filterKey="userType" sortKey="userType" />
+                  <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Current Assignment</th>
+                  <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Details</th>
+                  <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredUsers.map(user => (
+                  <tr key={user._id}>
+                    <td className="table-cell px-4 py-2">
+                      <div>
+                        <div className="font-medium text-xs">{user.name}</div>
+                        <div className="text-xs text-gray-500">{user.email}</div>
+                      </div>
+                    </td>
+                    <td className="table-cell px-4 py-2">
+                      <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded text-xs">
+                        {user.userType}
+                      </span>
+                    </td>
+                    <td className="table-cell px-4 py-2">
+                      <span className={`px-2 py-1 rounded text-xs ${
+                        user.assignedVacancies === 'all' ? 'bg-green-100 text-green-800' :
+                        user.assignedVacancies === 'assignment' ? 'bg-blue-100 text-blue-800' :
+                        user.assignedVacancies === 'specific' ? 'bg-purple-100 text-purple-800' :
+                        'bg-gray-100 text-gray-800'
+                      }`}>
+                        {getAssignmentDisplay(user)}
+                      </span>
+                    </td>
+                    <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">
+                      {user.assignedVacancies === 'assignment' && user.assignedAssignment && (
+                        <div className="text-xs text-gray-600">
+                          Assignment: {user.assignedAssignment}
+                        </div>
+                      )}
+                      {user.assignedVacancies === 'specific' && user.assignedItemNumbers?.length > 0 && (
+                        <div className="text-xs text-gray-600">
+                          Items: {user.assignedItemNumbers.slice(0, 3).join(', ')}
+                          {user.assignedItemNumbers.length > 3 && ` +${user.assignedItemNumbers.length - 3} more`}
+                        </div>
+                      )}
+                    </td>
+                    <td className="table-cell px-4 py-2">
+                      <button
+                        onClick={() => handleEdit(user, 'assignment')}
+                        className="btn-secondary px-2 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
+                      >
+                        Assign Vacancies
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {filteredUsers.length === 0 && (
+                  <tr>
+                    <td colSpan="5" className="px-4 py-8 text-center text-gray-500">
+                      No users found matching your search criteria.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  };
+                      
 
   const renderInterviewSummary = () => (
     <div className="space-y-4">
@@ -1712,6 +1992,7 @@ const AdminView = ({ user }) => {
       {showModal && modalType === 'candidate' && <CandidateModal />}
       {showModal && modalType === 'competency' && <CompetencyModal />}
       {showModal && modalType === 'assignment' && <VacancyAssignmentModal />}
+      {showVacancyModal && <VacancyDetailsModal />}
     </div>
   );
 };
