@@ -448,27 +448,29 @@ const AdminView = ({ user }) => {
 
 // Optimized components - place before UserModal (around line 420)
 const SearchBar = ({ placeholder, value, onChange }) => {
-  console.log('🔍 SearchBar Render:', { value, valueLength: value?.length });
+  const inputRef = useRef(null);
   
-  const handleChange = (e) => {
-    const newValue = e.target.value;
-    console.log('📝 SearchBar onChange triggered:', { 
-      oldValue: value, 
-      newValue, 
-      event: e.type 
-    });
-    onChange(newValue);
-  };
+  useEffect(() => {
+    // Store cursor position before render
+    const input = inputRef.current;
+    if (input && document.activeElement === input) {
+      const cursorPosition = input.selectionStart;
+      // Restore focus and cursor position after render
+      requestAnimationFrame(() => {
+        input.focus();
+        input.setSelectionRange(cursorPosition, cursorPosition);
+      });
+    }
+  });
 
   return (
     <div className="mb-4">
       <input
+        ref={inputRef}
         type="text"
         placeholder={placeholder}
         value={value}
-        onChange={handleChange}
-        onInput={(e) => console.log('⌨️ onInput event:', e.target.value)}
-        onKeyDown={(e) => console.log('⌨️ onKeyDown:', e.key)}
+        onChange={(e) => onChange(e.target.value)}
         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
       />
     </div>
@@ -476,9 +478,12 @@ const SearchBar = ({ placeholder, value, onChange }) => {
 };
   
 const FilterableHeader = ({ label, filterKey, sortKey, filterValue, onFilterChange, onSort, sortConfig }) => {
+  const filterInputRef = useRef(null);
+  
   const handleInputChange = (e) => {
     e.stopPropagation();
-    onFilterChange(filterKey, e.target.value);
+    const newValue = e.target.value;
+    onFilterChange(filterKey, newValue);
   };
 
   return (
@@ -500,6 +505,7 @@ const FilterableHeader = ({ label, filterKey, sortKey, filterValue, onFilterChan
         </div>
         {filterKey && (
           <input
+            ref={filterInputRef}
             type="text"
             placeholder="Filter..."
             value={filterValue || ''}
@@ -513,6 +519,8 @@ const FilterableHeader = ({ label, filterKey, sortKey, filterValue, onFilterChan
     </th>
   );
 };
+
+
   const UserModal = () => {
     const [formData, setFormData] = useState(
       editingItem || {
@@ -2022,27 +2030,23 @@ const FilterableHeader = ({ label, filterKey, sortKey, filterValue, onFilterChan
     <div className="flex-1 p-6 overflow-auto">
       {/* Search Bar */}
       {activeTab !== 'interviewSummary' && (
-        <SearchBar
-          placeholder={
-            activeTab === 'users'
-              ? 'Search users by name, email, or type...'
-              : activeTab === 'vacancies'
-              ? 'Search vacancies by item number, position, assignment, or salary grade...'
-              : activeTab === 'candidates'
-              ? 'Search candidates by name, item number, gender, age, or status...'
-              : activeTab === 'competencies'
-              ? 'Search competencies by name or type...'
-              : 'Search users by name, email, or type...'
-          }
-          value={searchTerm}
-          onChange={(newValue) => {
-            console.log('🎯 PARENT onChange called:', { 
-              oldSearchTerm: searchTerm, 
-              newSearchTerm: newValue 
-            });
-            setSearchTerm(newValue);
-          }}
-        />
+        <div key={`search-${activeTab}`}>
+          <SearchBar
+            placeholder={
+              activeTab === 'users'
+                ? 'Search users by name, email, or type...'
+                : activeTab === 'vacancies'
+                ? 'Search vacancies by item number, position, assignment, or salary grade...'
+                : activeTab === 'candidates'
+                ? 'Search candidates by name, item number, gender, age, or status...'
+                : activeTab === 'competencies'
+                ? 'Search competencies by name or type...'
+                : 'Search users by name, email, or type...'
+            }
+            value={searchTerm}
+            onChange={setSearchTerm}
+          />
+        </div>
       )}
 
       {/* Tab Content */}
