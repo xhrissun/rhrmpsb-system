@@ -448,25 +448,9 @@ const AdminView = ({ user }) => {
 
 // Optimized components - place before UserModal (around line 420)
 const SearchBar = ({ placeholder, value, onChange }) => {
-  const inputRef = useRef(null);
-  
-  useEffect(() => {
-    // Store cursor position before render
-    const input = inputRef.current;
-    if (input && document.activeElement === input) {
-      const cursorPosition = input.selectionStart;
-      // Restore focus and cursor position after render
-      requestAnimationFrame(() => {
-        input.focus();
-        input.setSelectionRange(cursorPosition, cursorPosition);
-      });
-    }
-  });
-
   return (
     <div className="mb-4">
       <input
-        ref={inputRef}
         type="text"
         placeholder={placeholder}
         value={value}
