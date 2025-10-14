@@ -1078,121 +1078,147 @@ const AdminView = ({ user }) => {
   };
 
   const CompetencyModal = () => {
-    const [formData, setFormData] = useState(() => {
-      const defaultData = {
-        name: '',
-        type: 'basic',
-        selectedVacancies: [],
-        isFixed: false
+  const [formData, setFormData] = useState(() => {
+    const defaultData = {
+      name: '',
+      type: 'basic',
+      selectedVacancies: [],
+      isFixed: false
+    };
+
+    if (editingItem) {
+      const vacancyIds = Array.isArray(editingItem.vacancyIds)
+        ? editingItem.vacancyIds
+        : editingItem.vacancyId
+          ? [editingItem.vacancyId]
+          : [];
+      return {
+        name: editingItem.name || '',
+        type: editingItem.type || 'basic',
+        selectedVacancies: vacancyIds,
+        isFixed: editingItem.isFixed || false
+      };
+    }
+
+    return defaultData;
+  });
+
+  const [vacancySearch, setVacancySearch] = useState(''); // 🔍 NEW STATE
+
+  const handleVacancyChange = (vacancyId, checked) => {
+    if (checked) {
+      setFormData(prev => ({
+        ...prev,
+        selectedVacancies: [...prev.selectedVacancies, vacancyId]
+      }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        selectedVacancies: prev.selectedVacancies.filter(id => id !== vacancyId)
+      }));
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const submitData = {
+        name: formData.name,
+        type: formData.type,
+        vacancyIds: formData.isFixed ? [] : formData.selectedVacancies,
+        isFixed: formData.isFixed
       };
 
       if (editingItem) {
-        const vacancyIds = Array.isArray(editingItem.vacancyIds) 
-          ? editingItem.vacancyIds 
-          : editingItem.vacancyId 
-            ? [editingItem.vacancyId] 
-            : [];
-        return {
-          name: editingItem.name || '',
-          type: editingItem.type || 'basic',
-          selectedVacancies: vacancyIds,
-          isFixed: editingItem.isFixed || false
-        };
-      }
-
-      return defaultData;
-    });
-
-    const handleVacancyChange = (vacancyId, checked) => {
-      if (checked) {
-        setFormData(prev => ({
-          ...prev,
-          selectedVacancies: [...prev.selectedVacancies, vacancyId]
-        }));
+        await competenciesAPI.update(editingItem._id, submitData);
       } else {
-        setFormData(prev => ({
-          ...prev,
-          selectedVacancies: prev.selectedVacancies.filter(id => id !== vacancyId)
-        }));
+        await competenciesAPI.create(submitData);
       }
-    };
 
-    const handleSubmit = async (e) => {
-      e.preventDefault();
-      try {
-        const submitData = {
-          name: formData.name,
-          type: formData.type,
-          vacancyIds: formData.isFixed ? [] : formData.selectedVacancies,
-          isFixed: formData.isFixed
-        };
+      setShowModal(false);
+      loadData();
+      alert(`Competency ${editingItem ? 'updated' : 'created'} successfully!`);
+    } catch (error) {
+      console.error('Failed to save competency:', error);
+      alert('Failed to save competency. Please try again.');
+    }
+  };
 
-        if (editingItem) {
-          await competenciesAPI.update(editingItem._id, submitData);
-        } else {
-          await competenciesAPI.create(submitData);
-        }
-        setShowModal(false);
-        loadData();
-        alert(`Competency ${editingItem ? 'updated' : 'created'} successfully!`);
-      } catch (error) {
-        console.error('Failed to save competency:', error);
-        alert('Failed to save competency. Please try again.');
-      }
-    };
+  // 🧠 Filter vacancies based on search
+  const filteredVacancies = vacancies.filter(vac =>
+    `${vac.itemNumber} - ${vac.position}`
+      .toLowerCase()
+      .includes(vacancySearch.toLowerCase())
+  );
 
-    return (
-      <div className="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div className="modal-content bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6 overflow-y-auto max-h-[90vh]">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-bold">
-              {editingItem ? 'Edit Competency' : 'Add Competency'}
-            </h2>
-            <button onClick={() => setShowModal(false)} className="text-gray-500 hover:text-gray-700">✕</button>
+  return (
+    <div className="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="modal-content bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6 overflow-y-auto max-h-[90vh]">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg font-bold">
+            {editingItem ? 'Edit Competency' : 'Add Competency'}
+          </h2>
+          <button onClick={() => setShowModal(false)} className="text-gray-500 hover:text-gray-700">✕</button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-3 text-sm">
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Competency Name</label>
+            <input
+              type="text"
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              className="input-field w-full border rounded px-2 py-1 text-sm"
+              required
+            />
           </div>
-          <form onSubmit={handleSubmit} className="space-y-3 text-sm">
+
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Type</label>
+            <select
+              value={formData.type}
+              onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+              className="select-field w-full border rounded px-2 py-1 text-sm"
+              required
+            >
+              <option value="basic">Basic</option>
+              <option value="organizational">Organizational</option>
+              <option value="leadership">Leadership</option>
+              <option value="minimum">Minimum</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="flex items-center text-sm">
+              <input
+                type="checkbox"
+                checked={formData.isFixed}
+                onChange={(e) => setFormData({ ...formData, isFixed: e.target.checked })}
+                className="mr-2"
+              />
+              Fixed Competency (applies to all vacancies)
+            </label>
+          </div>
+
+          {!formData.isFixed && (
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Competency Name</label>
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Select Vacancies (leave empty to apply to all vacancies)
+              </label>
+
+              {/* 🔍 Search Input */}
               <input
                 type="text"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="input-field w-full border rounded px-2 py-1 text-sm"
-                required
+                placeholder="Search vacancies..."
+                value={vacancySearch}
+                onChange={(e) => setVacancySearch(e.target.value)}
+                className="w-full px-2 py-1 mb-2 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Type</label>
-              <select
-                value={formData.type}
-                onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                className="select-field w-full border rounded px-2 py-1 text-sm"
-                required
-              >
-                <option value="basic">Basic</option>
-                <option value="organizational">Organizational</option>
-                <option value="leadership">Leadership</option>
-                <option value="minimum">Minimum</option>
-              </select>
-            </div>
-            <div>
-              <label className="flex items-center text-sm">
-                <input
-                  type="checkbox"
-                  checked={formData.isFixed}
-                  onChange={(e) => setFormData({ ...formData, isFixed: e.target.checked })}
-                  className="mr-2"
-                />
-                Fixed Competency (applies to all vacancies)
-              </label>
-            </div>
-            {!formData.isFixed && (
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
-                  Select Vacancies (leave empty to apply to all vacancies)
-                </label>
-                <div className="max-h-40 overflow-y-auto border border-gray-300 rounded-md p-2 space-y-1 text-sm">
-                  {vacancies.map(vacancy => (
+
+              {/* ✅ Filtered List */}
+              <div className="max-h-40 overflow-y-auto border border-gray-300 rounded-md p-2 space-y-1 text-sm">
+                {filteredVacancies.length > 0 ? (
+                  filteredVacancies.map(vacancy => (
                     <label key={vacancy._id} className="flex items-center text-xs">
                       <input
                         type="checkbox"
@@ -1202,23 +1228,35 @@ const AdminView = ({ user }) => {
                       />
                       {vacancy.itemNumber} - {vacancy.position}
                     </label>
-                  ))}
-                </div>
+                  ))
+                ) : (
+                  <p className="text-gray-400 text-xs italic">No vacancies found.</p>
+                )}
               </div>
-            )}
-            <div className="flex justify-end space-x-2">
-              <button type="button" onClick={() => setShowModal(false)} className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300">
-                Cancel
-              </button>
-              <button type="submit" className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600">
-                {editingItem ? 'Update' : 'Create'}
-              </button>
             </div>
-          </form>
-        </div>
+          )}
+
+          <div className="flex justify-end space-x-2">
+            <button
+              type="button"
+              onClick={() => setShowModal(false)}
+              className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600"
+            >
+              {editingItem ? 'Update' : 'Create'}
+            </button>
+          </div>
+        </form>
       </div>
-    );
-  };
+    </div>
+  );
+};
+
 
   const VacancyAssignmentModal = () => {
       const [formData, setFormData] = useState(() => {
