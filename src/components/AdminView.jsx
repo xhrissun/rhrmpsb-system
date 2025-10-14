@@ -99,19 +99,6 @@ const AdminView = ({ user }) => {
   });
 };
 
-const memoizedHandleSort = React.useCallback((key) => {
-  handleSort(key);
-}, []);
-
-const memoizedHandleFilterChange = React.useCallback((key, value) => {
-  handleFilterChange(key, value);
-}, []);
-
-const memoizedHandleSearchChange = React.useCallback((e) => {
-  setSearchTerm(e.target.value);
-}, []);
-
-
   // Validate activeTab
   useEffect(() => {
     const validTabs = ['users', 'vacancies', 'candidates', 'competencies', 'assignments', 'interviewSummary'];
@@ -436,7 +423,7 @@ const memoizedHandleSearchChange = React.useCallback((e) => {
   };
 
 // Optimized components - place before UserModal (around line 420)
-const SearchBar = ({ placeholder, value, onChange }) => (
+const SearchBar = React.memo(({ placeholder, value, onChange }) => (
   <div className="mb-4">
     <input
       type="text"
@@ -446,7 +433,9 @@ const SearchBar = ({ placeholder, value, onChange }) => (
       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
     />
   </div>
-);
+));
+
+SearchBar.displayName = 'SearchBar';
 
 const FilterableHeader = React.memo(({ label, filterKey, sortKey, filterValue, onFilterChange, onSort, sortConfig }) => {
   const handleInputChange = (e) => {
@@ -1511,9 +1500,9 @@ FilterableHeader.displayName = 'FilterableHeader';
         </div>
         
         <SearchBar 
-          placeholder="Search users by name, email, type, or position..." 
+          placeholder="..." 
           value={searchTerm}
-          onChange={memoizedHandleSearchChange}
+          onChange={(e) => setSearchTerm(e.target.value)}
         />
         
         <div className="card bg-white rounded-lg shadow overflow-hidden">
@@ -1521,11 +1510,11 @@ FilterableHeader.displayName = 'FilterableHeader';
             <table className="min-w-full divide-y divide-gray-200 text-sm">
               <thead className="bg-gray-50">
                 <tr>
-                  <FilterableHeader label="Name" filterKey="name" sortKey="name" filterValue={filters.name || ''} onFilterChange={memoizedHandleFilterChange}  onSort={memoizedHandleSort} sortConfig={sortConfig} />
-                  <FilterableHeader label="Email" filterKey="email" sortKey="email" filterValue={filters.email || ''} onFilterChange={memoizedHandleFilterChange}  onSort={memoizedHandleSort} sortConfig={sortConfig} />
-                  <FilterableHeader label="User Type" filterKey="userType" sortKey="userType" filterValue={filters.userType || ''} onFilterChange={memoizedHandleFilterChange}  onSort={memoizedHandleSort} sortConfig={sortConfig} />
-                  <FilterableHeader label="Rater Type" filterKey="raterType" sortKey="raterType" filterValue={filters.raterType || ''} onFilterChange={memoizedHandleFilterChange}  onSort={memoizedHandleSort} sortConfig={sortConfig} />
-                  <FilterableHeader label="Position" filterKey="position" sortKey="position" filterValue={filters.position || ''} onFilterChange={memoizedHandleFilterChange}  onSort={memoizedHandleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Name" filterKey="name" sortKey="name" filterValue={filters.name || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Email" filterKey="email" sortKey="email" filterValue={filters.email || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="User Type" filterKey="userType" sortKey="userType" filterValue={filters.userType || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Rater Type" filterKey="raterType" sortKey="raterType" filterValue={filters.raterType || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Position" filterKey="position" sortKey="position" filterValue={filters.position || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
                   <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
@@ -1612,7 +1601,7 @@ FilterableHeader.displayName = 'FilterableHeader';
         <SearchBar 
           placeholder="Search vacancies by item number, position, assignment, or salary grade..." 
           value={searchTerm}
-          onChange={memoizedHandleSearchChange}
+          onChange={(e) => setSearchTerm(e.target.value)}
         />
         
         <div className="card bg-white rounded-lg shadow overflow-hidden">
@@ -1620,10 +1609,10 @@ FilterableHeader.displayName = 'FilterableHeader';
             <table className="min-w-full divide-y divide-gray-200 text-sm">
               <thead className="bg-gray-50">
                 <tr>
-                  <FilterableHeader label="Item Number" filterKey="itemNumber" sortKey="itemNumber" filterValue={filters.itemNumber || ''} onFilterChange={memoizedHandleFilterChange}  onSort={memoizedHandleSort} sortConfig={sortConfig} />
-                  <FilterableHeader label="Position" filterKey="position" sortKey="position" filterValue={filters.position || ''} onFilterChange={memoizedHandleFilterChange}  onSort={memoizedHandleSort} sortConfig={sortConfig} />
-                  <FilterableHeader label="Assignment" filterKey="assignment" sortKey="assignment" filterValue={filters.assignment || ''} onFilterChange={memoizedHandleFilterChange}  onSort={memoizedHandleSort} sortConfig={sortConfig} />
-                  <FilterableHeader label="Salary Grade" filterKey="salaryGrade" sortKey="salaryGrade" filterValue={filters.salaryGrade || ''} onFilterChange={memoizedHandleFilterChange}  onSort={memoizedHandleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Item Number" filterKey="itemNumber" sortKey="itemNumber" filterValue={filters.itemNumber || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Position" filterKey="position" sortKey="position" filterValue={filters.position || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Assignment" filterKey="assignment" sortKey="assignment" filterValue={filters.assignment || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Salary Grade" filterKey="salaryGrade" sortKey="salaryGrade" filterValue={filters.salaryGrade || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
                   <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
@@ -1705,7 +1694,7 @@ FilterableHeader.displayName = 'FilterableHeader';
         <SearchBar 
           placeholder="Search candidates by name, item number, gender, age, or status..." 
           value={searchTerm}
-          onChange={memoizedHandleSearchChange}
+          onChange={(e) => setSearchTerm(e.target.value)}
         />
         
         <div className="card bg-white rounded-lg shadow overflow-hidden">
@@ -1713,11 +1702,11 @@ FilterableHeader.displayName = 'FilterableHeader';
             <table className="min-w-full divide-y divide-gray-200 text-sm">
               <thead className="bg-gray-50">
                 <tr>
-                  <FilterableHeader label="Name" filterKey="fullName" sortKey="fullName" filterValue={filters.fullName || ''} onFilterChange={memoizedHandleFilterChange}  onSort={memoizedHandleSort} sortConfig={sortConfig} />
-                  <FilterableHeader label="Item Number" filterKey="itemNumber" sortKey="itemNumber" filterValue={filters.itemNumber || ''} onFilterChange={memoizedHandleFilterChange}  onSort={memoizedHandleSort} sortConfig={sortConfig} />
-                  <FilterableHeader label="Gender" filterKey="gender" sortKey="gender" filterValue={filters.gender || ''} onFilterChange={memoizedHandleFilterChange}  onSort={memoizedHandleSort} sortConfig={sortConfig} />
-                  <FilterableHeader label="Age" filterKey="age" sortKey="age" filterValue={filters.age || ''} onFilterChange={memoizedHandleFilterChange}  onSort={memoizedHandleSort} sortConfig={sortConfig} />
-                  <FilterableHeader label="Status" filterKey="status" sortKey="status" filterValue={filters.status || ''} onFilterChange={memoizedHandleFilterChange}  onSort={memoizedHandleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Name" filterKey="fullName" sortKey="fullName" filterValue={filters.fullName || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Item Number" filterKey="itemNumber" sortKey="itemNumber" filterValue={filters.itemNumber || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Gender" filterKey="gender" sortKey="gender" filterValue={filters.gender || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Age" filterKey="age" sortKey="age" filterValue={filters.age || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Status" filterKey="status" sortKey="status" filterValue={filters.status || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
                   <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
@@ -1811,7 +1800,7 @@ FilterableHeader.displayName = 'FilterableHeader';
         <SearchBar 
           placeholder="Search competencies by name or type..." 
           value={searchTerm}
-          onChange={memoizedHandleSearchChange}
+          onChange={(e) => setSearchTerm(e.target.value)}
         />
         
         <div className="card bg-white rounded-lg shadow overflow-hidden">
@@ -1819,10 +1808,10 @@ FilterableHeader.displayName = 'FilterableHeader';
             <table className="min-w-full divide-y divide-gray-200 text-sm">
               <thead className="bg-gray-50">
                 <tr>
-                  <FilterableHeader label="Name" filterKey="name" sortKey="name" filterValue={filters.name || ''} onFilterChange={memoizedHandleFilterChange}  onSort={memoizedHandleSort} sortConfig={sortConfig} />
-                  <FilterableHeader label="Type" filterKey="type" sortKey="type" filterValue={filters.type || ''} onFilterChange={memoizedHandleFilterChange}  onSort={memoizedHandleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Name" filterKey="name" sortKey="name" filterValue={filters.name || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Type" filterKey="type" sortKey="type" filterValue={filters.type || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
                   <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vacancies</th>
-                  <FilterableHeader label="Fixed" filterKey="isFixed" sortKey="isFixed" filterValue={filters.isFixed || ''} onFilterChange={memoizedHandleFilterChange}  onSort={memoizedHandleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Fixed" filterKey="isFixed" sortKey="isFixed" filterValue={filters.isFixed || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
                   <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
@@ -1899,7 +1888,7 @@ FilterableHeader.displayName = 'FilterableHeader';
         <SearchBar 
           placeholder="Search users by name, email, or type..." 
           value={searchTerm}
-          onChange={memoizedHandleSearchChange}
+          onChange={(e) => setSearchTerm(e.target.value)}
         />
         
         <div className="card bg-white rounded-lg shadow overflow-hidden">
@@ -1907,8 +1896,8 @@ FilterableHeader.displayName = 'FilterableHeader';
             <table className="min-w-full divide-y divide-gray-200 text-sm">
               <thead className="bg-gray-50">
                 <tr>
-                  <FilterableHeader label="User" filterKey="name" sortKey="name" filterValue={filters.name || ''} onFilterChange={memoizedHandleFilterChange}  onSort={memoizedHandleSort} sortConfig={sortConfig} />
-                  <FilterableHeader label="User Type" filterKey="userType" sortKey="userType" filterValue={filters.userType || ''} onFilterChange={memoizedHandleFilterChange}  onSort={memoizedHandleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="User" filterKey="name" sortKey="name" filterValue={filters.name || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="User Type" filterKey="userType" sortKey="userType" filterValue={filters.userType || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
                   <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Current Assignment</th>
                   <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Details</th>
                   <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
