@@ -92,20 +92,22 @@ const AdminView = ({ user }) => {
 
   // Add this function after handleFilterChange (around line 95):
   const handleSearchChange = useCallback((value) => {
+    // ✅ Just update the state, no unnecessary re-render triggers
     setSearchTerm(value);
   }, []);
 
-  const handleFilterChange = (key, value) => {
-  setFilters(prev => {
+  const handleFilterChange = useCallback((key, value) => {
+  setFilters((prev) => {
     const newFilters = { ...prev };
-    if (value === '') {
+    if (value.trim() === '') {
       delete newFilters[key];
     } else {
       newFilters[key] = value;
     }
     return newFilters;
   });
-};
+}, []);
+
 
 
   console.log('🎬 AdminView Render:', {
@@ -138,15 +140,13 @@ const AdminView = ({ user }) => {
     });
     
     if (prevTabRef.current !== activeTab) {
-      console.log('🧹 RESETTING FILTERS - Tab changed from', prevTabRef.current, 'to', activeTab);
-      setSearchTerm('');
-      setFilters({});
-      setSortConfig({ key: null, direction: 'asc' });
-      prevTabRef.current = activeTab;
-    } else {
-      console.log('✅ No reset needed - same tab');
-    }
-  }, [activeTab]);
+    // ✅ Reset filters and sorting ONLY when user actually switches tab
+    setSearchTerm('');
+    setFilters({});
+    setSortConfig({ key: null, direction: 'asc' });
+    prevTabRef.current = activeTab;
+  }
+}, [activeTab]);
 
   const loadAllData = async () => {
     try {
