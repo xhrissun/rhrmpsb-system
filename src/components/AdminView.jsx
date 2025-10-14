@@ -429,7 +429,7 @@ const SearchBar = ({ placeholder, value, onChange }) => (
       type="text"
       placeholder={placeholder}
       value={value}
-      onChange={onChange}
+      onChange={(e) => onChange(e.target.value)} // Pass the input value directly
       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
     />
   </div>
@@ -1490,7 +1490,7 @@ const FilterableHeader = ({ label, filterKey, sortKey, filterValue, onFilterChan
         <SearchBar 
           placeholder="..." 
           value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
+          onChange={setSearchTerm}
         />
         
         <div className="card bg-white rounded-lg shadow overflow-hidden">
@@ -1589,7 +1589,7 @@ const FilterableHeader = ({ label, filterKey, sortKey, filterValue, onFilterChan
         <SearchBar 
           placeholder="Search vacancies by item number, position, assignment, or salary grade..." 
           value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
+          onChange={setSearchTerm}
         />
         
         <div className="card bg-white rounded-lg shadow overflow-hidden">
@@ -1682,7 +1682,7 @@ const FilterableHeader = ({ label, filterKey, sortKey, filterValue, onFilterChan
         <SearchBar 
           placeholder="Search candidates by name, item number, gender, age, or status..." 
           value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
+          onChange={setSearchTerm}
         />
         
         <div className="card bg-white rounded-lg shadow overflow-hidden">
@@ -1788,7 +1788,7 @@ const FilterableHeader = ({ label, filterKey, sortKey, filterValue, onFilterChan
         <SearchBar 
           placeholder="Search competencies by name or type..." 
           value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
+          onChange={setSearchTerm}
         />
         
         <div className="card bg-white rounded-lg shadow overflow-hidden">
@@ -1876,7 +1876,7 @@ const FilterableHeader = ({ label, filterKey, sortKey, filterValue, onFilterChan
         <SearchBar 
           placeholder="Search users by name, email, or type..." 
           value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
+          onChange={setSearchTerm}
         />
         
         <div className="card bg-white rounded-lg shadow overflow-hidden">
