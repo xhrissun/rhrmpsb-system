@@ -434,9 +434,7 @@ const SearchBar = ({ placeholder, value, onChange }) => (
     />
   </div>
 );
-
-SearchBar.displayName = 'SearchBar';
-
+  
 const FilterableHeader = ({ label, filterKey, sortKey, filterValue, onFilterChange, onSort, sortConfig }) => {
   const handleInputChange = (e) => {
     e.stopPropagation();
@@ -475,10 +473,6 @@ const FilterableHeader = ({ label, filterKey, sortKey, filterValue, onFilterChan
     </th>
   );
 };
-
-FilterableHeader.displayName = 'FilterableHeader';
-
-
   const UserModal = () => {
     const [formData, setFormData] = useState(
       editingItem || {
