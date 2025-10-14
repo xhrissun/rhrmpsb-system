@@ -1,9 +1,74 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import usePersistedState from '../utils/usePersistedState';
 import { usersAPI, vacanciesAPI, candidatesAPI, competenciesAPI } from '../utils/api';
 import { parseCSV, exportToCSV } from '../utils/helpers';
 import { USER_TYPES, RATER_TYPES, SALARY_GRADES, CANDIDATE_STATUS } from '../utils/constants';
 import InterviewSummaryGenerator from './InterviewSummaryGenerator';
+
+// --- SearchBar and FilterableHeader (moved out of AdminView to prevent remounts) ---
+export const SearchBar = ({ placeholder, value, onChange }) => {
+  return (
+    <div className="mb-4">
+      <input
+        type="text"
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+      />
+    </div>
+  );
+};
+
+// ✅ Memoized to prevent remounts on state updates
+export const FilterableHeader = memo(function FilterableHeader({
+  label,
+  filterKey,
+  sortKey,
+  filterValue,
+  onFilterChange,
+  onSort,
+  sortConfig
+}) {
+  const handleInputChange = (e) => {
+    e.stopPropagation();
+    const newValue = e.target.value;
+    onFilterChange(filterKey, newValue);
+  };
+
+  return (
+    <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+      <div className="flex flex-col space-y-1">
+        <div className="flex items-center space-x-1">
+          <span>{label}</span>
+          {sortKey && (
+            <button
+              onClick={() => onSort(sortKey)}
+              className="text-gray-400 hover:text-gray-600"
+              type="button"
+            >
+              {sortConfig.key === sortKey ? (
+                sortConfig.direction === 'asc' ? '▲' : '▼'
+              ) : '⇅'}
+            </button>
+          )}
+        </div>
+        {filterKey && (
+          <input
+            type="text"
+            placeholder="Filter..."
+            value={filterValue || ''}
+            onChange={handleInputChange}
+            className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+          />
+        )}
+      </div>
+    </th>
+  );
+});
+
 
 const AdminView = ({ user }) => {
   // Use usePersistedState for activeTab
@@ -450,65 +515,6 @@ const AdminView = ({ user }) => {
     downloadCSV(csvContent, filename);
     alert(`Empty ${type} template exported successfully!`);
   };
-
-// Optimized components - place before UserModal (around line 420)
-const SearchBar = ({ placeholder, value, onChange }) => {
-  return (
-    <div className="mb-4">
-      <input
-        type="text"
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-      />
-    </div>
-  );
-};
-  
-const FilterableHeader = ({ label, filterKey, sortKey, filterValue, onFilterChange, onSort, sortConfig }) => {
-  const filterInputRef = useRef(null);
-  
-  const handleInputChange = (e) => {
-    e.stopPropagation();
-    const newValue = e.target.value;
-    onFilterChange(filterKey, newValue);
-  };
-
-  return (
-    <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-      <div className="flex flex-col space-y-1">
-        <div className="flex items-center space-x-1">
-          <span>{label}</span>
-          {sortKey && (
-            <button
-              onClick={() => onSort(sortKey)}
-              className="text-gray-400 hover:text-gray-600"
-              type="button"
-            >
-              {sortConfig.key === sortKey ? (
-                sortConfig.direction === 'asc' ? '▲' : '▼'
-              ) : '⇅'}
-            </button>
-          )}
-        </div>
-        {filterKey && (
-          <input
-            ref={filterInputRef}
-            type="text"
-            placeholder="Filter..."
-            value={filterValue || ''}
-            onChange={handleInputChange}
-            className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
-            onClick={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
-          />
-        )}
-      </div>
-    </th>
-  );
-};
-
 
   const UserModal = () => {
     const [formData, setFormData] = useState(
