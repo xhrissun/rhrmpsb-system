@@ -8,6 +8,9 @@ import InterviewSummaryGenerator from './InterviewSummaryGenerator';
 const AdminView = ({ user }) => {
   // Use usePersistedState for activeTab
   const [activeTab, setActiveTab] = usePersistedState(`admin_${user._id}_activeTab`, 'users');
+  useEffect(() => {
+    console.log('📌 ActiveTab changed in usePersistedState:', activeTab);
+  }, [activeTab]);
   const [users, setUsers] = useState([]);
   const [vacancies, setVacancies] = useState([]);
   const [candidates, setCandidates] = useState([]);
@@ -99,6 +102,15 @@ const AdminView = ({ user }) => {
   });
 };
 
+
+  console.log('🎬 AdminView Render:', {
+    activeTab,
+    searchTerm,
+    searchTermLength: searchTerm?.length,
+    prevTab: prevTabRef.current
+  });
+
+
   // Validate activeTab
   useEffect(() => {
     const validTabs = ['users', 'vacancies', 'candidates', 'competencies', 'assignments', 'interviewSummary'];
@@ -111,15 +123,23 @@ const AdminView = ({ user }) => {
   useEffect(() => {
     loadAllData();
   }, []);
-  
+
 // Add this useEffect to reset filters when changing tabs
   useEffect(() => {
-    // Only reset if the tab actually changed
+    console.log('🔄 Filter Reset useEffect triggered:', {
+      prevTab: prevTabRef.current,
+      currentTab: activeTab,
+      willReset: prevTabRef.current !== activeTab
+    });
+    
     if (prevTabRef.current !== activeTab) {
+      console.log('🧹 RESETTING FILTERS - Tab changed from', prevTabRef.current, 'to', activeTab);
       setSearchTerm('');
       setFilters({});
       setSortConfig({ key: null, direction: 'asc' });
       prevTabRef.current = activeTab;
+    } else {
+      console.log('✅ No reset needed - same tab');
     }
   }, [activeTab]);
 
@@ -427,17 +447,33 @@ const AdminView = ({ user }) => {
   };
 
 // Optimized components - place before UserModal (around line 420)
-const SearchBar = ({ placeholder, value, onChange }) => (
-  <div className="mb-4">
-    <input
-      type="text"
-      placeholder={placeholder}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-    />
-  </div>
-);
+const SearchBar = ({ placeholder, value, onChange }) => {
+  console.log('🔍 SearchBar Render:', { value, valueLength: value?.length });
+  
+  const handleChange = (e) => {
+    const newValue = e.target.value;
+    console.log('📝 SearchBar onChange triggered:', { 
+      oldValue: value, 
+      newValue, 
+      event: e.type 
+    });
+    onChange(newValue);
+  };
+
+  return (
+    <div className="mb-4">
+      <input
+        type="text"
+        placeholder={placeholder}
+        value={value}
+        onChange={handleChange}
+        onInput={(e) => console.log('⌨️ onInput event:', e.target.value)}
+        onKeyDown={(e) => console.log('⌨️ onKeyDown:', e.key)}
+        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+      />
+    </div>
+  );
+};
   
 const FilterableHeader = ({ label, filterKey, sortKey, filterValue, onFilterChange, onSort, sortConfig }) => {
   const handleInputChange = (e) => {
@@ -1999,7 +2035,13 @@ const FilterableHeader = ({ label, filterKey, sortKey, filterValue, onFilterChan
               : 'Search users by name, email, or type...'
           }
           value={searchTerm}
-          onChange={setSearchTerm}
+          onChange={(newValue) => {
+            console.log('🎯 PARENT onChange called:', { 
+              oldSearchTerm: searchTerm, 
+              newSearchTerm: newValue 
+            });
+            setSearchTerm(newValue);
+          }}
         />
       )}
 
