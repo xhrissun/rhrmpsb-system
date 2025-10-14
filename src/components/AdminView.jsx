@@ -436,7 +436,7 @@ const memoizedHandleSearchChange = React.useCallback((e) => {
   };
 
 // Optimized components - place before UserModal (around line 420)
-const SearchBar = React.memo(({ placeholder, value, onChange }) => (
+const SearchBar = ({ placeholder, value, onChange }) => (
   <div className="mb-4">
     <input
       type="text"
@@ -446,9 +446,7 @@ const SearchBar = React.memo(({ placeholder, value, onChange }) => (
       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
     />
   </div>
-));
-
-SearchBar.displayName = 'SearchBar';
+);
 
 const FilterableHeader = React.memo(({ label, filterKey, sortKey, filterValue, onFilterChange, onSort, sortConfig }) => {
   const handleInputChange = (e) => {
