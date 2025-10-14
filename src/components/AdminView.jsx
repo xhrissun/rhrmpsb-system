@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import usePersistedState from '../utils/usePersistedState';
 import { usersAPI, vacanciesAPI, candidatesAPI, competenciesAPI } from '../utils/api';
 import { parseCSV, exportToCSV } from '../utils/helpers';
@@ -89,6 +89,11 @@ const AdminView = ({ user }) => {
       setShowVacancyModal(true);
     }
   };
+
+  // Add this function after handleFilterChange (around line 95):
+  const handleSearchChange = useCallback((value) => {
+    setSearchTerm(value);
+  }, []);
 
   const handleFilterChange = (key, value) => {
   setFilters(prev => {
@@ -2014,23 +2019,22 @@ const FilterableHeader = ({ label, filterKey, sortKey, filterValue, onFilterChan
     <div className="flex-1 p-6 overflow-auto">
       {/* Search Bar */}
       {activeTab !== 'interviewSummary' && (
-        <div key={`search-${activeTab}`}>
-          <SearchBar
-            placeholder={
-              activeTab === 'users'
-                ? 'Search users by name, email, or type...'
-                : activeTab === 'vacancies'
-                ? 'Search vacancies by item number, position, assignment, or salary grade...'
-                : activeTab === 'candidates'
-                ? 'Search candidates by name, item number, gender, age, or status...'
-                : activeTab === 'competencies'
-                ? 'Search competencies by name or type...'
-                : 'Search users by name, email, or type...'
-            }
-            value={searchTerm}
-            onChange={setSearchTerm}
-          />
-        </div>
+        <SearchBar
+          key={activeTab}
+          placeholder={
+            activeTab === 'users'
+              ? 'Search users by name, email, or type...'
+              : activeTab === 'vacancies'
+              ? 'Search vacancies by item number, position, assignment, or salary grade...'
+              : activeTab === 'candidates'
+              ? 'Search candidates by name, item number, gender, age, or status...'
+              : activeTab === 'competencies'
+              ? 'Search competencies by name or type...'
+              : 'Search users by name, email, or type...'
+          }
+          value={searchTerm}
+          onChange={handleSearchChange}
+        />
       )}
 
       {/* Tab Content */}
