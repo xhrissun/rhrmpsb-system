@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import usePersistedState from '../utils/usePersistedState';
 import { usersAPI, vacanciesAPI, candidatesAPI, competenciesAPI } from '../utils/api';
 import { parseCSV, exportToCSV } from '../utils/helpers';
@@ -23,7 +23,7 @@ const AdminView = ({ user }) => {
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
   const [showVacancyModal, setShowVacancyModal] = useState(false);
   const [selectedVacancy, setSelectedVacancy] = useState(null);
-
+  const prevTabRef = useRef(activeTab);
 
   // Add these functions after the state declarations and before loadAllData
   const handleSort = (key) => {
@@ -111,12 +111,16 @@ const AdminView = ({ user }) => {
   useEffect(() => {
     loadAllData();
   }, []);
-
-  // Add this useEffect to reset filters when changing tabs
+  
+// Add this useEffect to reset filters when changing tabs
   useEffect(() => {
-    setSearchTerm('');
-    setFilters({});
-    setSortConfig({ key: null, direction: 'asc' });
+    // Only reset if the tab actually changed
+    if (prevTabRef.current !== activeTab) {
+      setSearchTerm('');
+      setFilters({});
+      setSortConfig({ key: null, direction: 'asc' });
+      prevTabRef.current = activeTab;
+    }
   }, [activeTab]);
 
   const loadAllData = async () => {
