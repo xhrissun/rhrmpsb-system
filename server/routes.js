@@ -653,72 +653,72 @@ router.post('/competencies/upload-csv', authMiddleware, async (req, res) => {
     const errors = [];
 
     for (const competency of competenciesData) {
-      // 🔍 Validate required fields
+      // ✅ Required fields check
       if (!competency.name || !competency.type) {
-        errors.push(`Missing required fields (name, type) for: ${JSON.stringify(competency)}`);
+        errors.push(`Missing required fields (name/type): ${JSON.stringify(competency)}`);
         continue;
       }
 
-      // 🔍 Validate type
+      const competencyType = competency.type.trim().toLowerCase();
       const validTypes = ['basic', 'organizational', 'leadership', 'minimum'];
-      if (!validTypes.includes(competency.type.trim().toLowerCase())) {
-        errors.push(`Invalid competency type '${competency.type}' for: ${competency.name}`);
+      if (!validTypes.includes(competencyType)) {
+        errors.push(`Invalid competency type '${competencyType}' for: ${competency.name}`);
         continue;
       }
 
+      // ✅ Initialize array for vacancy references
       let vacancyIds = [];
 
-      // 🧩 Handle linked vacancy item numbers
+      // --- FIXED VACANCY ITEM NUMBER HANDLING ---
       if (competency.vacancyItemNumbers && competency.vacancyItemNumbers.trim() !== '') {
+        // split multiple item numbers by semicolon
         const itemNumbers = competency.vacancyItemNumbers
           .split(';')
           .map(item => item.trim())
           .filter(item => item !== '');
 
+        // Fetch all referenced vacancies
         for (const itemNumber of itemNumbers) {
           const vacancy = await Vacancy.findOne({ itemNumber });
           if (!vacancy) {
-            errors.push(`Vacancy with item number '${itemNumber}' not found for competency: ${competency.name}`);
+            errors.push(`Vacancy '${itemNumber}' not found for competency: ${competency.name}`);
             continue;
           }
           vacancyIds.push(vacancy._id);
         }
 
-        // Skip if any vacancy failed to resolve
+        // Skip record if any vacancy failed to resolve
         if (vacancyIds.length !== itemNumbers.length) {
           continue;
         }
       }
 
-      // 🧠 Normalize isFixed
+      // ✅ Normalize isFixed value
       const isFixed =
         competency.isFixed === true ||
         competency.isFixed?.toString().toLowerCase() === 'true' ||
         competency.isFixed === '1';
 
-      // 🧩 Build competency data safely
+      // ✅ Always define both vacancyId and vacancyIds
       const competencyData = {
         name: competency.name.trim(),
-        type: competency.type.trim().toLowerCase(),
-        isFixed,
+        type: competencyType,
+        isFixed: isFixed,
         vacancyId: null,
         vacancyIds: [],
       };
 
-      // Assign the correct references
       if (vacancyIds.length > 1) {
         competencyData.vacancyIds = vacancyIds;
-        competencyData.vacancyId = null;
       } else if (vacancyIds.length === 1) {
         competencyData.vacancyId = vacancyIds[0];
-        competencyData.vacancyIds = []; // prevent $in match issues
+        competencyData.vacancyIds = []; // explicitly clear array to prevent $in matches
       }
-
 
       processedCompetencies.push(competencyData);
     }
 
-    // ⚠️ If any validation errors occurred
+    // ✅ If validation errors exist, show them clearly
     if (errors.length > 0) {
       return res.status(400).json({
         message: 'CSV validation failed',
@@ -726,7 +726,7 @@ router.post('/competencies/upload-csv', authMiddleware, async (req, res) => {
       });
     }
 
-    // 💾 Insert all valid competencies
+    // ✅ Insert valid competencies only
     if (processedCompetencies.length > 0) {
       await Competency.insertMany(processedCompetencies);
       return res.json({
