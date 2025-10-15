@@ -380,11 +380,12 @@ competencySchema.statics.findByVacancy = function (vacancyId) {
   return this.find({
     $or: [
       { vacancyId: vacancyId },
-      { vacancyIds: { $in: [vacancyId] } },
+      { vacancyIds: { $exists: true, $ne: [], $in: [vacancyId] } },
       { isFixed: true }
     ]
   });
 };
+
 
 
 // Create models
