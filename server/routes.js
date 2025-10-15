@@ -698,17 +698,20 @@ router.post('/competencies/upload-csv', authMiddleware, async (req, res) => {
       const competencyData = {
         name: competency.name.trim(),
         type: competency.type.trim().toLowerCase(),
-        isFixed: isFixed,
-        // Always define both fields to avoid accidental "global" matches
+        isFixed,
         vacancyId: null,
         vacancyIds: [],
       };
 
+      // Assign the correct references
       if (vacancyIds.length > 1) {
         competencyData.vacancyIds = vacancyIds;
+        competencyData.vacancyId = null;
       } else if (vacancyIds.length === 1) {
         competencyData.vacancyId = vacancyIds[0];
+        competencyData.vacancyIds = []; // prevent $in match issues
       }
+
 
       processedCompetencies.push(competencyData);
     }
