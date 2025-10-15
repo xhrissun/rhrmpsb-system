@@ -560,7 +560,7 @@ const RaterView = ({ user }) => {
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="text-center">
             <h1 className="text-1xl font-bold text-gray-900">Department of Environment and Natural Resources (CALABARZON)</h1>
-            <h1 className="text-2xl font-bold text-gray-900">The DENR CALABARZON Competency-Based Rating System</h1>
+            <h1 className="text-2xl font-bold text-gray-900">RHRMPSB Competency-Based Rating System</h1>
             <p className="text-gray-600">Welcome, {user.name} ({user.raterType})</p>
             <p className="text-xs text-blue-600 mt-1">Only long-listed candidates are available for rating</p>
           </div>
