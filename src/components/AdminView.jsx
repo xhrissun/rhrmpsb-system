@@ -1858,15 +1858,25 @@ const AdminView = ({ user }) => {
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {filteredCompetencies.map(competency => {
-                const vacancyIds = Array.isArray(competency.vacancyIds) 
-                  ? competency.vacancyIds 
-                  : competency.vacancyId 
-                    ? [competency.vacancyId] 
-                    : [];
-                const vacancyNames = vacancyIds
-                  .map(id => vacancies.find(v => v._id === id)?.itemNumber)
-                  .filter(Boolean)
-                  .join(', ') || 'All Vacancies';
+                // ✅ FIX: Check both vacancyIds array AND single vacancyId
+                let vacancyIds = [];
+                
+                // If vacancyIds array exists and has items, use it
+                if (Array.isArray(competency.vacancyIds) && competency.vacancyIds.length > 0) {
+                  vacancyIds = competency.vacancyIds;
+                }
+                // Otherwise if single vacancyId exists, use it
+                else if (competency.vacancyId) {
+                  vacancyIds = [competency.vacancyId];
+                }
+                
+                // Map IDs to item numbers
+                const vacancyNames = vacancyIds.length > 0
+                  ? vacancyIds
+                      .map(id => vacancies.find(v => v._id === id)?.itemNumber)
+                      .filter(Boolean)
+                      .join(', ')
+                  : 'All Vacancies';
                 
                 return (
                   <tr key={competency._id}>
