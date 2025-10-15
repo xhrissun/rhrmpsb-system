@@ -28,27 +28,29 @@ const authMiddleware = async (req, res, next) => {
 // Parse CSV data from buffer - Handle empty values properly
 const parseCSV = (buffer) => {
   try {
-    const csvString = buffer.toString('utf8');
+    let csvString = buffer.toString('utf8')
+      .replace(/\r\n/g, '\n')     // normalize line endings
+      .replace(/\uFEFF/g, '')     // remove BOM if present
+      .trim();                    // remove trailing blank lines
+
     const results = parse(csvString, {
       columns: true,
-      skip_empty_lines: false, // Keep empty lines to preserve structure
+      skip_empty_lines: true,
       trim: true,
+      relax_column_count: true,
       bom: true,
       cast: (value, context) => {
-        // Preserve empty strings instead of converting to null
-        if (value === '') return '';
-        // Handle boolean values for isFixed field
-        if (context.column === 'isFixed') {
-          return value === 'true' || value === 'TRUE' || value === '1' || value === 1;
-        }
+        if (typeof value === 'string') return value.trim();
         return value;
       }
     });
+
     return results;
   } catch (error) {
     throw new Error('Failed to parse CSV: ' + error.message);
   }
 };
+
 
 // Auth Routes
 router.post('/auth/login', async (req, res) => {
