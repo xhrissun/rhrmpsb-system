@@ -411,8 +411,14 @@ const AdminView = ({ user }) => {
 
         case 'competencies':
           data = competencies.map(competency => {
-            const vacancyIds = Array.isArray(competency.vacancyIds) ? competency.vacancyIds :
-              competency.vacancyId ? [competency.vacancyId] : [];
+            // Handle both vacancyIds array and single vacancyId
+            let vacancyIds = [];
+            if (Array.isArray(competency.vacancyIds) && competency.vacancyIds.length > 0) {
+              vacancyIds = competency.vacancyIds;
+            } else if (competency.vacancyId) {
+              vacancyIds = [competency.vacancyId];
+            }
+            
             const vacancyItemNumbers = vacancyIds
               .map(id => vacancies.find(v => v._id === id)?.itemNumber)
               .filter(Boolean)
@@ -1087,11 +1093,14 @@ const AdminView = ({ user }) => {
     };
 
     if (editingItem) {
-      const vacancyIds = Array.isArray(editingItem.vacancyIds)
-        ? editingItem.vacancyIds
-        : editingItem.vacancyId
-          ? [editingItem.vacancyId]
-          : [];
+      // Handle both vacancyIds array and single vacancyId
+      let vacancyIds = [];
+      if (Array.isArray(editingItem.vacancyIds) && editingItem.vacancyIds.length > 0) {
+        vacancyIds = editingItem.vacancyIds;
+      } else if (editingItem.vacancyId) {
+        vacancyIds = [editingItem.vacancyId];
+      }
+      
       return {
         name: editingItem.name || '',
         type: editingItem.type || 'basic',
