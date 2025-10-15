@@ -376,16 +376,16 @@ competencySchema.statics.findByType = function(type) {
 };
 
 // Updated to handle both single and multiple vacancy assignments
-competencySchema.statics.findByVacancy = function(vacancyId) {
+competencySchema.statics.findByVacancy = function (vacancyId) {
   return this.find({
     $or: [
       { vacancyId: vacancyId },
       { vacancyIds: { $in: [vacancyId] } },
-      { isFixed: true },
-      { $and: [{ vacancyId: { $exists: false } }, { vacancyIds: { $size: 0 } }] }
+      { isFixed: true }
     ]
   });
 };
+
 
 // Create models
 const User = mongoose.model('User', userSchema);
