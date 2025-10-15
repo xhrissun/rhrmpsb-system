@@ -432,7 +432,7 @@ const Dashboard = ({ user, onLogout }) => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <nav className="navbar">
+      <nav className="navbar sticky top-0 z-50 shadow-md">
         <div className="navbar-title-container">
           <img
             src="https://github.com/xhrissun/rhrmpsb-system/blob/main/denr-logo.png?raw=true"
