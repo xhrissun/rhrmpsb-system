@@ -3,7 +3,6 @@ import usePersistedState from '../utils/usePersistedState';
 import { vacanciesAPI, candidatesAPI } from '../utils/api';
 import { getStatusColor, getStatusLabel, CANDIDATE_STATUS } from '../utils/constants';
 import PDFReport from './PDFReport';
-import { useToast } from '../utils/usePersistedState';
 import { useToast } from '../utils/ToastContext';
 
 const SecretariatView = ({ user }) => {
