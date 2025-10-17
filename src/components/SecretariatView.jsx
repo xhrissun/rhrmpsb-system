@@ -348,116 +348,120 @@ const SecretariatView = ({ user }) => {
         )}
 
         {/* Filters - More compact layout */}
-        <div className="sticky top-16 z-20 bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
-          <div className="flex flex-wrap gap-4">
-            <div className="flex-1 min-w-48">
-              <label className="block text-xs font-medium text-gray-700 mb-1">Assignment</label>
-              <select
-                value={selectedAssignment}
-                onChange={(e) => setSelectedAssignment(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white text-sm"
-              >
-                <option value="">All Assignments</option>
-                {assignments.map(assignment => (
-                  <option key={assignment} value={assignment}>{assignment}</option>
-                ))}
-              </select>
-            </div>
+        <div className="sticky top-16 z-20 bg-gradient-to-br from-blue-50 via-white to-indigo-50 pt-2 pb-2">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-2">
+            <div className="flex flex-wrap gap-4">
+              <div className="flex-1 min-w-48">
+                <label className="block text-xs font-medium text-gray-700 mb-1">Assignment</label>
+                <select
+                  value={selectedAssignment}
+                  onChange={(e) => setSelectedAssignment(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white text-sm"
+                >
+                  <option value="">All Assignments</option>
+                  {assignments.map(assignment => (
+                    <option key={assignment} value={assignment}>{assignment}</option>
+                  ))}
+                </select>
+              </div>
 
-            <div className="flex-1 min-w-48">
-              <label className="block text-xs font-medium text-gray-700 mb-1">Position</label>
-              <select
-                value={selectedPosition}
-                onChange={(e) => setSelectedPosition(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white text-sm disabled:bg-gray-100"
-                disabled={!selectedAssignment}
-              >
-                <option value="">All Positions</option>
-                {positions.map(position => (
-                  <option key={position} value={position}>{position}</option>
-                ))}
-              </select>
-            </div>
+              <div className="flex-1 min-w-48">
+                <label className="block text-xs font-medium text-gray-700 mb-1">Position</label>
+                <select
+                  value={selectedPosition}
+                  onChange={(e) => setSelectedPosition(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white text-sm disabled:bg-gray-100"
+                  disabled={!selectedAssignment}
+                >
+                  <option value="">All Positions</option>
+                  {positions.map(position => (
+                    <option key={position} value={position}>{position}</option>
+                  ))}
+                </select>
+              </div>
 
-            <div className="flex-1 min-w-48">
-              <label className="block text-xs font-medium text-gray-700 mb-1">Item Number</label>
-              <select
-                value={selectedItemNumber}
-                onChange={(e) => setSelectedItemNumber(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white text-sm disabled:bg-gray-100"
-                disabled={!selectedPosition}
-              >
-                <option value="">All Item Numbers</option>
-                {itemNumbers.map(itemNumber => (
-                  <option key={itemNumber} value={itemNumber}>{itemNumber}</option>
-                ))}
-              </select>
+              <div className="flex-1 min-w-48">
+                <label className="block text-xs font-medium text-gray-700 mb-1">Item Number</label>
+                <select
+                  value={selectedItemNumber}
+                  onChange={(e) => setSelectedItemNumber(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white text-sm disabled:bg-gray-100"
+                  disabled={!selectedPosition}
+                >
+                  <option value="">All Item Numbers</option>
+                  {itemNumbers.map(itemNumber => (
+                    <option key={itemNumber} value={itemNumber}>{itemNumber}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
         </div>
 
         {/* Statistics Cards */}
-        <div className="sticky top-44 z-10 grid grid-cols-4 gap-4 mb-6">
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <div className="flex items-center">
-              <div className="flex-shrink-0">
-                <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                  <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                  </svg>
+        <div className="sticky top-44 z-10 bg-gradient-to-br from-blue-50 via-white to-indigo-50 pt-2 pb-4">
+          <div className="grid grid-cols-4 gap-4 mb-2">
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div className="flex items-center">
+                <div className="flex-shrink-0">
+                  <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                    <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                    </svg>
+                  </div>
                 </div>
-              </div>
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-500">Total</p>
-                <p className="text-2xl font-semibold text-gray-900">{stats.total}</p>
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-gray-500">Total</p>
+                  <p className="text-2xl font-semibold text-gray-900">{stats.total}</p>
+                </div>
               </div>
             </div>
-          </div>
 
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <div className="flex items-center">
-              <div className="flex-shrink-0">
-                <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
-                  <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div className="flex items-center">
+                <div className="flex-shrink-0">
+                  <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                    <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
                 </div>
-              </div>
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-500">Long Listed</p>
-                <p className="text-2xl font-semibold text-green-600">{stats.longListed}</p>
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-gray-500">Long Listed</p>
+                  <p className="text-2xl font-semibold text-green-600">{stats.longListed}</p>
+                </div>
               </div>
             </div>
-          </div>
 
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <div className="flex items-center">
-              <div className="flex-shrink-0">
-                <div className="w-8 h-8 bg-yellow-100 rounded-full flex items-center justify-center">
-                  <svg className="w-4 h-4 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                  </svg>
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div className="flex items-center">
+                <div className="flex-shrink-0">
+                  <div className="w-8 h-8 bg-yellow-100 rounded-full flex items-center justify-center">
+                    <svg className="w-4 h-4 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                    </svg>
+                  </div>
                 </div>
-              </div>
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-500">For Review</p>
-                <p className="text-2xl font-semibold text-yellow-600">{stats.forReview}</p>
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-gray-500">For Review</p>
+                  <p className="text-2xl font-semibold text-yellow-600">{stats.forReview}</p>
+                </div>
               </div>
             </div>
-          </div>
 
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <div className="flex items-center">
-              <div className="flex-shrink-0">
-                <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center">
-                  <svg className="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div className="flex items-center">
+                <div className="flex-shrink-0">
+                  <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center">
+                    <svg className="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
                 </div>
-              </div>
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-500">Disqualified</p>
-                <p className="text-2xl font-semibold text-red-600">{stats.disqualified}</p>
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-gray-500">Disqualified</p>
+                  <p className="text-2xl font-semibold text-red-600">{stats.disqualified}</p>
+                </div>
               </div>
             </div>
           </div>
