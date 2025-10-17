@@ -2034,10 +2034,10 @@ const AdminView = ({ user }) => {
   }
 
   return (
-  <div className="flex min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-    {/* Sidebar - Now Actually Sticky */}
+  <div className="flex min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 pt-16">
+    {/* Sidebar - Fixed with Header Offset */}
     <div className="w-64 flex-shrink-0">
-      <div className="sidebar fixed top-0 left-0 w-64 h-screen bg-white shadow-xl border-r border-gray-200 overflow-y-auto">
+      <div className="sidebar fixed top-16 left-0 w-64 h-[calc(100vh-4rem)] bg-white shadow-xl border-r border-gray-200 overflow-y-auto">
         <div className="p-6">
           <h2 className="text-xl font-bold mb-8 text-center text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600">
             Administrative Panel
