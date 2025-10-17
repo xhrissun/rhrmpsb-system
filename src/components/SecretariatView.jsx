@@ -54,20 +54,20 @@ const SecretariatView = ({ user }) => {
   useEffect(() => {
     if (!loading && vacancies.length > 0) {
       // Populate assignments
-      const uniqueAssignments = [...new Set(vacancies.map(v => v.assignment))].filter(a => a);
+      const uniqueAssignments = [...new Set(vacancies.map(v => v.assignment))].filter(a => a).sort();
       setAssignments(uniqueAssignments);
 
       // Restore persisted state if valid
       if (selectedAssignment && uniqueAssignments.includes(selectedAssignment)) {
         // Restore positions
         const filteredVacancies = vacancies.filter(v => v.assignment === selectedAssignment);
-        const uniquePositions = [...new Set(filteredVacancies.map(v => v.position))].filter(p => p);
+        const uniquePositions = [...new Set(filteredVacancies.map(v => v.position))].filter(p => p).sort();
         setPositions(uniquePositions);
 
         if (selectedPosition && uniquePositions.includes(selectedPosition)) {
           // Restore item numbers
           const positionVacancies = filteredVacancies.filter(v => v.position === selectedPosition);
-          const uniqueItemNumbers = [...new Set(positionVacancies.map(v => v.itemNumber))].filter(i => i);
+          const uniqueItemNumbers = [...new Set(positionVacancies.map(v => v.itemNumber))].filter(i => i).sort();
           setItemNumbers(uniqueItemNumbers);
 
           if (selectedItemNumber && uniqueItemNumbers.includes(selectedItemNumber)) {
