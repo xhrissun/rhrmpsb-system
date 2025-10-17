@@ -4,6 +4,7 @@ import { usersAPI, vacanciesAPI, candidatesAPI, competenciesAPI } from '../utils
 import { parseCSV, exportToCSV } from '../utils/helpers';
 import { USER_TYPES, RATER_TYPES, SALARY_GRADES, CANDIDATE_STATUS } from '../utils/constants';
 import InterviewSummaryGenerator from './InterviewSummaryGenerator';
+import { useToast } from '../utils/ToastContext';
 
 // --- SearchBar and FilterableHeader (moved out of AdminView to prevent remounts) ---
 export const SearchBar = ({ placeholder, value, onChange }) => {
@@ -92,6 +93,8 @@ const AdminView = ({ user }) => {
   const [showVacancyModal, setShowVacancyModal] = useState(false);
   const [selectedVacancy, setSelectedVacancy] = useState(null);
   const prevTabRef = useRef(activeTab);
+
+  const { showToast } = useToast();
 
   // Add these functions after the state declarations and before loadAllData
   const handleSort = (key) => {
@@ -243,7 +246,7 @@ const AdminView = ({ user }) => {
       }
     } catch (error) {
       console.error('Failed to load data:', error);
-      alert('Failed to load data. Please refresh the page.');
+      showToast('Failed to load data. Please refresh the page.', 'error');
     } finally {
       setLoading(false);
     }
@@ -285,10 +288,10 @@ const AdminView = ({ user }) => {
           break;
       }
       loadData();
-      alert('Item deleted successfully!');
+      showToast('Item deleted successfully!', 'success');
     } catch (error) {
       console.error('Failed to delete item:', error);
-      alert('Failed to delete item. Please try again.');
+      showToast('Failed to delete item. Please try again.', 'error');
     }
   };
 
@@ -310,10 +313,10 @@ const AdminView = ({ user }) => {
       }
 
       loadData();
-      alert('CSV uploaded successfully!');
+      showToast('CSV uploaded successfully!', 'success');
     } catch (error) {
       console.error('Failed to upload CSV:', error);
-      alert('Failed to upload CSV. Please check the format and try again.');
+      showToast('Failed to upload CSV. Please check the format and try again.', 'error');
     }
   };
 
@@ -438,16 +441,16 @@ const AdminView = ({ user }) => {
       }
 
       if (data.length === 0) {
-        alert(`No ${type} data to export. Please add some ${type} first.`);
+        showToast(`No ${type} data to export. Please add some ${type} first.`, 'error');
         return;
       }
 
       const csvContent = convertToCSV(data);
       downloadCSV(csvContent, filename);
-      alert(`${type.charAt(0).toUpperCase() + type.slice(1)} CSV exported successfully!`);
+      showToast(`${type.charAt(0).toUpperCase() + type.slice(1)} CSV exported successfully!`, 'success');
     } catch (error) {
       console.error('Failed to export CSV:', error);
-      alert('Failed to export CSV. Please try again.');
+      showToast('Failed to export CSV. Please try again.', 'error');
     }
   };
 
@@ -519,7 +522,7 @@ const AdminView = ({ user }) => {
 
     const csvContent = convertToCSV([templateData]);
     downloadCSV(csvContent, filename);
-    alert(`Empty ${type} template exported successfully!`);
+    showToast(`Empty ${type} template exported successfully!`, 'success');
   };
 
   const UserModal = () => {
@@ -546,10 +549,10 @@ const AdminView = ({ user }) => {
         }
         setShowModal(false);
         loadData();
-        alert(`User ${editingItem ? 'updated' : 'created'} successfully!`);
+        showToast(`User ${editingItem ? 'updated' : 'created'} successfully!`, 'success');
       } catch (error) {
         console.error('Failed to save user:', error);
-        alert('Failed to save user. Please try again.');
+        showToast('Failed to save user. Please try again.', 'error');
       }
     };
 
@@ -704,10 +707,10 @@ const AdminView = ({ user }) => {
         }
         setShowModal(false);
         loadData();
-        alert(`Vacancy ${editingItem ? 'updated' : 'created'} successfully!`);
+        showToast(`Vacancy ${editingItem ? 'updated' : 'created'} successfully!`, 'success');
       } catch (error) {
         console.error('Failed to save vacancy:', error);
-        alert('Failed to save vacancy. Please try again.');
+        showToast('Failed to save vacancy. Please try again.', 'error');
       }
     };
 
@@ -889,10 +892,10 @@ const AdminView = ({ user }) => {
         }
         setShowModal(false);
         loadData();
-        alert(`Candidate ${editingItem ? 'updated' : 'created'} successfully!`);
+        showToast(`Candidate ${editingItem ? 'updated' : 'created'} successfully!`, 'success');
       } catch (error) {
         console.error('Failed to save candidate:', error);
-        alert('Failed to save candidate. Please try again.');
+        showToast('Failed to save candidate. Please try again.', 'error');
       }
     };
 
@@ -1146,10 +1149,10 @@ const AdminView = ({ user }) => {
 
       setShowModal(false);
       loadData();
-      alert(`Competency ${editingItem ? 'updated' : 'created'} successfully!`);
+      showToast(`Competency ${editingItem ? 'updated' : 'created'} successfully!`, 'success');
     } catch (error) {
       console.error('Failed to save competency:', error);
-      alert('Failed to save competency. Please try again.');
+      showToast('Failed to save competency. Please try again.', 'error');
     }
   };
 
@@ -1309,10 +1312,10 @@ const AdminView = ({ user }) => {
           await usersAPI.assignVacancies(editingItem._id, submitData);
           setShowModal(false);
           loadData();
-          alert('Vacancy assignment updated successfully!');
+          showToast('Vacancy assignment updated successfully!', 'success');
         } catch (error) {
           console.error('Failed to assign vacancies:', error);
-          alert('Failed to assign vacancies. Please try again.');
+          showToast('Failed to assign vacancies. Please try again.', 'error');;
         }
       };
 
