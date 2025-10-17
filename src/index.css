@@ -2,6 +2,22 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Add to your main CSS file (e.g., App.css or index.css) */
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.3s ease-out;
+}
+
 @layer base {
   body {
     @apply bg-gray-50 text-gray-900 font-sans antialiased;
