@@ -3,6 +3,7 @@ import usePersistedState from '../utils/usePersistedState';
 import { vacanciesAPI, candidatesAPI } from '../utils/api';
 import { getStatusColor, getStatusLabel, CANDIDATE_STATUS } from '../utils/constants';
 import PDFReport from './PDFReport';
+import { useToast } from '../utils/usePersistedState';
 import { useToast } from '../utils/ToastContext';
 
 const SecretariatView = ({ user }) => {
@@ -11,7 +12,7 @@ const SecretariatView = ({ user }) => {
   const [assignments, setAssignments] = useState([]);
   const [positions, setPositions] = useState([]);
   const [itemNumbers, setItemNumbers] = useState([]);
-
+  const [reportRaters, setReportRaters] = useState([]);
   const { showToast } = useToast();
 
   // Use usePersistedState for dropdown selections
@@ -47,6 +48,35 @@ const SecretariatView = ({ user }) => {
     
     return { total, longListed, forReview, disqualified };
   };
+
+  const fetchRatersForVacancy = async (itemNumber) => {
+  try {
+    const allUsers = await usersAPI.getAll();
+    const vacancy = vacancies.find(v => v.itemNumber === itemNumber);
+    if (!vacancy) return [];
+
+    const filteredRaters = allUsers.filter(user => {
+      if (user.userType !== 'rater') return false;
+      switch (user.assignedVacancies) {
+        case 'all':
+          return true;
+        case 'assignment':
+          return user.assignedAssignment && user.assignedAssignment === vacancy.assignment;
+        case 'specific':
+          return user.assignedItemNumbers && user.assignedItemNumbers.includes(itemNumber);
+        default:
+          return false;
+      }
+    });
+
+    return filteredRaters;
+  } catch (error) {
+    console.error('Failed to fetch raters:', error);
+    showToast('Failed to fetch raters for report.', 'error');
+    return [];
+  }
+};
+
 
   // Load initial data on mount
   useEffect(() => {
@@ -256,7 +286,9 @@ const SecretariatView = ({ user }) => {
     setShowViewCommentsModal(true);
   };
 
-  const handleGenerateReport = () => {
+  const handleGenerateReport = async () => {
+    const filteredRaters = await fetchRatersForVacancy(selectedItemNumber);
+    setReportRaters(filteredRaters);
     setReportCandidateId('');
     setReportItemNumber(selectedItemNumber);
     setShowReportModal(true);
@@ -923,6 +955,7 @@ const SecretariatView = ({ user }) => {
               candidateId={reportCandidateId} 
               itemNumber={reportItemNumber} 
               user={user} 
+              raters={reportRaters}
             />
           </div>
         </div>
