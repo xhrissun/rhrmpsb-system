@@ -47,7 +47,7 @@ const ToastContainer = ({ toasts, onClose }) => {
 
 const Toast = ({ id, message, type, onClose }) => {
   const bgColor = type === 'success' ? 'bg-green-500' : 'bg-red-500';
-
+  
   return (
     <div className="animate-slide-in-right">
       <div className={`${bgColor} text-white px-6 py-4 rounded-lg shadow-lg flex items-center space-x-3 min-w-[300px] max-w-[500px]`}>
@@ -70,3 +70,6 @@ const Toast = ({ id, message, type, onClose }) => {
     </div>
   );
 };
+
+// Add default export
+export default ToastProvider;
