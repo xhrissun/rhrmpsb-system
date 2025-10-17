@@ -50,11 +50,11 @@ const SecretariatView = ({ user }) => {
 
   const fetchRatersForVacancy = async (itemNumber) => {
   try {
-    const allUsers = await usersAPI.getAll();
+    const allRaters = await usersAPI.getRaters();
     const vacancy = vacancies.find(v => v.itemNumber === itemNumber);
     if (!vacancy) return [];
 
-    const filteredRaters = allUsers.filter(user => {
+    const filteredRaters = allRaters.filter(user => {
       if (user.userType !== 'rater') return false;
       switch (user.assignedVacancies) {
         case 'all':
