@@ -311,8 +311,8 @@ const SecretariatView = ({ user }) => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
-      {/* Header - Now Sticky with matching background */}
-      <div className="sticky top-14 z-30 bg-gradient-to-br from-blue-50 via-white to-indigo-50 pt-3 pb-3">
+      {/* Header - Now Sticky */}
+      <div className="sticky top-14 z-30 pt-3 pb-3">
         <div className="max-w-7xl mx-auto px-4">
           <div className="bg-white shadow-md border-b border-gray-200 rounded-xl">
             <div className="px-4 py-4">
@@ -357,7 +357,7 @@ const SecretariatView = ({ user }) => {
         )}
 
         {/* Filters - More compact layout with better styling */}
-        <div className="sticky top-36 z-20 bg-gradient-to-br from-blue-50 via-white to-indigo-50 pt-3 pb-1">
+        <div className="sticky top-36 z-20 pt-3 pb-1">
           <div className="bg-white rounded-xl shadow-lg border-2 border-gray-300 p-5">
             <div className="flex flex-wrap gap-4">
               <div className="flex-1 min-w-48">
@@ -408,7 +408,7 @@ const SecretariatView = ({ user }) => {
         </div>
 
         {/* Statistics Cards - Closer spacing and more pop */}
-        <div className="sticky top-[268px] z-10 bg-gradient-to-br from-blue-50 via-white to-indigo-50 pt-1 pb-4">
+        <div className="sticky top-[268px] z-10 pt-1 pb-4">
           <div className="grid grid-cols-4 gap-4">
             <div className="bg-white rounded-xl shadow-lg border-2 border-blue-200 p-4 hover:shadow-xl transition-shadow">
               <div className="flex items-center">
