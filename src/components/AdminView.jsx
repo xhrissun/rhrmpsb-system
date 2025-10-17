@@ -2034,48 +2034,94 @@ const AdminView = ({ user }) => {
   }
 
   return (
-  <div className="flex min-h-screen bg-gray-100">
-    {/* Sidebar */}
-    <div className="sidebar w-48 bg-gray-800 text-white p-4 flex-shrink-0">
-      <h2 className="text-base font-bold mb-4">Admin Panel</h2>
-      <nav className="space-y-2">
-        <button
-          onClick={() => setActiveTab('users')}
-          className={`sidebar-item w-full text-left px-3 py-2 rounded text-sm ${activeTab === 'users' ? 'bg-gray-700' : 'hover:bg-gray-700'}`}
-        >
-          User Types
-        </button>
-        <button
-          onClick={() => setActiveTab('vacancies')}
-          className={`sidebar-item w-full text-left px-3 py-2 rounded text-sm ${activeTab === 'vacancies' ? 'bg-gray-700' : 'hover:bg-gray-700'}`}
-        >
-          Vacancies
-        </button>
-        <button
-          onClick={() => setActiveTab('candidates')}
-          className={`sidebar-item w-full text-left px-3 py-2 rounded text-sm ${activeTab === 'candidates' ? 'bg-gray-700' : 'hover:bg-gray-700'}`}
-        >
-          General List
-        </button>
-        <button
-          onClick={() => setActiveTab('competencies')}
-          className={`sidebar-item w-full text-left px-3 py-2 rounded text-sm ${activeTab === 'competencies' ? 'bg-gray-700' : 'hover:bg-gray-700'}`}
-        >
-          Competencies
-        </button>
-        <button
-          onClick={() => setActiveTab('assignments')}
-          className={`sidebar-item w-full text-left px-3 py-2 rounded text-sm ${activeTab === 'assignments' ? 'bg-gray-700' : 'hover:bg-gray-700'}`}
-        >
-          Vacancy Assignments
-        </button>
-        <button
-          onClick={() => setActiveTab('interviewSummary')}
-          className={`sidebar-item w-full text-left px-3 py-2 rounded text-sm ${activeTab === 'interviewSummary' ? 'bg-gray-700' : 'hover:bg-gray-700'}`}
-        >
-          Interview Summary
-        </button>
-      </nav>
+  <div className="flex min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+    {/* Sidebar - Now Sticky */}
+    <div className="sidebar w-64 bg-gradient-to-b from-gray-900 to-gray-800 text-white flex-shrink-0 sticky top-0 h-screen shadow-2xl">
+      <div className="p-6">
+        <h2 className="text-xl font-bold mb-8 text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-400">
+          Admin Panel
+        </h2>
+        <nav className="space-y-2">
+          <button
+            onClick={() => setActiveTab('users')}
+            className={`sidebar-item w-full text-left px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 ${
+              activeTab === 'users'
+                ? 'bg-gradient-to-r from-blue-600 to-blue-500 shadow-lg transform scale-105'
+                : 'hover:bg-gray-700 hover:translate-x-1'
+            }`}
+          >
+            <span className="flex items-center gap-2">
+              <span className="text-lg">👥</span>
+              User Types
+            </span>
+          </button>
+          <button
+            onClick={() => setActiveTab('vacancies')}
+            className={`sidebar-item w-full text-left px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 ${
+              activeTab === 'vacancies'
+                ? 'bg-gradient-to-r from-blue-600 to-blue-500 shadow-lg transform scale-105'
+                : 'hover:bg-gray-700 hover:translate-x-1'
+            }`}
+          >
+            <span className="flex items-center gap-2">
+              <span className="text-lg">💼</span>
+              Vacancies
+            </span>
+          </button>
+          <button
+            onClick={() => setActiveTab('candidates')}
+            className={`sidebar-item w-full text-left px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 ${
+              activeTab === 'candidates'
+                ? 'bg-gradient-to-r from-blue-600 to-blue-500 shadow-lg transform scale-105'
+                : 'hover:bg-gray-700 hover:translate-x-1'
+            }`}
+          >
+            <span className="flex items-center gap-2">
+              <span className="text-lg">📋</span>
+              General List
+            </span>
+          </button>
+          <button
+            onClick={() => setActiveTab('competencies')}
+            className={`sidebar-item w-full text-left px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 ${
+              activeTab === 'competencies'
+                ? 'bg-gradient-to-r from-blue-600 to-blue-500 shadow-lg transform scale-105'
+                : 'hover:bg-gray-700 hover:translate-x-1'
+            }`}
+          >
+            <span className="flex items-center gap-2">
+              <span className="text-lg">⭐</span>
+              Competencies
+            </span>
+          </button>
+          <button
+            onClick={() => setActiveTab('assignments')}
+            className={`sidebar-item w-full text-left px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 ${
+              activeTab === 'assignments'
+                ? 'bg-gradient-to-r from-blue-600 to-blue-500 shadow-lg transform scale-105'
+                : 'hover:bg-gray-700 hover:translate-x-1'
+            }`}
+          >
+            <span className="flex items-center gap-2">
+              <span className="text-lg">📌</span>
+              Vacancy Assignments
+            </span>
+          </button>
+          <button
+            onClick={() => setActiveTab('interviewSummary')}
+            className={`sidebar-item w-full text-left px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 ${
+              activeTab === 'interviewSummary'
+                ? 'bg-gradient-to-r from-blue-600 to-blue-500 shadow-lg transform scale-105'
+                : 'hover:bg-gray-700 hover:translate-x-1'
+            }`}
+          >
+            <span className="flex items-center gap-2">
+              <span className="text-lg">📊</span>
+              Interview Summary
+            </span>
+          </button>
+        </nav>
+      </div>
     </div>
 
     {/* Main Content */}
