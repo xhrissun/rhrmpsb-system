@@ -399,7 +399,7 @@ const SecretariatView = ({ user }) => {
         </div>
 
         {/* Statistics Cards - Closer spacing and more pop */}
-        <div className="sticky top-50 z-10 bg-gradient-to-br from-blue-50 via-white to-indigo-50 pt-1 pb-4">
+        <div className="sticky top-66 z-10 bg-gradient-to-br from-blue-50 via-white to-indigo-50 pt-1 pb-4">
           <div className="grid grid-cols-4 gap-4">
             <div className="bg-white rounded-xl shadow-lg border-2 border-blue-200 p-4 hover:shadow-xl transition-shadow">
               <div className="flex items-center">
