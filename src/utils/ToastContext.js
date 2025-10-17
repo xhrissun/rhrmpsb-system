@@ -16,15 +16,15 @@ export const ToastProvider = ({ children }) => {
 
   const showToast = (message, type = 'success') => {
     const id = Date.now();
-    setToasts(prev => [...prev, { id, message, type }]);
+    setToasts((prev) => [...prev, { id, message, type }]);
     
     setTimeout(() => {
-      setToasts(prev => prev.filter(toast => toast.id !== id));
+      setToasts((prev) => prev.filter((toast) => toast.id !== id));
     }, 3000);
   };
 
   const removeToast = (id) => {
-    setToasts(prev => prev.filter(toast => toast.id !== id));
+    setToasts((prev) => prev.filter((toast) => toast.id !== id));
   };
 
   return (
@@ -38,7 +38,7 @@ export const ToastProvider = ({ children }) => {
 const ToastContainer = ({ toasts, onClose }) => {
   return (
     <div className="fixed top-20 right-4 z-[100] space-y-2">
-      {toasts.map(toast => (
+      {toasts.map((toast) => (
         <Toast key={toast.id} {...toast} onClose={() => onClose(toast.id)} />
       ))}
     </div>
