@@ -54,30 +54,33 @@ function App() {
   const basename = import.meta.env.PROD ? '/rhrmpsb-system' : '/';
 
   return (
-    <Router basename={basename}>
-      <div className="App">
-        <Routes>
-          <Route 
-            path="/login" 
-            element={
-              user ? <Navigate to="/" replace /> : <Login onLogin={handleLogin} />
-            } 
-          />
-          <Route 
-            path="/" 
-            element={
-              user ? (
-                <Dashboard user={user} onLogout={handleLogout} />
-              ) : (
-                <Navigate to="/login" replace />
-              )
-            } 
-          />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </div>
-    </Router>
+    <ToastProvider> {/* ✅ WRAP ENTIRE APP */}
+      <Router basename={basename}>
+        <div className="App">
+          <Routes>
+            <Route 
+              path="/login" 
+              element={
+                user ? <Navigate to="/" replace /> : <Login onLogin={handleLogin} />
+              } 
+            />
+            <Route 
+              path="/" 
+              element={
+                user ? (
+                  <Dashboard user={user} onLogout={handleLogout} />
+                ) : (
+                  <Navigate to="/login" replace />
+                )
+              } 
+            />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </div>
+      </Router>
+    </ToastProvider>
   );
 }
+
 
 export default App;
