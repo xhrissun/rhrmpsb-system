@@ -5,10 +5,9 @@ import { formatDate } from '../utils/helpers';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 
-const PDFReport = ({ itemNumber, user }) => {
+const PDFReport = ({ itemNumber, user, raters }) => {
   const [vacancy, setVacancy] = useState(null);
   const [candidates, setCandidates] = useState([]);
-  const [raters, setRaters] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -18,10 +17,9 @@ const PDFReport = ({ itemNumber, user }) => {
         setLoading(true);
         setError('');
         
-        const [vacanciesRes, candidatesRes, ratersRes] = await Promise.all([
+        const [vacanciesRes, candidatesRes] = await Promise.all([
           vacanciesAPI.getAll(),
           candidatesAPI.getAll(),
-          usersAPI.getRaters(),
         ]);
         
         const vacancy = vacanciesRes.find(v => v.itemNumber === itemNumber);
@@ -35,7 +33,6 @@ const PDFReport = ({ itemNumber, user }) => {
         
         setVacancy(vacancy);
         setCandidates(filteredCandidates);
-        setRaters(ratersRes);
       } catch (err) {
         console.error('FAILED TO LOAD REPORT DATA:', err);
         setError('FAILED TO LOAD REPORT DATA. PLEASE TRY AGAIN.');
