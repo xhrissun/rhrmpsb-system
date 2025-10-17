@@ -348,7 +348,7 @@ const SecretariatView = ({ user }) => {
         )}
 
         {/* Filters - More compact layout */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
+        <div className="sticky top-16 z-20 bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
           <div className="flex flex-wrap gap-4">
             <div className="flex-1 min-w-48">
               <label className="block text-xs font-medium text-gray-700 mb-1">Assignment</label>
@@ -397,7 +397,7 @@ const SecretariatView = ({ user }) => {
         </div>
 
         {/* Statistics Cards */}
-        <div className="grid grid-cols-4 gap-4 mb-6">
+        <div className="sticky top-44 z-10 grid grid-cols-4 gap-4 mb-6">
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
             <div className="flex items-center">
               <div className="flex-shrink-0">
