@@ -828,10 +828,14 @@ const RaterView = ({ user }) => {
                     <div className="text-center p-4 bg-gradient-to-br from-green-500 to-emerald-600 rounded-lg text-white">
                       <p className="text-lg font-medium opacity-90">Psycho-Social</p>
                       <p className="text-3xl font-bold">{currentScores.psychoSocial.toFixed(3)}</p>
+                      <p className="text-sm opacity-80 mt-2">Basic × 2</p>
                     </div>
                     <div className="text-center p-4 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg text-white">
                       <p className="text-lg font-medium opacity-90">Potential</p>
                       <p className="text-3xl font-bold">{currentScores.potential.toFixed(3)}</p>
+                      <p className="text-sm opacity-80 mt-2">
+                        Org + {shouldShowLeadership() ? 'Lead + ' : ''}Min
+                      </p>
                     </div>
                   </div>
 
@@ -1111,7 +1115,7 @@ const RaterView = ({ user }) => {
                   <div className="mb-10">
                     <div className="text-center mb-0">
                       <h3 className="text-2xl font-bold mb-2 text-gray-900">PSYCHO-SOCIAL ATTRIBUTES AND PERSONALITY TRAITS</h3>
-                      <h3 className="text-2xl font-bold mb-2 text-gray-900">Basic Competencies</h3>
+                      <h3 className="text-2xl font-bold mb-2 text-gray-900">Core Competencies</h3>
                       <span className="text-sm text-gray-500 bg-blue-50 px-4 py-0 rounded-full border border-blue-200">
                         Average Score: {getCompetencyAverage('basic')}
                       </span>
