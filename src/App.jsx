@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 import { authAPI } from './utils/api';
+import { ToastProvider } from './utils/ToastContext'; // ✅ ADD THIS LINE
 
 function App() {
   const [user, setUser] = useState(null);
