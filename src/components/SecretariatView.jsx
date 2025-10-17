@@ -399,7 +399,7 @@ const SecretariatView = ({ user }) => {
         </div>
 
         {/* Statistics Cards - Closer spacing and more pop */}
-        <div className="sticky top-64 z-10 bg-gradient-to-br from-blue-50 via-white to-indigo-50 pt-1 pb-4">
+        <div className="sticky top-72 z-10 bg-gradient-to-br from-blue-50 via-white to-indigo-50 pt-1 pb-4">
           <div className="grid grid-cols-4 gap-4">
             <div className="bg-white rounded-xl shadow-lg border-2 border-blue-200 p-4 hover:shadow-xl transition-shadow">
               <div className="flex items-center">
@@ -492,7 +492,7 @@ const SecretariatView = ({ user }) => {
                 {candidates.map((candidate, index) => {
                   const vacancy = vacancies.find(v => v.itemNumber === candidate.itemNumber);
                   return (
-                    <tr key={candidate._id} className="hover:bg-gray-50">
+                    <tr key={candidate._id} className="hover:bg-gradient-to-r hover:from-blue-50 hover:to-indigo-50 transition-all duration-150">
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{index + 1}</td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">
