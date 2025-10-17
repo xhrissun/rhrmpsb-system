@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import usePersistedState from '../utils/usePersistedState';
-import { vacanciesAPI, candidatesAPI } from '../utils/api';
+import { vacanciesAPI, candidatesAPI, usersAPI } from '../utils/api';
 import { getStatusColor, getStatusLabel, CANDIDATE_STATUS } from '../utils/constants';
 import PDFReport from './PDFReport';
 import { useToast } from '../utils/ToastContext';
