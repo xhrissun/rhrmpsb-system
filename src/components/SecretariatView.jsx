@@ -3,6 +3,8 @@ import usePersistedState from '../utils/usePersistedState';
 import { vacanciesAPI, candidatesAPI } from '../utils/api';
 import { getStatusColor, getStatusLabel, CANDIDATE_STATUS } from '../utils/constants';
 import PDFReport from './PDFReport';
+import { useToast } from '../utils/usePersistedState';
+import { useToast } from '../utils/ToastContext';
 
 const SecretariatView = ({ user }) => {
   const [vacancies, setVacancies] = useState([]);
@@ -10,6 +12,8 @@ const SecretariatView = ({ user }) => {
   const [assignments, setAssignments] = useState([]);
   const [positions, setPositions] = useState([]);
   const [itemNumbers, setItemNumbers] = useState([]);
+
+  const { showToast } = useToast();
 
   // Use usePersistedState for dropdown selections
   const [selectedAssignment, setSelectedAssignment] = usePersistedState(`secretariat_${user._id}_selectedAssignment`, '');
@@ -240,10 +244,10 @@ const SecretariatView = ({ user }) => {
         prev.map(c => (c._id === selectedCandidate ? { ...c, status, comments } : c))
       );
       setShowCommentModal(false);
-      alert('Candidate status updated successfully!');
+      showToast('Candidate status updated successfully!', 'success');
     } catch (error) {
       console.error('Failed to update status:', error);
-      alert('Failed to update status: ' + (error.response?.data?.message || error.message));
+      showToast('Failed to update status: ' + (error.response?.data?.message || error.message), 'error');
     }
   };
 
