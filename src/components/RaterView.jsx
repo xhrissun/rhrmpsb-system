@@ -3,6 +3,7 @@ import usePersistedState from '../utils/usePersistedState';
 import { vacanciesAPI, candidatesAPI, ratingsAPI, competenciesAPI, authAPI } from '../utils/api';
 import { calculateRatingScores, formatDate } from '../utils/helpers';
 import { RATING_SCALE, COMPETENCY_TYPES, CANDIDATE_STATUS } from '../utils/constants';
+import { useToast } from '../utils/ToastContext';
 
 const RaterView = ({ user }) => {
   const [vacancies, setVacancies] = useState([]);
@@ -40,6 +41,8 @@ const RaterView = ({ user }) => {
 
   const activeRatingRef = useRef(null);
   const scrollPositionRef = useRef(0);
+
+  const { showToast } = useToast();
 
   // Handle page refresh/back warning
   useEffect(() => {
@@ -279,7 +282,7 @@ const RaterView = ({ user }) => {
 
   const handleSubmitRatings = async () => {
     if (!areAllCompetenciesRated()) {
-      alert('Please rate all competencies before submitting.');
+      showToast('Please rate all competencies before submitting.', 'error');
       return;
     }
     try {
@@ -299,7 +302,7 @@ const RaterView = ({ user }) => {
       }
     } catch (error) {
       console.error('Failed to check existing ratings:', error);
-      alert('Failed to verify existing ratings. Please try again.');
+      showToast('Failed to verify existing ratings. Please try again.', 'error');
     }
   };
 
@@ -341,7 +344,7 @@ const RaterView = ({ user }) => {
       setIsSuccessModalOpen(true);
     } catch (error) {
       console.error('Failed to submit ratings:', error);
-      alert('Failed to submit ratings. Please try again.');
+      showToast('Failed to submit ratings. Please try again.', 'error');
     } finally {
       setSubmitting(false);
     }
