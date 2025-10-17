@@ -49,32 +49,43 @@ const SecretariatView = ({ user }) => {
   };
 
   const fetchRatersForVacancy = async (itemNumber) => {
-  try {
-    const allRaters = await usersAPI.getRaters();
-    const vacancy = vacancies.find(v => v.itemNumber === itemNumber);
-    if (!vacancy) return [];
+    try {
+      const allRaters = await usersAPI.getRaters();
+      const vacancy = vacancies.find(v => v.itemNumber === itemNumber);
+      if (!vacancy) return [];
 
-    const filteredRaters = allRaters.filter(user => {
-      if (user.userType !== 'rater') return false;
-      switch (user.assignedVacancies) {
-        case 'all':
-          return true;
-        case 'assignment':
-          return user.assignedAssignment && user.assignedAssignment === vacancy.assignment;
-        case 'specific':
-          return user.assignedItemNumbers && user.assignedItemNumbers.includes(itemNumber);
-        default:
-          return false;
-      }
-    });
+      const filteredRaters = allRaters.filter(user => {
+        if (user.userType !== 'rater') return false;
+        switch (user.assignedVacancies) {
+          case 'all': return true;
+          case 'assignment': return user.assignedAssignment && user.assignedAssignment === vacancy.assignment;
+          case 'specific': return user.assignedItemNumbers && user.assignedItemNumbers.includes(itemNumber);
+          default: return false;
+        }
+      });
 
-    return filteredRaters;
-  } catch (error) {
-    console.error('Failed to fetch raters:', error);
-    showToast('Failed to fetch raters for report.', 'error');
-    return [];
-  }
-};
+      // Sort raters by raterType hierarchy
+      const raterTypeOrder = {
+        'Chairperson': 1,
+        'Vice-Chairperson': 2,
+        'End-User': 3,
+        'Regular Member': 4,
+        'DENREU': 5,
+        'Gender and Development': 6
+      };
+      filteredRaters.sort((a, b) => {
+        const aRank = raterTypeOrder[a.raterType] || 999;
+        const bRank = raterTypeOrder[b.raterType] || 999;
+        return aRank - bRank || a.name.localeCompare(b.name);
+      });
+
+      return filteredRaters;
+    } catch (error) {
+      console.error('Failed to fetch raters:', error);
+      showToast('Failed to fetch raters for report.', 'error');
+      return [];
+    }
+  };
 
 
   // Load initial data on mount
