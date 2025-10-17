@@ -3,7 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 import { authAPI } from './utils/api';
-import { ToastProvider } from './utils/ToastContext'; // ✅ ADD THIS LINE
+import { ToastProvider } from './utils/ToastContext';
 
 function App() {
   const [user, setUser] = useState(null);
@@ -55,7 +55,7 @@ function App() {
   const basename = import.meta.env.PROD ? '/rhrmpsb-system' : '/';
 
   return (
-    <ToastProvider> {/* ✅ WRAP ENTIRE APP */}
+    <ToastProvider>
       <Router basename={basename}>
         <div className="App">
           <Routes>
