@@ -5,6 +5,7 @@ import { formatDate } from '../utils/helpers';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 
+
 const PDFReport = ({ itemNumber, user, raters }) => {
   const [vacancy, setVacancy] = useState(null);
   const [candidates, setCandidates] = useState([]);
