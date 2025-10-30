@@ -788,6 +788,48 @@ router.get('/ratings/rater/:raterId', authMiddleware, async (req, res) => {
   }
 });
 
+// NEW: Check if ratings exist for candidate + item number + rater type
+router.get('/ratings/check-existing/:candidateId/:itemNumber/:raterType', authMiddleware, async (req, res) => {
+  try {
+    const { candidateId, itemNumber, raterType } = req.params;
+    
+    // Decode item number in case it has special characters
+    const decodedItemNumber = decodeURIComponent(itemNumber);
+    
+    // Find all users with this rater type
+    const ratersOfType = await User.find({ raterType: raterType }).select('_id');
+    const raterIds = ratersOfType.map(r => r._id);
+    
+    // Check if any rater of this type has already rated this candidate for this item number
+    const existingRatings = await Rating.find({
+      candidateId: candidateId,
+      itemNumber: decodedItemNumber,
+      raterId: { $in: raterIds }
+    }).populate('raterId', 'name raterType');
+    
+    if (existingRatings.length > 0) {
+      // Get the rater who already submitted
+      const existingRater = existingRatings[0].raterId;
+      
+      return res.json({
+        hasExisting: true,
+        existingRater: {
+          id: existingRater._id,
+          name: existingRater.name,
+          raterType: existingRater.raterType
+        },
+        ratingCount: existingRatings.length
+      });
+    }
+    
+    res.json({ hasExisting: false });
+    
+  } catch (error) {
+    console.error('Check existing ratings error:', error);
+    res.status(500).json({ message: 'Server error: ' + error.message });
+  }
+});
+
 // Updated rating submission route in routes.js
 router.post('/ratings/submit', authMiddleware, async (req, res) => {
   if (req.user.userType !== 'rater') {
