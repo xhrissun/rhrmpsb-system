@@ -4,6 +4,8 @@ import { vacanciesAPI, candidatesAPI, usersAPI } from '../utils/api';
 import { getStatusColor, getStatusLabel, CANDIDATE_STATUS } from '../utils/constants';
 import PDFReport from './PDFReport';
 import { useToast } from '../utils/ToastContext';
+import { competenciesAPI } from '../utils/api';
+import { COMPETENCY_TYPES } from '../utils/constants';
 
 const SecretariatView = ({ user }) => {
   const [vacancies, setVacancies] = useState([]);
@@ -13,6 +15,14 @@ const SecretariatView = ({ user }) => {
   const [itemNumbers, setItemNumbers] = useState([]);
   const [reportRaters, setReportRaters] = useState([]);
   const { showToast } = useToast();
+  const [competencies, setCompetencies] = useState([]);
+  const [groupedCompetencies, setGroupedCompetencies] = useState({
+    basic: [],
+    organizational: [],
+    leadership: [],
+    minimum: [],
+  });
+  const [showCompetenciesModal, setShowCompetenciesModal] = useState(false);
 
   // Use usePersistedState for dropdown selections
   const [selectedAssignment, setSelectedAssignment] = usePersistedState(`secretariat_${user._id}_selectedAssignment`, '');
@@ -87,6 +97,45 @@ const SecretariatView = ({ user }) => {
     }
   };
 
+
+  const loadCompetenciesByItemNumber = async (itemNumber) => {
+    try {
+      const vacancy = vacancies.find(v => v.itemNumber === itemNumber);
+      if (vacancy) {
+        const competenciesRes = await competenciesAPI.getByVacancy(vacancy._id);
+        setCompetencies(competenciesRes);
+        const grouped = {
+          basic: competenciesRes.filter(c => c.type === COMPETENCY_TYPES.BASIC),
+          organizational: competenciesRes.filter(c => c.type === COMPETENCY_TYPES.ORGANIZATIONAL),
+          leadership: competenciesRes.filter(c => c.type === COMPETENCY_TYPES.LEADERSHIP),
+          minimum: competenciesRes.filter(c => c.type === COMPETENCY_TYPES.MINIMUM)
+        };
+        setGroupedCompetencies(grouped);
+        setShowCompetenciesModal(true);
+      }
+    } catch (error) {
+      console.error('Failed to load competencies:', error);
+      showToast('Failed to load competencies.', 'error');
+      setCompetencies([]);
+      setGroupedCompetencies({
+        basic: [],
+        organizational: [],
+        leadership: [],
+        minimum: []
+      });
+    }
+  };
+
+  const closeCompetenciesModal = () => {
+    setShowCompetenciesModal(false);
+    setCompetencies([]);
+    setGroupedCompetencies({
+      basic: [],
+      organizational: [],
+      leadership: [],
+      minimum: []
+    });
+  };
 
   // Load initial data on mount
   useEffect(() => {
@@ -944,10 +993,182 @@ const SecretariatView = ({ user }) => {
                   </div>
                 </div>
               )}
+
+              {/* NEW: View Competencies Button */}
+              <div className="pt-4 border-t">
+                <button
+                  onClick={() => loadCompetenciesByItemNumber(vacancyDetails.itemNumber)}
+                  className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl flex items-center justify-center space-x-2"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                  </svg>
+                  <span>View Competencies for this Position</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
+
+      {showCompetenciesModal && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div className="relative top-10 mx-auto p-6 border w-11/12 max-w-5xl shadow-lg rounded-md bg-white max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-6 sticky top-0 bg-white pb-4 border-b">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">Competencies</h2>
+                <p className="text-sm text-gray-600 mt-1">
+                  {vacancyDetails?.position} • Item # {vacancyDetails?.itemNumber} • SG {vacancyDetails?.salaryGrade}
+                </p>
+              </div>
+              <button
+                onClick={closeCompetenciesModal}
+                className="text-gray-500 hover:text-gray-700 text-2xl font-bold"
+              >
+                ×
+              </button>
+            </div>
+
+            {competencies.length === 0 ? (
+              <div className="text-center py-12">
+                <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+                  <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                  </svg>
+                </div>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No Competencies Found</h3>
+                <p className="text-gray-500">No competencies have been assigned to this position yet.</p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {/* Basic Competencies */}
+                {groupedCompetencies.basic.length > 0 && (
+                  <div>
+                    <div className="bg-blue-50 border-l-4 border-blue-500 p-4 mb-4">
+                      <h3 className="text-lg font-bold text-blue-900">Core Competencies (Psycho-Social)</h3>
+                      <p className="text-sm text-blue-700 mt-1">{groupedCompetencies.basic.length} competencies</p>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {groupedCompetencies.basic.map((comp, index) => (
+                        <div key={comp._id} className="bg-white border-2 border-blue-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                          <div className="flex items-start">
+                            <span className="flex-shrink-0 w-8 h-8 bg-blue-500 text-white rounded-full flex items-center justify-center font-bold text-sm">
+                              {index + 1}
+                            </span>
+                            <div className="ml-3 flex-1">
+                              <h4 className="font-semibold text-gray-900">{comp.name}</h4>
+                              {comp.description && (
+                                <p className="text-sm text-gray-600 mt-1">{comp.description}</p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Organizational Competencies */}
+                {groupedCompetencies.organizational.length > 0 && (
+                  <div>
+                    <div className="bg-purple-50 border-l-4 border-purple-500 p-4 mb-4">
+                      <h3 className="text-lg font-bold text-purple-900">Organizational Competencies (Potential)</h3>
+                      <p className="text-sm text-purple-700 mt-1">{groupedCompetencies.organizational.length} competencies</p>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {groupedCompetencies.organizational.map((comp, index) => (
+                        <div key={comp._id} className="bg-white border-2 border-purple-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                          <div className="flex items-start">
+                            <span className="flex-shrink-0 w-8 h-8 bg-purple-500 text-white rounded-full flex items-center justify-center font-bold text-sm">
+                              {index + 1}
+                            </span>
+                            <div className="ml-3 flex-1">
+                              <h4 className="font-semibold text-gray-900">{comp.name}</h4>
+                              {comp.description && (
+                                <p className="text-sm text-gray-600 mt-1">{comp.description}</p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Leadership Competencies */}
+                {groupedCompetencies.leadership.length > 0 && (
+                  <div>
+                    <div className="bg-indigo-50 border-l-4 border-indigo-500 p-4 mb-4">
+                      <h3 className="text-lg font-bold text-indigo-900">Leadership Competencies (Potential)</h3>
+                      <p className="text-sm text-indigo-700 mt-1">
+                        {groupedCompetencies.leadership.length} competencies
+                        {vacancyDetails?.salaryGrade >= 18 
+                          ? ' • Required for SG ' + vacancyDetails.salaryGrade
+                          : ' • Not required for SG ' + vacancyDetails?.salaryGrade}
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {groupedCompetencies.leadership.map((comp, index) => (
+                        <div key={comp._id} className="bg-white border-2 border-indigo-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                          <div className="flex items-start">
+                            <span className="flex-shrink-0 w-8 h-8 bg-indigo-500 text-white rounded-full flex items-center justify-center font-bold text-sm">
+                              {index + 1}
+                            </span>
+                            <div className="ml-3 flex-1">
+                              <h4 className="font-semibold text-gray-900">{comp.name}</h4>
+                              {comp.description && (
+                                <p className="text-sm text-gray-600 mt-1">{comp.description}</p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Minimum Competencies */}
+                {groupedCompetencies.minimum.length > 0 && (
+                  <div>
+                    <div className="bg-orange-50 border-l-4 border-orange-500 p-4 mb-4">
+                      <h3 className="text-lg font-bold text-orange-900">Minimum Competencies (Potential)</h3>
+                      <p className="text-sm text-orange-700 mt-1">{groupedCompetencies.minimum.length} competencies</p>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {groupedCompetencies.minimum.map((comp, index) => (
+                        <div key={comp._id} className="bg-white border-2 border-orange-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                          <div className="flex items-start">
+                            <span className="flex-shrink-0 w-8 h-8 bg-orange-500 text-white rounded-full flex items-center justify-center font-bold text-sm">
+                              {index + 1}
+                            </span>
+                            <div className="ml-3 flex-1">
+                              <h4 className="font-semibold text-gray-900">{comp.name}</h4>
+                              {comp.description && (
+                                <p className="text-sm text-gray-600 mt-1">{comp.description}</p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="mt-6 pt-4 border-t sticky bottom-0 bg-white">
+              <button
+                onClick={closeCompetenciesModal}
+                className="w-full bg-gray-600 hover:bg-gray-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors duration-200"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+
 
       {showReportModal && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
