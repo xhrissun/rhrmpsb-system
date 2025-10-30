@@ -525,7 +525,7 @@ const InterviewSummaryGenerator = ({ user }) => {
     const ratersWhoRated = raters.filter(rater => 
       rater && 
       rater.name && 
-       &&
+      rater.raterType &&
       raterIdsWhoRated.includes(rater._id.toString())
     );
 
@@ -548,7 +548,7 @@ const InterviewSummaryGenerator = ({ user }) => {
     const signatories = sortedRaters.map(rater => [
       rater.name.toUpperCase(),
       rater.position,
-      rater.designation
+      rater.raterType
     ]);
 
     // Render signatories in a 2-column layout
