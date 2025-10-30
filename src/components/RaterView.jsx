@@ -38,6 +38,10 @@ const RaterView = ({ user }) => {
   const [password, setPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [isUpdateSubmission, setIsUpdateSubmission] = useState(false); // NEW: Track if submission is an update
+  const [isRaterTypeConflictModalOpen, setIsRaterTypeConflictModalOpen] = useState(false);
+  const [conflictingRater, setConflictingRater] = useState(null);
+  const [isCheckingRaterType, setIsCheckingRaterType] = useState(false);
+  
 
   const activeRatingRef = useRef(null);
   const scrollPositionRef = useRef(0);
@@ -140,7 +144,7 @@ const RaterView = ({ user }) => {
         setRatings({});
       } else {
         loadCandidateDetails();
-        loadExistingRatings();
+        checkRaterTypeConflict(); // NEW: Check for rater type conflict first
       }
     }
   }, [candidates, selectedCandidate]);
@@ -249,6 +253,37 @@ const RaterView = ({ user }) => {
     } catch (error) {
       console.error('Failed to load existing ratings:', error);
       setRatings({});
+    }
+  };
+
+  const checkRaterTypeConflict = async () => {
+    if (!selectedCandidate || !selectedItemNumber || !user.raterType) {
+      return;
+    }
+    
+    setIsCheckingRaterType(true);
+    
+    try {
+      const result = await ratingsAPI.checkExistingByRaterType(
+        selectedCandidate,
+        selectedItemNumber,
+        user.raterType
+      );
+      
+      if (result.hasExisting && result.existingRater.id !== user._id) {
+        // Another rater of the same type has already rated this candidate
+        setConflictingRater(result.existingRater);
+        setIsRaterTypeConflictModalOpen(true);
+        setRatings({}); // Clear any ratings
+      } else {
+        // Safe to proceed - load existing ratings
+        loadExistingRatings();
+      }
+    } catch (error) {
+      console.error('Failed to check rater type conflict:', error);
+      showToast('Failed to verify rating permissions. Please try again.', 'error');
+    } finally {
+      setIsCheckingRaterType(false);
     }
   };
 
@@ -648,7 +683,16 @@ const RaterView = ({ user }) => {
             )}
           </div>
 
-          {candidateDetails && vacancyDetails && (
+          {isCheckingRaterType && selectedCandidate && (
+            <div className="bg-white rounded-xl border border-gray-200 p-8 mb-6 shadow-sm">
+              <div className="flex items-center justify-center space-y-4 flex-col">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+                <p className="text-gray-600">Verifying rating permissions...</p>
+              </div>
+            </div>
+          )}
+
+          {!isCheckingRaterType && candidateDetails && vacancyDetails && (
             <div className={`sticky top-16 z-30 bg-gray-100 rounded-xl border border-green-200 overflow-hidden mb-6 shadow-lg transition-all duration-300 ${isModalMinimized ? 'max-h-84' : 'max-h-full'}`}>
               <div className="bg-gradient-to-r from-green-800 to-green-600 px-4 py-3 flex justify-between items-center">
                 <div className="text-center flex-1">
@@ -1076,7 +1120,61 @@ const RaterView = ({ user }) => {
             </div>
           )}
 
-          {selectedCandidate && (
+          {isRaterTypeConflictModalOpen && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-xl p-8 max-w-2xl w-full mx-4">
+                <div className="text-center mb-6">
+                  <div className="w-20 h-20 mx-auto mb-4 bg-red-100 rounded-full flex items-center justify-center">
+                    <svg className="w-10 h-10 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-2xl font-bold text-gray-800 mb-4">Rating Already Submitted</h3>
+                  <p className="text-lg text-gray-700 mb-4 font-medium">
+                    This candidate has already been rated for this position by another <span className="font-bold text-red-600">{user.raterType}</span> rater.
+                  </p>
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+                    <p className="text-gray-800">
+                      <span className="font-semibold">Existing Rater:</span> {conflictingRater?.name}
+                    </p>
+                    <p className="text-gray-800">
+                      <span className="font-semibold">Rater Type:</span> {conflictingRater?.raterType}
+                    </p>
+                    <p className="text-gray-800">
+                      <span className="font-semibold">Candidate:</span> {candidateDetails?.fullName}
+                    </p>
+                    <p className="text-gray-800">
+                      <span className="font-semibold">Position:</span> {vacancyDetails?.position}
+                    </p>
+                    <p className="text-gray-800">
+                      <span className="font-semibold">Item Number:</span> {selectedItemNumber}
+                    </p>
+                  </div>
+                  <p className="text-sm text-gray-600 mb-6">
+                    Only one rater per rater type can submit ratings for each candidate-position combination. 
+                    Please select a different candidate or contact the administrator if this is an error.
+                  </p>
+                </div>
+                <div className="flex justify-center">
+                  <button
+                    onClick={() => {
+                      setIsRaterTypeConflictModalOpen(false);
+                      setConflictingRater(null);
+                      setSelectedCandidate('');
+                      setCandidateDetails(null);
+                      setRatings({});
+                    }}
+                    className="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg font-semibold"
+                  >
+                    Select Different Candidate
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+
+          {selectedCandidate && !isRaterTypeConflictModalOpen && (
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6 shadow-sm">
               <div className="bg-gray-800 px-6 py-6">
                 <div className="text-center">
@@ -1241,7 +1339,7 @@ const RaterView = ({ user }) => {
                     
                     <button
                       onClick={handleSubmitRatings}
-                      disabled={!allRated || submitting}
+                      disabled={!allRated || submitting || isCheckingRaterType}
                       className={`px-8 py-3 rounded-lg font-medium focus:outline-none focus:ring-2 focus:ring-offset-2 transition-all flex items-center justify-center space-x-2 ${
                         allRated && !submitting
                           ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white hover:from-green-700 hover:to-emerald-700 focus:ring-green-500 shadow-lg'
