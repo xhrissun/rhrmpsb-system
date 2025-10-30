@@ -249,7 +249,7 @@ export const ratingsAPI = {
     return response.data;
   },
   
-  // UPDATED: Check existing ratings by item number
+  // Check existing ratings by item number (for individual rater updates)
   checkExistingRatings: async (candidateId, raterId, itemNumber) => {
     const response = await api.get(`/ratings/candidate/${candidateId}`);
     const raterRatings = response.data.filter(rating => 
@@ -264,7 +264,17 @@ export const ratingsAPI = {
     };
   },
   
-  // UPDATED: Reset ratings by item number
+  // NEW: Check if ratings exist for candidate + item number + rater type (prevent duplicates)
+  checkExistingByRaterType: async (candidateId, itemNumber, raterType) => {
+    const encodedItemNumber = encodeURIComponent(itemNumber);
+    const encodedRaterType = encodeURIComponent(raterType);
+    const response = await api.get(
+      `/ratings/check-existing/${candidateId}/${encodedItemNumber}/${encodedRaterType}`
+    );
+    return response.data;
+  },
+  
+  // Reset ratings by item number
   resetRatings: async (candidateId, raterId, itemNumber) => {
     // Encode item number to handle special characters
     const encodedItemNumber = encodeURIComponent(itemNumber);
