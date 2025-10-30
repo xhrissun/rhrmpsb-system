@@ -140,7 +140,7 @@ const candidateSchema = new mongoose.Schema({
   gender: {
     type: String,
     required: true,
-    enum: ['Male', 'Female', 'MALE/LALAKI', 'FEMALE/BABAE']
+    enum: ['Male', 'Female', 'MALE/LALAKI', 'FEMALE/BABAE', 'LGBTQI+']
   },
   dateOfBirth: {
     type: Date
