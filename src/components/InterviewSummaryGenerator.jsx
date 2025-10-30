@@ -544,19 +544,19 @@ const InterviewSummaryGenerator = ({ user }) => {
       return indexA - indexB;
     });
 
-    // Create signatories array with actual rater data including both raterType and designation
+    // Create signatories array with name, position, and designation
     const signatories = sortedRaters.map(rater => [
       rater.name.toUpperCase(),
       rater.position,
-      rater.raterType
+      rater.designation
     ]);
-
+    
     // Render signatories in a 2-column layout
     const colWidth = 90;
     let col = 0;
     let rowY = y;
     
-    signatories.forEach(([name, raterType, designation]) => {
+    signatories.forEach(([name, position, designation]) => {
       const x = xLeft + (col * colWidth);
       
       // Name (bold, smaller)
@@ -564,16 +564,18 @@ const InterviewSummaryGenerator = ({ user }) => {
       doc.setFontSize(7);
       doc.text(name, x + colWidth / 2, rowY, { align: 'center' });
       
-      // Rater Type (normal, smaller)
+      // Position (normal, smaller)
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(6);
-      doc.text(raterType, x + colWidth / 2, rowY + 3, { align: 'center' });
+      if (position) {
+        doc.text(position, x + colWidth / 2, rowY + 3, { align: 'center' });
+      }
       
       // Designation (if available, normal, smaller)
       if (designation) {
         doc.text(designation, x + colWidth / 2, rowY + 6, { align: 'center' });
       }
-
+    
       col++;
       if (col === 2) {
         col = 0;
