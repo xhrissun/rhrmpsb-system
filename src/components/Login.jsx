@@ -215,7 +215,7 @@ const Login = React.memo(({ onLogin }) => {
 
           {/* Footer */}
           <div className="text-center text-xs sm:text-sm text-slate-400">
-            <p>Secure • Reliable • Professional</p>
+            <p>Secure • Reliable • Professional • Makakalikasan</p>
           </div>
         </div>
 
