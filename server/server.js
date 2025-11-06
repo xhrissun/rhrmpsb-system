@@ -14,6 +14,7 @@ const corsOptions = {
   origin: process.env.NODE_ENV === 'production' 
     ? [
         'https://xhrissun.github.io',
+        'https://cron-job.org',
         //'https://your-domain.com' // Add your custom domain if you have one
       ]
     : ['http://localhost:3000', 'http://localhost:5173'],
@@ -53,25 +54,35 @@ mongoose
     process.exit(1);
   });
 
+// Lightweight ping endpoint - Place FIRST for fastest response
+app.get('/ping', (req, res) => {
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] Ping received from ${req.ip}`);
+  res.status(200).send('pong');
+});
+
 // Routes
 app.use('/api', routes);
 
 // Health check route
 app.get('/health', (req, res) => {
-  res.json({ 
+  const uptime = process.uptime();
+  res.status(200).json({ 
     status: 'OK', 
     message: 'Server is running',
     environment: process.env.NODE_ENV || 'development',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    uptime: `${Math.floor(uptime / 60)}m ${Math.floor(uptime % 60)}s`,
+    mongodb: mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected'
   });
 });
 
 // Root route
 app.get('/', (req, res) => {
-  res.json({ 
+  res.status(200).json({ 
     message: 'Rater System API Server',
     version: '1.0.0',
-    endpoints: ['/api', '/health']
+    endpoints: ['/api', '/health', '/ping']
   });
 });
 
@@ -89,12 +100,10 @@ app.use('*', (req, res) => {
   res.status(404).json({ message: 'Endpoint not found' });
 });
 
-app.get('/ping', (req, res) => {
-  res.send('pong');
-});
-
 // Start server
 const PORT = process.env.PORT || 5001;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
+  console.log(`Keep-alive endpoint: /ping`);
+  console.log(`Health check endpoint: /health`);
 });
