@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import usePersistedState from '../utils/usePersistedState';
 import { vacanciesAPI, candidatesAPI, usersAPI } from '../utils/api';
 import { getStatusColor, getStatusLabel, CANDIDATE_STATUS } from '../utils/constants';
@@ -48,6 +48,17 @@ const SecretariatView = ({ user }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  // NEW: Comment suggestions state
+  const [commentSuggestions, setCommentSuggestions] = useState({
+    education: [],
+    training: [],
+    experience: [],
+    eligibility: []
+  });
+
+  // NEW: Status filter state
+  const [statusFilter, setStatusFilter] = useState(null);
+
   // Calculate statistics
   const getStatistics = () => {
     const total = candidates.length;
@@ -56,6 +67,39 @@ const SecretariatView = ({ user }) => {
     const disqualified = candidates.filter(c => c.status === CANDIDATE_STATUS.DISQUALIFIED).length;
     
     return { total, longListed, forReview, disqualified };
+  };
+
+  // NEW: Function to load comment suggestions from database
+  const loadCommentSuggestions = async () => {
+    try {
+      const fields = ['education', 'training', 'experience', 'eligibility'];
+      const suggestions = {};
+      
+      for (const field of fields) {
+        const response = await fetch(`${process.env.REACT_APP_API_URL}/api/candidates/comment-suggestions/${field}`, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
+        });
+        
+        if (response.ok) {
+          suggestions[field] = await response.json();
+        } else {
+          suggestions[field] = [];
+        }
+      }
+      
+      setCommentSuggestions(suggestions);
+    } catch (error) {
+      console.error('Failed to load comment suggestions:', error);
+      // Set empty arrays on error
+      setCommentSuggestions({
+        education: [],
+        training: [],
+        experience: [],
+        eligibility: []
+      });
+    }
   };
 
   const fetchRatersForVacancy = async (itemNumber) => {
@@ -96,7 +140,6 @@ const SecretariatView = ({ user }) => {
       return [];
     }
   };
-
 
   const loadCompetenciesByItemNumber = async (itemNumber) => {
     try {
@@ -393,6 +436,25 @@ const SecretariatView = ({ user }) => {
     }
   };
 
+  // NEW: Handle status card click to filter candidates
+  const handleStatusCardClick = (status) => {
+    if (statusFilter === status) {
+      // If clicking the same card, clear the filter
+      setStatusFilter(null);
+    } else {
+      // Otherwise, set the new filter
+      setStatusFilter(status);
+    }
+  };
+
+  // NEW: Filter candidates based on status filter
+  const getFilteredCandidates = () => {
+    if (!statusFilter) {
+      return candidates;
+    }
+    return candidates.filter(c => c.status === statusFilter);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -402,6 +464,7 @@ const SecretariatView = ({ user }) => {
   }
 
   const stats = getStatistics();
+  const filteredCandidates = getFilteredCandidates();
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
@@ -501,13 +564,23 @@ const SecretariatView = ({ user }) => {
           </div>
         </div>
 
-        {/* Statistics Cards - Closer spacing and more pop */}
+        {/* Statistics Cards - NOW CLICKABLE with active state */}
         <div className="sticky top-[268px] z-10 pt-1 pb-4">
           <div className="grid grid-cols-4 gap-4">
-            <div className="bg-white rounded-xl shadow-lg border-2 border-blue-200 p-4 hover:shadow-xl transition-shadow">
+            {/* Total Card - No filter, just shows all */}
+            <div 
+              onClick={() => setStatusFilter(null)}
+              className={`bg-white rounded-xl shadow-lg border-2 p-4 transition-all cursor-pointer ${
+                statusFilter === null 
+                  ? 'border-blue-500 ring-4 ring-blue-200 shadow-xl' 
+                  : 'border-blue-200 hover:shadow-xl hover:border-blue-300'
+              }`}
+            >
               <div className="flex items-center">
                 <div className="flex-shrink-0">
-                  <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center shadow-md">
+                  <div className={`w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center shadow-md ${
+                    statusFilter === null ? 'scale-110' : ''
+                  } transition-transform`}>
                     <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                     </svg>
@@ -520,10 +593,20 @@ const SecretariatView = ({ user }) => {
               </div>
             </div>
 
-            <div className="bg-white rounded-xl shadow-lg border-2 border-green-200 p-4 hover:shadow-xl transition-shadow">
+            {/* Long Listed Card */}
+            <div 
+              onClick={() => handleStatusCardClick(CANDIDATE_STATUS.LONG_LIST)}
+              className={`bg-white rounded-xl shadow-lg border-2 p-4 transition-all cursor-pointer ${
+                statusFilter === CANDIDATE_STATUS.LONG_LIST 
+                  ? 'border-green-500 ring-4 ring-green-200 shadow-xl' 
+                  : 'border-green-200 hover:shadow-xl hover:border-green-300'
+              }`}
+            >
               <div className="flex items-center">
                 <div className="flex-shrink-0">
-                  <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-green-600 rounded-lg flex items-center justify-center shadow-md">
+                  <div className={`w-10 h-10 bg-gradient-to-br from-green-500 to-green-600 rounded-lg flex items-center justify-center shadow-md ${
+                    statusFilter === CANDIDATE_STATUS.LONG_LIST ? 'scale-110' : ''
+                  } transition-transform`}>
                     <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
@@ -536,10 +619,20 @@ const SecretariatView = ({ user }) => {
               </div>
             </div>
 
-            <div className="bg-white rounded-xl shadow-lg border-2 border-yellow-200 p-4 hover:shadow-xl transition-shadow">
+            {/* For Review Card */}
+            <div 
+              onClick={() => handleStatusCardClick(CANDIDATE_STATUS.FOR_REVIEW)}
+              className={`bg-white rounded-xl shadow-lg border-2 p-4 transition-all cursor-pointer ${
+                statusFilter === CANDIDATE_STATUS.FOR_REVIEW 
+                  ? 'border-yellow-500 ring-4 ring-yellow-200 shadow-xl' 
+                  : 'border-yellow-200 hover:shadow-xl hover:border-yellow-300'
+              }`}
+            >
               <div className="flex items-center">
                 <div className="flex-shrink-0">
-                  <div className="w-10 h-10 bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-lg flex items-center justify-center shadow-md">
+                  <div className={`w-10 h-10 bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-lg flex items-center justify-center shadow-md ${
+                    statusFilter === CANDIDATE_STATUS.FOR_REVIEW ? 'scale-110' : ''
+                  } transition-transform`}>
                     <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
                     </svg>
@@ -552,10 +645,20 @@ const SecretariatView = ({ user }) => {
               </div>
             </div>
 
-            <div className="bg-white rounded-xl shadow-lg border-2 border-red-200 p-4 hover:shadow-xl transition-shadow">
+            {/* Disqualified Card */}
+            <div 
+              onClick={() => handleStatusCardClick(CANDIDATE_STATUS.DISQUALIFIED)}
+              className={`bg-white rounded-xl shadow-lg border-2 p-4 transition-all cursor-pointer ${
+                statusFilter === CANDIDATE_STATUS.DISQUALIFIED 
+                  ? 'border-red-500 ring-4 ring-red-200 shadow-xl' 
+                  : 'border-red-200 hover:shadow-xl hover:border-red-300'
+              }`}
+            >
               <div className="flex items-center">
                 <div className="flex-shrink-0">
-                  <div className="w-10 h-10 bg-gradient-to-br from-red-500 to-red-600 rounded-lg flex items-center justify-center shadow-md">
+                  <div className={`w-10 h-10 bg-gradient-to-br from-red-500 to-red-600 rounded-lg flex items-center justify-center shadow-md ${
+                    statusFilter === CANDIDATE_STATUS.DISQUALIFIED ? 'scale-110' : ''
+                  } transition-transform`}>
                     <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
@@ -575,7 +678,8 @@ const SecretariatView = ({ user }) => {
           <div className="px-6 py-4 border-b border-gray-200">
             <h3 className="text-lg font-semibold text-gray-900">Candidates</h3>
             <p className="text-sm text-gray-600 mt-1">
-              Showing {candidates.length} candidate{candidates.length !== 1 ? 's' : ''}
+              Showing {filteredCandidates.length} candidate{filteredCandidates.length !== 1 ? 's' : ''}
+              {statusFilter && ` (${getStatusLabel(statusFilter)})`}
             </p>
           </div>
 
@@ -592,7 +696,7 @@ const SecretariatView = ({ user }) => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {candidates.map((candidate, index) => {
+                {filteredCandidates.map((candidate, index) => {
                   const vacancy = vacancies.find(v => v.itemNumber === candidate.itemNumber);
                   return (
                     <tr key={candidate._id} className="hover:bg-gradient-to-r hover:from-blue-50 hover:to-indigo-50 transition-all duration-150">
@@ -642,6 +746,7 @@ const SecretariatView = ({ user }) => {
                             onClick={() => {
                               setSelectedCandidate(candidate._id);
                               loadCandidateDetails(candidate._id);
+                              loadCommentSuggestions(); // Load suggestions when opening modal
                               setShowCommentModal(true);
                             }}
                             className="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-xs transition-colors duration-200"
@@ -656,7 +761,7 @@ const SecretariatView = ({ user }) => {
               </tbody>
             </table>
 
-            {candidates.length === 0 && (
+            {filteredCandidates.length === 0 && (
               <div className="text-center py-12">
                 <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
                   <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -664,14 +769,18 @@ const SecretariatView = ({ user }) => {
                   </svg>
                 </div>
                 <h3 className="text-lg font-medium text-gray-900 mb-2">No candidates found</h3>
-                <p className="text-gray-500">No candidates match the selected criteria.</p>
+                <p className="text-gray-500">
+                  {statusFilter 
+                    ? `No candidates with status "${getStatusLabel(statusFilter)}".` 
+                    : 'No candidates match the selected criteria.'}
+                </p>
               </div>
             )}
           </div>
         </div>
       </div>
 
-      {/* Modals (keeping the existing modal implementations) */}
+      {/* Modals */}
       {showViewCommentsModal && viewCandidateData && (() => {
         const { candidate, vacancy } = viewCandidateData;
         const comments = candidate.comments || {};
@@ -848,56 +957,41 @@ const SecretariatView = ({ user }) => {
               )}
             </div>
 
+            {/* NEW: Comment fields with auto-suggestions */}
             <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Education Comments
-                </label>
-                <textarea
-                  value={comments.education}
-                  onChange={(e) => handleCommentChange('education', e.target.value)}
-                  rows={3}
-                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Add comments about education qualifications..."
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Training Comments
-                </label>
-                <textarea
-                  value={comments.training}
-                  onChange={(e) => handleCommentChange('training', e.target.value)}
-                  rows={3}
-                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Add comments about training requirements..."
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Experience Comments
-                </label>
-                <textarea
-                  value={comments.experience}
-                  onChange={(e) => handleCommentChange('experience', e.target.value)}
-                  rows={3}
-                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Add comments about work experience..."
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Eligibility Comments
-                </label>
-                <textarea
-                  value={comments.eligibility}
-                  onChange={(e) => handleCommentChange('eligibility', e.target.value)}
-                  rows={3}
-                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Add comments about eligibility requirements..."
-                />
-              </div>
+              <CommentInput
+                label="Education Comments"
+                value={comments.education}
+                onChange={(value) => handleCommentChange('education', value)}
+                suggestions={commentSuggestions.education}
+                placeholder="Add comments about education qualifications..."
+              />
+              
+              <CommentInput
+                label="Training Comments"
+                value={comments.training}
+                onChange={(value) => handleCommentChange('training', value)}
+                suggestions={commentSuggestions.training}
+                placeholder="Add comments about training requirements..."
+              />
+              
+              <CommentInput
+                label="Experience Comments"
+                value={comments.experience}
+                onChange={(value) => handleCommentChange('experience', value)}
+                suggestions={commentSuggestions.experience}
+                placeholder="Add comments about work experience..."
+              />
+              
+              <CommentInput
+                label="Eligibility Comments"
+                value={comments.eligibility}
+                onChange={(value) => handleCommentChange('eligibility', value)}
+                suggestions={commentSuggestions.eligibility}
+                placeholder="Add comments about eligibility requirements..."
+              />
             </div>
+
             <div className="flex justify-end space-x-3 mt-6 pt-4 border-t">
               <button
                 onClick={() => handleStatusUpdate(CANDIDATE_STATUS.LONG_LIST)}
@@ -994,7 +1088,6 @@ const SecretariatView = ({ user }) => {
                 </div>
               )}
 
-              {/* NEW: View Competencies Button */}
               <div className="pt-4 border-t">
                 <button
                   onClick={() => loadCompetenciesByItemNumber(vacancyDetails.itemNumber)}
@@ -1034,7 +1127,7 @@ const SecretariatView = ({ user }) => {
                 <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
                   <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                  </svg>
+                    </svg>
                 </div>
                 <h3 className="text-lg font-medium text-gray-900 mb-2">No Competencies Found</h3>
                 <p className="text-gray-500">No competencies have been assigned to this position yet.</p>
@@ -1168,8 +1261,6 @@ const SecretariatView = ({ user }) => {
         </div>
       )}
 
-
-
       {showReportModal && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
           <div className="relative top-10 mx-auto p-5 border w-11/12 max-w-4xl shadow-lg rounded-md bg-white">
@@ -1190,6 +1281,96 @@ const SecretariatView = ({ user }) => {
             />
           </div>
         </div>
+      )}
+    </div>
+  );
+};
+
+// NEW: CommentInput component with auto-suggestions
+const CommentInput = ({ label, value, onChange, suggestions, placeholder }) => {
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [filteredSuggestions, setFilteredSuggestions] = useState([]);
+  const inputRef = useRef(null);
+  const suggestionsRef = useRef(null);
+
+  useEffect(() => {
+    // Filter suggestions based on current input
+    if (value && suggestions.length > 0) {
+      const filtered = suggestions.filter(s => 
+        s.toLowerCase().includes(value.toLowerCase())
+      ).slice(0, 10); // Limit to 10 suggestions
+      setFilteredSuggestions(filtered);
+    } else {
+      setFilteredSuggestions(suggestions.slice(0, 10));
+    }
+  }, [value, suggestions]);
+
+  // Close suggestions when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (
+        inputRef.current && 
+        !inputRef.current.contains(event.target) &&
+        suggestionsRef.current &&
+        !suggestionsRef.current.contains(event.target)
+      ) {
+        setShowSuggestions(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleSelectSuggestion = (suggestion) => {
+    onChange(suggestion);
+    setShowSuggestions(false);
+    inputRef.current?.focus();
+  };
+
+  return (
+    <div className="relative">
+      <label className="block text-sm font-medium text-gray-700 mb-1">
+        {label}
+      </label>
+      <div className="relative">
+        <textarea
+          ref={inputRef}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onFocus={() => setShowSuggestions(true)}
+          rows={3}
+          className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          placeholder={placeholder}
+        />
+        
+        {showSuggestions && filteredSuggestions.length > 0 && (
+          <div 
+            ref={suggestionsRef}
+            className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto"
+          >
+            <div className="py-1">
+              <div className="px-3 py-2 text-xs font-semibold text-gray-500 bg-gray-50 sticky top-0">
+                Suggestions (click to use)
+              </div>
+              {filteredSuggestions.map((suggestion, index) => (
+                <button
+                  key={index}
+                  type="button"
+                  onClick={() => handleSelectSuggestion(suggestion)}
+                  className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-900 focus:bg-blue-50 focus:outline-none transition-colors"
+                >
+                  <div className="truncate">{suggestion}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+      {suggestions.length > 0 && (
+        <p className="mt-1 text-xs text-gray-500">
+          💡 Start typing to see suggestions from previous entries
+        </p>
       )}
     </div>
   );
