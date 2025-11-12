@@ -1169,18 +1169,36 @@ router.get('/candidates/comment-suggestions/:field', authMiddleware, async (req,
       return res.status(400).json({ message: 'Invalid field' });
     }
     
+    // Get more candidates for better frequency analysis
     const candidates = await Candidate.find(
       { [`comments.${field}`]: { $exists: true, $ne: '' } },
       { [`comments.${field}`]: 1 }
-    ).limit(100);
+    ).limit(500);
     
-    const suggestions = [...new Set(
-      candidates
-        .map(c => c.comments?.[field])
-        .filter(comment => comment && comment.trim() !== '')
-    )];
+    // Count frequency with normalization (trim + uppercase for deduplication)
+    const commentFrequency = {};
+    
+    candidates.forEach(c => {
+      const comment = c.comments?.[field];
+      if (comment && comment.trim() !== '') {
+        // Normalize: trim, remove extra spaces, convert to uppercase
+        const normalized = comment
+          .trim()
+          .replace(/\s+/g, ' ')  // Replace multiple spaces with single space
+          .toUpperCase();
+        
+        commentFrequency[normalized] = (commentFrequency[normalized] || 0) + 1;
+      }
+    });
+    
+    // Sort by frequency (most used first), limit to top 20
+    const suggestions = Object.entries(commentFrequency)
+      .sort((a, b) => b[1] - a[1])  // Sort by frequency descending
+      .slice(0, 20)                  // Top 20 most common
+      .map(([comment]) => comment);   // Extract just the comment text
     
     res.json(suggestions);
+    
   } catch (error) {
     console.error('Comment suggestions error:', error);
     res.status(500).json({ message: 'Server error: ' + error.message });
