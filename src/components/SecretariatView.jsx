@@ -70,37 +70,38 @@ const SecretariatView = ({ user }) => {
   };
 
   // NEW: Function to load comment suggestions from database
-  const loadCommentSuggestions = async () => {
-    try {
-      const fields = ['education', 'training', 'experience', 'eligibility'];
-      const suggestions = {};
-      
-      for (const field of fields) {
-        const response = await fetch(`${process.env.REACT_APP_API_URL}/api/candidates/comment-suggestions/${field}`, {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          }
-        });
-        
-        if (response.ok) {
-          suggestions[field] = await response.json();
-        } else {
-          suggestions[field] = [];
-        }
+const loadCommentSuggestions = async () => {
+  console.log('🔍 Environment check:', {
+    isProd: import.meta.env.PROD,
+    mode: import.meta.env.MODE
+  });
+  
+  try {
+    const fields = ['education', 'training', 'experience', 'eligibility'];
+    const suggestions = {};
+    
+    for (const field of fields) {
+      console.log(`📥 Fetching ${field} suggestions...`);
+      try {
+        suggestions[field] = await candidatesAPI.getCommentSuggestions(field);
+        console.log(`✅ Got ${suggestions[field].length} ${field} suggestions`);
+      } catch (error) {
+        console.error(`❌ Failed to load ${field}:`, error.message);
+        suggestions[field] = [];
       }
-      
-      setCommentSuggestions(suggestions);
-    } catch (error) {
-      console.error('Failed to load comment suggestions:', error);
-      // Set empty arrays on error
-      setCommentSuggestions({
-        education: [],
-        training: [],
-        experience: [],
-        eligibility: []
-      });
     }
-  };
+    
+    setCommentSuggestions(suggestions);
+  } catch (error) {
+    console.error('Failed to load comment suggestions:', error);
+    setCommentSuggestions({
+      education: [],
+      training: [],
+      experience: [],
+      eligibility: []
+    });
+  }
+};
 
   const fetchRatersForVacancy = async (itemNumber) => {
     try {
