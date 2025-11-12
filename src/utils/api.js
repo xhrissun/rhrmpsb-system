@@ -195,7 +195,7 @@ export const candidatesAPI = {
         'Content-Type': 'multipart/form-data'
       }
     });
-    return response.data;
+    return response.data;z
   },
   updateStatus: async (id, status, comments) => {
     const response = await api.put(`/candidates/${id}/status`, { status, comments });
@@ -211,6 +211,11 @@ export const candidatesAPI = {
     const response = await api.get('/candidates/export-csv', {
       responseType: 'blob'
     });
+    return response.data;
+  },
+    // ✅ NEW: Comment suggestions
+  getCommentSuggestions: async (field) => {
+    const response = await api.get(`/candidates/comment-suggestions/${field}`);
     return response.data;
   }
 };
