@@ -1169,33 +1169,36 @@ router.get('/candidates/comment-suggestions/:field', authMiddleware, async (req,
       return res.status(400).json({ message: 'Invalid field' });
     }
     
-    // Get more candidates for better frequency analysis
     const candidates = await Candidate.find(
       { [`comments.${field}`]: { $exists: true, $ne: '' } },
       { [`comments.${field}`]: 1 }
     ).limit(500);
     
-    // Count frequency with normalization (trim + uppercase for deduplication)
     const commentFrequency = {};
     
     candidates.forEach(c => {
       const comment = c.comments?.[field];
       if (comment && comment.trim() !== '') {
-        // Normalize: trim, remove extra spaces, convert to uppercase
+        // SUPER AGGRESSIVE normalization:
         const normalized = comment
-          .trim()
-          .replace(/\s+/g, ' ')  // Replace multiple spaces with single space
-          .toUpperCase();
+          .trim()                              // Remove leading/trailing spaces
+          .replace(/\s+/g, ' ')               // Collapse multiple spaces
+          .replace(/\s*([(),.:;!?])\s*/g, '$1') // Remove spaces around punctuation
+          .replace(/([(),.:;!?])+/g, '$1')    // Remove duplicate punctuation
+          .replace(/[\u200B-\u200D\uFEFF]/g, '') // Remove zero-width spaces
+          .replace(/\u00A0/g, ' ')            // Replace non-breaking spaces with regular spaces
+          .normalize('NFKC')                  // Unicode normalization
+          .toUpperCase();                     // Convert to uppercase
         
         commentFrequency[normalized] = (commentFrequency[normalized] || 0) + 1;
       }
     });
     
-    // Sort by frequency (most used first), limit to top 20
+    // Sort by frequency and return top 20
     const suggestions = Object.entries(commentFrequency)
-      .sort((a, b) => b[1] - a[1])  // Sort by frequency descending
-      .slice(0, 20)                  // Top 20 most common
-      .map(([comment]) => comment);   // Extract just the comment text
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 20)
+      .map(([comment]) => comment);
     
     res.json(suggestions);
     
