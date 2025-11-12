@@ -1159,5 +1159,33 @@ router.put('/users/:id/change-password', authMiddleware, async (req, res) => {
   }
 });
 
+// Add this with your other candidate routes
+router.get('/candidates/comment-suggestions/:field', authMiddleware, async (req, res) => {
+  try {
+    const { field } = req.params;
+    const validFields = ['education', 'training', 'experience', 'eligibility'];
+    
+    if (!validFields.includes(field)) {
+      return res.status(400).json({ message: 'Invalid field' });
+    }
+    
+    const candidates = await Candidate.find(
+      { [`comments.${field}`]: { $exists: true, $ne: '' } },
+      { [`comments.${field}`]: 1 }
+    ).limit(100);
+    
+    const suggestions = [...new Set(
+      candidates
+        .map(c => c.comments?.[field])
+        .filter(comment => comment && comment.trim() !== '')
+    )];
+    
+    res.json(suggestions);
+  } catch (error) {
+    console.error('Comment suggestions error:', error);
+    res.status(500).json({ message: 'Server error: ' + error.message });
+  }
+});
+
 
 export default router;
