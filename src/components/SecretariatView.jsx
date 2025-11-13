@@ -940,7 +940,7 @@ const loadCommentSuggestions = async () => {
         );
       })()}
 
-      {/* Comment History Modal - PLACE IT HERE */}
+      {/* Comment History Modal - CORRECTED VERSION */}
       {showCommentHistoryModal && commentHistoryData && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
           <div className="relative top-8 mx-auto border w-11/12 max-w-5xl shadow-lg rounded-lg bg-white max-h-[90vh] overflow-y-auto">
@@ -960,69 +960,145 @@ const loadCommentSuggestions = async () => {
             </div>
             
             <div className="p-6">
-              {commentHistoryData.commentsHistory && commentHistoryData.commentsHistory.length > 0 ? (
-                <div className="space-y-4">
-                  {commentHistoryData.commentsHistory
-                    .sort((a, b) => new Date(b.commentedAt) - new Date(a.commentedAt))
-                    .map((entry, index) => (
-                      <div key={index} className="border-l-4 border-purple-500 bg-gray-50 p-4 rounded-r-lg">
-                        <div className="flex justify-between items-start mb-2">
-                          <div className="flex items-center space-x-3">
-                            <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                              entry.field === 'education' ? 'bg-blue-100 text-blue-800' :
-                              entry.field === 'training' ? 'bg-green-100 text-green-800' :
-                              entry.field === 'experience' ? 'bg-purple-100 text-purple-800' :
-                              'bg-yellow-100 text-yellow-800'
-                            }`}>
-                              {entry.field.toUpperCase()}
-                            </span>
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                              entry.status === 'long_list' ? 'bg-green-100 text-green-800' :
-                              entry.status === 'for_review' ? 'bg-yellow-100 text-yellow-800' :
-                              entry.status === 'disqualified' ? 'bg-red-100 text-red-800' :
-                              'bg-gray-100 text-gray-800'
-                            }`}>
-                              {entry.status?.replace('_', ' ').toUpperCase()}
-                            </span>
-                          </div>
-                          <div className="text-right text-xs text-gray-500">
-                            <div className="font-semibold text-gray-700">
-                              {entry.commentedBy?.name || 'Unknown User'}
+              {/* Status History Section */}
+              {commentHistoryData.statusHistory && commentHistoryData.statusHistory.length > 0 && (
+                <div className="mb-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3 flex items-center">
+                    <svg className="w-5 h-5 mr-2 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Status Change History
+                  </h3>
+                  <div className="space-y-3">
+                    {commentHistoryData.statusHistory
+                      .sort((a, b) => new Date(b.changedAt) - new Date(a.changedAt))
+                      .map((entry, index) => (
+                        <div key={index} className="border-l-4 border-indigo-500 bg-indigo-50 p-4 rounded-r-lg">
+                          <div className="flex justify-between items-start">
+                            <div className="flex items-center space-x-3">
+                              <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                entry.oldStatus === 'long_list' ? 'bg-green-100 text-green-800' :
+                                entry.oldStatus === 'for_review' ? 'bg-yellow-100 text-yellow-800' :
+                                entry.oldStatus === 'disqualified' ? 'bg-red-100 text-red-800' :
+                                'bg-gray-100 text-gray-800'
+                              }`}>
+                                {entry.oldStatus?.replace('_', ' ').toUpperCase() || 'NEW'}
+                              </span>
+                              <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                              </svg>
+                              <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                entry.newStatus === 'long_list' ? 'bg-green-100 text-green-800' :
+                                entry.newStatus === 'for_review' ? 'bg-yellow-100 text-yellow-800' :
+                                entry.newStatus === 'disqualified' ? 'bg-red-100 text-red-800' :
+                                'bg-gray-100 text-gray-800'
+                              }`}>
+                                {entry.newStatus?.replace('_', ' ').toUpperCase()}
+                              </span>
                             </div>
-                            <div>
-                              {new Date(entry.commentedAt).toLocaleString('en-US', {
-                                year: 'numeric',
-                                month: 'short',
-                                day: 'numeric',
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })}
+                            <div className="text-right text-xs text-gray-500">
+                              <div className="font-semibold text-gray-700">
+                                {entry.changedBy?.name || 'Unknown User'}
+                              </div>
+                              <div>
+                                {new Date(entry.changedAt).toLocaleString('en-US', {
+                                  year: 'numeric',
+                                  month: 'short',
+                                  day: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })}
+                              </div>
                             </div>
                           </div>
+                          {entry.reason && (
+                            <p className="text-gray-700 text-sm mt-2 italic">
+                              Reason: {entry.reason}
+                            </p>
+                          )}
                         </div>
-                        <p className="text-gray-800 text-sm mt-2 leading-relaxed">
-                          {entry.comment}
-                        </p>
-                      </div>
-                    ))}
+                      ))}
+                  </div>
                 </div>
-              ) : (
+              )}
+
+              {/* Comments History Section */}
+              {commentHistoryData.commentsHistory && commentHistoryData.commentsHistory.length > 0 && (
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3 flex items-center">
+                    <svg className="w-5 h-5 mr-2 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+                    </svg>
+                    Comment History
+                  </h3>
+                  <div className="space-y-4">
+                    {commentHistoryData.commentsHistory
+                      .sort((a, b) => new Date(b.commentedAt) - new Date(a.commentedAt))
+                      .map((entry, index) => (
+                        <div key={index} className="border-l-4 border-purple-500 bg-gray-50 p-4 rounded-r-lg">
+                          <div className="flex justify-between items-start mb-2">
+                            <div className="flex items-center space-x-3">
+                              <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                                entry.field === 'education' ? 'bg-blue-100 text-blue-800' :
+                                entry.field === 'training' ? 'bg-green-100 text-green-800' :
+                                entry.field === 'experience' ? 'bg-purple-100 text-purple-800' :
+                                'bg-yellow-100 text-yellow-800'
+                              }`}>
+                                {entry.field.toUpperCase()}
+                              </span>
+                              <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                entry.status === 'long_list' ? 'bg-green-100 text-green-800' :
+                                entry.status === 'for_review' ? 'bg-yellow-100 text-yellow-800' :
+                                entry.status === 'disqualified' ? 'bg-red-100 text-red-800' :
+                                'bg-gray-100 text-gray-800'
+                              }`}>
+                                {entry.status?.replace('_', ' ').toUpperCase()}
+                              </span>
+                            </div>
+                            <div className="text-right text-xs text-gray-500">
+                              <div className="font-semibold text-gray-700">
+                                {entry.commentedBy?.name || 'Unknown User'}
+                              </div>
+                              <div>
+                                {new Date(entry.commentedAt).toLocaleString('en-US', {
+                                  year: 'numeric',
+                                  month: 'short',
+                                  day: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                          <p className="text-gray-800 text-sm mt-2 leading-relaxed">
+                            {entry.comment}
+                          </p>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+
+              {/* No History Message */}
+              {(!commentHistoryData.statusHistory || commentHistoryData.statusHistory.length === 0) && 
+              (!commentHistoryData.commentsHistory || commentHistoryData.commentsHistory.length === 0) && (
                 <div className="text-center py-12">
                   <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
                     <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
                   </div>
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">No Comment History</h3>
-                  <p className="text-gray-500">No comments have been recorded for this candidate yet.</p>
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No History</h3>
+                  <p className="text-gray-500">No status changes or comments have been recorded for this candidate yet.</p>
                 </div>
               )}
             </div>
-            
+
+            {/* Close Button Footer */}
             <div className="px-6 py-4 border-t bg-gray-50 rounded-b-lg">
               <button
                 onClick={closeCommentHistoryModal}
-                className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded transition-colors duration-200"
+                className="bg-gray-600 hover:bg-gray-700 text-white px-6 py-2 rounded-lg text-sm transition-colors duration-200"
               >
                 Close
               </button>
@@ -1030,6 +1106,7 @@ const loadCommentSuggestions = async () => {
           </div>
         </div>
       )}
+
 
       {showCommentModal && candidateDetails && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
