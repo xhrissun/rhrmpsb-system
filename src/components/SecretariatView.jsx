@@ -23,6 +23,20 @@ const SecretariatView = ({ user }) => {
     minimum: [],
   });
   const [showCompetenciesModal, setShowCompetenciesModal] = useState(false);
+  // Add this state at the top with your other states
+  const [showCommentHistoryModal, setShowCommentHistoryModal] = useState(false);
+  const [commentHistoryData, setCommentHistoryData] = useState(null);
+
+  // Add this function to handle viewing comment history
+  const handleViewCommentHistory = (candidate) => {
+    setCommentHistoryData(candidate);
+    setShowCommentHistoryModal(true);
+  };
+
+  const closeCommentHistoryModal = () => {
+    setShowCommentHistoryModal(false);
+    setCommentHistoryData(null);
+  };
 
   // Use usePersistedState for dropdown selections
   const [selectedAssignment, setSelectedAssignment] = usePersistedState(`secretariat_${user._id}_selectedAssignment`, '');
@@ -770,10 +784,17 @@ const loadCommentSuggestions = async () => {
                             View
                           </button>
                           <button
+                            onClick={() => handleViewCommentHistory(candidate)}
+                            className="bg-purple-600 hover:bg-purple-700 text-white px-2 py-1 rounded text-xs transition-colors duration-200"
+                            title="View Comment History"
+                          >
+                            History
+                          </button>
+                          <button
                             onClick={() => {
                               setSelectedCandidate(candidate._id);
                               loadCandidateDetails(candidate._id);
-                              loadCommentSuggestions(); // Load suggestions when opening modal
+                              loadCommentSuggestions();
                               setShowCommentModal(true);
                             }}
                             className="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-xs transition-colors duration-200"
@@ -825,6 +846,97 @@ const loadCommentSuggestions = async () => {
         } else {
           headerStyle = 'bg-gray-500 text-white';
         }
+
+        {/* Comment History Modal */}
+        {showCommentHistoryModal && commentHistoryData && (
+          <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+            <div className="relative top-8 mx-auto border w-11/12 max-w-5xl shadow-lg rounded-lg bg-white max-h-[90vh] overflow-y-auto">
+              <div className="bg-gradient-to-r from-purple-600 to-indigo-600 px-6 py-4 rounded-t-lg">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h2 className="text-2xl font-bold text-white">Comment History</h2>
+                    <p className="text-purple-100 mt-1">{commentHistoryData.fullName}</p>
+                  </div>
+                  <button
+                    onClick={closeCommentHistoryModal}
+                    className="text-white hover:text-gray-200 text-2xl font-bold"
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
+              
+              <div className="p-6">
+                {commentHistoryData.commentsHistory && commentHistoryData.commentsHistory.length > 0 ? (
+                  <div className="space-y-4">
+                    {commentHistoryData.commentsHistory
+                      .sort((a, b) => new Date(b.commentedAt) - new Date(a.commentedAt))
+                      .map((entry, index) => (
+                        <div key={index} className="border-l-4 border-purple-500 bg-gray-50 p-4 rounded-r-lg">
+                          <div className="flex justify-between items-start mb-2">
+                            <div className="flex items-center space-x-3">
+                              <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                                entry.field === 'education' ? 'bg-blue-100 text-blue-800' :
+                                entry.field === 'training' ? 'bg-green-100 text-green-800' :
+                                entry.field === 'experience' ? 'bg-purple-100 text-purple-800' :
+                                'bg-yellow-100 text-yellow-800'
+                              }`}>
+                                {entry.field.toUpperCase()}
+                              </span>
+                              <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                entry.status === 'long_list' ? 'bg-green-100 text-green-800' :
+                                entry.status === 'for_review' ? 'bg-yellow-100 text-yellow-800' :
+                                entry.status === 'disqualified' ? 'bg-red-100 text-red-800' :
+                                'bg-gray-100 text-gray-800'
+                              }`}>
+                                {entry.status?.replace('_', ' ').toUpperCase()}
+                              </span>
+                            </div>
+                            <div className="text-right text-xs text-gray-500">
+                              <div className="font-semibold text-gray-700">
+                                {entry.commentedBy?.name || 'Unknown User'}
+                              </div>
+                              <div>
+                                {new Date(entry.commentedAt).toLocaleString('en-US', {
+                                  year: 'numeric',
+                                  month: 'short',
+                                  day: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                          <p className="text-gray-800 text-sm mt-2 leading-relaxed">
+                            {entry.comment}
+                          </p>
+                        </div>
+                      ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-12">
+                    <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+                      <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                    </div>
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">No Comment History</h3>
+                    <p className="text-gray-500">No comments have been recorded for this candidate yet.</p>
+                  </div>
+                )}
+              </div>
+              
+              <div className="px-6 py-4 border-t bg-gray-50 rounded-b-lg">
+                <button
+                  onClick={closeCommentHistoryModal}
+                  className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded transition-colors duration-200"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         return (
           <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
