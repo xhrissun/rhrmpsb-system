@@ -195,7 +195,7 @@ export const candidatesAPI = {
         'Content-Type': 'multipart/form-data'
       }
     });
-    return response.data;z
+    return response.data;
   },
   updateStatus: async (id, status, comments) => {
     const response = await api.put(`/candidates/${id}/status`, { status, comments });
@@ -207,13 +207,41 @@ export const candidatesAPI = {
     const response = await api.get(`/candidates/item/${encodedItemNumber}`);
     return response.data;
   },
-  exportCSV: async () => {
-    const response = await api.get('/candidates/export-csv', {
+  exportCSV: async (filters = {}) => {
+    const params = new URLSearchParams();
+    if (filters.itemNumber) params.append('itemNumber', filters.itemNumber);
+    if (filters.assignment) params.append('assignment', filters.assignment);
+    if (filters.position) params.append('position', filters.position);
+    
+    const response = await api.get(`/candidates/export-csv?${params.toString()}`, {
       responseType: 'blob'
     });
-    return response.data;
+    
+    // Get the filename from Content-Disposition header if available
+    const contentDisposition = response.headers['content-disposition'];
+    let filename = `candidates_export_${new Date().toISOString().split('T')[0]}.csv`;
+    
+    if (contentDisposition) {
+      const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+      if (filenameMatch) {
+        filename = filenameMatch[1];
+      }
+    }
+    
+    // Create blob and trigger download
+    const blob = new Blob([response.data], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+    
+    return { success: true, filename };
   },
-    // ✅ NEW: Comment suggestions
+  // ✅ NEW: Comment suggestions
   getCommentSuggestions: async (field) => {
     const response = await api.get(`/candidates/comment-suggestions/${field}`);
     return response.data;
