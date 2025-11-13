@@ -250,6 +250,31 @@ const candidateSchema = new mongoose.Schema({
       type: Date, 
       default: Date.now 
     }
+  }],
+  // NEW: Add status history tracking
+  statusHistory: [{
+    oldStatus: { 
+      type: String, 
+      enum: ['general_list', 'long_list', 'for_review', 'disqualified']
+    },
+    newStatus: { 
+      type: String, 
+      enum: ['general_list', 'long_list', 'for_review', 'disqualified'],
+      required: true
+    },
+    changedBy: { 
+      type: mongoose.Schema.Types.ObjectId, 
+      ref: 'User',
+      required: true 
+    },
+    changedAt: { 
+      type: Date, 
+      default: Date.now 
+    },
+    reason: {
+      type: String,
+      default: ''
+    }
   }]
 }, {
   timestamps: true
