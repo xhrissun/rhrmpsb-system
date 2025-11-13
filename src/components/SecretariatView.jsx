@@ -1348,7 +1348,7 @@ const CommentInput = ({ label, value, onChange, suggestions, placeholder }) => {
         {showSuggestions && filteredSuggestions.length > 0 && (
           <div 
             ref={suggestionsRef}
-            className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto"
+            className="absolute z-10 w-full bottom-full mb-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto"
           >
             <div className="py-1">
               <div className="px-3 py-2 text-xs font-semibold text-gray-500 bg-gray-50 sticky top-0">
