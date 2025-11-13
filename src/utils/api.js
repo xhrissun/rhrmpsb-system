@@ -241,9 +241,9 @@ export const candidatesAPI = {
     
     return { success: true, filename };
   },
-  // ✅ NEW: Comment suggestions
-  getCommentSuggestions: async (field) => {
-    const response = await api.get(`/candidates/comment-suggestions/${field}`);
+  // ✅ UPDATED: Comment suggestions with configurable limit
+  getCommentSuggestions: async (field, limit = 100) => {
+    const response = await api.get(`/candidates/comment-suggestions/${field}?limit=${limit}`);
     return response.data;
   }
 };
