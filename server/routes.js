@@ -342,14 +342,16 @@ router.get('/candidates/export-csv', authMiddleware, async (req, res) => {
       filter.itemNumber = { $in: itemNumbers };
     }
     
-    // Get candidates with filter
-    const candidates = await Candidate.find(filter).sort({ fullName: 1 });
+    // Get candidates with filter and populate comment history
+    const candidates = await Candidate.find(filter)
+      .populate('commentsHistory.commentedBy', 'name')
+      .sort({ fullName: 1 });
     
     if (candidates.length === 0) {
       return res.status(404).json({ message: 'No candidates found for export' });
     }
     
-    // CSV headers
+    // CSV headers with comment history
     const headers = [
       'Full Name',
       'Item Number',
@@ -359,9 +361,17 @@ router.get('/candidates/export-csv', authMiddleware, async (req, res) => {
       'Eligibility',
       'Status',
       'Education Comments',
+      'Education Last Updated By',
+      'Education Last Updated At',
       'Training Comments',
+      'Training Last Updated By',
+      'Training Last Updated At',
       'Experience Comments',
+      'Experience Last Updated By',
+      'Experience Last Updated At',
       'Eligibility Comments',
+      'Eligibility Last Updated By',
+      'Eligibility Last Updated At',
       'Professional License',
       'Letter of Intent',
       'Personal Data Sheet',
@@ -374,30 +384,66 @@ router.get('/candidates/export-csv', authMiddleware, async (req, res) => {
       'Transcript of Records'
     ];
     
+    // Helper function to get last commenter info
+    const getLastCommenterInfo = (candidate, field) => {
+      const fieldHistory = candidate.commentsHistory
+        .filter(h => h.field === field)
+        .sort((a, b) => new Date(b.commentedAt) - new Date(a.commentedAt));
+      
+      if (fieldHistory.length > 0) {
+        return {
+          name: fieldHistory[0].commentedBy?.name || 'Unknown',
+          date: new Date(fieldHistory[0].commentedAt).toLocaleString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          })
+        };
+      }
+      return { name: 'N/A', date: 'N/A' };
+    };
+    
     // Build CSV rows
-    const rows = candidates.map(candidate => [
-      candidate.fullName || '',
-      candidate.itemNumber || '',
-      candidate.gender || '',
-      candidate.dateOfBirth ? new Date(candidate.dateOfBirth).toLocaleDateString() : '',
-      candidate.age || '',
-      candidate.eligibility || '',
-      candidate.status || '',
-      candidate.comments?.education || '',
-      candidate.comments?.training || '',
-      candidate.comments?.experience || '',
-      candidate.comments?.eligibility || '',
-      candidate.professionalLicense || '',
-      candidate.letterOfIntent || '',
-      candidate.personalDataSheet || '',
-      candidate.workExperienceSheet || '',
-      candidate.proofOfEligibility || '',
-      candidate.certificates || '',
-      candidate.ipcr || '',
-      candidate.certificateOfEmployment || '',
-      candidate.diploma || '',
-      candidate.transcriptOfRecords || ''
-    ]);
+    const rows = candidates.map(candidate => {
+      const eduInfo = getLastCommenterInfo(candidate, 'education');
+      const trainInfo = getLastCommenterInfo(candidate, 'training');
+      const expInfo = getLastCommenterInfo(candidate, 'experience');
+      const eligInfo = getLastCommenterInfo(candidate, 'eligibility');
+      
+      return [
+        candidate.fullName || '',
+        candidate.itemNumber || '',
+        candidate.gender || '',
+        candidate.dateOfBirth ? new Date(candidate.dateOfBirth).toLocaleDateString() : '',
+        candidate.age || '',
+        candidate.eligibility || '',
+        candidate.status || '',
+        candidate.comments?.education || '',
+        eduInfo.name,
+        eduInfo.date,
+        candidate.comments?.training || '',
+        trainInfo.name,
+        trainInfo.date,
+        candidate.comments?.experience || '',
+        expInfo.name,
+        expInfo.date,
+        candidate.comments?.eligibility || '',
+        eligInfo.name,
+        eligInfo.date,
+        candidate.professionalLicense || '',
+        candidate.letterOfIntent || '',
+        candidate.personalDataSheet || '',
+        candidate.workExperienceSheet || '',
+        candidate.proofOfEligibility || '',
+        candidate.certificates || '',
+        candidate.ipcr || '',
+        candidate.certificateOfEmployment || '',
+        candidate.diploma || '',
+        candidate.transcriptOfRecords || ''
+      ];
+    });
     
     // Escape CSV values (handle commas, quotes, and newlines)
     const escapeCsvValue = (value) => {
@@ -433,7 +479,8 @@ router.get('/candidates/export-csv', authMiddleware, async (req, res) => {
 
 router.get('/candidates/:id', authMiddleware, async (req, res) => {
   try {
-    const candidate = await Candidate.findById(req.params.id);
+    const candidate = await Candidate.findById(req.params.id)
+      .populate('commentsHistory.commentedBy', 'name userType');
     if (!candidate) {
       return res.status(404).json({ message: 'Candidate not found' });
     }
@@ -445,9 +492,10 @@ router.get('/candidates/:id', authMiddleware, async (req, res) => {
 
 router.get('/candidates/item/:itemNumber', authMiddleware, async (req, res) => {
   try {
-    // Decode the item number parameter
     const itemNumber = decodeURIComponent(req.params.itemNumber);
-    const candidates = await Candidate.findByItemNumber(itemNumber);
+    const candidates = await Candidate.find({ itemNumber })
+      .populate('commentsHistory.commentedBy', 'name userType')
+      .sort({ fullName: 1 });
     res.json(candidates);
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
@@ -522,16 +570,14 @@ router.put('/candidates/:id', authMiddleware, async (req, res) => {
     return res.status(403).json({ message: 'Access denied' });
   }
   try {
-    // Get the current candidate first to preserve existing data
     const currentCandidate = await Candidate.findById(req.params.id);
     if (!currentCandidate) {
       return res.status(404).json({ message: 'Candidate not found' });
     }
 
-    // Only update fields that are provided and not empty
     const updateData = {};
     
-    // Handle required fields - only update if provided and not empty
+    // Handle required fields
     if (req.body.fullName && req.body.fullName.trim() !== '') {
       updateData.fullName = req.body.fullName.trim();
     }
@@ -542,7 +588,7 @@ router.put('/candidates/:id', authMiddleware, async (req, res) => {
       updateData.gender = req.body.gender.trim();
     }
 
-    // Handle optional fields - can be empty or null
+    // Handle optional fields
     if (req.body.hasOwnProperty('dateOfBirth')) {
       updateData.dateOfBirth = req.body.dateOfBirth || null;
     }
@@ -586,21 +632,50 @@ router.put('/candidates/:id', authMiddleware, async (req, res) => {
       updateData.status = req.body.status || 'general_list';
     }
 
-    // Handle comments object
+    // NEW: Handle comments with history tracking
     if (req.body.comments) {
-      updateData.comments = {
+      const newComments = {
         education: req.body.comments.education || '',
         training: req.body.comments.training || '',
         experience: req.body.comments.experience || '',
         eligibility: req.body.comments.eligibility || ''
       };
+      
+      updateData.comments = newComments;
+      
+      // Track changes in commentsHistory
+      const historyEntries = [];
+      const fields = ['education', 'training', 'experience', 'eligibility'];
+      
+      fields.forEach(field => {
+        const oldComment = currentCandidate.comments?.[field] || '';
+        const newComment = newComments[field] || '';
+        
+        // Only add to history if comment actually changed
+        if (newComment !== oldComment && newComment.trim() !== '') {
+          historyEntries.push({
+            field: field,
+            comment: newComment,
+            status: updateData.status || currentCandidate.status,
+            commentedBy: req.user._id,
+            commentedAt: new Date()
+          });
+        }
+      });
+      
+      // Add history entries if any comments changed
+      if (historyEntries.length > 0) {
+        updateData.$push = { 
+          commentsHistory: { $each: historyEntries } 
+        };
+      }
     }
 
     const candidate = await Candidate.findByIdAndUpdate(
       req.params.id, 
       updateData, 
       { new: true, runValidators: true }
-    );
+    ).populate('commentsHistory.commentedBy', 'name userType');
     
     if (!candidate) {
       return res.status(404).json({ message: 'Candidate not found' });
@@ -610,7 +685,6 @@ router.put('/candidates/:id', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Error updating candidate:', error);
     
-    // Handle validation errors more specifically
     if (error.name === 'ValidationError') {
       const messages = Object.values(error.errors).map(err => `${err.path}: ${err.message}`);
       return res.status(400).json({ 
