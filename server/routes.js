@@ -1365,20 +1365,26 @@ router.put('/users/:id/change-password', authMiddleware, async (req, res) => {
   }
 });
 
-// Add this with your other candidate routes
+// Comment suggestions route with configurable limit
 router.get('/candidates/comment-suggestions/:field', authMiddleware, async (req, res) => {
   try {
     const { field } = req.params;
+    const { limit = 100 } = req.query; // Default to 100, can be overridden via query param
+    
     const validFields = ['education', 'training', 'experience', 'eligibility'];
     
     if (!validFields.includes(field)) {
       return res.status(400).json({ message: 'Invalid field' });
     }
     
+    // Parse and validate limit
+    const maxSuggestions = Math.min(Math.max(parseInt(limit) || 100, 1), 500);
+    
+    // Fetch candidates with comments in the specified field
     const candidates = await Candidate.find(
       { [`comments.${field}`]: { $exists: true, $ne: '' } },
       { [`comments.${field}`]: 1 }
-    ).limit(500);
+    ).limit(1000); // Increase candidate fetch limit for better data
     
     const commentFrequency = {};
     
@@ -1400,10 +1406,10 @@ router.get('/candidates/comment-suggestions/:field', authMiddleware, async (req,
       }
     });
     
-    // Sort by frequency and return top 20
+    // Sort by frequency and return top N suggestions
     const suggestions = Object.entries(commentFrequency)
       .sort((a, b) => b[1] - a[1])
-      .slice(0, 20)
+      .slice(0, maxSuggestions)
       .map(([comment]) => comment);
     
     res.json(suggestions);
