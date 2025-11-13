@@ -480,7 +480,8 @@ router.get('/candidates/export-csv', authMiddleware, async (req, res) => {
 router.get('/candidates/:id', authMiddleware, async (req, res) => {
   try {
     const candidate = await Candidate.findById(req.params.id)
-      .populate('commentsHistory.commentedBy', 'name userType');
+      .populate('commentsHistory.commentedBy', 'name userType')
+      .populate('statusHistory.changedBy', 'name userType');
     if (!candidate) {
       return res.status(404).json({ message: 'Candidate not found' });
     }
@@ -495,6 +496,7 @@ router.get('/candidates/item/:itemNumber', authMiddleware, async (req, res) => {
     const itemNumber = decodeURIComponent(req.params.itemNumber);
     const candidates = await Candidate.find({ itemNumber })
       .populate('commentsHistory.commentedBy', 'name userType')
+      .populate('statusHistory.changedBy', 'name userType')
       .sort({ fullName: 1 });
     res.json(candidates);
   } catch (error) {
@@ -628,11 +630,30 @@ router.put('/candidates/:id', authMiddleware, async (req, res) => {
     if (req.body.hasOwnProperty('transcriptOfRecords')) {
       updateData.transcriptOfRecords = req.body.transcriptOfRecords || '';
     }
+
+    // NEW: Track status changes
     if (req.body.hasOwnProperty('status')) {
-      updateData.status = req.body.status || 'general_list';
+      const newStatus = req.body.status || 'general_list';
+      const oldStatus = currentCandidate.status;
+      
+      updateData.status = newStatus;
+      
+      // Only add to history if status actually changed
+      if (newStatus !== oldStatus) {
+        const statusHistoryEntry = {
+          oldStatus: oldStatus,
+          newStatus: newStatus,
+          changedBy: req.user._id,
+          changedAt: new Date(),
+          reason: req.body.statusChangeReason || '' // Optional reason
+        };
+        
+        updateData.$push = updateData.$push || {};
+        updateData.$push.statusHistory = statusHistoryEntry;
+      }
     }
 
-    // NEW: Handle comments with history tracking
+    // Handle comments with history tracking
     if (req.body.comments) {
       const newComments = {
         education: req.body.comments.education || '',
@@ -663,11 +684,10 @@ router.put('/candidates/:id', authMiddleware, async (req, res) => {
         }
       });
       
-      // Add history entries if any comments changed
+      // Add comment history entries if any comments changed
       if (historyEntries.length > 0) {
-        updateData.$push = { 
-          commentsHistory: { $each: historyEntries } 
-        };
+        updateData.$push = updateData.$push || {};
+        updateData.$push.commentsHistory = { $each: historyEntries };
       }
     }
 
@@ -675,7 +695,9 @@ router.put('/candidates/:id', authMiddleware, async (req, res) => {
       req.params.id, 
       updateData, 
       { new: true, runValidators: true }
-    ).populate('commentsHistory.commentedBy', 'name userType');
+    )
+    .populate('commentsHistory.commentedBy', 'name userType')
+    .populate('statusHistory.changedBy', 'name userType');
     
     if (!candidate) {
       return res.status(404).json({ message: 'Candidate not found' });
