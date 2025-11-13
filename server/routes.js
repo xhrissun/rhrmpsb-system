@@ -1369,7 +1369,7 @@ router.put('/users/:id/change-password', authMiddleware, async (req, res) => {
 router.get('/candidates/comment-suggestions/:field', authMiddleware, async (req, res) => {
   try {
     const { field } = req.params;
-    const { limit = 100 } = req.query; // Default to 100, can be overridden via query param
+    const { limit = 250 } = req.query; // Default to 100, can be overridden via query param
     
     const validFields = ['education', 'training', 'experience', 'eligibility'];
     
