@@ -225,7 +225,32 @@ const candidateSchema = new mongoose.Schema({
       type: String,
       default: ''
     }
-  }
+  },
+  // NEW: Add this entire commentsHistory field
+  commentsHistory: [{
+    field: { 
+      type: String, 
+      enum: ['education', 'training', 'experience', 'eligibility'],
+      required: true 
+    },
+    comment: { 
+      type: String, 
+      required: true 
+    },
+    status: { 
+      type: String, 
+      enum: ['general_list', 'long_list', 'for_review', 'disqualified']
+    },
+    commentedBy: { 
+      type: mongoose.Schema.Types.ObjectId, 
+      ref: 'User',
+      required: true 
+    },
+    commentedAt: { 
+      type: Date, 
+      default: Date.now 
+    }
+  }]
 }, {
   timestamps: true
 });
