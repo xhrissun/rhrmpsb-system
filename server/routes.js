@@ -1209,4 +1209,110 @@ router.get('/candidates/comment-suggestions/:field', authMiddleware, async (req,
 });
 
 
+// Export candidates as CSV
+router.get('/candidates/export-csv', authMiddleware, async (req, res) => {
+  try {
+    const { itemNumber, assignment, position } = req.query;
+    
+    // Build filter based on query parameters
+    let filter = {};
+    if (itemNumber) {
+      filter.itemNumber = itemNumber;
+    } else if (position && assignment) {
+      // Get all item numbers for this position and assignment
+      const vacancies = await Vacancy.find({ assignment, position }, 'itemNumber');
+      const itemNumbers = vacancies.map(v => v.itemNumber);
+      filter.itemNumber = { $in: itemNumbers };
+    } else if (assignment) {
+      // Get all item numbers for this assignment
+      const vacancies = await Vacancy.find({ assignment }, 'itemNumber');
+      const itemNumbers = vacancies.map(v => v.itemNumber);
+      filter.itemNumber = { $in: itemNumbers };
+    }
+    
+    // Get candidates with filter
+    const candidates = await Candidate.find(filter).sort({ fullName: 1 });
+    
+    // CSV headers
+    const headers = [
+      'Full Name',
+      'Item Number',
+      'Gender',
+      'Date of Birth',
+      'Age',
+      'Eligibility',
+      'Status',
+      'Education Comments',
+      'Training Comments',
+      'Experience Comments',
+      'Eligibility Comments',
+      'Professional License',
+      'Letter of Intent',
+      'Personal Data Sheet',
+      'Work Experience Sheet',
+      'Proof of Eligibility',
+      'Certificates',
+      'IPCR',
+      'Certificate of Employment',
+      'Diploma',
+      'Transcript of Records'
+    ];
+    
+    // Build CSV rows
+    const rows = candidates.map(candidate => [
+      candidate.fullName || '',
+      candidate.itemNumber || '',
+      candidate.gender || '',
+      candidate.dateOfBirth ? new Date(candidate.dateOfBirth).toLocaleDateString() : '',
+      candidate.age || '',
+      candidate.eligibility || '',
+      candidate.status || '',
+      candidate.comments?.education || '',
+      candidate.comments?.training || '',
+      candidate.comments?.experience || '',
+      candidate.comments?.eligibility || '',
+      candidate.professionalLicense || '',
+      candidate.letterOfIntent || '',
+      candidate.personalDataSheet || '',
+      candidate.workExperienceSheet || '',
+      candidate.proofOfEligibility || '',
+      candidate.certificates || '',
+      candidate.ipcr || '',
+      candidate.certificateOfEmployment || '',
+      candidate.diploma || '',
+      candidate.transcriptOfRecords || ''
+    ]);
+    
+    // Escape CSV values (handle commas and quotes)
+    const escapeCsvValue = (value) => {
+      if (value == null) return '';
+      const stringValue = String(value);
+      if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
+        return `"${stringValue.replace(/"/g, '""')}"`;
+      }
+      return stringValue;
+    };
+    
+    // Build CSV content
+    const csvContent = [
+      headers.map(escapeCsvValue).join(','),
+      ...rows.map(row => row.map(escapeCsvValue).join(','))
+    ].join('\n');
+    
+    // Set response headers for CSV download
+    const filename = itemNumber 
+      ? `candidates_${itemNumber}_${new Date().toISOString().split('T')[0]}.csv`
+      : `candidates_export_${new Date().toISOString().split('T')[0]}.csv`;
+    
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(csvContent);
+    
+  } catch (error) {
+    console.error('CSV export error:', error);
+    res.status(500).json({ message: 'Server error: ' + error.message });
+  }
+});
+
+
 export default router;
