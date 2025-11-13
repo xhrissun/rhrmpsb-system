@@ -242,7 +242,7 @@ export const candidatesAPI = {
     return { success: true, filename };
   },
   // ✅ UPDATED: Comment suggestions with configurable limit
-  getCommentSuggestions: async (field, limit = 100) => {
+  getCommentSuggestions: async (field, limit = 250) => {
     const response = await api.get(`/candidates/comment-suggestions/${field}?limit=${limit}`);
     return response.data;
   }
