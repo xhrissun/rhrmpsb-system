@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import RaterView from './RaterView';
 import SecretariatView from './SecretariatView';
 import AdminView from './AdminView';
@@ -458,6 +458,7 @@ const Dashboard = ({ user, onLogout }) => {
           >
             About
           </button>
+          <GuidesDropdown />
           {user.userType === USER_TYPES.ADMIN && (
             <button
               onClick={handleOpenUserSelection}
@@ -526,6 +527,84 @@ const Dashboard = ({ user, onLogout }) => {
         selectedUser={passwordChangeModal.user}
         onSuccess={handlePasswordChangeSuccess}
       />
+    </div>
+  );
+};
+
+// Guides Dropdown Component
+const GuidesDropdown = () => {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const guides = [
+    {
+      name: 'MSPP',
+      fullName: 'DENR Merit Selection and Promotion Plan',
+      url: 'https://drive.google.com/file/d/1YhjcPs2o37592n9-a14YEHbWcx36yMdY/view?usp=sharing'
+    },
+    {
+      name: 'ORAOHRA',
+      fullName: '2025 Omnibus Rules on Human Resources and Other Human Resource Actions',
+      url: 'https://drive.google.com/file/d/1osaiwsNm5KRBxKYDl7dXcrSITKOi-2JD/view?usp=sharing'
+    }
+  ];
+
+  return (
+    <div className="relative" ref={dropdownRef}>
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="navbar-button bg-green-600 text-white hover:bg-green-700 flex items-center gap-1"
+        title="View Guides"
+      >
+        Guides
+        <svg 
+          className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+          fill="none" 
+          stroke="currentColor" 
+          viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {isOpen && (
+        <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-xl border border-gray-200 py-2 z-50">
+          {guides.map((guide, index) => (
+            <a
+              key={index}
+              href={guide.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block px-4 py-3 hover:bg-gray-50 transition-colors border-b last:border-b-0 border-gray-100"
+              onClick={() => setIsOpen(false)}
+            >
+              <div className="flex items-start gap-3">
+                <svg className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold text-gray-900 text-sm">{guide.name}</div>
+                  <div className="text-xs text-gray-600 mt-0.5 leading-tight">{guide.fullName}</div>
+                </div>
+                <svg className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+              </div>
+            </a>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
