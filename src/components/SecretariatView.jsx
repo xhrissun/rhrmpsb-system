@@ -744,7 +744,7 @@ const loadCommentSuggestions = async () => {
         </div>
 
         {/* Gender Filter Section - Thinner, more compact design */}
-        <div className="sticky top-[356px] z-10 pt-1 pb-4">
+        <div className="sticky top-[356px] z-10 pt-4 pb-4">
           <div className="bg-white rounded-xl shadow-lg border-2 border-gray-300 p-3">
             <div className="flex items-center justify-between gap-3">
               <span className="text-xs font-bold text-gray-800 whitespace-nowrap">Gender:</span>
