@@ -284,7 +284,7 @@ const PDFReport = ({ itemNumber, user, raters }) => {
       }
 
       // Gender Statistics Section
-      if (yOffset + 80 > pageHeight - margin - 60) {
+      if (yOffset + 100 > pageHeight - margin - 60) {
           doc.addPage();
           addFooter();
           yOffset = margin + 10;
@@ -296,20 +296,32 @@ const PDFReport = ({ itemNumber, user, raters }) => {
       doc.setFont("helvetica", "normal");
       yOffset += 20;
 
-      // Calculate gender counts
-      const maleCount = candidates.filter(c => c.gender === 'Male').length;
-      const femaleCount = candidates.filter(c => c.gender === 'Female').length;
+      // Calculate gender counts with all variations
+      const maleCount = candidates.filter(c => 
+        c.gender === 'Male' || c.gender === 'MALE/LALAKI'
+      ).length;
+      const femaleCount = candidates.filter(c => 
+        c.gender === 'Female' || c.gender === 'FEMALE/BABAE'
+      ).length;
+      const lgbtqiCount = candidates.filter(c => 
+        c.gender === 'LGBTQI+'
+      ).length;
       const totalCandidates = candidates.length;
 
       // Calculate percentages
       const malePercentage = totalCandidates > 0 ? ((maleCount / totalCandidates) * 100).toFixed(1) : 0;
       const femalePercentage = totalCandidates > 0 ? ((femaleCount / totalCandidates) * 100).toFixed(1) : 0;
+      const lgbtqiPercentage = totalCandidates > 0 ? ((lgbtqiCount / totalCandidates) * 100).toFixed(1) : 0;
 
       doc.setFontSize(11);
       doc.text(`Male: ${maleCount} (${malePercentage}%)`, margin + 20, yOffset);
       yOffset += 15;
       doc.text(`Female: ${femaleCount} (${femalePercentage}%)`, margin + 20, yOffset);
       yOffset += 15;
+      if (lgbtqiCount > 0) {
+        doc.text(`LGBTQI+: ${lgbtqiCount} (${lgbtqiPercentage}%)`, margin + 20, yOffset);
+        yOffset += 15;
+      }
       doc.text(`Total: ${totalCandidates}`, margin + 20, yOffset);
       yOffset += 30;
 
