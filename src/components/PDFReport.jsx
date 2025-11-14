@@ -283,6 +283,36 @@ const PDFReport = ({ itemNumber, user, raters }) => {
           yOffset += 20;
       }
 
+      // Gender Statistics Section
+      if (yOffset + 80 > pageHeight - margin - 60) {
+          doc.addPage();
+          addFooter();
+          yOffset = margin + 10;
+      }
+
+      doc.setFontSize(13);
+      doc.setFont("helvetica", "bold");
+      doc.text('GENDER DISTRIBUTION:', margin, yOffset);
+      doc.setFont("helvetica", "normal");
+      yOffset += 20;
+
+      // Calculate gender counts
+      const maleCount = candidates.filter(c => c.gender === 'Male').length;
+      const femaleCount = candidates.filter(c => c.gender === 'Female').length;
+      const totalCandidates = candidates.length;
+
+      // Calculate percentages
+      const malePercentage = totalCandidates > 0 ? ((maleCount / totalCandidates) * 100).toFixed(1) : 0;
+      const femalePercentage = totalCandidates > 0 ? ((femaleCount / totalCandidates) * 100).toFixed(1) : 0;
+
+      doc.setFontSize(11);
+      doc.text(`Male: ${maleCount} (${malePercentage}%)`, margin + 20, yOffset);
+      yOffset += 15;
+      doc.text(`Female: ${femaleCount} (${femalePercentage}%)`, margin + 20, yOffset);
+      yOffset += 15;
+      doc.text(`Total: ${totalCandidates}`, margin + 20, yOffset);
+      yOffset += 30;
+
       // Signatories (dynamic with lines and assignment)
       if (raters && raters.length > 0) {
           const avgSignatoryHeightEstimate = 80; 
