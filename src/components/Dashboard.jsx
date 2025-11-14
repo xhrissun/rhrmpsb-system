@@ -557,6 +557,11 @@ const GuidesDropdown = () => {
       name: 'ORAOHRA',
       fullName: '2025 Omnibus Rules on Human Resources and Other Human Resource Actions',
       url: 'https://drive.google.com/file/d/1osaiwsNm5KRBxKYDl7dXcrSITKOi-2JD/view?usp=sharing'
+    },
+    {
+      name: 'SRP',
+      fullName: '2025 System of Ranking Positions',
+      url: 'https://drive.google.com/file/d/1jwSut541U2V6fRrPPvcMO1wFMj9tK-2T/view?usp=sharing'
     }
   ];
 
