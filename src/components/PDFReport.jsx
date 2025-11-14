@@ -168,13 +168,20 @@ const PDFReport = ({ itemNumber, user, raters }) => {
 
       // Helper function for 2-column lists with vertical ordering
       function drawTwoColumnList(title, candidatesList, currentY, isBoldTitle = true) {
-        // Check for page break before drawing list title
-        if (currentY > pageHeight - margin - 60) {
-            doc.addPage();
-            addFooter();
-            currentY = margin + 5; 
+        // CRITICAL: Calculate the MINIMUM space needed for title + at least first few entries
+        const titleHeight = 20;
+        const minEntriesHeight = 60; // Space for at least 2-3 entries
+        const endOfListHeight = 35; // Space for "*** END OF LIST ***"
+        const minRequiredSpace = titleHeight + minEntriesHeight + endOfListHeight;
+        
+        // If not enough space for title + some entries, start on new page
+        if (currentY + minRequiredSpace > pageHeight - margin - 60) {
+          doc.addPage();
+          addFooter();
+          currentY = margin + 5;
         }
 
+        // Draw title
         doc.setFontSize(13);
         doc.setFont("helvetica", isBoldTitle ? "bold" : "normal");
         doc.text(title, margin, currentY);
@@ -189,16 +196,24 @@ const PDFReport = ({ itemNumber, user, raters }) => {
         const halfCount = Math.ceil(candidatesList.length / 2);
         let col1CurrentY = currentY;
         let col2CurrentY = currentY;
-        const baseLineHeight = 15;
+
+        // NEW: Track if we need a page break mid-list
+        let pageBreakOccurred = false;
 
         // Draw first column (items 1, 3, 5...)
         for (let i = 0; i < halfCount; i++) {
-          if (col1CurrentY > pageHeight - margin - 80) {
-              doc.addPage();
-              addFooter();
-              col1CurrentY = margin + 5;
-              col2CurrentY = margin + 5;
-              doc.setFontSize(10);
+          // Check if we need page break BEFORE drawing this entry
+          const estimatedEntryHeight = 20; // Rough estimate for one entry
+          
+          if (col1CurrentY + estimatedEntryHeight > pageHeight - margin - 80) {
+            // Need page break - but this splits the list!
+            // Move to new page and reset BOTH columns
+            doc.addPage();
+            addFooter();
+            col1CurrentY = margin + 5;
+            col2CurrentY = margin + 5;
+            doc.setFontSize(10);
+            pageBreakOccurred = true;
           }
           
           const itemNumber = `${i + 1}. `;
@@ -221,12 +236,18 @@ const PDFReport = ({ itemNumber, user, raters }) => {
 
         // Draw second column (items 2, 4, 6...)
         for (let i = halfCount; i < candidatesList.length; i++) {
-          if (col2CurrentY > pageHeight - margin - 80) {
-              doc.addPage();
-              addFooter();
-              col1CurrentY = margin + 5;
-              col2CurrentY = margin + 5;
-              doc.setFontSize(10);
+          // Check if we need page break BEFORE drawing this entry
+          const estimatedEntryHeight = 20;
+          
+          if (col2CurrentY + estimatedEntryHeight > pageHeight - margin - 80) {
+            // If column 2 needs a break but column 1 already had one, 
+            // we need another new page
+            doc.addPage();
+            addFooter();
+            col1CurrentY = margin + 5;
+            col2CurrentY = margin + 5;
+            doc.setFontSize(10);
+            pageBreakOccurred = true;
           }
           
           const itemNumber = `${i + 1}. `;
@@ -249,9 +270,17 @@ const PDFReport = ({ itemNumber, user, raters }) => {
         
         let finalY = Math.max(col1CurrentY, col2CurrentY);
         
+        // Check if "END OF LIST" marker will fit, if not, add page
+        if (finalY + 35 > pageHeight - margin - 60) {
+          doc.addPage();
+          addFooter();
+          finalY = margin + 5;
+        }
+        
         finalY += 10;
         doc.text('*** END OF LIST ***', pageWidth / 2, finalY, { align: 'center' });
         finalY += 25;
+        
         return finalY;
       }
 
