@@ -474,7 +474,13 @@ const loadCommentSuggestions = async () => {
     
     // Apply gender filter
     if (genderFilter) {
-      filtered = filtered.filter(c => c.gender === genderFilter);
+      if (genderFilter === 'Male') {
+        filtered = filtered.filter(c => c.gender === 'Male' || c.gender === 'MALE/LALAKI');
+      } else if (genderFilter === 'Female') {
+        filtered = filtered.filter(c => c.gender === 'Female' || c.gender === 'FEMALE/BABAE');
+      } else if (genderFilter === 'LGBTQI+') {
+        filtered = filtered.filter(c => c.gender === 'LGBTQI+');
+      }
     }
     
     return filtered;
@@ -492,10 +498,17 @@ const loadCommentSuggestions = async () => {
   const filteredCandidates = getFilteredCandidates();
 
   const getGenderStatistics = () => {
-  const male = candidates.filter(c => c.gender === 'Male').length;
-  const female = candidates.filter(c => c.gender === 'Female').length;
-  return { male, female };
-};
+    const male = candidates.filter(c => 
+      c.gender === 'Male' || c.gender === 'MALE/LALAKI'
+    ).length;
+    const female = candidates.filter(c => 
+      c.gender === 'Female' || c.gender === 'FEMALE/BABAE'
+    ).length;
+    const lgbtqi = candidates.filter(c => 
+      c.gender === 'LGBTQI+'
+    ).length;
+    return { male, female, lgbtqi };
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
@@ -730,41 +743,53 @@ const loadCommentSuggestions = async () => {
           </div>
         </div>
 
-        {/* Gender Filter Section - Add this after the statistics cards */}
+        {/* Gender Filter Section - Thinner, more compact design */}
         <div className="sticky top-[356px] z-10 pt-1 pb-4">
-          <div className="bg-white rounded-xl shadow-lg border-2 border-gray-300 p-4">
-            <h3 className="text-sm font-bold text-gray-800 mb-3">Filter by Gender</h3>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setGenderFilter(null)}
-                className={`flex-1 px-4 py-2.5 rounded-lg font-medium text-sm transition-all ${
-                  genderFilter === null
-                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                All ({candidates.length})
-              </button>
-              <button
-                onClick={() => setGenderFilter('Male')}
-                className={`flex-1 px-4 py-2.5 rounded-lg font-medium text-sm transition-all ${
-                  genderFilter === 'Male'
-                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                Male ({getGenderStatistics().male})
-              </button>
-              <button
-                onClick={() => setGenderFilter('Female')}
-                className={`flex-1 px-4 py-2.5 rounded-lg font-medium text-sm transition-all ${
-                  genderFilter === 'Female'
-                    ? 'bg-gradient-to-r from-pink-600 to-rose-600 text-white shadow-lg'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                Female ({getGenderStatistics().female})
-              </button>
+          <div className="bg-white rounded-xl shadow-lg border-2 border-gray-300 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs font-bold text-gray-800 whitespace-nowrap">Gender:</span>
+              <div className="flex gap-2 flex-1">
+                <button
+                  onClick={() => setGenderFilter(null)}
+                  className={`flex-1 px-3 py-1.5 rounded-lg font-medium text-xs transition-all ${
+                    genderFilter === null
+                      ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  All ({candidates.length})
+                </button>
+                <button
+                  onClick={() => setGenderFilter('Male')}
+                  className={`flex-1 px-3 py-1.5 rounded-lg font-medium text-xs transition-all ${
+                    genderFilter === 'Male'
+                      ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  Male ({getGenderStatistics().male})
+                </button>
+                <button
+                  onClick={() => setGenderFilter('Female')}
+                  className={`flex-1 px-3 py-1.5 rounded-lg font-medium text-xs transition-all ${
+                    genderFilter === 'Female'
+                      ? 'bg-gradient-to-r from-pink-600 to-rose-600 text-white shadow-md'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  Female ({getGenderStatistics().female})
+                </button>
+                <button
+                  onClick={() => setGenderFilter('LGBTQI+')}
+                  className={`flex-1 px-3 py-1.5 rounded-lg font-medium text-xs transition-all ${
+                    genderFilter === 'LGBTQI+'
+                      ? 'bg-gradient-to-r from-purple-600 to-violet-600 text-white shadow-md'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  LGBTQI+ ({getGenderStatistics().lgbtqi})
+                </button>
+              </div>
             </div>
           </div>
         </div>
