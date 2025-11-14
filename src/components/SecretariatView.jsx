@@ -497,17 +497,28 @@ const loadCommentSuggestions = async () => {
   const stats = getStatistics();
   const filteredCandidates = getFilteredCandidates();
 
+  // Update this function to use filtered candidates instead of all candidates
   const getGenderStatistics = () => {
-    const male = candidates.filter(c => 
+    // Use the base filtered candidates (by status only, not gender)
+    let baseFiltered = candidates;
+    
+    // Apply status filter if active
+    if (statusFilter) {
+      baseFiltered = baseFiltered.filter(c => c.status === statusFilter);
+    }
+    
+    // Now count genders from the status-filtered list
+    const male = baseFiltered.filter(c => 
       c.gender === 'Male' || c.gender === 'MALE/LALAKI'
     ).length;
-    const female = candidates.filter(c => 
+    const female = baseFiltered.filter(c => 
       c.gender === 'Female' || c.gender === 'FEMALE/BABAE'
     ).length;
-    const lgbtqi = candidates.filter(c => 
+    const lgbtqi = baseFiltered.filter(c => 
       c.gender === 'LGBTQI+'
     ).length;
-    return { male, female, lgbtqi };
+    
+    return { male, female, lgbtqi, total: baseFiltered.length };
   };
 
   return (
@@ -743,7 +754,7 @@ const loadCommentSuggestions = async () => {
           </div>
         </div>
 
-        {/* Gender Filter Section - Thinner, more compact design */}
+        {/* Gender Filter Section */}
         <div className="sticky top-[356px] z-10 pt-2 pb-4">
           <div className="bg-white rounded-xl shadow-lg border-2 border-gray-300 p-3">
             <div className="flex items-center justify-between gap-3">
@@ -757,7 +768,7 @@ const loadCommentSuggestions = async () => {
                       : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                   }`}
                 >
-                  All ({candidates.length})
+                  All ({getGenderStatistics().total})
                 </button>
                 <button
                   onClick={() => setGenderFilter('Male')}
