@@ -26,6 +26,7 @@ const SecretariatView = ({ user }) => {
   // Add this state at the top with your other states
   const [showCommentHistoryModal, setShowCommentHistoryModal] = useState(false);
   const [commentHistoryData, setCommentHistoryData] = useState(null);
+  const [genderFilter, setGenderFilter] = useState(null);
 
   // Add this function to handle viewing comment history
   const handleViewCommentHistory = (candidate) => {
@@ -464,10 +465,19 @@ const loadCommentSuggestions = async () => {
 
   // NEW: Filter candidates based on status filter
   const getFilteredCandidates = () => {
-    if (!statusFilter) {
-      return candidates;
+    let filtered = candidates;
+    
+    // Apply status filter
+    if (statusFilter) {
+      filtered = filtered.filter(c => c.status === statusFilter);
     }
-    return candidates.filter(c => c.status === statusFilter);
+    
+    // Apply gender filter
+    if (genderFilter) {
+      filtered = filtered.filter(c => c.gender === genderFilter);
+    }
+    
+    return filtered;
   };
 
   if (loading) {
@@ -480,6 +490,12 @@ const loadCommentSuggestions = async () => {
 
   const stats = getStatistics();
   const filteredCandidates = getFilteredCandidates();
+
+  const getGenderStatistics = () => {
+  const male = candidates.filter(c => c.gender === 'Male').length;
+  const female = candidates.filter(c => c.gender === 'Female').length;
+  return { male, female };
+};
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
@@ -714,6 +730,45 @@ const loadCommentSuggestions = async () => {
           </div>
         </div>
 
+        {/* Gender Filter Section - Add this after the statistics cards */}
+        <div className="sticky top-[356px] z-10 pt-1 pb-4">
+          <div className="bg-white rounded-xl shadow-lg border-2 border-gray-300 p-4">
+            <h3 className="text-sm font-bold text-gray-800 mb-3">Filter by Gender</h3>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setGenderFilter(null)}
+                className={`flex-1 px-4 py-2.5 rounded-lg font-medium text-sm transition-all ${
+                  genderFilter === null
+                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                All ({candidates.length})
+              </button>
+              <button
+                onClick={() => setGenderFilter('Male')}
+                className={`flex-1 px-4 py-2.5 rounded-lg font-medium text-sm transition-all ${
+                  genderFilter === 'Male'
+                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                Male ({getGenderStatistics().male})
+              </button>
+              <button
+                onClick={() => setGenderFilter('Female')}
+                className={`flex-1 px-4 py-2.5 rounded-lg font-medium text-sm transition-all ${
+                  genderFilter === 'Female'
+                    ? 'bg-gradient-to-r from-pink-600 to-rose-600 text-white shadow-lg'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                Female ({getGenderStatistics().female})
+              </button>
+            </div>
+          </div>
+        </div>
+
         {/* Candidates Table */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200">
@@ -721,6 +776,7 @@ const loadCommentSuggestions = async () => {
             <p className="text-sm text-gray-600 mt-1">
               Showing {filteredCandidates.length} candidate{filteredCandidates.length !== 1 ? 's' : ''}
               {statusFilter && ` (${getStatusLabel(statusFilter)})`}
+              {genderFilter && ` (${genderFilter})`}
             </p>
           </div>
 
