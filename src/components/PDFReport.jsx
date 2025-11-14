@@ -312,8 +312,8 @@ const PDFReport = ({ itemNumber, user, raters }) => {
           yOffset += 20;
       }
 
-      // Gender Statistics Section
-      if (yOffset + 100 > pageHeight - margin - 60) {
+      // Gender Statistics Section - OVERALL AND LONG LIST
+      if (yOffset + 180 > pageHeight - margin - 60) {
           doc.addPage();
           addFooter();
           yOffset = margin + 10;
@@ -323,36 +323,89 @@ const PDFReport = ({ itemNumber, user, raters }) => {
       doc.setFont("helvetica", "bold");
       doc.text('GENDER DISTRIBUTION:', margin, yOffset);
       doc.setFont("helvetica", "normal");
-      yOffset += 20;
+      yOffset += 25;
 
-      // Calculate gender counts with all variations
-      const maleCount = candidates.filter(c => 
+      // === OVERALL STATISTICS (ALL CANDIDATES) ===
+      doc.setFontSize(11);
+      doc.setFont("helvetica", "bold");
+      doc.text('ALL CANDIDATES:', margin + 10, yOffset);
+      doc.setFont("helvetica", "normal");
+      yOffset += 15;
+
+      // Calculate overall gender counts
+      const allMaleCount = candidates.filter(c => 
         c.gender === 'Male' || c.gender === 'MALE/LALAKI'
       ).length;
-      const femaleCount = candidates.filter(c => 
+      const allFemaleCount = candidates.filter(c => 
         c.gender === 'Female' || c.gender === 'FEMALE/BABAE'
       ).length;
-      const lgbtqiCount = candidates.filter(c => 
+      const allLgbtqiCount = candidates.filter(c => 
         c.gender === 'LGBTQI+'
       ).length;
-      const totalCandidates = candidates.length;
+      const allTotalCandidates = candidates.length;
 
-      // Calculate percentages
-      const malePercentage = totalCandidates > 0 ? ((maleCount / totalCandidates) * 100).toFixed(1) : 0;
-      const femalePercentage = totalCandidates > 0 ? ((femaleCount / totalCandidates) * 100).toFixed(1) : 0;
-      const lgbtqiPercentage = totalCandidates > 0 ? ((lgbtqiCount / totalCandidates) * 100).toFixed(1) : 0;
+      // Calculate overall percentages
+      const allMalePercentage = allTotalCandidates > 0 ? ((allMaleCount / allTotalCandidates) * 100).toFixed(1) : 0;
+      const allFemalePercentage = allTotalCandidates > 0 ? ((allFemaleCount / allTotalCandidates) * 100).toFixed(1) : 0;
+      const allLgbtqiPercentage = allTotalCandidates > 0 ? ((allLgbtqiCount / allTotalCandidates) * 100).toFixed(1) : 0;
 
-      doc.setFontSize(11);
-      doc.text(`Male: ${maleCount} (${malePercentage}%)`, margin + 20, yOffset);
-      yOffset += 15;
-      doc.text(`Female: ${femaleCount} (${femalePercentage}%)`, margin + 20, yOffset);
-      yOffset += 15;
-      if (lgbtqiCount > 0) {
-        doc.text(`LGBTQI+: ${lgbtqiCount} (${lgbtqiPercentage}%)`, margin + 20, yOffset);
-        yOffset += 15;
+      doc.setFontSize(10);
+      doc.text(`Male: ${allMaleCount} (${allMalePercentage}%)`, margin + 30, yOffset);
+      yOffset += 12;
+      doc.text(`Female: ${allFemaleCount} (${allFemalePercentage}%)`, margin + 30, yOffset);
+      yOffset += 12;
+      if (allLgbtqiCount > 0) {
+        doc.text(`LGBTQI+: ${allLgbtqiCount} (${allLgbtqiPercentage}%)`, margin + 30, yOffset);
+        yOffset += 12;
       }
-      doc.text(`Total: ${totalCandidates}`, margin + 20, yOffset);
-      yOffset += 30;
+      doc.setFont("helvetica", "bold");
+      doc.text(`Total: ${allTotalCandidates}`, margin + 30, yOffset);
+      doc.setFont("helvetica", "normal");
+      yOffset += 20;
+
+      // === LONG LIST STATISTICS ===
+      const longListCandidatesData = candidates.filter(c => c.status === CANDIDATE_STATUS.LONG_LIST);
+
+      if (longListCandidatesData.length > 0) {
+        doc.setFontSize(11);
+        doc.setFont("helvetica", "bold");
+        doc.text('LONG LIST CANDIDATES:', margin + 10, yOffset);
+        doc.setFont("helvetica", "normal");
+        yOffset += 15;
+
+        // Calculate long list gender counts
+        const longMaleCount = longListCandidatesData.filter(c => 
+          c.gender === 'Male' || c.gender === 'MALE/LALAKI'
+        ).length;
+        const longFemaleCount = longListCandidatesData.filter(c => 
+          c.gender === 'Female' || c.gender === 'FEMALE/BABAE'
+        ).length;
+        const longLgbtqiCount = longListCandidatesData.filter(c => 
+          c.gender === 'LGBTQI+'
+        ).length;
+        const longTotalCandidates = longListCandidatesData.length;
+
+        // Calculate long list percentages
+        const longMalePercentage = longTotalCandidates > 0 ? ((longMaleCount / longTotalCandidates) * 100).toFixed(1) : 0;
+        const longFemalePercentage = longTotalCandidates > 0 ? ((longFemaleCount / longTotalCandidates) * 100).toFixed(1) : 0;
+        const longLgbtqiPercentage = longTotalCandidates > 0 ? ((longLgbtqiCount / longTotalCandidates) * 100).toFixed(1) : 0;
+
+        doc.setFontSize(10);
+        doc.text(`Male: ${longMaleCount} (${longMalePercentage}%)`, margin + 30, yOffset);
+        yOffset += 12;
+        doc.text(`Female: ${longFemaleCount} (${longFemalePercentage}%)`, margin + 30, yOffset);
+        yOffset += 12;
+        if (longLgbtqiCount > 0) {
+          doc.text(`LGBTQI+: ${longLgbtqiCount} (${longLgbtqiPercentage}%)`, margin + 30, yOffset);
+          yOffset += 12;
+        }
+        doc.setFont("helvetica", "bold");
+        doc.text(`Total: ${longTotalCandidates}`, margin + 30, yOffset);
+        doc.setFont("helvetica", "normal");
+        yOffset += 20;
+      }
+
+      yOffset += 10; // Extra spacing before signatories
 
       // Signatories (dynamic with lines and assignment)
       if (raters && raters.length > 0) {
