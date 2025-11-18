@@ -541,8 +541,9 @@ const loadCommentSuggestions = async () => {
                   </div>
                 </div>
                 
+                <div className="flex items-center space-x-3">
                 {selectedItemNumber && (
-                  <div className="flex items-center space-x-3">
+                  <>
                     <button
                       onClick={async () => {
                         try {
@@ -578,8 +579,29 @@ const loadCommentSuggestions = async () => {
                         <span>Generate Report</span>
                       </div>
                     </button>
-                  </div>
+                  </>
                 )}
+                
+                <button
+                  onClick={async () => {
+                    try {
+                      await candidatesAPI.exportSummaryCSV();
+                      showToast('Summary CSV exported successfully!', 'success');
+                    } catch (error) {
+                      console.error('Export error:', error);
+                      showToast('Failed to export summary CSV: ' + error.message, 'error');
+                    }
+                  }}
+                  className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-bold py-2.5 px-6 rounded-lg text-sm transition-all duration-200 shadow-lg hover:shadow-xl"
+                >
+                  <div className="flex items-center space-x-2">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      <span>Export All (Summary)</span>
+                    </div>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
