@@ -241,6 +241,39 @@ export const candidatesAPI = {
     
     return { success: true, filename };
   },
+
+// NEW: Export summary CSV (all candidates, basic info only)
+  exportSummaryCSV: async () => {
+    const response = await api.get('/candidates/export-summary-csv', {
+      responseType: 'blob'
+    });
+    
+    // Get the filename from Content-Disposition header if available
+    const contentDisposition = response.headers['content-disposition'];
+    let filename = `candidates_summary_${new Date().toISOString().split('T')[0]}.csv`;
+    
+    if (contentDisposition) {
+      const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+      if (filenameMatch) {
+        filename = filenameMatch[1];
+      }
+    }
+    
+    // Create blob and trigger download
+    const blob = new Blob([response.data], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+    
+    return { success: true, filename };
+  },
+
+
   // ✅ UPDATED: Comment suggestions with configurable limit
   getCommentSuggestions: async (field, limit = 250) => {
     const response = await api.get(`/candidates/comment-suggestions/${field}?limit=${limit}`);
