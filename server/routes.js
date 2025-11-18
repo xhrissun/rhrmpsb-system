@@ -321,6 +321,86 @@ router.get('/candidates', authMiddleware, async (req, res) => {
   }
 });
 
+// Export all candidates summary as CSV (no position filtering)
+router.get('/candidates/export-summary-csv', authMiddleware, async (req, res) => {
+  try {
+    // Get ALL candidates without any filtering
+    const candidates = await Candidate.find()
+      .sort({ fullName: 1 });
+    
+    if (candidates.length === 0) {
+      return res.status(404).json({ message: 'No candidates found for export' });
+    }
+    
+    // Get all vacancies to map item numbers to positions
+    const vacancies = await Vacancy.find({}, 'itemNumber position');
+    const itemNumberToPosition = {};
+    vacancies.forEach(v => {
+      itemNumberToPosition[v.itemNumber] = v.position;
+    });
+    
+    // CSV headers - simplified version
+    const headers = [
+      'Full Name',
+      'Gender',
+      'Item Number',
+      'Position Applied',
+      'Status',
+      'Education Comments',
+      'Training Comments',
+      'Experience Comments',
+      'Eligibility Comments'
+    ];
+    
+    // Build CSV rows
+    const rows = candidates.map(candidate => {
+      const position = itemNumberToPosition[candidate.itemNumber] || 'N/A';
+      
+      return [
+        candidate.fullName || '',
+        candidate.gender || '',
+        candidate.itemNumber || '',
+        position,
+        candidate.status || '',
+        candidate.comments?.education || '',
+        candidate.comments?.training || '',
+        candidate.comments?.experience || '',
+        candidate.comments?.eligibility || ''
+      ];
+    });
+    
+    // Escape CSV values (handle commas, quotes, and newlines)
+    const escapeCsvValue = (value) => {
+      if (value == null) return '';
+      const stringValue = String(value);
+      if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n') || stringValue.includes('\r')) {
+        return `"${stringValue.replace(/"/g, '""')}"`;
+      }
+      return stringValue;
+    };
+    
+    // Build CSV content
+    const csvContent = [
+      headers.map(escapeCsvValue).join(','),
+      ...rows.map(row => row.map(escapeCsvValue).join(','))
+    ].join('\n');
+    
+    // Set response headers for CSV download
+    const timestamp = new Date().toISOString().split('T')[0];
+    const filename = `candidates_summary_${timestamp}.csv`;
+    
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send('\ufeff' + csvContent); // Add BOM for Excel compatibility
+    
+  } catch (error) {
+    console.error('CSV summary export error:', error);
+    res.status(500).json({ message: 'Server error: ' + error.message });
+  }
+});
+
+
+
 // Export candidates as CSV
 router.get('/candidates/export-csv', authMiddleware, async (req, res) => {
   try {
