@@ -1475,7 +1475,7 @@ router.get('/candidates/comment-suggestions/:field', authMiddleware, async (req,
         const normalized = comment
           .trim()                              // Remove leading/trailing spaces
           .replace(/\s+/g, ' ')               // Collapse multiple spaces
-          .replace(/\s*([(),.:;!?])\s*/g, '$1') // Remove spaces around punctuation
+          .replace(/\s*(,.:;!?)\s*/g, '$1') // Remove spaces around punctuation
           .replace(/([(),.:;!?])+/g, '$1')    // Remove duplicate punctuation
           .replace(/[\u200B-\u200D\uFEFF]/g, '') // Remove zero-width spaces
           .replace(/\u00A0/g, ' ')            // Replace non-breaking spaces with regular spaces
