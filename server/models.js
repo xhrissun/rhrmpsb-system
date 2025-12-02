@@ -341,15 +341,112 @@ const ratingSchema = new mongoose.Schema({
     type: String,
     enum: ['basic', 'organizational', 'leadership', 'minimum']
   },
-  // NEW: Add itemNumber to tie ratings to specific vacancy applications
   itemNumber: {
     type: String,
     required: true,
     trim: true
-  }
+  },
+  // NEW: Audit log for tracking rating activities
+  auditLog: [{
+    action: {
+      type: String,
+      enum: ['created', 'updated', 'deleted'],
+      required: true
+    },
+    performedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    },
+    performedAt: {
+      type: Date,
+      default: Date.now
+    },
+    oldScore: {
+      type: Number,
+      min: 1,
+      max: 5
+    },
+    newScore: {
+      type: Number,
+      min: 1,
+      max: 5
+    },
+    ipAddress: String,
+    userAgent: String
+  }]
 }, {
   timestamps: true
 });
+
+
+// Rating Audit Log Schema
+const ratingLogSchema = new mongoose.Schema({
+  action: {
+    type: String,
+    enum: ['created', 'updated', 'deleted', 'batch_created', 'batch_updated', 'batch_deleted'],
+    required: true
+  },
+  ratingId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Rating'
+  },
+  candidateId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Candidate',
+    required: true
+  },
+  raterId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  itemNumber: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  competencyId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Competency'
+  },
+  competencyType: {
+    type: String,
+    enum: ['basic', 'organizational', 'leadership', 'minimum']
+  },
+  oldScore: {
+    type: Number,
+    min: 1,
+    max: 5
+  },
+  newScore: {
+    type: Number,
+    min: 1,
+    max: 5
+  },
+  ratingsCount: {
+    type: Number,
+    default: 1
+  },
+  performedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  ipAddress: String,
+  userAgent: String,
+  notes: String
+}, {
+  timestamps: true
+});
+
+// Add indexes for better query performance
+ratingLogSchema.index({ candidateId: 1, createdAt: -1 });
+ratingLogSchema.index({ raterId: 1, createdAt: -1 });
+ratingLogSchema.index({ itemNumber: 1, createdAt: -1 });
+ratingLogSchema.index({ action: 1, createdAt: -1 });
+
+const RatingLog = mongoose.model('RatingLog', ratingLogSchema);
 
 // Pre-save middleware for Candidate
 candidateSchema.pre('save', function(next) {
@@ -447,4 +544,4 @@ const Candidate = mongoose.model('Candidate', candidateSchema);
 const Competency = mongoose.model('Competency', competencySchema);
 const Rating = mongoose.model('Rating', ratingSchema);
 
-export { User, Vacancy, Candidate, Competency, Rating };
+export { User, Vacancy, Candidate, Competency, Rating, RatingLog };
