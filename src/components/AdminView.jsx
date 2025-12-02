@@ -1273,14 +1273,14 @@ const AdminView = ({ user }) => {
   const VacancyAssignmentModal = () => {
       const [formData, setFormData] = useState(() => {
         if (editingItem) {
-          return {
-            assignmentType: editingItem.assignedVacancies || 'all',
+  return {
+            assignmentType: editingItem.assignedVacancies || 'none',
             assignedAssignment: editingItem.assignedAssignment || '',
             assignedItemNumbers: editingItem.assignedItemNumbers || []
           };
         }
         return {
-          assignmentType: 'all',
+          assignmentType: 'none',
           assignedAssignment: '',
           assignedItemNumbers: []
         };
@@ -1341,6 +1341,17 @@ const AdminView = ({ user }) => {
                       onChange={(e) => setFormData({ ...formData, assignmentType: e.target.value })}
                       className="mr-2"
                     />
+                <label className="flex items-center text-sm">
+                    <input
+                      type="radio"
+                      name="assignmentType"
+                      value="none"
+                      checked={formData.assignmentType === 'none'}
+                      onChange={(e) => setFormData({ ...formData, assignmentType: e.target.value })}
+                      className="mr-2"
+                    />
+                    No Vacancies (No Access)
+                  </label>    
                     All Vacancies
                   </label>
                   <label className="flex items-center text-sm">
@@ -1542,16 +1553,18 @@ const AdminView = ({ user }) => {
   };
 
   const getAssignmentDisplay = (user) => {
-    if (user.assignedVacancies === 'all') {
-      return 'All Vacancies';
-    } else if (user.assignedVacancies === 'assignment') {
-      return `Assignment: ${user.assignedAssignment || 'Not Set'}`;
-    } else if (user.assignedVacancies === 'specific') {
-      const count = user.assignedItemNumbers?.length || 0;
-      return `Specific Items (${count})`;
-    }
-    return 'All Vacancies';
-  };
+      if (user.assignedVacancies === 'none') {
+        return 'No Vacancies';
+      } else if (user.assignedVacancies === 'all') {
+        return 'All Vacancies';
+      } else if (user.assignedVacancies === 'assignment') {
+        return `Assignment: ${user.assignedAssignment || 'Not Set'}`;
+      } else if (user.assignedVacancies === 'specific') {
+        const count = user.assignedItemNumbers?.length || 0;
+        return `Specific Items (${count})`;
+      }
+      return 'No Vacancies';
+    };
 
   const renderUsers = () => {
   const filteredUsers = filterAndSortData(users, ['name', 'email', 'userType', 'raterType', 'position']);
@@ -1975,6 +1988,7 @@ const AdminView = ({ user }) => {
                   </td>
                   <td className="table-cell px-4 py-2">
                     <span className={`px-2 py-1 rounded text-xs ${
+                      user.assignedVacancies === 'none' ? 'bg-gray-100 text-gray-800' :
                       user.assignedVacancies === 'all' ? 'bg-green-100 text-green-800' :
                       user.assignedVacancies === 'assignment' ? 'bg-blue-100 text-blue-800' :
                       user.assignedVacancies === 'specific' ? 'bg-purple-100 text-purple-800' :
