@@ -407,6 +407,54 @@ export const reportsAPI = {
   }
 };
 
+// Rating Logs API
+export const ratingLogsAPI = {
+  getAll: async (filters = {}) => {
+    const params = new URLSearchParams();
+    if (filters.candidateId) params.append('candidateId', filters.candidateId);
+    if (filters.raterId) params.append('raterId', filters.raterId);
+    if (filters.itemNumber) params.append('itemNumber', filters.itemNumber);
+    if (filters.action) params.append('action', filters.action);
+    if (filters.limit) params.append('limit', filters.limit);
+    if (filters.skip) params.append('skip', filters.skip);
+    
+    const response = await api.get(`/rating-logs?${params.toString()}`);
+    return response.data;
+  },
+  
+  getStats: async () => {
+    const response = await api.get('/rating-logs/stats');
+    return response.data;
+  },
+  
+  exportCSV: async () => {
+    const response = await api.get('/rating-logs/export-csv', {
+      responseType: 'blob'
+    });
+    
+    const contentDisposition = response.headers['content-disposition'];
+    let filename = `rating_audit_log_${new Date().toISOString().split('T')[0]}.csv`;
+    
+    if (contentDisposition) {
+      const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+      if (filenameMatch) {
+        filename = filenameMatch[1];
+      }
+    }
+    
+    const blob = new Blob([response.data], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+    
+    return { success: true, filename };
+  }
+};
 
 
 export default api;
