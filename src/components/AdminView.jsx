@@ -5,6 +5,7 @@ import { parseCSV, exportToCSV } from '../utils/helpers';
 import { USER_TYPES, RATER_TYPES, SALARY_GRADES, CANDIDATE_STATUS } from '../utils/constants';
 import InterviewSummaryGenerator from './InterviewSummaryGenerator';
 import { useToast } from '../utils/ToastContext';
+import RatingLogsView from './RatingLogsView';
 
 // --- SearchBar and FilterableHeader (moved out of AdminView to prevent remounts) ---
 export const SearchBar = ({ placeholder, value, onChange }) => {
@@ -188,7 +189,7 @@ const AdminView = ({ user }) => {
 
   // Validate activeTab
   useEffect(() => {
-    const validTabs = ['users', 'vacancies', 'candidates', 'competencies', 'assignments', 'interviewSummary'];
+    const validTabs = ['users', 'vacancies', 'candidates', 'competencies', 'assignments', 'interviewSummary', 'ratingLogs'];
     if (activeTab && !validTabs.includes(activeTab)) {
       setActiveTab('users');
     }
@@ -2133,6 +2134,19 @@ const AdminView = ({ user }) => {
                 Interview Summary
               </span>
             </button>
+            <button
+              onClick={() => setActiveTab('ratingLogs')}
+              className={`sidebar-item w-full text-left px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 ${
+                activeTab === 'ratingLogs'
+                  ? 'bg-gradient-to-r from-blue-600 to-blue-500 text-white shadow-lg transform scale-105'
+                  : 'text-gray-700 hover:bg-blue-50 hover:text-blue-600 hover:translate-x-1'
+              }`}
+            >
+              <span className="flex items-center gap-3">
+                <span className="text-lg">📝</span>
+                Rating Audit Log
+              </span>
+            </button>
           </nav>
         </div>
       </div>
@@ -2167,6 +2181,7 @@ const AdminView = ({ user }) => {
       {activeTab === 'competencies' && renderCompetencies()}
       {activeTab === 'assignments' && renderVacancyAssignments()}
       {activeTab === 'interviewSummary' && renderInterviewSummary()}
+      {activeTab === 'ratingLogs' && <RatingLogsView />}
     </div>
 
     {/* Modals */}
