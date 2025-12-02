@@ -1285,7 +1285,7 @@ router.post('/users/:userId/assign-vacancies', authMiddleware, async (req, res) 
     const { assignmentType, assignedAssignment, assignedItemNumbers } = req.body;
     
     // Validate assignment type
-    if (!['all', 'assignment', 'specific'].includes(assignmentType)) {
+    if (!['none', 'all', 'assignment', 'specific'].includes(assignmentType)) {
       return res.status(400).json({ message: 'Invalid assignment type' });
     }
     
@@ -1337,7 +1337,9 @@ router.get('/users/:userId/assigned-vacancies', authMiddleware, async (req, res)
     
     let assignedVacancies = [];
     
-    if (user.assignedVacancies === 'all') {
+    if (user.assignedVacancies === 'none') {
+      assignedVacancies = [];
+    } else if (user.assignedVacancies === 'all') {
       assignedVacancies = await Vacancy.find();
     } else if (user.assignedVacancies === 'assignment' && user.assignedAssignment) {
       assignedVacancies = await Vacancy.find({ assignment: user.assignedAssignment });
