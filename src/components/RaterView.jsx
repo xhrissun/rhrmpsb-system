@@ -151,6 +151,8 @@ const RaterView = ({ user }) => {
 
   const filterVacanciesByAssignment = (allVacancies, user) => {
     switch (user.assignedVacancies) {
+      case 'none':
+        return []; // No access to any vacancies
       case 'all':
         return allVacancies;
       case 'assignment':
@@ -160,7 +162,7 @@ const RaterView = ({ user }) => {
         if (!user.assignedItemNumbers || user.assignedItemNumbers.length === 0) return [];
         return allVacancies.filter(vacancy => user.assignedItemNumbers.includes(vacancy.itemNumber));
       default:
-        return allVacancies;
+        return []; // Changed from allVacancies to [] for safety
     }
   };
 
