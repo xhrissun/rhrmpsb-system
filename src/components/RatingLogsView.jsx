@@ -13,6 +13,7 @@ const RatingLogsView = () => {
   });
   const [searchTerm, setSearchTerm] = useState('');
   const [exporting, setExporting] = useState(false);
+  const [expandedRows, setExpandedRows] = useState(new Set());
 
   const { showToast } = useToast();
 
@@ -56,13 +57,28 @@ const RatingLogsView = () => {
     }
   };
 
+  const toggleRowExpansion = (logId) => {
+    setExpandedRows(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(logId)) {
+        newSet.delete(logId);
+      } else {
+        newSet.add(logId);
+      }
+      return newSet;
+    });
+  };
+
   const getActionColor = (action) => {
     switch (action) {
       case 'created':
+      case 'batch_created':
         return 'bg-green-100 text-green-800';
       case 'updated':
+      case 'batch_updated':
         return 'bg-blue-100 text-blue-800';
       case 'deleted':
+      case 'batch_deleted':
         return 'bg-red-100 text-red-800';
       default:
         return 'bg-gray-100 text-gray-800';
@@ -72,18 +88,21 @@ const RatingLogsView = () => {
   const getActionIcon = (action) => {
     switch (action) {
       case 'created':
+      case 'batch_created':
         return (
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
         );
       case 'updated':
+      case 'batch_updated':
         return (
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
           </svg>
         );
       case 'deleted':
+      case 'batch_deleted':
         return (
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -92,6 +111,56 @@ const RatingLogsView = () => {
       default:
         return null;
     }
+  };
+
+  const getActionLabel = (action) => {
+    switch (action) {
+      case 'created':
+        return 'Created';
+      case 'updated':
+        return 'Updated';
+      case 'deleted':
+        return 'Deleted';
+      case 'batch_created':
+        return 'Batch Created';
+      case 'batch_updated':
+        return 'Batch Updated';
+      case 'batch_deleted':
+        return 'Batch Deleted';
+      default:
+        return action;
+    }
+  };
+
+  // Group logs by submission session (same candidate, rater, item number, and close timestamp)
+  const groupLogsBySession = (logs) => {
+    const grouped = [];
+    const sessionMap = new Map();
+
+    logs.forEach(log => {
+      // Create a session key based on candidate, rater, item number, and approximate time
+      const sessionTime = Math.floor(new Date(log.createdAt).getTime() / (5 * 60 * 1000)); // 5-minute window
+      const sessionKey = `${log.candidateId?._id}-${log.raterId?._id}-${log.itemNumber}-${sessionTime}`;
+
+      if (sessionMap.has(sessionKey)) {
+        sessionMap.get(sessionKey).details.push(log);
+      } else {
+        const session = {
+          id: log._id,
+          action: log.action,
+          createdAt: log.createdAt,
+          raterId: log.raterId,
+          candidateId: log.candidateId,
+          itemNumber: log.itemNumber,
+          ipAddress: log.ipAddress,
+          details: [log]
+        };
+        sessionMap.set(sessionKey, session);
+        grouped.push(session);
+      }
+    });
+
+    return grouped;
   };
 
   const filteredLogs = logs.filter(log => {
@@ -104,6 +173,8 @@ const RatingLogsView = () => {
       log.competencyId?.name?.toLowerCase().includes(search)
     );
   });
+
+  const groupedLogs = groupLogsBySession(filteredLogs);
 
   if (loading && logs.length === 0) {
     return (
@@ -153,7 +224,7 @@ const RatingLogsView = () => {
             <div key={stat._id} className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-gray-600 capitalize">{stat._id}</p>
+                  <p className="text-sm font-medium text-gray-600 capitalize">{getActionLabel(stat._id)}</p>
                   <p className="text-2xl font-bold text-gray-900 mt-1">{stat.count}</p>
                 </div>
                 <div className={`p-3 rounded-full ${getActionColor(stat._id)}`}>
@@ -235,7 +306,7 @@ const RatingLogsView = () => {
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search by rater, candidate, item number, or competency..."
+              placeholder="Search by rater, candidate, item number..."
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -255,26 +326,25 @@ const RatingLogsView = () => {
         </div>
       </div>
 
-      {/* Logs Table */}
+      {/* Logs Table - Grouped Sessions */}
       <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-12"></th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date & Time</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rater</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Candidate</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Item Number</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Competency</th>
-                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Score Change</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">IP Address</th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Competencies</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredLogs.length === 0 ? (
+              {groupedLogs.length === 0 ? (
                 <tr>
-                  <td colSpan="8" className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan="7" className="px-6 py-12 text-center text-gray-500">
                     <div className="flex flex-col items-center space-y-2">
                       <svg className="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -285,55 +355,108 @@ const RatingLogsView = () => {
                   </td>
                 </tr>
               ) : (
-                filteredLogs.map(log => (
-                  <tr key={log._id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {new Date(log.createdAt).toLocaleString('en-US', {
-                        year: 'numeric',
-                        month: 'short',
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getActionColor(log.action)}`}>
-                        {getActionIcon(log.action)}
-                        <span className="ml-1 capitalize">{log.action}</span>
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      <div className="text-gray-900 font-medium">{log.raterId?.name || 'N/A'}</div>
-                      <div className="text-gray-500 text-xs">{log.raterId?.raterType || 'N/A'}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {log.candidateId?.fullName || 'N/A'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {log.itemNumber || 'N/A'}
-                    </td>
-                    <td className="px-6 py-4 text-sm">
-                      <div className="text-gray-900">{log.competencyId?.name || 'N/A'}</div>
-                      <div className="text-gray-500 text-xs capitalize">{log.competencyType || 'N/A'}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center text-sm">
-                      {log.action === 'created' && (
-                        <span className="text-green-600 font-semibold">New: {log.newScore}</span>
+                groupedLogs.map(session => {
+                  const isExpanded = expandedRows.has(session.id);
+                  return (
+                    <React.Fragment key={session.id}>
+                      <tr className="hover:bg-gray-50 cursor-pointer" onClick={() => toggleRowExpansion(session.id)}>
+                        <td className="px-6 py-4 whitespace-nowrap text-center">
+                          <button className="text-gray-400 hover:text-gray-600 focus:outline-none">
+                            {isExpanded ? (
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                              </svg>
+                            ) : (
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                              </svg>
+                            )}
+                          </button>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {new Date(session.createdAt).toLocaleString('en-US', {
+                            year: 'numeric',
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getActionColor(session.action)}`}>
+                            {getActionIcon(session.action)}
+                            <span className="ml-1 capitalize">{getActionLabel(session.action)}</span>
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                          <div className="text-gray-900 font-medium">{session.raterId?.name || 'N/A'}</div>
+                          <div className="text-gray-500 text-xs">{session.raterId?.raterType || 'N/A'}</div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {session.candidateId?.fullName || 'N/A'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {session.itemNumber || 'N/A'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-center">
+                          <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold bg-blue-100 text-blue-800">
+                            {session.details.length} {session.details.length === 1 ? 'competency' : 'competencies'}
+                          </span>
+                        </td>
+                      </tr>
+                      {isExpanded && (
+                        <tr>
+                          <td colSpan="7" className="px-6 py-4 bg-gray-50">
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between mb-3">
+                                <h4 className="text-sm font-semibold text-gray-700">Competency Details</h4>
+                                <span className="text-xs text-gray-500">IP: {session.ipAddress || 'N/A'}</span>
+                              </div>
+                              <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                                <table className="min-w-full divide-y divide-gray-200">
+                                  <thead className="bg-gray-100">
+                                    <tr>
+                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-600">Competency</th>
+                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-600">Type</th>
+                                      <th className="px-4 py-2 text-center text-xs font-medium text-gray-600">Score Change</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-gray-200">
+                                    {session.details.map((detail, idx) => (
+                                      <tr key={idx} className="hover:bg-gray-50">
+                                        <td className="px-4 py-2 text-sm text-gray-900">
+                                          {detail.competencyId?.name || 'N/A'}
+                                        </td>
+                                        <td className="px-4 py-2 text-sm">
+                                          <span className="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-700 capitalize">
+                                            {detail.competencyType || 'N/A'}
+                                          </span>
+                                        </td>
+                                        <td className="px-4 py-2 text-center text-sm">
+                                          {detail.action === 'created' && (
+                                            <span className="text-green-600 font-semibold">New: {detail.newScore}</span>
+                                          )}
+                                          {detail.action === 'updated' && (
+                                            <span className="text-blue-600 font-semibold">
+                                              {detail.oldScore} → {detail.newScore}
+                                            </span>
+                                          )}
+                                          {detail.action === 'deleted' && (
+                                            <span className="text-red-600 font-semibold">Removed: {detail.oldScore}</span>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
                       )}
-                      {log.action === 'updated' && (
-                        <span className="text-blue-600 font-semibold">
-                          {log.oldScore} → {log.newScore}
-                        </span>
-                      )}
-                      {log.action === 'deleted' && (
-                        <span className="text-red-600 font-semibold">Removed: {log.oldScore}</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">
-                      {log.ipAddress || 'N/A'}
-                    </td>
-                  </tr>
-                ))
+                    </React.Fragment>
+                  );
+                })
               )}
             </tbody>
           </table>
