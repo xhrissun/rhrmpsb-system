@@ -231,19 +231,14 @@ const AdminView = ({ user }) => {
       setCandidates(candidatesData);
       setCompetencies(competenciesData);
 
-      // Load assignments with fallback
-      try {
-        const assignmentsData = await vacanciesAPI.getAssignments();
-        setAssignments(assignmentsData);
-      } catch (assignmentError) {
-        console.error('Failed to load assignments, using fallback:', assignmentError);
-        const uniqueAssignments = [...new Set(
-          vacanciesData
-            .map(v => v.assignment)
-            .filter(a => a && a.trim() !== '')
-        )].sort();
-        setAssignments(uniqueAssignments);
-      }
+      // Extract assignments directly from vacancies data (no API call needed)
+      const uniqueAssignments = [...new Set(
+        vacanciesData
+          .map(v => v.assignment)
+          .filter(a => a && a.trim() !== '')
+      )].sort();
+      setAssignments(uniqueAssignments);
+      
     } catch (error) {
       console.error('Failed to load data:', error);
       showToast('Failed to load data. Please refresh the page.', 'error');
