@@ -1336,22 +1336,22 @@ const AdminView = ({ user }) => {
                     <input
                       type="radio"
                       name="assignmentType"
-                      value="all"
-                      checked={formData.assignmentType === 'all'}
-                      onChange={(e) => setFormData({ ...formData, assignmentType: e.target.value })}
-                      className="mr-2"
-                    />
-                <label className="flex items-center text-sm">
-                    <input
-                      type="radio"
-                      name="assignmentType"
                       value="none"
                       checked={formData.assignmentType === 'none'}
                       onChange={(e) => setFormData({ ...formData, assignmentType: e.target.value })}
                       className="mr-2"
                     />
                     No Vacancies (No Access)
-                  </label>    
+                  </label>
+                  <label className="flex items-center text-sm">
+                    <input
+                      type="radio"
+                      name="assignmentType"
+                      value="all"
+                      checked={formData.assignmentType === 'all'}
+                      onChange={(e) => setFormData({ ...formData, assignmentType: e.target.value })}
+                      className="mr-2"
+                    />
                     All Vacancies
                   </label>
                   <label className="flex items-center text-sm">
