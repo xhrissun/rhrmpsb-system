@@ -46,8 +46,8 @@ const userSchema = new mongoose.Schema({
   // NEW: Vacancy assignment fields
   assignedVacancies: {
     type: String,
-    enum: ['all', 'assignment', 'specific'],
-    default: 'all'
+    enum: ['none', 'all', 'assignment', 'specific'],
+    default: 'none'
   },
   assignedAssignment: {
     type: String,
@@ -67,6 +67,7 @@ const userSchema = new mongoose.Schema({
 // NEW: Find users by vacancy assignment
 userSchema.statics.findByVacancyAssignment = function(itemNumber, assignment) {
   return this.find({
+    assignedVacancies: { $ne: 'none' },
     $or: [
       { assignedVacancies: 'all' },
       { assignedVacancies: 'assignment', assignedAssignment: assignment },
@@ -382,6 +383,7 @@ userSchema.statics.findRaters = function() {
 // NEW: Find users by vacancy assignment
 userSchema.statics.findByVacancyAssignment = function(itemNumber, assignment) {
   return this.find({
+    assignedVacancies: { $ne: 'none' },
     $or: [
       { assignedVacancies: 'all' },
       { assignedVacancies: 'assignment', assignedAssignment: assignment },
