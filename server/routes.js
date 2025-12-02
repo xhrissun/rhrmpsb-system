@@ -2,7 +2,7 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { parse } from 'csv-parse/sync';
-import { User, Vacancy, Candidate, Competency, Rating } from './models.js';
+import { User, Vacancy, Candidate, Competency, Rating, RatingLog } from './models.js';
 
 const router = express.Router();
 
@@ -1129,13 +1129,11 @@ router.post('/ratings/submit', authMiddleware, async (req, res) => {
       return res.status(400).json({ message: 'No ratings provided' });
     }
 
-    // Validate that all ratings have itemNumber
     const missingItemNumber = ratings.some(r => !r.itemNumber);
     if (missingItemNumber) {
       return res.status(400).json({ message: 'All ratings must include itemNumber' });
     }
     
-    // Check if any ratings already exist for this rater, candidate, and item number combination
     const candidateIds = [...new Set(ratings.map(r => r.candidateId))];
     const itemNumbers = [...new Set(ratings.map(r => r.itemNumber))];
     
@@ -1147,7 +1145,6 @@ router.post('/ratings/submit', authMiddleware, async (req, res) => {
     
     const hasExistingRatings = existingRatings.length > 0;
     
-    // If there are existing ratings but this isn't marked as an update, return error
     if (hasExistingRatings && !isUpdate) {
       return res.status(409).json({ 
         message: 'Existing ratings found for this candidate and item number',
@@ -1158,14 +1155,18 @@ router.post('/ratings/submit', authMiddleware, async (req, res) => {
     
     // Process each rating with upsert logic
     const results = [];
+    const logEntries = [];
+    
     for (const ratingData of ratings) {
       const filter = {
         candidateId: ratingData.candidateId,
         raterId: req.user._id,
         competencyId: ratingData.competencyId,
         competencyType: ratingData.competencyType,
-        itemNumber: ratingData.itemNumber  // CRITICAL: Include itemNumber in filter
+        itemNumber: ratingData.itemNumber
       };
+      
+      const existingRating = await Rating.findOne(filter);
       
       const update = {
         ...filter,
@@ -1173,7 +1174,6 @@ router.post('/ratings/submit', authMiddleware, async (req, res) => {
         submittedAt: new Date()
       };
       
-      // Upsert: update if exists, create if not
       const result = await Rating.findOneAndUpdate(
         filter,
         update,
@@ -1185,6 +1185,27 @@ router.post('/ratings/submit', authMiddleware, async (req, res) => {
       );
       
       results.push(result);
+      
+      // NEW: Create audit log entry
+      logEntries.push({
+        action: existingRating ? 'updated' : 'created',
+        ratingId: result._id,
+        candidateId: ratingData.candidateId,
+        raterId: req.user._id,
+        itemNumber: ratingData.itemNumber,
+        competencyId: ratingData.competencyId,
+        competencyType: ratingData.competencyType,
+        oldScore: existingRating?.score || null,
+        newScore: parseInt(ratingData.score),
+        performedBy: req.user._id,
+        ipAddress: req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress,
+        userAgent: req.headers['user-agent']
+      });
+    }
+    
+    // NEW: Bulk insert audit logs
+    if (logEntries.length > 0) {
+      await RatingLog.insertMany(logEntries);
     }
     
     res.json({ 
@@ -1233,15 +1254,39 @@ router.delete('/ratings/candidate/:candidateId/rater/:raterId/item/:itemNumber',
   
   try {
     const { candidateId, raterId, itemNumber } = req.params;
-    
-    // Decode item number in case it has special characters
     const decodedItemNumber = decodeURIComponent(itemNumber);
+    
+    // NEW: Get ratings before deleting for audit log
+    const ratingsToDelete = await Rating.find({
+      candidateId: candidateId,
+      raterId: raterId,
+      itemNumber: decodedItemNumber
+    });
     
     const result = await Rating.deleteMany({
       candidateId: candidateId,
       raterId: raterId,
       itemNumber: decodedItemNumber
     });
+    
+    // NEW: Create audit log entries for deleted ratings
+    if (ratingsToDelete.length > 0) {
+      const logEntries = ratingsToDelete.map(rating => ({
+        action: 'deleted',
+        ratingId: rating._id,
+        candidateId: rating.candidateId,
+        raterId: rating.raterId,
+        itemNumber: rating.itemNumber,
+        competencyId: rating.competencyId,
+        competencyType: rating.competencyType,
+        oldScore: rating.score,
+        performedBy: req.user._id,
+        ipAddress: req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress,
+        userAgent: req.headers['user-agent']
+      }));
+      
+      await RatingLog.insertMany(logEntries);
+    }
     
     res.json({ 
       message: 'Ratings reset successfully',
@@ -1498,6 +1543,193 @@ router.get('/candidates/comment-suggestions/:field', authMiddleware, async (req,
     
   } catch (error) {
     console.error('Comment suggestions error:', error);
+    res.status(500).json({ message: 'Server error: ' + error.message });
+  }
+});
+
+// Rating Audit Log Routes
+router.get('/rating-logs', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin' && !req.user.administrativePrivilege) {
+    return res.status(403).json({ message: 'Access denied' });
+  }
+  
+  try {
+    const { candidateId, raterId, itemNumber, action, limit = 100, skip = 0 } = req.query;
+    
+    const filter = {};
+    if (candidateId) filter.candidateId = candidateId;
+    if (raterId) filter.raterId = raterId;
+    if (itemNumber) filter.itemNumber = itemNumber;
+    if (action) filter.action = action;
+    
+    const logs = await RatingLog.find(filter)
+      .populate('candidateId', 'fullName itemNumber')
+      .populate('raterId', 'name raterType email')
+      .populate('performedBy', 'name userType')
+      .populate('competencyId', 'name type')
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip(parseInt(skip));
+    
+    const total = await RatingLog.countDocuments(filter);
+    
+    res.json({
+      logs,
+      total,
+      limit: parseInt(limit),
+      skip: parseInt(skip)
+    });
+  } catch (error) {
+    console.error('Failed to fetch rating logs:', error);
+    res.status(500).json({ message: 'Server error: ' + error.message });
+  }
+});
+
+// Get rating logs summary statistics
+router.get('/rating-logs/stats', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin' && !req.user.administrativePrivilege) {
+    return res.status(403).json({ message: 'Access denied' });
+  }
+  
+  try {
+    const stats = await RatingLog.aggregate([
+      {
+        $group: {
+          _id: '$action',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+    
+    const raterActivity = await RatingLog.aggregate([
+      {
+        $group: {
+          _id: '$raterId',
+          totalActions: { $sum: 1 },
+          created: {
+            $sum: { $cond: [{ $eq: ['$action', 'created'] }, 1, 0] }
+          },
+          updated: {
+            $sum: { $cond: [{ $eq: ['$action', 'updated'] }, 1, 0] }
+          },
+          deleted: {
+            $sum: { $cond: [{ $eq: ['$action', 'deleted'] }, 1, 0] }
+          }
+        }
+      },
+      {
+        $lookup: {
+          from: 'users',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'rater'
+        }
+      },
+      {
+        $unwind: '$rater'
+      },
+      {
+        $project: {
+          raterId: '$_id',
+          raterName: '$rater.name',
+          raterType: '$rater.raterType',
+          totalActions: 1,
+          created: 1,
+          updated: 1,
+          deleted: 1
+        }
+      },
+      {
+        $sort: { totalActions: -1 }
+      }
+    ]);
+    
+    res.json({
+      actionStats: stats,
+      raterActivity
+    });
+  } catch (error) {
+    console.error('Failed to fetch rating stats:', error);
+    res.status(500).json({ message: 'Server error: ' + error.message });
+  }
+});
+
+// Export rating logs as CSV
+router.get('/rating-logs/export-csv', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin' && !req.user.administrativePrivilege) {
+    return res.status(403).json({ message: 'Access denied' });
+  }
+  
+  try {
+    const logs = await RatingLog.find()
+      .populate('candidateId', 'fullName itemNumber')
+      .populate('raterId', 'name raterType email')
+      .populate('performedBy', 'name userType')
+      .populate('competencyId', 'name type')
+      .sort({ createdAt: -1 });
+    
+    const headers = [
+      'Date & Time',
+      'Action',
+      'Rater Name',
+      'Rater Type',
+      'Rater Email',
+      'Candidate Name',
+      'Item Number',
+      'Competency',
+      'Competency Type',
+      'Old Score',
+      'New Score',
+      'Performed By',
+      'IP Address'
+    ];
+    
+    const rows = logs.map(log => [
+      new Date(log.createdAt).toLocaleString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      }),
+      log.action.toUpperCase(),
+      log.raterId?.name || 'N/A',
+      log.raterId?.raterType || 'N/A',
+      log.raterId?.email || 'N/A',
+      log.candidateId?.fullName || 'N/A',
+      log.itemNumber || 'N/A',
+      log.competencyId?.name || 'N/A',
+      log.competencyType || 'N/A',
+      log.oldScore || 'N/A',
+      log.newScore || 'N/A',
+      log.performedBy?.name || 'N/A',
+      log.ipAddress || 'N/A'
+    ]);
+    
+    const escapeCsvValue = (value) => {
+      if (value == null) return '';
+      const stringValue = String(value);
+      if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
+        return `"${stringValue.replace(/"/g, '""')}"`;
+      }
+      return stringValue;
+    };
+    
+    const csvContent = [
+      headers.map(escapeCsvValue).join(','),
+      ...rows.map(row => row.map(escapeCsvValue).join(','))
+    ].join('\n');
+    
+    const timestamp = new Date().toISOString().split('T')[0];
+    const filename = `rating_audit_log_${timestamp}.csv`;
+    
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send('\ufeff' + csvContent);
+    
+  } catch (error) {
+    console.error('CSV export error:', error);
     res.status(500).json({ message: 'Server error: ' + error.message });
   }
 });
