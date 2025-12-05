@@ -27,6 +27,45 @@ const InterviewSummaryGenerator = ({ user }) => {
     minimum: []
   });
 
+  // NEW: Auto-refresh for interview summary
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [lastRefresh, setLastRefresh] = useState(new Date());
+
+  useEffect(() => {
+    if (!autoRefresh || !selectedCandidate || !selectedItem) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const [candidateData, ratingsData] = await Promise.all([
+          candidatesAPI.getById(selectedCandidate),
+          ratingsAPI.getByCandidate(selectedCandidate)
+        ]);
+        
+        setCandidateDetails(candidateData);
+        const filteredRatings = ratingsData.filter(rating => 
+          rating.itemNumber === selectedItem
+        );
+        setRatings(filteredRatings);
+        setLastRefresh(new Date());
+      } catch (error) {
+        console.error('Auto-refresh failed:', error);
+      }
+    }, 30000); // Refresh every 30 seconds
+
+    return () => clearInterval(interval);
+  }, [autoRefresh, selectedCandidate, selectedItem]);
+
+  const formatTimeSince = (date) => {
+    const seconds = Math.floor((new Date() - date) / 1000);
+    if (seconds < 60) return 'just now';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+  };
+
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
@@ -588,83 +627,149 @@ const InterviewSummaryGenerator = ({ user }) => {
   };
 
   return (
-    <div className="container mx-auto p-4">
-      <div className="bg-white shadow-md rounded-lg p-6">
-        <h2 className="text-2xl font-bold mb-4">Interview Summary Generator</h2>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Assignment</label>
-            <select
-              value={selectedAssignment}
-              onChange={(e) => setSelectedAssignment(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
-            >
-              <option value="">Select Assignment</option>
-              {assignments.map(assignment => (
-                <option key={assignment} value={assignment}>{assignment}</option>
-              ))}
-            </select>
+    <div className="container mx-auto p-6 max-w-7xl">
+      <div className="bg-gradient-to-br from-blue-50 to-indigo-50 shadow-xl rounded-2xl p-8 border border-blue-100">
+        {/* Header Section */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">
+              Interview Summary Generator
+            </h2>
+            {selectedCandidate && (
+              <div className="flex items-center space-x-3">
+                {/* Auto-refresh toggle */}
+                <div className="flex items-center space-x-2 px-4 py-2 bg-white border border-gray-200 rounded-lg shadow-sm">
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={autoRefresh}
+                      onChange={(e) => setAutoRefresh(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    <span className="ml-3 text-sm font-medium text-gray-700">
+                      Auto-refresh {autoRefresh && `(${formatTimeSince(lastRefresh)})`}
+                    </span>
+                  </label>
+                </div>
+              </div>
+            )}
           </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Position</label>
-            <select
-              value={selectedPosition}
-              onChange={(e) => setSelectedPosition(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
-              disabled={!selectedAssignment}
-            >
-              <option value="">Select Position</option>
-              {positions.map(position => (
-                <option key={position} value={position}>{position}</option>
-              ))}
-            </select>
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Item Number</label>
-            <select
-              value={selectedItem}
-              onChange={(e) => setSelectedItem(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
-              disabled={!selectedPosition}
-            >
-              <option value="">Select Item Number</option>
-              {items.map(item => (
-                <option key={item} value={item}>{item}</option>
-              ))}
-            </select>
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Candidate</label>
-            <select
-              value={selectedCandidate}
-              onChange={(e) => setSelectedCandidate(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
-              disabled={!selectedItem}
-            >
-              <option value="">Select Candidate</option>
-              {candidates.map(candidate => (
-                <option key={candidate.id} value={candidate.id}>{candidate.name}</option>
-              ))}
-            </select>
+          <p className="text-gray-600">Generate comprehensive interview summaries with real-time rating data</p>
+        </div>
+
+        {/* Selection Filters */}
+        <div className="bg-white rounded-xl shadow-md p-6 mb-6">
+          <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+            <svg className="w-5 h-5 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+            </svg>
+            Selection Criteria
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">Assignment</label>
+              <select
+                value={selectedAssignment}
+                onChange={(e) => setSelectedAssignment(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+              >
+                <option value="">Select Assignment</option>
+                {assignments.map(assignment => (
+                  <option key={assignment} value={assignment}>{assignment}</option>
+                ))}
+              </select>
+            </div>
+            
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">Position</label>
+              <select
+                value={selectedPosition}
+                onChange={(e) => setSelectedPosition(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all disabled:bg-gray-100 disabled:cursor-not-allowed"
+                disabled={!selectedAssignment}
+              >
+                <option value="">Select Position</option>
+                {positions.map(position => (
+                  <option key={position} value={position}>{position}</option>
+                ))}
+              </select>
+            </div>
+            
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">Item Number</label>
+              <select
+                value={selectedItem}
+                onChange={(e) => setSelectedItem(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all disabled:bg-gray-100 disabled:cursor-not-allowed"
+                disabled={!selectedPosition}
+              >
+                <option value="">Select Item Number</option>
+                {items.map(item => (
+                  <option key={item} value={item}>{item}</option>
+                ))}
+              </select>
+            </div>
+            
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">Candidate</label>
+              <select
+                value={selectedCandidate}
+                onChange={(e) => setSelectedCandidate(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all disabled:bg-gray-100 disabled:cursor-not-allowed"
+                disabled={!selectedItem}
+              >
+                <option value="">Select Candidate</option>
+                {candidates.map(candidate => (
+                  <option key={candidate.id} value={candidate.id}>{candidate.name}</option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
 
-        {loading && <div className="text-center">Loading...</div>}
+        {loading && (
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+          </div>
+        )}
 
         {selectedCandidate && candidateDetails && (
           <>
-            <div className="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-md">
-              <h3 className="text-lg font-bold mb-2">Candidate Information</h3>
-              <p><strong>Name:</strong> {candidateDetails.fullName}</p>
-              <p><strong>Office:</strong> {vacancyDetails?.assignment || 'REGIONAL OFFICE'}</p>
-              <p><strong>Vacancy:</strong> {vacancyDetails?.position}</p>
-              <p><strong>Item Number:</strong> {selectedItem}</p>
-              <p><strong>Salary Grade:</strong> {salaryGrade}</p>
-              <p><strong>Date of Interview:</strong> {new Date().toLocaleDateString()}</p>
+            {/* Candidate Information Card */}
+            <div className="bg-white rounded-xl shadow-md p-6 mb-6 border-l-4 border-blue-600">
+              <h3 className="text-xl font-bold text-gray-900 mb-4 flex items-center">
+                <svg className="w-6 h-6 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+                Candidate Information
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <p className="text-sm text-gray-600 mb-1">Full Name</p>
+                  <p className="font-semibold text-gray-900">{candidateDetails.fullName}</p>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <p className="text-sm text-gray-600 mb-1">Office/Assignment</p>
+                  <p className="font-semibold text-gray-900">{vacancyDetails?.assignment || 'REGIONAL OFFICE'}</p>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <p className="text-sm text-gray-600 mb-1">Position Applied</p>
+                  <p className="font-semibold text-gray-900">{vacancyDetails?.position}</p>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <p className="text-sm text-gray-600 mb-1">Item Number</p>
+                  <p className="font-semibold text-gray-900">{selectedItem}</p>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <p className="text-sm text-gray-600 mb-1">Salary Grade</p>
+                  <p className="font-semibold text-gray-900">{salaryGrade}</p>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <p className="text-sm text-gray-600 mb-1">Interview Date</p>
+                  <p className="font-semibold text-gray-900">{new Date().toLocaleDateString()}</p>
+                </div>
+              </div>
             </div>
 
             {groupedCompetencies.basic.length > 0 && (
@@ -1035,25 +1140,37 @@ const InterviewSummaryGenerator = ({ user }) => {
               </div>
             )}
 
-            <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-md">
-              <h3 className="text-lg font-bold mb-2">Calculated Scores</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p><strong>Psycho-Social Score:</strong> {calculateFinalScores().psychoSocial.toFixed(2)}</p>
+            {/* Final Scores Card */}
+            <div className="bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl shadow-lg p-6 mb-6 text-white">
+              <h3 className="text-xl font-bold mb-4 flex items-center">
+                <svg className="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                Calculated Scores
+              </h3>
+              <div className="grid grid-cols-2 gap-6">
+                <div className="bg-white bg-opacity-20 backdrop-blur-sm rounded-lg p-4">
+                  <p className="text-sm font-medium mb-2 opacity-90">Psycho-Social Score</p>
+                  <p className="text-4xl font-bold">{calculateFinalScores().psychoSocial.toFixed(2)}</p>
                 </div>
-                <div>
-                  <p><strong>Potential Score:</strong> {calculateFinalScores().potential.toFixed(2)}</p>
+                <div className="bg-white bg-opacity-20 backdrop-blur-sm rounded-lg p-4">
+                  <p className="text-sm font-medium mb-2 opacity-90">Potential Score</p>
+                  <p className="text-4xl font-bold">{calculateFinalScores().potential.toFixed(2)}</p>
                 </div>
               </div>
             </div>
 
+            {/* Export Button */}
             <div className="flex justify-end">
               <button 
                 onClick={exportToPDF} 
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg font-semibold shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                 disabled={!selectedCandidate || !candidateDetails}
               >
-                Export to PDF
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <span>Export to PDF</span>
               </button>
             </div>
           </>
