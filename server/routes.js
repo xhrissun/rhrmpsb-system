@@ -1167,10 +1167,19 @@ router.post('/ratings/submit', authMiddleware, async (req, res) => {
       };
       
       const existingRating = await Rating.findOne(filter);
+      const newScore = parseInt(ratingData.score);
+      
+      // FIXED: Only create log entry if score actually changed or it's a new rating
+      const shouldLog = !existingRating || existingRating.score !== newScore;
+      
+      if (!shouldLog) {
+        // Skip this rating - no change needed
+        continue;
+      }
       
       const update = {
         ...filter,
-        score: parseInt(ratingData.score),
+        score: newScore,
         submittedAt: new Date()
       };
       
@@ -1186,7 +1195,7 @@ router.post('/ratings/submit', authMiddleware, async (req, res) => {
       
       results.push(result);
       
-      // NEW: Create audit log entry
+      // Create audit log entry only for actual changes
       logEntries.push({
         action: existingRating ? 'updated' : 'created',
         ratingId: result._id,
@@ -1196,14 +1205,14 @@ router.post('/ratings/submit', authMiddleware, async (req, res) => {
         competencyId: ratingData.competencyId,
         competencyType: ratingData.competencyType,
         oldScore: existingRating?.score || null,
-        newScore: parseInt(ratingData.score),
+        newScore: newScore,
         performedBy: req.user._id,
         ipAddress: req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress,
         userAgent: req.headers['user-agent']
       });
     }
     
-    // NEW: Bulk insert audit logs
+    // Bulk insert audit logs only for actual changes
     if (logEntries.length > 0) {
       await RatingLog.insertMany(logEntries);
     }
@@ -1211,7 +1220,8 @@ router.post('/ratings/submit', authMiddleware, async (req, res) => {
     res.json({ 
       message: hasExistingRatings ? 'Ratings updated successfully' : 'Ratings submitted successfully',
       isUpdate: hasExistingRatings,
-      ratingsProcessed: results.length
+      ratingsProcessed: results.length,
+      changesLogged: logEntries.length
     });
     
   } catch (error) {
@@ -1219,7 +1229,6 @@ router.post('/ratings/submit', authMiddleware, async (req, res) => {
     res.status(500).json({ message: 'Server error: ' + error.message });
   }
 });
-
 router.put('/ratings/:id', authMiddleware, async (req, res) => {
   if (req.user.userType !== 'rater') {
     return res.status(403).json({ message: 'Access denied' });
@@ -1247,6 +1256,7 @@ router.delete('/ratings/candidate/:candidateId/rater/:raterId', authMiddleware, 
   }
 });
 
+// Also update the delete route to only log actual deletions
 router.delete('/ratings/candidate/:candidateId/rater/:raterId/item/:itemNumber', authMiddleware, async (req, res) => {
   if (req.user.userType !== 'rater') {
     return res.status(403).json({ message: 'Access denied' });
@@ -1256,7 +1266,7 @@ router.delete('/ratings/candidate/:candidateId/rater/:raterId/item/:itemNumber',
     const { candidateId, raterId, itemNumber } = req.params;
     const decodedItemNumber = decodeURIComponent(itemNumber);
     
-    // NEW: Get ratings before deleting for audit log
+    // Get ratings before deleting for audit log
     const ratingsToDelete = await Rating.find({
       candidateId: candidateId,
       raterId: raterId,
@@ -1269,8 +1279,8 @@ router.delete('/ratings/candidate/:candidateId/rater/:raterId/item/:itemNumber',
       itemNumber: decodedItemNumber
     });
     
-    // NEW: Create audit log entries for deleted ratings
-    if (ratingsToDelete.length > 0) {
+    // Only create log entries if ratings were actually deleted
+    if (ratingsToDelete.length > 0 && result.deletedCount > 0) {
       const logEntries = ratingsToDelete.map(rating => ({
         action: 'deleted',
         ratingId: rating._id,
