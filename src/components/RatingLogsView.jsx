@@ -72,13 +72,10 @@ const RatingLogsView = () => {
   const getActionColor = (action) => {
     switch (action) {
       case 'created':
-      case 'batch_created':
         return 'bg-green-100 text-green-800';
       case 'updated':
-      case 'batch_updated':
         return 'bg-blue-100 text-blue-800';
       case 'deleted':
-      case 'batch_deleted':
         return 'bg-red-100 text-red-800';
       default:
         return 'bg-gray-100 text-gray-800';
@@ -88,21 +85,18 @@ const RatingLogsView = () => {
   const getActionIcon = (action) => {
     switch (action) {
       case 'created':
-      case 'batch_created':
         return (
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
         );
       case 'updated':
-      case 'batch_updated':
         return (
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
           </svg>
         );
       case 'deleted':
-      case 'batch_deleted':
         return (
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -121,30 +115,26 @@ const RatingLogsView = () => {
         return 'Updated';
       case 'deleted':
         return 'Deleted';
-      case 'batch_created':
-        return 'Batch Created';
-      case 'batch_updated':
-        return 'Batch Updated';
-      case 'batch_deleted':
-        return 'Batch Deleted';
       default:
         return action;
     }
   };
 
-  // Group logs by submission session (same candidate, rater, item number, and close timestamp)
+  // FIXED: Group logs by submission session - now properly shows only changed competencies
   const groupLogsBySession = (logs) => {
     const grouped = [];
     const sessionMap = new Map();
 
     logs.forEach(log => {
-      // Create a session key based on candidate, rater, item number, and approximate time
-      const sessionTime = Math.floor(new Date(log.createdAt).getTime() / (5 * 60 * 1000)); // 5-minute window
+      // Create a session key based on candidate, rater, item number, and approximate time (5-minute window)
+      const sessionTime = Math.floor(new Date(log.createdAt).getTime() / (5 * 60 * 1000));
       const sessionKey = `${log.candidateId?._id}-${log.raterId?._id}-${log.itemNumber}-${sessionTime}`;
 
       if (sessionMap.has(sessionKey)) {
+        // Add to existing session
         sessionMap.get(sessionKey).details.push(log);
       } else {
+        // Create new session
         const session = {
           id: log._id,
           action: log.action,
@@ -190,7 +180,7 @@ const RatingLogsView = () => {
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Rating Audit Log</h2>
-          <p className="text-sm text-gray-600 mt-1">Track all rating activities including submissions, updates, and deletions</p>
+          <p className="text-sm text-gray-600 mt-1">Track changes to ratings - only actual updates are logged</p>
         </div>
         <button
           onClick={handleExportCSV}
@@ -234,7 +224,7 @@ const RatingLogsView = () => {
             </div>
           ))}
           <div className="bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg p-4 shadow-sm text-white">
-            <p className="text-sm font-medium opacity-90">Total Activities</p>
+            <p className="text-sm font-medium opacity-90">Total Changes</p>
             <p className="text-2xl font-bold mt-1">
               {stats.actionStats.reduce((sum, stat) => sum + stat.count, 0)}
             </p>
@@ -326,7 +316,7 @@ const RatingLogsView = () => {
         </div>
       </div>
 
-      {/* Logs Table - Grouped Sessions */}
+      {/* Logs Table - Grouped Sessions showing ONLY changed competencies */}
       <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
@@ -338,7 +328,7 @@ const RatingLogsView = () => {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rater</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Candidate</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Item Number</th>
-                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Competencies</th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Changes</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
@@ -349,7 +339,7 @@ const RatingLogsView = () => {
                       <svg className="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
-                      <p className="text-lg font-medium">No logs found</p>
+                      <p className="text-lg font-medium">No changes found</p>
                       <p className="text-sm">Try adjusting your search or filter criteria</p>
                     </div>
                   </td>
@@ -357,6 +347,15 @@ const RatingLogsView = () => {
               ) : (
                 groupedLogs.map(session => {
                   const isExpanded = expandedRows.has(session.id);
+                  // Show the most common action in the session
+                  const actionCounts = session.details.reduce((acc, log) => {
+                    acc[log.action] = (acc[log.action] || 0) + 1;
+                    return acc;
+                  }, {});
+                  const primaryAction = Object.keys(actionCounts).reduce((a, b) => 
+                    actionCounts[a] > actionCounts[b] ? a : b
+                  );
+                  
                   return (
                     <React.Fragment key={session.id}>
                       <tr className="hover:bg-gray-50 cursor-pointer" onClick={() => toggleRowExpansion(session.id)}>
@@ -383,9 +382,9 @@ const RatingLogsView = () => {
                           })}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getActionColor(session.action)}`}>
-                            {getActionIcon(session.action)}
-                            <span className="ml-1 capitalize">{getActionLabel(session.action)}</span>
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getActionColor(primaryAction)}`}>
+                            {getActionIcon(primaryAction)}
+                            <span className="ml-1 capitalize">{getActionLabel(primaryAction)}</span>
                           </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm">
@@ -400,7 +399,7 @@ const RatingLogsView = () => {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-center">
                           <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold bg-blue-100 text-blue-800">
-                            {session.details.length} {session.details.length === 1 ? 'competency' : 'competencies'}
+                            {session.details.length} {session.details.length === 1 ? 'change' : 'changes'}
                           </span>
                         </td>
                       </tr>
@@ -409,7 +408,7 @@ const RatingLogsView = () => {
                           <td colSpan="7" className="px-6 py-4 bg-gray-50">
                             <div className="space-y-2">
                               <div className="flex items-center justify-between mb-3">
-                                <h4 className="text-sm font-semibold text-gray-700">Competency Details</h4>
+                                <h4 className="text-sm font-semibold text-gray-700">Rating Changes</h4>
                                 <span className="text-xs text-gray-500">IP: {session.ipAddress || 'N/A'}</span>
                               </div>
                               <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
@@ -418,6 +417,7 @@ const RatingLogsView = () => {
                                     <tr>
                                       <th className="px-4 py-2 text-left text-xs font-medium text-gray-600">Competency</th>
                                       <th className="px-4 py-2 text-left text-xs font-medium text-gray-600">Type</th>
+                                      <th className="px-4 py-2 text-center text-xs font-medium text-gray-600">Action</th>
                                       <th className="px-4 py-2 text-center text-xs font-medium text-gray-600">Score Change</th>
                                     </tr>
                                   </thead>
@@ -430,6 +430,12 @@ const RatingLogsView = () => {
                                         <td className="px-4 py-2 text-sm">
                                           <span className="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-700 capitalize">
                                             {detail.competencyType || 'N/A'}
+                                          </span>
+                                        </td>
+                                        <td className="px-4 py-2 text-center">
+                                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getActionColor(detail.action)}`}>
+                                            {getActionIcon(detail.action)}
+                                            <span className="ml-1 capitalize">{getActionLabel(detail.action)}</span>
                                           </span>
                                         </td>
                                         <td className="px-4 py-2 text-center text-sm">
