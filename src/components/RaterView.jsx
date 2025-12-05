@@ -388,6 +388,7 @@ const RaterView = ({ user }) => {
   };
 
   const handleDeleteRatings = () => {
+    setIsUpdateSubmission(false); // Explicitly set to false for deletion
     setIsDeleteConfirmModalOpen(true);
   };
 
@@ -968,6 +969,7 @@ const RaterView = ({ user }) => {
                   <button
                     onClick={() => {
                       setIsDeleteConfirmModalOpen(false);
+                      setIsUpdateSubmission(false); // Add this line
                       setIsPasswordModalOpen(true);
                       setPassword('');
                       setPasswordError('');
