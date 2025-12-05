@@ -94,6 +94,8 @@ const AdminView = ({ user }) => {
   const [showVacancyModal, setShowVacancyModal] = useState(false);
   const [selectedVacancy, setSelectedVacancy] = useState(null);
   const prevTabRef = useRef(activeTab);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [pendingAction, setPendingAction] = useState(null);
 
   const { showToast } = useToast();
 
@@ -260,16 +262,51 @@ const AdminView = ({ user }) => {
   };
 
   const handleEdit = (item, type) => {
-    setModalType(type);
-    setEditingItem(item);
-    setShowModal(true);
+    const itemName = 
+      type === 'user' ? item.name :
+      type === 'vacancy' ? item.itemNumber :
+      type === 'candidate' ? item.fullName :
+      type === 'competency' ? item.name :
+      type === 'assignment' ? item.name :
+      'this item';
+
+    setPendingAction({
+      type: 'edit',
+      item,
+      category: type,
+      itemName
+    });
+    setShowPasswordModal(true);
   };
 
-  const handleDelete = async (id, type) => {
-    if (!window.confirm('Are you sure you want to delete this item?')) return;
+  const executeEdit = () => {
+    if (!pendingAction) return;
+
+    const { item, category } = pendingAction;
+    
+    setModalType(category);
+    setEditingItem(item);
+    setShowModal(true);
+    setPendingAction(null);
+  };
+
+  const handleDelete = (id, type, itemName = 'this item') => {
+    setPendingAction({
+      type: 'delete',
+      id,
+      category: type,
+      itemName
+    });
+    setShowPasswordModal(true);
+  };
+
+  const executeDelete = async () => {
+    if (!pendingAction) return;
+
+    const { id, category } = pendingAction;
 
     try {
-      switch (type) {
+      switch (category) {
         case 'user':
           await usersAPI.delete(id);
           break;
@@ -288,6 +325,8 @@ const AdminView = ({ user }) => {
     } catch (error) {
       console.error('Failed to delete item:', error);
       showToast('Failed to delete item. Please try again.', 'error');
+    } finally {
+      setPendingAction(null);
     }
   };
 
@@ -1517,6 +1556,111 @@ const AdminView = ({ user }) => {
       </div>
     );
   };
+  // Password Confirmation Modal
+  const PasswordConfirmModal = ({ isOpen, onClose, onConfirm, actionType, itemName }) => {
+    const [password, setPassword] = useState('');
+    const [error, setError] = useState('');
+    const [loading, setLoading] = useState(false);
+
+    const handleSubmit = async (e) => {
+      e.preventDefault();
+      setError('');
+      setLoading(true);
+
+      try {
+        const response = await fetch(`${process.env.REACT_APP_API_URL}/api/auth/verify-password`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          body: JSON.stringify({
+            userId: user._id,
+            password
+          })
+        });
+
+        const data = await response.json();
+
+        if (data.isValid) {
+          onConfirm();
+          onClose();
+          setPassword('');
+        } else {
+          setError('Incorrect password. Please try again.');
+        }
+      } catch (error) {
+        setError('Failed to verify password. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (!isOpen) return null;
+
+    return (
+      <div className="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="modal-content bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-bold text-gray-900">Confirm {actionType}</h2>
+            <button onClick={onClose} className="text-gray-500 hover:text-gray-700">✕</button>
+          </div>
+          
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="bg-yellow-50 border border-yellow-200 rounded p-3 mb-4">
+              <p className="text-sm text-yellow-800">
+                ⚠️ You are about to {actionType.toLowerCase()} <strong>{itemName}</strong>. 
+                Please enter your password to confirm this action.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Enter Your Password
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  setError('');
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Enter password"
+                required
+                autoFocus
+              />
+            </div>
+
+            {error && (
+              <div className="bg-red-50 border border-red-200 rounded p-3">
+                <p className="text-sm text-red-800">{error}</p>
+              </div>
+            )}
+
+            <div className="flex justify-end space-x-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 rounded text-sm bg-gray-200 hover:bg-gray-300"
+                disabled={loading}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 rounded text-sm bg-red-500 text-white hover:bg-red-600 disabled:opacity-50"
+                disabled={loading}
+              >
+                {loading ? 'Verifying...' : `Confirm ${actionType}`}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  };
+
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -1621,7 +1765,7 @@ const AdminView = ({ user }) => {
                       Edit
                     </button>
                     <button
-                      onClick={() => handleDelete(user._id, 'user')}
+                      onClick={() => handleDelete(user._id, 'user', user.name)}
                       className="btn-danger px-2 py-1 rounded text-xs bg-red-500 text-white hover:bg-red-600"
                     >
                       Delete
@@ -1636,6 +1780,7 @@ const AdminView = ({ user }) => {
                   </td>
                 </tr>
               )}
+              
             </tbody>
           </table>
         </div>
@@ -1707,7 +1852,7 @@ const AdminView = ({ user }) => {
                       Edit
                     </button>
                     <button
-                      onClick={() => handleDelete(vacancy._id, 'vacancy')}
+                      onClick={() => handleDelete(vacancy._id, 'vacancy', vacancy.itemNumber)}
                       className="btn-danger px-2 py-1 rounded text-xs bg-red-500 text-white hover:bg-red-600"
                     >
                       Delete
@@ -1806,7 +1951,7 @@ const AdminView = ({ user }) => {
                       Edit
                     </button>
                     <button
-                      onClick={() => handleDelete(candidate._id, 'candidate')}
+                      onClick={() => handleDelete(candidate._id, 'candidate', candidate.fullName)}
                       className="btn-danger px-2 py-1 rounded text-xs bg-red-500 text-white hover:bg-red-600"
                     >
                       Delete
@@ -1921,7 +2066,7 @@ const AdminView = ({ user }) => {
                         Edit
                       </button>
                       <button
-                        onClick={() => handleDelete(competency._id, 'competency')}
+                        onClick={() => handleDelete(competency._id, 'competency', competency.name)}
                         className="btn-danger px-2 py-1 rounded text-xs bg-red-500 text-white hover:bg-red-600"
                       >
                         Delete
@@ -2191,6 +2336,26 @@ const AdminView = ({ user }) => {
     {showModal && modalType === 'competency' && <CompetencyModal />}
     {showModal && modalType === 'assignment' && <VacancyAssignmentModal />}
     {showVacancyModal && <VacancyDetailsModal />}
+    
+    {/* Password Confirmation Modal */}
+    {showPasswordModal && (
+      <PasswordConfirmModal
+        isOpen={showPasswordModal}
+        onClose={() => {
+          setShowPasswordModal(false);
+          setPendingAction(null);
+        }}
+        onConfirm={() => {
+          if (pendingAction?.type === 'delete') {
+            executeDelete();
+          } else if (pendingAction?.type === 'edit') {
+            executeEdit();
+          }
+        }}
+        actionType={pendingAction?.type === 'delete' ? 'Delete' : 'Edit'}
+        itemName={pendingAction?.itemName || 'this item'}
+      />
+    )}
   </div>
 );
 };
