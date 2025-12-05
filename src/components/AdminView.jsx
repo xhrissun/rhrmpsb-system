@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import usePersistedState from '../utils/usePersistedState';
-import { usersAPI, vacanciesAPI, candidatesAPI, competenciesAPI } from '../utils/api';
+import { usersAPI, vacanciesAPI, candidatesAPI, competenciesAPI, authAPI } from '../utils/api';
 import { parseCSV, exportToCSV } from '../utils/helpers';
 import { USER_TYPES, RATER_TYPES, SALARY_GRADES, CANDIDATE_STATUS } from '../utils/constants';
 import InterviewSummaryGenerator from './InterviewSummaryGenerator';
@@ -1568,21 +1568,9 @@ const AdminView = ({ user }) => {
       setLoading(true);
 
       try {
-        const response = await fetch(`${process.env.REACT_APP_API_URL}/api/auth/verify-password`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          },
-          body: JSON.stringify({
-            userId: user._id,
-            password
-          })
-        });
+        const isValid = await authAPI.verifyPassword(user._id, password);
 
-        const data = await response.json();
-
-        if (data.isValid) {
+        if (isValid) {
           onConfirm();
           onClose();
           setPassword('');
