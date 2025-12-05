@@ -2288,7 +2288,7 @@ const AdminView = ({ user }) => {
     {/* Main Content */}
     <div className="flex-1 p-6 overflow-auto">
       {/* Search Bar */}
-      {activeTab !== 'interviewSummary' && (
+      {activeTab !== 'interviewSummary' && activeTab !== 'ratingLogs' && (
         <SearchBar
           key={activeTab}
           placeholder={
