@@ -731,6 +731,26 @@ const RaterView = ({ user }) => {
                     </svg>
                   )}
                 </button>
+
+                {/* Floating tooltip with animation */}
+                {isModalMinimized && (
+                  <div className="absolute top-full right-0 mt-3 mr-2 z-40 animate-bounce">
+                    <div className="relative">
+                      {/* Arrow pointing up */}
+                      <div className="absolute -top-2 right-6 w-3 h-3 bg-gradient-to-br from-blue-500 to-indigo-600 transform rotate-45"></div>
+                      
+                      {/* Tooltip body */}
+                      <div className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-6 py-3 rounded-xl shadow-2xl border-2 border-white">
+                        <div className="flex items-center space-x-2">
+                          <svg className="w-5 h-5 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          <p className="text-sm font-bold">Click arrow to expand!</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {isModalMinimized && (
