@@ -27,7 +27,7 @@ const RaterView = ({ user }) => {
   const [ratings, setRatings] = useState({});
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [isModalMinimized, setIsModalMinimized] = useState(false);
+  const [isModalMinimized, setIsModalMinimized] = useState(true);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
   const [successModalType, setSuccessModalType] = useState('submit');
@@ -148,6 +148,15 @@ const RaterView = ({ user }) => {
       }
     }
   }, [candidates, selectedCandidate]);
+
+  // Track unsaved ratings in sessionStorage
+  useEffect(() => {
+    if (Object.keys(ratings).length > 0) {
+      sessionStorage.setItem(`rater_${user._id}_hasUnsavedRatings`, 'true');
+    } else {
+      sessionStorage.removeItem(`rater_${user._id}_hasUnsavedRatings`);
+    }
+  }, [ratings, user._id]);
 
   const filterVacanciesByAssignment = (allVacancies, user) => {
     switch (user.assignedVacancies) {
@@ -723,6 +732,17 @@ const RaterView = ({ user }) => {
                   )}
                 </button>
               </div>
+
+              {isModalMinimized && (
+              <div className="p-4 bg-blue-50 border-t border-blue-100">
+                <div className="flex items-center justify-center space-x-2 text-blue-700">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span className="text-sm font-medium">Click the arrow above to view candidate details and documents</span>
+                </div>
+              </div>
+            )}
 
 
 
