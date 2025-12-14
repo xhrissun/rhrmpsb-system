@@ -354,6 +354,7 @@ const Dashboard = ({ user, onLogout }) => {
   });
   const [successMessage, setSuccessMessage] = useState('');
   const [creatorModalOpen, setCreatorModalOpen] = useState(false);
+  const [logoutConfirmModalOpen, setLogoutConfirmModalOpen] = useState(false);
 
   useEffect(() => {
     if (user.userType === USER_TYPES.ADMIN) {
@@ -371,6 +372,18 @@ const Dashboard = ({ user, onLogout }) => {
   };
 
   const handleLogout = () => {
+    // Check if there are unsaved ratings in RaterView
+    const hasUnsavedRatings = user.userType === USER_TYPES.RATER && 
+      sessionStorage.getItem(`rater_${user._id}_hasUnsavedRatings`) === 'true';
+    
+    if (hasUnsavedRatings) {
+      setLogoutConfirmModalOpen(true);
+    } else {
+      performLogout();
+    }
+  };
+
+  const performLogout = () => {
     localStorage.removeItem(`rater_${user._id}_selectedAssignment`);
     localStorage.removeItem(`rater_${user._id}_selectedPosition`);
     localStorage.removeItem(`rater_${user._id}_selectedItemNumber`);
@@ -380,6 +393,7 @@ const Dashboard = ({ user, onLogout }) => {
     localStorage.removeItem(`secretariat_${user._id}_selectedItemNumber`);
     localStorage.removeItem(`secretariat_${user._id}_selectedCandidate`);
     localStorage.removeItem(`admin_${user._id}_activeTab`);
+    sessionStorage.removeItem(`rater_${user._id}_hasUnsavedRatings`);
     onLogout();
   };
 
@@ -527,6 +541,38 @@ const Dashboard = ({ user, onLogout }) => {
         selectedUser={passwordChangeModal.user}
         onSuccess={handlePasswordChangeSuccess}
       />
+
+      {logoutConfirmModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-8 max-w-md w-full mx-4">
+            <div className="text-center">
+              <div className="w-20 h-20 mx-auto mb-6 bg-orange-100 rounded-full flex items-center justify-center">
+                <svg className="w-10 h-10 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+              </div>
+              <h3 className="text-2xl font-bold text-gray-800 mb-4">Confirm Logout</h3>
+              <p className="text-lg text-gray-600 mb-6">
+                You have unsubmitted ratings that will be lost if you logout now. Are you sure you want to continue?
+              </p>
+              <div className="flex justify-center gap-4">
+                <button
+                  onClick={() => setLogoutConfirmModalOpen(false)}
+                  className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 text-lg font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={performLogout}
+                  className="px-6 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-lg hover:from-red-700 hover:to-red-800 focus:outline-none focus:ring-2 focus:ring-red-500 text-lg font-semibold"
+                >
+                  Logout Anyway
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
