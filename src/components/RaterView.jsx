@@ -717,10 +717,21 @@ const RaterView = ({ user }) => {
                     </p>
                   )}
                 </div>
+
                 <button
                   onClick={() => setIsModalMinimized(!isModalMinimized)}
-                  className="text-white hover:text-green-200 focus:outline-none"
+                  className="text-white hover:text-green-200 focus:outline-none relative"
                 >
+                  {/* Pulsing indicator ring */}
+                  {isModalMinimized && (
+                    <>
+                      <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-3 w-3 bg-yellow-500"></span>
+                      </span>
+                    </>
+                  )}
+                  
                   {isModalMinimized ? (
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
@@ -732,25 +743,6 @@ const RaterView = ({ user }) => {
                   )}
                 </button>
 
-                {/* Floating tooltip with animation */}
-                {isModalMinimized && (
-                  <div className="absolute top-full right-0 mt-3 mr-2 z-40 animate-bounce">
-                    <div className="relative">
-                      {/* Arrow pointing up */}
-                      <div className="absolute -top-2 right-6 w-3 h-3 bg-gradient-to-br from-blue-500 to-indigo-600 transform rotate-45"></div>
-                      
-                      {/* Tooltip body */}
-                      <div className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-6 py-3 rounded-xl shadow-2xl border-2 border-white">
-                        <div className="flex items-center space-x-2">
-                          <svg className="w-5 h-5 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                          <p className="text-sm font-bold">Click arrow to expand!</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
               </div>
 
               {isModalMinimized && (
