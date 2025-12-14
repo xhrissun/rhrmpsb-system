@@ -705,11 +705,7 @@ const RaterView = ({ user }) => {
           )}
 
           {!isCheckingRaterType && candidateDetails && vacancyDetails && (
-            <div
-              className={`sticky top-12 z-30 bg-gray-100 rounded-xl border border-green-200 overflow-hidden shadow-lg transition-all duration-300 ${
-                isModalMinimized ? 'mb-2 max-h-84' : 'mb-6 max-h-full'
-              }`}
-            >
+            <div className={`sticky top-12 z-30 bg-gray-100 rounded-xl border border-green-200 overflow-hidden mb-6 shadow-lg transition-all duration-300 ${isModalMinimized ? 'max-h-84' : 'max-h-full'}`}>
               <div className="bg-gradient-to-r from-green-800 to-green-600 px-4 py-3 flex justify-between items-center">
                 <div className="text-center flex-1">
                   <h3 className="text-2xl md:text-3xl font-bold text-white">{candidateDetails.fullName}</h3>
@@ -749,16 +745,19 @@ const RaterView = ({ user }) => {
 
               </div>
 
+              {/* Minimized hint */}
               {isModalMinimized && (
-              <div className="p-4 bg-blue-50 border-t border-blue-100">
-                <div className="flex items-center justify-center space-x-2 text-blue-700">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <span className="text-sm font-medium">Click the arrow above to view candidate details and documents</span>
+                <div className="py-3 px-4 bg-blue-50 border-t border-blue-100 -mx-6 mt-6">
+                  <div className="flex items-center justify-center space-x-3 text-blue-700">
+                    <svg className="w-6 h-6 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span className="text-base font-medium text-center">
+                      Click the arrow above to view candidate details and documents
+                    </span>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
 
 
