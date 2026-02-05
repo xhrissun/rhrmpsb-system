@@ -1,26 +1,13 @@
 /**
  * Migration Script: Add Publication Ranges to Existing Data
- * 
- * This script helps migrate existing vacancies and candidates to use publication ranges.
- * Run this AFTER deploying the new schema and BEFORE using the new system.
- * 
- * Usage:
- * node migration_add_publication_ranges.js
  */
 
 import mongoose from 'mongoose';
-import dotenv from 'dotenv';
 import { PublicationRange, Vacancy, Candidate } from './models.js';
 
-dotenv.config();
-
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/rhrmpsb';
-
-async function migrate() {
+export async function runMigration() {
   try {
-    console.log('🔄 Connecting to MongoDB...');
-    await mongoose.connect(MONGODB_URI);
-    console.log('✅ Connected to MongoDB');
+    console.log('🔄 Starting migration...');
 
     // Check if migration is needed
     const vacancyCount = await Vacancy.countDocuments();
@@ -43,8 +30,7 @@ async function migrate() {
 
     if (vacanciesNeedingMigration === 0 && candidatesNeedingMigration === 0) {
       console.log('\n✅ No migration needed - all data already has publication ranges');
-      await mongoose.disconnect();
-      return;
+      return { success: true, migrated: false };
     }
 
     console.log(`\n🔍 Found data needing migration:`);
@@ -119,19 +105,14 @@ async function migrate() {
 
     if (remainingVacancies === 0 && remainingCandidates === 0) {
       console.log('\n✅ All data successfully migrated!');
+      return { success: true, migrated: true };
     } else {
       console.log('\n⚠️  Some data still needs migration. Please check manually.');
+      return { success: false, migrated: true, incomplete: true };
     }
-
-    await mongoose.disconnect();
-    console.log('\n✅ Disconnected from MongoDB');
 
   } catch (error) {
     console.error('\n❌ Migration failed:', error);
-    await mongoose.disconnect();
-    process.exit(1);
+    throw error;
   }
 }
-
-// Run migration
-migrate();
