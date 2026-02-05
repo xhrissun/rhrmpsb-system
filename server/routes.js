@@ -2,7 +2,7 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { parse } from 'csv-parse/sync';
-import { User, Vacancy, Candidate, Competency, Rating, RatingLog } from './models.js';
+import { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange } from './models.js';
 
 const router = express.Router();
 
@@ -280,13 +280,42 @@ router.delete('/vacancies/:id', authMiddleware, async (req, res) => {
   }
 });
 
-router.post('/vacancies/upload-csv', authMiddleware, async (req, res) => {
+// In routes.js, update the vacancy CSV upload route (around line 350):
+
+router.post('/vacancies/upload-csv/:publicationRangeId', authMiddleware, async (req, res) => {
   if (req.user.userType !== 'admin') {
     return res.status(403).json({ message: 'Access denied' });
   }
+  
   try {
     if (!req.files || !req.files.csv) {
       return res.status(400).json({ message: 'No file uploaded' });
+    }
+
+    // NEW: Check for duplicate item numbers within this publication range
+    const existingItemNumbers = await Vacancy.find({
+      publicationRangeId: publicationRange._id,
+      isArchived: false
+    }).distinct('itemNumber');
+    
+    const existingSet = new Set(existingItemNumbers);
+    const duplicates = processedVacancies.filter(v => existingSet.has(v.itemNumber));
+    
+    if (duplicates.length > 0) {
+      return res.status(400).json({
+        message: 'Duplicate item numbers found in this publication range',
+        duplicates: duplicates.map(d => d.itemNumber)
+      });
+    }
+    
+    // Verify publication range exists
+    const publicationRange = await PublicationRange.findById(req.params.publicationRangeId);
+    if (!publicationRange) {
+      return res.status(404).json({ message: 'Publication range not found' });
+    }
+    
+    if (publicationRange.isArchived) {
+      return res.status(400).json({ message: 'Cannot import to archived publication range' });
     }
     
     const vacanciesData = parseCSV(req.files.csv.data);
@@ -295,6 +324,7 @@ router.post('/vacancies/upload-csv', authMiddleware, async (req, res) => {
       position: vacancy.position || '',
       assignment: vacancy.assignment || '',
       salaryGrade: vacancy.salaryGrade || 1,
+      publicationRangeId: publicationRange._id, // FIX: Add publication range
       qualifications: {
         education: vacancy.education || '',
         training: vacancy.training || '',
@@ -1740,6 +1770,565 @@ router.get('/rating-logs/export-csv', authMiddleware, async (req, res) => {
     
   } catch (error) {
     console.error('CSV export error:', error);
+    res.status(500).json({ message: 'Server error: ' + error.message });
+  }
+});
+
+
+// ========================================
+// PUBLICATION RANGE ROUTES
+// ========================================
+
+// Get all publication ranges
+router.get('/publication-ranges', authMiddleware, async (req, res) => {
+  try {
+    const { includeArchived = 'false' } = req.query;
+    
+    let query = {};
+    if (includeArchived === 'false') {
+      query.isArchived = false;
+    }
+    
+    const publicationRanges = await PublicationRange.find(query)
+      .populate('archivedBy', 'name email')
+      .sort({ startDate: -1 });
+    
+    res.json(publicationRanges);
+  } catch (error) {
+    console.error('Failed to fetch publication ranges:', error);
+    res.status(500).json({ message: 'Server error: ' + error.message });
+  }
+});
+
+// Get active publication ranges
+router.get('/publication-ranges/active', authMiddleware, async (req, res) => {
+  try {
+    const publicationRanges = await PublicationRange.findActive();
+    res.json(publicationRanges);
+  } catch (error) {
+    console.error('Failed to fetch active publication ranges:', error);
+    res.status(500).json({ message: 'Server error: ' + error.message });
+  }
+});
+
+// Get archived publication ranges
+router.get('/publication-ranges/archived', authMiddleware, async (req, res) => {
+  try {
+    const publicationRanges = await PublicationRange.findArchived()
+      .populate('archivedBy', 'name email')
+      .sort({ archivedAt: -1 });
+    res.json(publicationRanges);
+  } catch (error) {
+    console.error('Failed to fetch archived publication ranges:', error);
+    res.status(500).json({ message: 'Server error: ' + error.message });
+  }
+});
+
+// Get single publication range by ID
+router.get('/publication-ranges/:id', authMiddleware, async (req, res) => {
+  try {
+    const publicationRange = await PublicationRange.findById(req.params.id)
+      .populate('archivedBy', 'name email');
+    
+    if (!publicationRange) {
+      return res.status(404).json({ message: 'Publication range not found' });
+    }
+    
+    res.json(publicationRange);
+  } catch (error) {
+    console.error('Failed to fetch publication range:', error);
+    res.status(500).json({ message: 'Server error: ' + error.message });
+  }
+});
+
+// Create publication range
+router.post('/publication-ranges', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin') {
+    return res.status(403).json({ message: 'Access denied' });
+  }
+  
+  try {
+    const { name, tags, startDate, endDate, description, isActive } = req.body;
+    
+    // Validate required fields
+    if (!name || !startDate || !endDate) {
+      return res.status(400).json({ 
+        message: 'Missing required fields: name, startDate, endDate' 
+      });
+    }
+    
+    // Check if name already exists
+    const existingRange = await PublicationRange.findOne({ name });
+    if (existingRange) {
+      return res.status(400).json({ 
+        message: 'A publication range with this name already exists' 
+      });
+    }
+    
+    const publicationRange = new PublicationRange({
+      name,
+      tags: tags || [],
+      startDate,
+      endDate,
+      description: description || '',
+      isActive: isActive !== undefined ? isActive : true
+    });
+    
+    await publicationRange.save();
+    res.status(201).json(publicationRange);
+    
+  } catch (error) {
+    console.error('Failed to create publication range:', error);
+    
+    if (error.message.includes('End date must be after start date')) {
+      return res.status(400).json({ message: error.message });
+    }
+    
+    res.status(500).json({ message: 'Server error: ' + error.message });
+  }
+});
+
+// Update publication range
+router.put('/publication-ranges/:id', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin') {
+    return res.status(403).json({ message: 'Access denied' });
+  }
+  
+  try {
+    const { name, tags, startDate, endDate, description, isActive } = req.body;
+    
+    const publicationRange = await PublicationRange.findById(req.params.id);
+    if (!publicationRange) {
+      return res.status(404).json({ message: 'Publication range not found' });
+    }
+    
+    // Check if archived
+    if (publicationRange.isArchived) {
+      return res.status(400).json({ 
+        message: 'Cannot update archived publication range' 
+      });
+    }
+    
+    // Check if changing name to an existing name
+    if (name && name !== publicationRange.name) {
+      const existingRange = await PublicationRange.findOne({ name });
+      if (existingRange) {
+        return res.status(400).json({ 
+          message: 'A publication range with this name already exists' 
+        });
+      }
+    }
+    
+    // Update fields
+    if (name) publicationRange.name = name;
+    if (tags !== undefined) publicationRange.tags = tags;
+    if (startDate) publicationRange.startDate = startDate;
+    if (endDate) publicationRange.endDate = endDate;
+    if (description !== undefined) publicationRange.description = description;
+    if (isActive !== undefined) publicationRange.isActive = isActive;
+    
+    await publicationRange.save();
+    res.json(publicationRange);
+    
+  } catch (error) {
+    console.error('Failed to update publication range:', error);
+    
+    if (error.message.includes('End date must be after start date')) {
+      return res.status(400).json({ message: error.message });
+    }
+    
+    res.status(500).json({ message: 'Server error: ' + error.message });
+  }
+});
+
+// Archive publication range (and all associated vacancies/candidates)
+router.post('/publication-ranges/:id/archive', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin') {
+    return res.status(403).json({ message: 'Access denied' });
+  }
+  
+  try {
+    const publicationRange = await PublicationRange.findById(req.params.id);
+    if (!publicationRange) {
+      return res.status(404).json({ message: 'Publication range not found' });
+    }
+    
+    if (publicationRange.isArchived) {
+      return res.status(400).json({ 
+        message: 'Publication range is already archived' 
+      });
+    }
+    
+    // Archive the publication range
+    publicationRange.isArchived = true;
+    publicationRange.isActive = false;
+    publicationRange.archivedAt = new Date();
+    publicationRange.archivedBy = req.user._id;
+    await publicationRange.save();
+    
+    // Archive all associated vacancies
+    const vacancyUpdateResult = await Vacancy.updateMany(
+      { publicationRangeId: publicationRange._id },
+      {
+        $set: {
+          isArchived: true,
+          archivedAt: new Date(),
+          archivedBy: req.user._id
+        }
+      }
+    );
+    
+    // Archive all associated candidates
+    const candidateUpdateResult = await Candidate.updateMany(
+      { publicationRangeId: publicationRange._id },
+      {
+        $set: {
+          isArchived: true,
+          archivedAt: new Date(),
+          archivedBy: req.user._id
+        }
+      }
+    );
+    
+    res.json({
+      message: 'Publication range archived successfully',
+      publicationRange,
+      vacanciesArchived: vacancyUpdateResult.modifiedCount,
+      candidatesArchived: candidateUpdateResult.modifiedCount,
+      note: 'Associated ratings preserved for historical record'
+    });
+    
+  } catch (error) {
+    console.error('Failed to archive publication range:', error);
+    res.status(500).json({ message: 'Server error: ' + error.message });
+  }
+});
+
+// Unarchive publication range
+router.post('/publication-ranges/:id/unarchive', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin') {
+    return res.status(403).json({ message: 'Access denied' });
+  }
+  
+  try {
+    const publicationRange = await PublicationRange.findById(req.params.id);
+    if (!publicationRange) {
+      return res.status(404).json({ message: 'Publication range not found' });
+    }
+    
+    if (!publicationRange.isArchived) {
+      return res.status(400).json({ 
+        message: 'Publication range is not archived' 
+      });
+    }
+    
+    // Unarchive the publication range
+    publicationRange.isArchived = false;
+    publicationRange.archivedAt = null;
+    publicationRange.archivedBy = null;
+    await publicationRange.save();
+    
+    // Unarchive all associated vacancies
+    const vacancyUpdateResult = await Vacancy.updateMany(
+      { publicationRangeId: publicationRange._id },
+      {
+        $set: {
+          isArchived: false,
+          archivedAt: null,
+          archivedBy: null
+        }
+      }
+    );
+    
+    // Unarchive all associated candidates
+    const candidateUpdateResult = await Candidate.updateMany(
+      { publicationRangeId: publicationRange._id },
+      {
+        $set: {
+          isArchived: false,
+          archivedAt: null,
+          archivedBy: null
+        }
+      }
+    );
+    
+    res.json({
+      message: 'Publication range unarchived successfully',
+      publicationRange,
+      vacanciesUnarchived: vacancyUpdateResult.modifiedCount,
+      candidatesUnarchived: candidateUpdateResult.modifiedCount
+    });
+    
+  } catch (error) {
+    console.error('Failed to unarchive publication range:', error);
+    res.status(500).json({ message: 'Server error: ' + error.message });
+  }
+});
+
+// Delete publication range (only if no vacancies/candidates exist)
+router.delete('/publication-ranges/:id', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin') {
+    return res.status(403).json({ message: 'Access denied' });
+  }
+  
+  try {
+    const publicationRange = await PublicationRange.findById(req.params.id);
+    if (!publicationRange) {
+      return res.status(404).json({ message: 'Publication range not found' });
+    }
+    
+    // Check if any vacancies exist
+    const vacancyCount = await Vacancy.countDocuments({ 
+      publicationRangeId: publicationRange._id 
+    });
+    
+    if (vacancyCount > 0) {
+      return res.status(400).json({ 
+        message: `Cannot delete publication range with ${vacancyCount} associated vacancies. Archive instead.` 
+      });
+    }
+    
+    // Check if any candidates exist
+    const candidateCount = await Candidate.countDocuments({ 
+      publicationRangeId: publicationRange._id 
+    });
+    
+    if (candidateCount > 0) {
+      return res.status(400).json({ 
+        message: `Cannot delete publication range with ${candidateCount} associated candidates. Archive instead.` 
+      });
+    }
+    
+    await PublicationRange.findByIdAndDelete(req.params.id);
+    res.json({ message: 'Publication range deleted successfully' });
+    
+  } catch (error) {
+    console.error('Failed to delete publication range:', error);
+    res.status(500).json({ message: 'Server error: ' + error.message });
+  }
+});
+
+// Get statistics for a publication range
+router.get('/publication-ranges/:id/statistics', authMiddleware, async (req, res) => {
+  try {
+    const publicationRange = await PublicationRange.findById(req.params.id);
+    if (!publicationRange) {
+      return res.status(404).json({ message: 'Publication range not found' });
+    }
+    
+    const [vacancyCount, candidateCount, candidatesByStatus] = await Promise.all([
+      Vacancy.countDocuments({ publicationRangeId: publicationRange._id }),
+      Candidate.countDocuments({ publicationRangeId: publicationRange._id }),
+      Candidate.aggregate([
+        { $match: { publicationRangeId: publicationRange._id } },
+        { $group: { _id: '$status', count: { $sum: 1 } } }
+      ])
+    ]);
+    
+    const statusBreakdown = {
+      general_list: 0,
+      long_list: 0,
+      for_review: 0,
+      disqualified: 0
+    };
+    
+    candidatesByStatus.forEach(item => {
+      statusBreakdown[item._id] = item.count;
+    });
+    
+    res.json({
+      publicationRange: {
+        id: publicationRange._id,
+        name: publicationRange.name,
+        isArchived: publicationRange.isArchived,
+        isActive: publicationRange.isActive
+      },
+      statistics: {
+        totalVacancies: vacancyCount,
+        totalCandidates: candidateCount,
+        candidatesByStatus: statusBreakdown
+      }
+    });
+    
+  } catch (error) {
+    console.error('Failed to fetch statistics:', error);
+    res.status(500).json({ message: 'Server error: ' + error.message });
+  }
+});
+
+// ========================================
+// UPDATED VACANCY ROUTES (WITH PUBLICATION RANGE)
+// ========================================
+
+// Get vacancies by publication range
+router.get('/vacancies/by-publication/:publicationRangeId', authMiddleware, async (req, res) => {
+  try {
+    const { includeArchived = 'false' } = req.query;
+    
+    const query = { publicationRangeId: req.params.publicationRangeId };
+    if (includeArchived === 'false') {
+      query.isArchived = false;
+    }
+    
+    const vacancies = await Vacancy.find(query).sort({ itemNumber: 1 });
+    res.json(vacancies);
+  } catch (error) {
+    console.error('Failed to fetch vacancies:', error);
+    res.status(500).json({ message: 'Server error: ' + error.message });
+  }
+});
+
+// ========================================
+// UPDATED CANDIDATE ROUTES (WITH PUBLICATION RANGE)
+// ========================================
+
+// Get candidates by publication range
+router.get('/candidates/by-publication/:publicationRangeId', authMiddleware, async (req, res) => {
+  try {
+    const { includeArchived = 'false' } = req.query;
+    
+    const query = { publicationRangeId: req.params.publicationRangeId };
+    if (includeArchived === 'false') {
+      query.isArchived = false;
+    }
+    
+    const candidates = await Candidate.find(query)
+      .populate('commentsHistory.commentedBy', 'name userType')
+      .populate('statusHistory.changedBy', 'name userType')
+      .sort({ fullName: 1 });
+    
+    res.json(candidates);
+  } catch (error) {
+    console.error('Failed to fetch candidates:', error);
+    res.status(500).json({ message: 'Server error: ' + error.message });
+  }
+});
+
+// Upload candidates CSV with publication range validation
+router.post('/candidates/upload-csv/:publicationRangeId', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin') {
+    return res.status(403).json({ message: 'Access denied' });
+  }
+  
+  try {
+    if (!req.files || !req.files.csv) {
+      return res.status(400).json({ message: 'No file uploaded' });
+    }
+    
+    const publicationRange = await PublicationRange.findById(req.params.publicationRangeId);
+    if (!publicationRange) {
+      return res.status(404).json({ message: 'Publication range not found' });
+    }
+    
+    if (publicationRange.isArchived) {
+      return res.status(400).json({ 
+        message: 'Cannot import candidates to archived publication range' 
+      });
+    }
+    
+    const candidatesData = parseCSV(req.files.csv.data);
+    
+    // Get all vacancy item numbers for this publication range
+    // IMPROVED: More specific validation
+    const vacancies = await Vacancy.find({ 
+      publicationRangeId: publicationRange._id,
+      isArchived: false
+    });
+    
+    // Create map instead of just set for better error messages
+    const itemNumberMap = new Map(vacancies.map(v => [v.itemNumber, v.position]));
+    
+    const invalidItems = [];
+    const processedCandidates = [];
+    
+    for (const candidate of candidatesData) {
+      const itemNum = candidate.itemNumber?.trim();
+      
+      if (!itemNum || !itemNumberMap.has(itemNum)) {
+        invalidItems.push({
+          itemNumber: itemNum || 'MISSING',
+          candidateName: candidate.fullName,
+          reason: !itemNum ? 'Missing item number' : 'Item number not found in this publication range'
+        });
+        continue;
+      }
+      
+      processedCandidates.push({
+        fullName: candidate.fullName || '',
+        itemNumber: candidate.itemNumber.trim(),
+        gender: candidate.gender || '',
+        dateOfBirth: candidate.dateOfBirth || null,
+        age: candidate.age || null,
+        eligibility: candidate.eligibility || '',
+        professionalLicense: candidate.professionalLicense || '',
+        letterOfIntent: candidate.letterOfIntent || '',
+        personalDataSheet: candidate.personalDataSheet || '',
+        workExperienceSheet: candidate.workExperienceSheet || '',
+        proofOfEligibility: candidate.proofOfEligibility || '',
+        certificates: candidate.certificates || '',
+        ipcr: candidate.ipcr || '',
+        certificateOfEmployment: candidate.certificateOfEmployment || '',
+        diploma: candidate.diploma || '',
+        transcriptOfRecords: candidate.transcriptOfRecords || '',
+        status: candidate.status || 'general_list',
+        publicationRangeId: publicationRange._id,
+        comments: {
+          education: candidate.educationComments || '',
+          training: candidate.trainingComments || '',
+          experience: candidate.experienceComments || '',
+          eligibility: candidate.eligibilityComments || ''
+        }
+      });
+    }
+    
+    if (invalidItems.length > 0) {
+      return res.status(400).json({
+        message: 'Import validation failed',
+        errors: invalidItems,
+        validItemNumbers: Array.from(itemNumberMap.keys())
+      });
+    }
+    
+    const insertResult = await Candidate.insertMany(processedCandidates);
+    
+    res.json({ 
+      message: `Successfully imported ${insertResult.length} candidates`,
+      count: insertResult.length,
+      publicationRange: {
+        id: publicationRange._id,
+        name: publicationRange.name
+      }
+    });
+    
+  } catch (error) {
+    console.error('CSV upload error:', error);
+    res.status(500).json({ message: 'Failed to upload CSV: ' + error.message });
+  }
+});
+
+// Undo last CSV import for a publication range
+router.post('/candidates/undo-import/:publicationRangeId', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin') {
+    return res.status(403).json({ message: 'Access denied' });
+  }
+  
+  try {
+    const { minutesAgo = 5 } = req.body;
+    const cutoffTime = new Date(Date.now() - minutesAgo * 60 * 1000);
+    
+    const result = await Candidate.deleteMany({
+      publicationRangeId: req.params.publicationRangeId,
+      createdAt: { $gte: cutoffTime }
+    });
+    
+    res.json({
+      message: `Undo successful: Deleted ${result.deletedCount} recently imported candidates`,
+      deletedCount: result.deletedCount,
+      cutoffTime: cutoffTime
+    });
+    
+  } catch (error) {
+    console.error('Undo import error:', error);
     res.status(500).json({ message: 'Server error: ' + error.message });
   }
 });
