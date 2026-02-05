@@ -70,8 +70,20 @@ export const COMPETENCY_TYPES = {
   MINIMUM: 'minimum'
 };
 
-// Add these two functions to your existing constants.js file
+// NEW: Publication Range and Archive Constants
+export const PUBLICATION_STATUS = {
+  ACTIVE: 'active',
+  INACTIVE: 'inactive',
+  ARCHIVED: 'archived'
+};
 
+export const ARCHIVE_ACTIONS = {
+  ARCHIVE: 'archive',
+  UNARCHIVE: 'unarchive',
+  DELETE: 'delete'
+};
+
+// Helper functions
 export const getStatusColor = (status) => {
   switch (status) {
     case CANDIDATE_STATUS.GENERAL_LIST:
@@ -100,4 +112,38 @@ export const getStatusLabel = (status) => {
     default:
       return 'Unknown';
   }
+};
+
+export const getPublicationStatusColor = (isArchived, isActive) => {
+  if (isArchived) {
+    return 'bg-gray-100 text-gray-800 border-gray-300';
+  }
+  if (isActive) {
+    return 'bg-green-100 text-green-800 border-green-300';
+  }
+  return 'bg-yellow-100 text-yellow-800 border-yellow-300';
+};
+
+export const getPublicationStatusLabel = (isArchived, isActive) => {
+  if (isArchived) {
+    return 'Archived';
+  }
+  if (isActive) {
+    return 'Active';
+  }
+  return 'Inactive';
+};
+
+export const formatDateRange = (startDate, endDate) => {
+  const start = new Date(startDate).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric'
+  });
+  const end = new Date(endDate).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric'
+  });
+  return `${start} - ${end}`;
 };
