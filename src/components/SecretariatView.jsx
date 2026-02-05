@@ -5,7 +5,7 @@ import { getStatusColor, getStatusLabel, CANDIDATE_STATUS } from '../utils/const
 import PDFReport from './PDFReport';
 import { useToast } from '../utils/ToastContext';
 import { competenciesAPI } from '../utils/api';
-import { COMPETENCY_TYPES } from '../utils/constants';
+import { COMPETENCY_TYPES } from '../utils/constants'; 
 
 const SecretariatView = ({ user }) => {
   const [vacancies, setVacancies] = useState([]);
@@ -306,7 +306,11 @@ const loadCommentSuggestions = async () => {
     try {
       setLoading(true);
       const vacanciesRes = await vacanciesAPI.getAll();
-      const filteredVacancies = filterVacanciesByAssignment(vacanciesRes, user);
+      
+      // FIX: Filter out archived vacancies first, then by assignment
+      const activeVacancies = vacanciesRes.filter(v => !v.isArchived);
+      const filteredVacancies = filterVacanciesByAssignment(activeVacancies, user);
+      
       setVacancies(filteredVacancies);
     } catch (error) {
       console.error('Failed to load initial data:', error);
@@ -854,19 +858,22 @@ const loadCommentSuggestions = async () => {
                 {filteredCandidates.map((candidate, index) => {
                   const vacancy = vacancies.find(v => v.itemNumber === candidate.itemNumber);
                   return (
-                    <tr key={candidate._id} className="hover:bg-gradient-to-r hover:from-blue-50 hover:to-indigo-50 transition-all duration-150">
+                    <tr key={candidate._id} className={`hover:bg-gradient-to-r hover:from-blue-50 hover:to-indigo-50 transition-all duration-150 ${candidate.isArchived ? 'bg-gray-100 opacity-60' : ''}`}>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{index + 1}</td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">
                           <div className="flex-shrink-0 h-8 w-8">
-                            <div className="h-8 w-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
+                            <div className={`h-8 w-8 rounded-full ${candidate.isArchived ? 'bg-gray-400' : 'bg-gradient-to-br from-blue-500 to-indigo-600'} flex items-center justify-center`}>
                               <span className="text-xs font-medium text-white">
                                 {candidate.fullName.charAt(0)}
                               </span>
                             </div>
                           </div>
                           <div className="ml-3">
-                            <div className="text-sm font-medium text-gray-900">{candidate.fullName}</div>
+                            <div className="text-sm font-medium text-gray-900">
+                              {candidate.fullName}
+                              {candidate.isArchived && <span className="ml-2 text-xs text-red-600 font-semibold">(ARCHIVED)</span>}
+                            </div>
                             <div className="text-xs text-gray-500">{candidate.gender} • Age: {candidate.age || 'N/A'}</div>
                           </div>
                         </div>
