@@ -2482,7 +2482,11 @@ const AdminView = ({ user }) => {
 
             <button
               onClick={() => setActiveTab('publicationRanges')}
-              className={`sidebar-item ...`}
+              className={`sidebar-item w-full text-left px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 ${
+                activeTab === 'publicationRanges'
+                  ? 'bg-gradient-to-r from-blue-600 to-blue-500 text-white shadow-lg transform scale-105'
+                  : 'text-gray-700 hover:bg-blue-50 hover:text-blue-600 hover:translate-x-1'
+              }`}
             >
               <span className="flex items-center gap-3">
                 <span className="text-lg">📅</span>
