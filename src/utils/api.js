@@ -164,6 +164,12 @@ export const vacanciesAPI = {
   getAssignments: async () => {
     const response = await api.get('/vacancies/assignments');
     return response.data;
+  },
+  getByPublicationRange: async (publicationRangeId, includeArchived = false) => {
+    const response = await api.get(
+      `/vacancies/by-publication/${publicationRangeId}?includeArchived=${includeArchived}`
+    );
+    return response.data;
   }
 };
 
@@ -277,6 +283,34 @@ export const candidatesAPI = {
   // ✅ UPDATED: Comment suggestions with configurable limit
   getCommentSuggestions: async (field, limit = 250) => {
     const response = await api.get(`/candidates/comment-suggestions/${field}?limit=${limit}`);
+    return response.data;
+  },
+  
+  getByPublicationRange: async (publicationRangeId, includeArchived = false) => {
+    const response = await api.get(
+      `/candidates/by-publication/${publicationRangeId}?includeArchived=${includeArchived}`
+    );
+    return response.data;
+  },
+  
+  uploadCSVWithPublication: async (formData, publicationRangeId) => {
+    const response = await api.post(
+      `/candidates/upload-csv/${publicationRangeId}`, 
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      }
+    );
+    return response.data;
+  },
+  
+  undoImport: async (publicationRangeId, minutesAgo = 5) => {
+    const response = await api.post(
+      `/candidates/undo-import/${publicationRangeId}`,
+      { minutesAgo }
+    );
     return response.data;
   }
 };
@@ -456,5 +490,57 @@ export const ratingLogsAPI = {
   }
 };
 
+// Publication Ranges API
+export const publicationRangesAPI = {
+  getAll: async (includeArchived = false) => {
+    const response = await api.get(`/publication-ranges?includeArchived=${includeArchived}`);
+    return response.data;
+  },
+  
+  getActive: async () => {
+    const response = await api.get('/publication-ranges/active');
+    return response.data;
+  },
+  
+  getArchived: async () => {
+    const response = await api.get('/publication-ranges/archived');
+    return response.data;
+  },
+  
+  getById: async (id) => {
+    const response = await api.get(`/publication-ranges/${id}`);
+    return response.data;
+  },
+  
+  create: async (publicationData) => {
+    const response = await api.post('/publication-ranges', publicationData);
+    return response.data;
+  },
+  
+  update: async (id, publicationData) => {
+    const response = await api.put(`/publication-ranges/${id}`, publicationData);
+    return response.data;
+  },
+  
+  delete: async (id) => {
+    const response = await api.delete(`/publication-ranges/${id}`);
+    return response.data;
+  },
+  
+  archive: async (id) => {
+    const response = await api.post(`/publication-ranges/${id}/archive`);
+    return response.data;
+  },
+  
+  unarchive: async (id) => {
+    const response = await api.post(`/publication-ranges/${id}/unarchive`);
+    return response.data;
+  },
+  
+  getStatistics: async (id) => {
+    const response = await api.get(`/publication-ranges/${id}/statistics`);
+    return response.data;
+  }
+};
 
 export default api;
