@@ -179,7 +179,11 @@ const RaterView = ({ user }) => {
     try {
       setLoading(true);
       const vacanciesRes = await vacanciesAPI.getAll();
-      const filteredVacancies = filterVacanciesByAssignment(vacanciesRes, user);
+      
+      // FIX: Filter out archived vacancies
+      const activeVacancies = vacanciesRes.filter(v => !v.isArchived);
+      const filteredVacancies = filterVacanciesByAssignment(activeVacancies, user);
+      
       setVacancies(filteredVacancies);
     } catch (error) {
       console.error('Failed to load initial data:', error);
