@@ -1,6 +1,58 @@
 import mongoose from 'mongoose';
 
-// Updated User Schema in models.js
+// NEW: Publication Range Schema
+const publicationRangeSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: true,
+    trim: true,
+    unique: true
+  },
+  tags: [{
+    type: String,
+    trim: true
+  }],
+  startDate: {
+    type: Date,
+    required: true
+  },
+  endDate: {
+    type: Date,
+    required: true
+  },
+  description: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+  isActive: {
+    type: Boolean,
+    default: true
+  },
+  isArchived: {
+    type: Boolean,
+    default: false
+  },
+  archivedAt: {
+    type: Date
+  },
+  archivedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }
+}, {
+  timestamps: true
+});
+
+// Validation: endDate must be after startDate
+publicationRangeSchema.pre('validate', function(next) {
+  if (this.endDate <= this.startDate) {
+    next(new Error('End date must be after start date'));
+  }
+  next();
+});
+
+// Updated User Schema
 const userSchema = new mongoose.Schema({
   name: {
     type: String,
@@ -43,7 +95,6 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
-  // NEW: Vacancy assignment fields
   assignedVacancies: {
     type: String,
     enum: ['none', 'all', 'assignment', 'specific'],
@@ -62,26 +113,11 @@ const userSchema = new mongoose.Schema({
   timestamps: true
 });
 
-
-
-// NEW: Find users by vacancy assignment
-userSchema.statics.findByVacancyAssignment = function(itemNumber, assignment) {
-  return this.find({
-    assignedVacancies: { $ne: 'none' },
-    $or: [
-      { assignedVacancies: 'all' },
-      { assignedVacancies: 'assignment', assignedAssignment: assignment },
-      { assignedVacancies: 'specific', assignedItemNumbers: { $in: [itemNumber] } }
-    ]
-  }).select('-password');
-};
-
-// Vacancy Schema
+// Updated Vacancy Schema with Publication Range
 const vacancySchema = new mongoose.Schema({
   itemNumber: {
     type: String,
     required: true,
-    unique: true,
     trim: true
   },
   position: {
@@ -121,12 +157,33 @@ const vacancySchema = new mongoose.Schema({
       trim: true,
       default: ''
     }
+  },
+  // NEW: Publication Range Reference
+  publicationRangeId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'PublicationRange',
+    required: true
+  },
+  // NEW: Archiving fields
+  isArchived: {
+    type: Boolean,
+    default: false
+  },
+  archivedAt: {
+    type: Date
+  },
+  archivedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
   }
 }, {
   timestamps: true
 });
 
-// Candidate Schema
+// Compound index: itemNumber is unique WITHIN a publication range
+vacancySchema.index({ itemNumber: 1, publicationRangeId: 1 }, { unique: true });
+
+// Updated Candidate Schema with Publication Range
 const candidateSchema = new mongoose.Schema({
   fullName: {
     type: String,
@@ -227,7 +284,6 @@ const candidateSchema = new mongoose.Schema({
       default: ''
     }
   },
-  // NEW: Add this entire commentsHistory field
   commentsHistory: [{
     field: { 
       type: String, 
@@ -252,7 +308,6 @@ const candidateSchema = new mongoose.Schema({
       default: Date.now 
     }
   }],
-  // NEW: Add status history tracking
   statusHistory: [{
     oldStatus: { 
       type: String, 
@@ -276,12 +331,30 @@ const candidateSchema = new mongoose.Schema({
       type: String,
       default: ''
     }
-  }]
+  }],
+  // NEW: Publication Range Reference
+  publicationRangeId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'PublicationRange',
+    required: true
+  },
+  // NEW: Archiving fields
+  isArchived: {
+    type: Boolean,
+    default: false
+  },
+  archivedAt: {
+    type: Date
+  },
+  archivedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }
 }, {
   timestamps: true
 });
 
-// Updated Competency Schema to support multiple vacancies
+// Competency Schema (unchanged - still links to item numbers)
 const competencySchema = new mongoose.Schema({
   name: {
     type: String,
@@ -293,7 +366,6 @@ const competencySchema = new mongoose.Schema({
     required: true,
     enum: ['basic', 'organizational', 'leadership', 'minimum']
   },
-  // Support both single vacancy (backward compatibility) and multiple vacancies
   vacancyId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Vacancy'
@@ -310,7 +382,7 @@ const competencySchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Rating Schema
+// Rating Schema (unchanged)
 const ratingSchema = new mongoose.Schema({
   candidateId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -346,7 +418,6 @@ const ratingSchema = new mongoose.Schema({
     required: true,
     trim: true
   },
-  // NEW: Audit log for tracking rating activities
   auditLog: [{
     action: {
       type: String,
@@ -379,8 +450,7 @@ const ratingSchema = new mongoose.Schema({
   timestamps: true
 });
 
-
-// Rating Audit Log Schema
+// Rating Audit Log Schema (unchanged)
 const ratingLogSchema = new mongoose.Schema({
   action: {
     type: String,
@@ -440,15 +510,19 @@ const ratingLogSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Add indexes for better query performance
+// Add indexes
 ratingLogSchema.index({ candidateId: 1, createdAt: -1 });
 ratingLogSchema.index({ raterId: 1, createdAt: -1 });
 ratingLogSchema.index({ itemNumber: 1, createdAt: -1 });
 ratingLogSchema.index({ action: 1, createdAt: -1 });
 
-const RatingLog = mongoose.model('RatingLog', ratingLogSchema);
+publicationRangeSchema.index({ isArchived: 1, isActive: 1 });
+vacancySchema.index({ publicationRangeId: 1, isArchived: 1 });
+candidateSchema.index({ publicationRangeId: 1, isArchived: 1 });
+candidateSchema.index({ itemNumber: 1, publicationRangeId: 1 });
+ratingSchema.index({ itemNumber: 1, raterId: 1, candidateId: 1 }, { unique: true });
 
-// Pre-save middleware for Candidate
+// Pre-save middleware
 candidateSchema.pre('save', function(next) {
   if (this.dateOfBirth && !this.age) {
     const today = new Date();
@@ -472,12 +546,10 @@ userSchema.methods.toJSON = function() {
   return user;
 };
 
-// Updated static methods
 userSchema.statics.findRaters = function() {
   return this.find({ userType: 'rater' }).select('-password');
 };
 
-// NEW: Find users by vacancy assignment
 userSchema.statics.findByVacancyAssignment = function(itemNumber, assignment) {
   return this.find({
     assignedVacancies: { $ne: 'none' },
@@ -489,13 +561,21 @@ userSchema.statics.findByVacancyAssignment = function(itemNumber, assignment) {
   }).select('-password');
 };
 
-
 candidateSchema.statics.findByItemNumber = function(itemNumber) {
   return this.find({ itemNumber: itemNumber });
 };
 
 candidateSchema.statics.findByStatus = function(status) {
   return this.find({ status: status });
+};
+
+// NEW: Find active (non-archived) candidates by publication range
+candidateSchema.statics.findByPublicationRange = function(publicationRangeId, includeArchived = false) {
+  const query = { publicationRangeId };
+  if (!includeArchived) {
+    query.isArchived = false;
+  }
+  return this.find(query);
 };
 
 ratingSchema.statics.findByCandidate = function(candidateId) {
@@ -510,7 +590,6 @@ ratingSchema.statics.findByRater = function(raterId) {
     .populate('competencyId', 'name type');
 };
 
-// NEW: Find ratings by candidate and item number
 ratingSchema.statics.findByCandidateAndItem = function(candidateId, itemNumber) {
   return this.find({ 
     candidateId: candidateId,
@@ -524,7 +603,6 @@ competencySchema.statics.findByType = function(type) {
   return this.find({ type: type });
 };
 
-// Updated to handle both single and multiple vacancy assignments
 competencySchema.statics.findByVacancy = function (vacancyId) {
   return this.find({
     $or: [
@@ -535,7 +613,14 @@ competencySchema.statics.findByVacancy = function (vacancyId) {
   });
 };
 
+// NEW: Publication Range static methods
+publicationRangeSchema.statics.findActive = function() {
+  return this.find({ isActive: true, isArchived: false });
+};
 
+publicationRangeSchema.statics.findArchived = function() {
+  return this.find({ isArchived: true });
+};
 
 // Create models
 const User = mongoose.model('User', userSchema);
@@ -543,5 +628,14 @@ const Vacancy = mongoose.model('Vacancy', vacancySchema);
 const Candidate = mongoose.model('Candidate', candidateSchema);
 const Competency = mongoose.model('Competency', competencySchema);
 const Rating = mongoose.model('Rating', ratingSchema);
+const RatingLog = mongoose.model('RatingLog', ratingLogSchema);
+const PublicationRange = mongoose.model('PublicationRange', publicationRangeSchema);
 
-export { User, Vacancy, Candidate, Competency, Rating, RatingLog };
+// Add these indexes at the end of the models.js file, before the exports:
+
+publicationRangeSchema.index({ isArchived: 1, isActive: 1 });
+publicationRangeSchema.index({ startDate: 1, endDate: 1 });
+vacancySchema.index({ publicationRangeId: 1, isArchived: 1 });
+candidateSchema.index({ publicationRangeId: 1, isArchived: 1, status: 1 });
+
+export { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange };
