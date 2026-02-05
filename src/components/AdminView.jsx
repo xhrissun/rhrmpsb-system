@@ -80,16 +80,6 @@ const AdminView = ({ user }) => {
     console.log('📌 ActiveTab changed in usePersistedState:', activeTab);
   }, [activeTab]);
 
-  // AdminView.jsx - Add this effect
-  useEffect(() => {
-    // Clear file inputs when publication range changes
-    const vacancyInput = document.getElementById('vacancy-csv-upload');
-    const candidateInput = document.getElementById('candidate-csv-upload');
-    
-    if (vacancyInput) vacancyInput.value = '';
-    if (candidateInput) candidateInput.value = '';
-  }, [selectedPublicationRange]);
-  
   const [users, setUsers] = useState([]);
   const [vacancies, setVacancies] = useState([]);
   const [candidates, setCandidates] = useState([]);
@@ -196,6 +186,16 @@ const AdminView = ({ user }) => {
     searchTermLength: searchTerm?.length,
     prevTab: prevTabRef.current
   });
+
+    // AdminView.jsx - Add this effect
+  useEffect(() => {
+    // Clear file inputs when publication range changes
+    const vacancyInput = document.getElementById('vacancy-csv-upload');
+    const candidateInput = document.getElementById('candidate-csv-upload');
+    
+    if (vacancyInput) vacancyInput.value = '';
+    if (candidateInput) candidateInput.value = '';
+  }, [selectedPublicationRange]);
 
   // Validate activeTab
   useEffect(() => {
