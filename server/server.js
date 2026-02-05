@@ -4,6 +4,7 @@ import cors from 'cors';
 import fileUpload from 'express-fileupload';
 import routes from './routes.js';
 import dotenv from 'dotenv';
+import { runMigration } from './migration_add_publication_ranges.js';
 
 dotenv.config();
 
@@ -15,7 +16,6 @@ const corsOptions = {
     ? [
         'https://xhrissun.github.io',
         'https://cron-job.org',
-        //'https://your-domain.com' // Add your custom domain if you have one
       ]
     : ['http://localhost:3000', 'http://localhost:5173'],
   credentials: true,
@@ -29,32 +29,44 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // File upload middleware
 app.use(fileUpload({
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  limits: { fileSize: 5 * 1024 * 1024 },
   abortOnLimit: true,
   responseOnLimit: 'File size limit exceeded',
   useTempFiles: false,
   tempFileDir: undefined
 }));
 
-// Connect to MongoDB
+// Connect to MongoDB and run migration
 const MONGODB_URI = process.env.MONGODB_URI;
 if (!MONGODB_URI) {
   console.error('MONGODB_URI environment variable is required');
   process.exit(1);
 }
 
-mongoose
-  .connect(MONGODB_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  })
-  .then(() => console.log('Connected to MongoDB'))
-  .catch(err => {
-    console.error('MongoDB connection error:', err);
-    process.exit(1);
-  });
+async function startServer() {
+  try {
+    // Connect to MongoDB
+    await mongoose.connect(MONGODB_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    });
+    console.log('Connected to MongoDB');
 
-// Lightweight ping endpoint - Place FIRST for fastest response
+    // Run migration after DB connection
+    console.log('\n🔄 Checking for pending migrations...');
+    await runMigration();
+    console.log('✅ Migration check complete\n');
+
+  } catch (err) {
+    console.error('Startup error:', err);
+    process.exit(1);
+  }
+}
+
+// Start DB connection and migration
+startServer();
+
+// Lightweight ping endpoint
 app.get('/ping', (req, res) => {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] Ping received from ${req.ip}`);
