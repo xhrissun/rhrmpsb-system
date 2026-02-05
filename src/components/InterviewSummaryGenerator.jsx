@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { vacanciesAPI, candidatesAPI, competenciesAPI, ratingsAPI, usersAPI } from '../utils/api';
+import { vacanciesAPI, candidatesAPI, competenciesAPI, ratingsAPI, usersAPI, publicationRangesAPI } from '../utils/api';
 import { calculateRatingScores } from '../utils/helpers';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
@@ -30,6 +30,14 @@ const InterviewSummaryGenerator = ({ user }) => {
   // NEW: Auto-refresh for interview summary
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(new Date());
+  
+
+  const [includeArchived, setIncludeArchived] = useState(false);
+
+  const [publicationRanges, setPublicationRanges] = useState([]);
+  const [selectedPublicationRange, setSelectedPublicationRange] = useState('');
+
+  const [vacancies, setVacancies] = useState([]);
 
   useEffect(() => {
     if (!autoRefresh || !selectedCandidate || !selectedItem) return;
@@ -55,6 +63,11 @@ const InterviewSummaryGenerator = ({ user }) => {
     return () => clearInterval(interval);
   }, [autoRefresh, selectedCandidate, selectedItem]);
 
+  // Filter vacancies and candidates by publication range
+  const filteredVacancies = vacancies.filter(v => 
+    !selectedPublicationRange || v.publicationRangeId === selectedPublicationRange
+);
+
   const formatTimeSince = (date) => {
     const seconds = Math.floor((new Date() - date) / 1000);
     if (seconds < 60) return 'just now';
@@ -70,19 +83,25 @@ const InterviewSummaryGenerator = ({ user }) => {
     const fetchInitialData = async () => {
       try {
         setLoading(true);
-        const [vacancies, ratersData] = await Promise.all([
+        const [vacanciesRes, ratersData, publicationRangesRes] = await Promise.all([
           vacanciesAPI.getAll(),
-          usersAPI.getRaters()
+          usersAPI.getRaters(),
+          publicationRangesAPI.getActive() // Only get active ones
         ]);
         
+        // Filter out archived vacancies
+        const activeVacancies = vacanciesRes.filter(v => !v.isArchived);
+        setVacancies(activeVacancies);   // ← add this
+        
         const uniqueAssignments = [...new Set(
-          vacancies
+          activeVacancies
             .map(v => v.assignment)
             .filter(a => a && a.trim() !== '')
         )].sort();
         
         setAssignments(uniqueAssignments);
         setRaters(ratersData);
+        setPublicationRanges(publicationRangesRes);
       } catch (error) {
         console.error('Failed to load initial data:', error);
         alert('Failed to load initial data. Please try again.');
@@ -666,6 +685,26 @@ const InterviewSummaryGenerator = ({ user }) => {
             </svg>
             Selection Criteria
           </h3>
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">Publication Range</label>
+              <select
+                value={selectedPublicationRange}
+                onChange={(e) => {
+                  setSelectedPublicationRange(e.target.value);
+                  // Reset dependent selections
+                  setSelectedAssignment('');
+                  setSelectedPosition('');
+                  setSelectedItem('');
+                  setSelectedCandidate('');
+                }}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+              >
+                <option value="">All Publication Ranges</option>
+                {publicationRanges.map(pr => (
+                  <option key={pr._id} value={pr._id}>{pr.name}</option>
+                ))}
+              </select>
+            </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="space-y-2">
               <label className="block text-sm font-medium text-gray-700">Assignment</label>
