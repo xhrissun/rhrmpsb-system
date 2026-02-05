@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import usePersistedState from '../utils/usePersistedState';
-import { usersAPI, vacanciesAPI, candidatesAPI, competenciesAPI, authAPI } from '../utils/api';
+import { usersAPI, vacanciesAPI, candidatesAPI, competenciesAPI, authAPI, publicationRangesAPI } from '../utils/api';
 import { parseCSV, exportToCSV } from '../utils/helpers';
 import { USER_TYPES, RATER_TYPES, SALARY_GRADES, CANDIDATE_STATUS } from '../utils/constants';
 import InterviewSummaryGenerator from './InterviewSummaryGenerator';
 import { useToast } from '../utils/ToastContext';
 import RatingLogsView from './RatingLogsView';
+import PublicationRangeManager from './PublicationRangeManager';
 
 // --- SearchBar and FilterableHeader (moved out of AdminView to prevent remounts) ---
 export const SearchBar = ({ placeholder, value, onChange }) => {
@@ -78,16 +79,27 @@ const AdminView = ({ user }) => {
   useEffect(() => {
     console.log('📌 ActiveTab changed in usePersistedState:', activeTab);
   }, [activeTab]);
+
+  // AdminView.jsx - Add this effect
+  useEffect(() => {
+    // Clear file inputs when publication range changes
+    const vacancyInput = document.getElementById('vacancy-csv-upload');
+    const candidateInput = document.getElementById('candidate-csv-upload');
+    
+    if (vacancyInput) vacancyInput.value = '';
+    if (candidateInput) candidateInput.value = '';
+  }, [selectedPublicationRange]);
+  
   const [users, setUsers] = useState([]);
   const [vacancies, setVacancies] = useState([]);
   const [candidates, setCandidates] = useState([]);
   const [competencies, setCompetencies] = useState([]);
   const [assignments, setAssignments] = useState([]);
+  const [publicationRanges, setPublicationRanges] = useState([]); // NEW
   const [showModal, setShowModal] = useState(false);
   const [modalType, setModalType] = useState('');
   const [editingItem, setEditingItem] = useState(null);
   const [loading, setLoading] = useState(true);
-  // Add these state variables after line 17 (after const [loading, setLoading] = useState(true);)
   const [searchTerm, setSearchTerm] = useState('');
   const [filters, setFilters] = useState({});
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
@@ -96,6 +108,7 @@ const AdminView = ({ user }) => {
   const prevTabRef = useRef(activeTab);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [pendingAction, setPendingAction] = useState(null);
+  const [selectedPublicationRange, setSelectedPublicationRange] = useState(null); // NEW
 
   const { showToast } = useToast();
 
@@ -161,25 +174,21 @@ const AdminView = ({ user }) => {
     }
   };
 
-  // Add this function after handleFilterChange (around line 95):
   const handleSearchChange = useCallback((value) => {
-    // ✅ Just update the state, no unnecessary re-render triggers
     setSearchTerm(value);
   }, []);
 
   const handleFilterChange = useCallback((key, value) => {
-  setFilters((prev) => {
-    const newFilters = { ...prev };
-    if (value.trim() === '') {
-      delete newFilters[key];
-    } else {
-      newFilters[key] = value;
-    }
-    return newFilters;
-  });
-}, []);
-
-
+    setFilters((prev) => {
+      const newFilters = { ...prev };
+      if (value.trim() === '') {
+        delete newFilters[key];
+      } else {
+        newFilters[key] = value;
+      }
+      return newFilters;
+    });
+  }, []);
 
   console.log('🎬 AdminView Render:', {
     activeTab,
@@ -188,10 +197,9 @@ const AdminView = ({ user }) => {
     prevTab: prevTabRef.current
   });
 
-
   // Validate activeTab
   useEffect(() => {
-    const validTabs = ['users', 'vacancies', 'candidates', 'competencies', 'assignments', 'interviewSummary', 'ratingLogs'];
+    const validTabs = ['users', 'vacancies', 'candidates', 'competencies', 'assignments', 'interviewSummary', 'ratingLogs', 'publicationRanges'];
     if (activeTab && !validTabs.includes(activeTab)) {
       setActiveTab('users');
     }
@@ -202,7 +210,7 @@ const AdminView = ({ user }) => {
     loadAllData();
   }, []);
 
-// Add this useEffect to reset filters when changing tabs
+  // Add this useEffect to reset filters when changing tabs
   useEffect(() => {
     console.log('🔄 Filter Reset useEffect triggered:', {
       prevTab: prevTabRef.current,
@@ -211,32 +219,38 @@ const AdminView = ({ user }) => {
     });
     
     if (prevTabRef.current !== activeTab) {
-    // ✅ Reset filters and sorting ONLY when user actually switches tab
-    setSearchTerm('');
-    setFilters({});
-    setSortConfig({ key: null, direction: 'asc' });
-    prevTabRef.current = activeTab;
-  }
-}, [activeTab]);
+      setSearchTerm('');
+      setFilters({});
+      setSortConfig({ key: null, direction: 'asc' });
+      prevTabRef.current = activeTab;
+    }
+  }, [activeTab]);
 
   const loadAllData = async () => {
     try {
       setLoading(true);
-      const [usersData, vacanciesData, candidatesData, competenciesData] = await Promise.all([
+      const [usersData, vacanciesRes, candidatesRes, competenciesData, publicationRangesData] = await Promise.all([
         usersAPI.getAll(),
         vacanciesAPI.getAll(),
         candidatesAPI.getAll(),
-        competenciesAPI.getAll()
+        competenciesAPI.getAll(),
+        publicationRangesAPI.getAll(false) // Don't include archived by default
       ]);
 
       setUsers(usersData);
-      setVacancies(vacanciesData);
-      setCandidates(candidatesData);
+      
+      // FIX: Filter out archived vacancies and candidates by default
+      const activeVacancies = vacanciesRes.filter(v => !v.isArchived);
+      const activeCandidates = candidatesRes.filter(c => !c.isArchived);
+      
+      setVacancies(activeVacancies);
+      setCandidates(activeCandidates);
       setCompetencies(competenciesData);
+      setPublicationRanges(publicationRangesData);
 
-      // Extract assignments directly from vacancies data (no API call needed)
+      // Extract assignments from active vacancies only
       const uniqueAssignments = [...new Set(
-        vacanciesData
+        activeVacancies
           .map(v => v.assignment)
           .filter(a => a && a.trim() !== '')
       )].sort();
@@ -250,7 +264,6 @@ const AdminView = ({ user }) => {
     }
   };
 
-  // Reload specific data when needed
   const loadData = async () => {
     await loadAllData();
   };
@@ -330,6 +343,7 @@ const AdminView = ({ user }) => {
     }
   };
 
+  // UPDATED: CSV Upload with Publication Range support
   const handleCSVUpload = async (file, type) => {
     try {
       const formData = new FormData();
@@ -337,10 +351,19 @@ const AdminView = ({ user }) => {
 
       switch (type) {
         case 'vacancies':
-          await vacanciesAPI.uploadCSV(formData);
+          if (!selectedPublicationRange) {
+            showToast('Please select a publication range first', 'error');
+            return;
+          }
+          // You'll need to update this endpoint to accept publication range
+          await vacanciesAPI.uploadCSV(formData, selectedPublicationRange);
           break;
         case 'candidates':
-          await candidatesAPI.uploadCSV(formData);
+          if (!selectedPublicationRange) {
+            showToast('Please select a publication range first', 'error');
+            return;
+          }
+          await candidatesAPI.uploadCSVWithPublication(formData, selectedPublicationRange);
           break;
         case 'competencies':
           await competenciesAPI.uploadCSV(formData);
@@ -349,13 +372,39 @@ const AdminView = ({ user }) => {
 
       loadData();
       showToast('CSV uploaded successfully!', 'success');
+      setSelectedPublicationRange(null); // Reset selection
     } catch (error) {
       console.error('Failed to upload CSV:', error);
-      showToast('Failed to upload CSV. Please check the format and try again.', 'error');
+      if (error.response?.data?.invalidItemNumbers) {
+        showToast(`Import failed: Invalid item numbers: ${error.response.data.invalidItemNumbers.join(', ')}`, 'error');
+      } else {
+        showToast(error.response?.data?.message || 'Failed to upload CSV. Please check the format and try again.', 'error');
+      }
     }
   };
 
-  // CSV Export Functions
+  // NEW: Undo Import Handler
+  const handleUndoImport = async (publicationRangeId) => {
+    if (!publicationRangeId) {
+      showToast('Please select a publication range', 'error');
+      return;
+    }
+
+    if (!confirm('Undo the last import? This will delete all candidates imported in the last 5 minutes.')) {
+      return;
+    }
+
+    try {
+      const result = await candidatesAPI.undoImport(publicationRangeId, 5);
+      showToast(`Undo successful: Deleted ${result.deletedCount} candidates`, 'success');
+      loadData();
+    } catch (error) {
+      console.error('Failed to undo import:', error);
+      showToast('Failed to undo import', 'error');
+    }
+  };
+
+  // CSV Export Functions (unchanged)
   const downloadCSV = (data, filename) => {
     const blob = new Blob([data], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
@@ -449,7 +498,6 @@ const AdminView = ({ user }) => {
 
         case 'competencies':
           data = competencies.map(competency => {
-            // Handle both vacancyIds array and single vacancyId
             let vacancyIds = [];
             if (Array.isArray(competency.vacancyIds) && competency.vacancyIds.length > 0) {
               vacancyIds = competency.vacancyIds;
@@ -560,6 +608,7 @@ const AdminView = ({ user }) => {
     showToast(`Empty ${type} template exported successfully!`, 'success');
   };
 
+  // MODALS START HERE
   const UserModal = () => {
     const [formData, setFormData] = useState(
       editingItem || {
@@ -708,10 +757,12 @@ const AdminView = ({ user }) => {
     );
   };
 
+  // UPDATED: VacancyModal with Publication Range selector
   const VacancyModal = () => {
     const [formData, setFormData] = useState(
       editingItem ? {
         ...editingItem,
+        publicationRangeId: editingItem.publicationRangeId || '',
         qualifications: {
           education: editingItem.qualifications?.education || '',
           training: editingItem.qualifications?.training || '',
@@ -723,6 +774,7 @@ const AdminView = ({ user }) => {
         position: '',
         assignment: '',
         salaryGrade: 1,
+        publicationRangeId: '',
         qualifications: {
           education: '',
           training: '',
@@ -732,8 +784,26 @@ const AdminView = ({ user }) => {
       }
     );
 
+    // Get active publication ranges
+    const activePublicationRanges = publicationRanges.filter(pr => pr.isActive && !pr.isArchived);
+
+    // In AdminView.jsx, update the VacancyModal's handleSubmit function:
+
     const handleSubmit = async (e) => {
       e.preventDefault();
+      
+      if (!formData.publicationRangeId) {
+        showToast('Please select a publication range', 'error');
+        return; // Prevent submission
+      }
+
+    // NEW: Check if publication range is archived
+    const selectedPR = activePublicationRanges.find(pr => pr._id === formData.publicationRangeId);
+    if (selectedPR?.isArchived) {
+      showToast('Cannot create vacancy in archived publication range', 'error');
+      return;
+    }
+
       try {
         if (editingItem) {
           await vacanciesAPI.update(editingItem._id, formData);
@@ -745,7 +815,7 @@ const AdminView = ({ user }) => {
         showToast(`Vacancy ${editingItem ? 'updated' : 'created'} successfully!`, 'success');
       } catch (error) {
         console.error('Failed to save vacancy:', error);
-        showToast('Failed to save vacancy. Please try again.', 'error');
+        showToast(error.response?.data?.message || 'Failed to save vacancy. Please try again.', 'error');
       }
     };
 
@@ -759,6 +829,28 @@ const AdminView = ({ user }) => {
             <button onClick={() => setShowModal(false)} className="text-gray-500 hover:text-gray-700">✕</button>
           </div>
           <form onSubmit={handleSubmit} className="space-y-3 text-sm">
+            {/* NEW: Publication Range Selector */}
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Publication Range <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={formData.publicationRangeId}
+                onChange={(e) => setFormData({ ...formData, publicationRangeId: e.target.value })}
+                className="select-field w-full border rounded px-2 py-1 text-sm"
+                required
+                disabled={editingItem?.isArchived}
+              >
+                <option value="">Select Publication Range</option>
+                {activePublicationRanges.map(pr => (
+                  <option key={pr._id} value={pr._id}>{pr.name}</option>
+                ))}
+              </select>
+              {activePublicationRanges.length === 0 && (
+                <p className="text-xs text-red-600 mt-1">No active publication ranges available. Please create one first.</p>
+              )}
+            </div>
+
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">Item Number</label>
               <input
@@ -864,6 +956,7 @@ const AdminView = ({ user }) => {
     );
   };
 
+  // UPDATED: CandidateModal with Publication Range selector
   const CandidateModal = () => {
     const [formData, setFormData] = useState(() => {
       const defaultData = {
@@ -883,22 +976,33 @@ const AdminView = ({ user }) => {
         certificateOfEmployment: '',
         diploma: '',
         transcriptOfRecords: '',
-        status: CANDIDATE_STATUS.GENERAL_LIST
+        status: CANDIDATE_STATUS.GENERAL_LIST,
+        publicationRangeId: ''
       };
 
       if (editingItem) {
         return {
           ...defaultData,
           ...editingItem,
-          dateOfBirth: editingItem.dateOfBirth ? editingItem.dateOfBirth.split('T')[0] : ''
+          dateOfBirth: editingItem.dateOfBirth ? editingItem.dateOfBirth.split('T')[0] : '',
+          publicationRangeId: editingItem.publicationRangeId || ''
         };
       }
 
       return defaultData;
     });
 
+    // Get active publication ranges
+    const activePublicationRanges = publicationRanges.filter(pr => pr.isActive && !pr.isArchived);
+
     const handleSubmit = async (e) => {
       e.preventDefault();
+
+      if (!formData.publicationRangeId) {
+        showToast('Please select a publication range', 'error');
+        return;
+      }
+
       try {
         const submitData = {
           fullName: formData.fullName || '',
@@ -917,7 +1021,8 @@ const AdminView = ({ user }) => {
           certificateOfEmployment: formData.certificateOfEmployment || '',
           diploma: formData.diploma || '',
           transcriptOfRecords: formData.transcriptOfRecords || '',
-          status: formData.status || CANDIDATE_STATUS.GENERAL_LIST
+          status: formData.status || CANDIDATE_STATUS.GENERAL_LIST,
+          publicationRangeId: formData.publicationRangeId
         };
 
         if (editingItem) {
@@ -944,6 +1049,25 @@ const AdminView = ({ user }) => {
             <button onClick={() => setShowModal(false)} className="text-gray-500 hover:text-gray-700">✕</button>
           </div>
           <form onSubmit={handleSubmit} className="space-y-3 text-sm grid grid-cols-1 md:grid-cols-2 gap-3">
+            {/* NEW: Publication Range Selector */}
+            <div className="md:col-span-2">
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Publication Range <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={formData.publicationRangeId}
+                onChange={(e) => setFormData({ ...formData, publicationRangeId: e.target.value })}
+                className="select-field w-full border rounded px-2 py-1 text-sm"
+                required
+                disabled={editingItem?.isArchived}
+              >
+                <option value="">Select Publication Range</option>
+                {activePublicationRanges.map(pr => (
+                  <option key={pr._id} value={pr._id}>{pr.name}</option>
+                ))}
+              </select>
+            </div>
+
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">Full Name</label>
               <input
@@ -1122,362 +1246,356 @@ const AdminView = ({ user }) => {
   };
 
   const CompetencyModal = () => {
-  const [formData, setFormData] = useState(() => {
-    const defaultData = {
-      name: '',
-      type: 'basic',
-      selectedVacancies: [],
-      isFixed: false
-    };
-
-    if (editingItem) {
-      // Handle both vacancyIds array and single vacancyId
-      let vacancyIds = [];
-      if (Array.isArray(editingItem.vacancyIds) && editingItem.vacancyIds.length > 0) {
-        vacancyIds = editingItem.vacancyIds;
-      } else if (editingItem.vacancyId) {
-        vacancyIds = [editingItem.vacancyId];
-      }
-      
-      return {
-        name: editingItem.name || '',
-        type: editingItem.type || 'basic',
-        selectedVacancies: vacancyIds,
-        isFixed: editingItem.isFixed || false
-      };
-    }
-
-    return defaultData;
-  });
-
-  const [vacancySearch, setVacancySearch] = useState(''); // 🔍 NEW STATE
-
-  const handleVacancyChange = (vacancyId, checked) => {
-    if (checked) {
-      setFormData(prev => ({
-        ...prev,
-        selectedVacancies: [...prev.selectedVacancies, vacancyId]
-      }));
-    } else {
-      setFormData(prev => ({
-        ...prev,
-        selectedVacancies: prev.selectedVacancies.filter(id => id !== vacancyId)
-      }));
-    }
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    try {
-      const submitData = {
-        name: formData.name,
-        type: formData.type,
-        vacancyIds: formData.isFixed ? [] : formData.selectedVacancies,
-        isFixed: formData.isFixed
+    const [formData, setFormData] = useState(() => {
+      const defaultData = {
+        name: '',
+        type: 'basic',
+        selectedVacancies: [],
+        isFixed: false
       };
 
       if (editingItem) {
-        await competenciesAPI.update(editingItem._id, submitData);
-      } else {
-        await competenciesAPI.create(submitData);
+        let vacancyIds = [];
+        if (Array.isArray(editingItem.vacancyIds) && editingItem.vacancyIds.length > 0) {
+          vacancyIds = editingItem.vacancyIds;
+        } else if (editingItem.vacancyId) {
+          vacancyIds = [editingItem.vacancyId];
+        }
+        
+        return {
+          name: editingItem.name || '',
+          type: editingItem.type || 'basic',
+          selectedVacancies: vacancyIds,
+          isFixed: editingItem.isFixed || false
+        };
       }
 
-      setShowModal(false);
-      loadData();
-      showToast(`Competency ${editingItem ? 'updated' : 'created'} successfully!`, 'success');
-    } catch (error) {
-      console.error('Failed to save competency:', error);
-      showToast('Failed to save competency. Please try again.', 'error');
-    }
-  };
+      return defaultData;
+    });
 
-  // 🧠 Filter vacancies based on search
-  const filteredVacancies = vacancies.filter(vac =>
-    `${vac.itemNumber} - ${vac.position}`
-      .toLowerCase()
-      .includes(vacancySearch.toLowerCase())
-  );
+    const [vacancySearch, setVacancySearch] = useState('');
 
-  return (
-    <div className="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="modal-content bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6 overflow-y-auto max-h-[90vh]">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-bold">
-            {editingItem ? 'Edit Competency' : 'Add Competency'}
-          </h2>
-          <button onClick={() => setShowModal(false)} className="text-gray-500 hover:text-gray-700">✕</button>
-        </div>
+    const handleVacancyChange = (vacancyId, checked) => {
+      if (checked) {
+        setFormData(prev => ({
+          ...prev,
+          selectedVacancies: [...prev.selectedVacancies, vacancyId]
+        }));
+      } else {
+        setFormData(prev => ({
+          ...prev,
+          selectedVacancies: prev.selectedVacancies.filter(id => id !== vacancyId)
+        }));
+      }
+    };
 
-        <form onSubmit={handleSubmit} className="space-y-3 text-sm">
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Competency Name</label>
-            <input
-              type="text"
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="input-field w-full border rounded px-2 py-1 text-sm"
-              required
-            />
+    const handleSubmit = async (e) => {
+      e.preventDefault();
+      try {
+        const submitData = {
+          name: formData.name,
+          type: formData.type,
+          vacancyIds: formData.isFixed ? [] : formData.selectedVacancies,
+          isFixed: formData.isFixed
+        };
+
+        if (editingItem) {
+          await competenciesAPI.update(editingItem._id, submitData);
+        } else {
+          await competenciesAPI.create(submitData);
+        }
+
+        setShowModal(false);
+        loadData();
+        showToast(`Competency ${editingItem ? 'updated' : 'created'} successfully!`, 'success');
+      } catch (error) {
+        console.error('Failed to save competency:', error);
+        showToast('Failed to save competency. Please try again.', 'error');
+      }
+    };
+
+    const filteredVacancies = vacancies.filter(vac =>
+      `${vac.itemNumber} - ${vac.position}`
+        .toLowerCase()
+        .includes(vacancySearch.toLowerCase())
+    );
+
+    return (
+      <div className="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="modal-content bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6 overflow-y-auto max-h-[90vh]">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-bold">
+              {editingItem ? 'Edit Competency' : 'Add Competency'}
+            </h2>
+            <button onClick={() => setShowModal(false)} className="text-gray-500 hover:text-gray-700">✕</button>
           </div>
 
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Type</label>
-            <select
-              value={formData.type}
-              onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-              className="select-field w-full border rounded px-2 py-1 text-sm"
-              required
-            >
-              <option value="basic">Basic</option>
-              <option value="organizational">Organizational</option>
-              <option value="leadership">Leadership</option>
-              <option value="minimum">Minimum</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="flex items-center text-sm">
-              <input
-                type="checkbox"
-                checked={formData.isFixed}
-                onChange={(e) => setFormData({ ...formData, isFixed: e.target.checked })}
-                className="mr-2"
-              />
-              Fixed Competency (applies to all vacancies)
-            </label>
-          </div>
-
-          {!formData.isFixed && (
+          <form onSubmit={handleSubmit} className="space-y-3 text-sm">
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
-                Select Vacancies (leave empty to apply to all vacancies)
-              </label>
-
-              {/* 🔍 Search Input */}
+              <label className="block text-xs font-medium text-gray-700 mb-1">Competency Name</label>
               <input
                 type="text"
-                placeholder="Search vacancies..."
-                value={vacancySearch}
-                onChange={(e) => setVacancySearch(e.target.value)}
-                className="w-full px-2 py-1 mb-2 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                className="input-field w-full border rounded px-2 py-1 text-sm"
+                required
               />
-
-              {/* ✅ Filtered List */}
-              <div className="max-h-40 overflow-y-auto border border-gray-300 rounded-md p-2 space-y-1 text-sm">
-                {filteredVacancies.length > 0 ? (
-                  filteredVacancies.map(vacancy => (
-                    <label key={vacancy._id} className="flex items-center text-xs">
-                      <input
-                        type="checkbox"
-                        checked={formData.selectedVacancies.includes(vacancy._id)}
-                        onChange={(e) => handleVacancyChange(vacancy._id, e.target.checked)}
-                        className="mr-2"
-                      />
-                      {vacancy.itemNumber} - {vacancy.position}
-                    </label>
-                  ))
-                ) : (
-                  <p className="text-gray-400 text-xs italic">No vacancies found.</p>
-                )}
-              </div>
             </div>
-          )}
 
-          <div className="flex justify-end space-x-2">
-            <button
-              type="button"
-              onClick={() => setShowModal(false)}
-              className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600"
-            >
-              {editingItem ? 'Update' : 'Create'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-};
-
-
-  const VacancyAssignmentModal = () => {
-      const [formData, setFormData] = useState(() => {
-        if (editingItem) {
-  return {
-            assignmentType: editingItem.assignedVacancies || 'none',
-            assignedAssignment: editingItem.assignedAssignment || '',
-            assignedItemNumbers: editingItem.assignedItemNumbers || []
-          };
-        }
-        return {
-          assignmentType: 'none',
-          assignedAssignment: '',
-          assignedItemNumbers: []
-        };
-      });
-
-      const handleItemNumberChange = (itemNumber, checked) => {
-        if (checked) {
-          setFormData(prev => ({
-            ...prev,
-            assignedItemNumbers: [...prev.assignedItemNumbers, itemNumber]
-          }));
-        } else {
-          setFormData(prev => ({
-            ...prev,
-            assignedItemNumbers: prev.assignedItemNumbers.filter(item => item !== itemNumber)
-          }));
-        }
-      };
-
-      const handleSubmit = async (e) => {
-        e.preventDefault();
-        try {
-          const submitData = {
-            assignmentType: formData.assignmentType,
-            assignedAssignment: formData.assignmentType === 'assignment' ? formData.assignedAssignment : null,
-            assignedItemNumbers: formData.assignmentType === 'specific' ? formData.assignedItemNumbers : []
-          };
-
-          await usersAPI.assignVacancies(editingItem._id, submitData);
-          setShowModal(false);
-          loadData();
-          showToast('Vacancy assignment updated successfully!', 'success');
-        } catch (error) {
-          console.error('Failed to assign vacancies:', error);
-          showToast('Failed to assign vacancies. Please try again.', 'error');;
-        }
-      };
-
-      return (
-        <div className="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="modal-content bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6 overflow-y-auto max-h-[90vh]">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-bold">
-                Assign Vacancies to {editingItem?.name}
-              </h2>
-              <button onClick={() => setShowModal(false)} className="text-gray-500 hover:text-gray-700">✕</button>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Type</label>
+              <select
+                value={formData.type}
+                onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+                className="select-field w-full border rounded px-2 py-1 text-sm"
+                required
+              >
+                <option value="basic">Basic</option>
+                <option value="organizational">Organizational</option>
+                <option value="leadership">Leadership</option>
+                <option value="minimum">Minimum</option>
+              </select>
             </div>
-            <form onSubmit={handleSubmit} className="space-y-3 text-sm">
+
+            <div>
+              <label className="flex items-center text-sm">
+                <input
+                  type="checkbox"
+                  checked={formData.isFixed}
+                  onChange={(e) => setFormData({ ...formData, isFixed: e.target.checked })}
+                  className="mr-2"
+                />
+                Fixed Competency (applies to all vacancies)
+              </label>
+            </div>
+
+            {!formData.isFixed && (
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Assignment Type</label>
-                <div className="space-y-2">
-                  <label className="flex items-center text-sm">
-                    <input
-                      type="radio"
-                      name="assignmentType"
-                      value="none"
-                      checked={formData.assignmentType === 'none'}
-                      onChange={(e) => setFormData({ ...formData, assignmentType: e.target.value })}
-                      className="mr-2"
-                    />
-                    No Vacancies (No Access)
-                  </label>
-                  <label className="flex items-center text-sm">
-                    <input
-                      type="radio"
-                      name="assignmentType"
-                      value="all"
-                      checked={formData.assignmentType === 'all'}
-                      onChange={(e) => setFormData({ ...formData, assignmentType: e.target.value })}
-                      className="mr-2"
-                    />
-                    All Vacancies
-                  </label>
-                  <label className="flex items-center text-sm">
-                    <input
-                      type="radio"
-                      name="assignmentType"
-                      value="assignment"
-                      checked={formData.assignmentType === 'assignment'}
-                      onChange={(e) => setFormData({ ...formData, assignmentType: e.target.value })}
-                      className="mr-2"
-                    />
-                    By Assignment/Department (from vacancy.assignment field)
-                  </label>
-                  <label className="flex items-center text-sm">
-                    <input
-                      type="radio"
-                      name="assignmentType"
-                      value="specific"
-                      checked={formData.assignmentType === 'specific'}
-                      onChange={(e) => setFormData({ ...formData, assignmentType: e.target.value })}
-                      className="mr-2"
-                    />
-                    Specific Item Numbers
-                  </label>
-                </div>
-              </div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Select Vacancies (leave empty to apply to all vacancies)
+                </label>
 
-              {formData.assignmentType === 'assignment' && (
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Select Assignment</label>
-                  <select
-                    value={formData.assignedAssignment}
-                    onChange={(e) => setFormData({ ...formData, assignedAssignment: e.target.value })}
-                    className="select-field w-full border rounded px-2 py-1 text-sm"
-                    required
-                  >
-                    <option value="">Select Assignment</option>
-                    {assignments.map(assignment => (
-                      <option key={assignment} value={assignment}>{assignment}</option>
-                    ))}
-                  </select>
-                  <p className="text-xs text-gray-600 mt-1">
-                    This will assign all vacancies where vacancy.assignment matches the selected value.
-                  </p>
-                </div>
-              )}
+                <input
+                  type="text"
+                  placeholder="Search vacancies..."
+                  value={vacancySearch}
+                  onChange={(e) => setVacancySearch(e.target.value)}
+                  className="w-full px-2 py-1 mb-2 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
 
-              {formData.assignmentType === 'specific' && (
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Select Item Numbers</label>
-                  <div className="max-h-40 overflow-y-auto border border-gray-300 rounded-md p-2 space-y-1 text-sm">
-                    {vacancies.map(vacancy => (
+                <div className="max-h-40 overflow-y-auto border border-gray-300 rounded-md p-2 space-y-1 text-sm">
+                  {filteredVacancies.length > 0 ? (
+                    filteredVacancies.map(vacancy => (
                       <label key={vacancy._id} className="flex items-center text-xs">
                         <input
                           type="checkbox"
-                          checked={formData.assignedItemNumbers.includes(vacancy.itemNumber)}
-                          onChange={(e) => handleItemNumberChange(vacancy.itemNumber, e.target.checked)}
+                          checked={formData.selectedVacancies.includes(vacancy._id)}
+                          onChange={(e) => handleVacancyChange(vacancy._id, e.target.checked)}
                           className="mr-2"
                         />
-                        {vacancy.itemNumber} - {vacancy.position} ({vacancy.assignment})
+                        {vacancy.itemNumber} - {vacancy.position}
                       </label>
-                    ))}
-                  </div>
-                  {formData.assignedItemNumbers.length === 0 && (
-                    <p className="text-xs text-red-600 mt-1">Please select at least one item number.</p>
+                    ))
+                  ) : (
+                    <p className="text-gray-400 text-xs italic">No vacancies found.</p>
                   )}
                 </div>
-              )}
-
-              <div className="flex justify-end space-x-2">
-                <button type="button" onClick={() => setShowModal(false)} className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300">
-                  Cancel
-                </button>
-                <button 
-                  type="submit" 
-                  className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600"
-                  disabled={
-                    (formData.assignmentType === 'assignment' && !formData.assignedAssignment) ||
-                    (formData.assignmentType === 'specific' && formData.assignedItemNumbers.length === 0)
-                  }
-                >
-                  Assign Vacancies
-                </button>
               </div>
-            </form>
-          </div>
+            )}
+
+            <div className="flex justify-end space-x-2">
+              <button
+                type="button"
+                onClick={() => setShowModal(false)}
+                className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600"
+              >
+                {editingItem ? 'Update' : 'Create'}
+              </button>
+            </div>
+          </form>
         </div>
-      );
+      </div>
+    );
+  };
+
+  const VacancyAssignmentModal = () => {
+    const [formData, setFormData] = useState(() => {
+      if (editingItem) {
+        return {
+          assignmentType: editingItem.assignedVacancies || 'none',
+          assignedAssignment: editingItem.assignedAssignment || '',
+          assignedItemNumbers: editingItem.assignedItemNumbers || []
+        };
+      }
+      return {
+        assignmentType: 'none',
+        assignedAssignment: '',
+        assignedItemNumbers: []
+      };
+    });
+
+    const handleItemNumberChange = (itemNumber, checked) => {
+      if (checked) {
+        setFormData(prev => ({
+          ...prev,
+          assignedItemNumbers: [...prev.assignedItemNumbers, itemNumber]
+        }));
+      } else {
+        setFormData(prev => ({
+          ...prev,
+          assignedItemNumbers: prev.assignedItemNumbers.filter(item => item !== itemNumber)
+        }));
+      }
     };
 
-  // VacancyDetailsModal - This should be AFTER VacancyAssignmentModal
+    const handleSubmit = async (e) => {
+      e.preventDefault();
+      try {
+        const submitData = {
+          assignmentType: formData.assignmentType,
+          assignedAssignment: formData.assignmentType === 'assignment' ? formData.assignedAssignment : null,
+          assignedItemNumbers: formData.assignmentType === 'specific' ? formData.assignedItemNumbers : []
+        };
+
+        await usersAPI.assignVacancies(editingItem._id, submitData);
+        setShowModal(false);
+        loadData();
+        showToast('Vacancy assignment updated successfully!', 'success');
+      } catch (error) {
+        console.error('Failed to assign vacancies:', error);
+        showToast('Failed to assign vacancies. Please try again.', 'error');
+      }
+    };
+
+    return (
+      <div className="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="modal-content bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6 overflow-y-auto max-h-[90vh]">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-bold">
+              Assign Vacancies to {editingItem?.name}
+            </h2>
+            <button onClick={() => setShowModal(false)} className="text-gray-500 hover:text-gray-700">✕</button>
+          </div>
+          <form onSubmit={handleSubmit} className="space-y-3 text-sm">
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Assignment Type</label>
+              <div className="space-y-2">
+                <label className="flex items-center text-sm">
+                  <input
+                    type="radio"
+                    name="assignmentType"
+                    value="none"
+                    checked={formData.assignmentType === 'none'}
+                    onChange={(e) => setFormData({ ...formData, assignmentType: e.target.value })}
+                    className="mr-2"
+                  />
+                  No Vacancies (No Access)
+                </label>
+                <label className="flex items-center text-sm">
+                  <input
+                    type="radio"
+                    name="assignmentType"
+                    value="all"
+                    checked={formData.assignmentType === 'all'}
+                    onChange={(e) => setFormData({ ...formData, assignmentType: e.target.value })}
+                    className="mr-2"
+                  />
+                  All Vacancies
+                </label>
+                <label className="flex items-center text-sm">
+                  <input
+                    type="radio"
+                    name="assignmentType"
+                    value="assignment"
+                    checked={formData.assignmentType === 'assignment'}
+                    onChange={(e) => setFormData({ ...formData, assignmentType: e.target.value })}
+                    className="mr-2"
+                  />
+                  By Assignment/Department (from vacancy.assignment field)
+                </label>
+                <label className="flex items-center text-sm">
+                  <input
+                    type="radio"
+                    name="assignmentType"
+                    value="specific"
+                    checked={formData.assignmentType === 'specific'}
+                    onChange={(e) => setFormData({ ...formData, assignmentType: e.target.value })}
+                    className="mr-2"
+                  />
+                  Specific Item Numbers
+                </label>
+              </div>
+            </div>
+
+            {formData.assignmentType === 'assignment' && (
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Select Assignment</label>
+                <select
+                  value={formData.assignedAssignment}
+                  onChange={(e) => setFormData({ ...formData, assignedAssignment: e.target.value })}
+                  className="select-field w-full border rounded px-2 py-1 text-sm"
+                  required
+                >
+                  <option value="">Select Assignment</option>
+                  {assignments.map(assignment => (
+                    <option key={assignment} value={assignment}>{assignment}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-600 mt-1">
+                  This will assign all vacancies where vacancy.assignment matches the selected value.
+                </p>
+              </div>
+            )}
+
+            {formData.assignmentType === 'specific' && (
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Select Item Numbers</label>
+                <div className="max-h-40 overflow-y-auto border border-gray-300 rounded-md p-2 space-y-1 text-sm">
+                  {vacancies.map(vacancy => (
+                    <label key={vacancy._id} className="flex items-center text-xs">
+                      <input
+                        type="checkbox"
+                        checked={formData.assignedItemNumbers.includes(vacancy.itemNumber)}
+                        onChange={(e) => handleItemNumberChange(vacancy.itemNumber, e.target.checked)}
+                        className="mr-2"
+                      />
+                      {vacancy.itemNumber} - {vacancy.position} ({vacancy.assignment})
+                    </label>
+                  ))}
+                </div>
+                {formData.assignedItemNumbers.length === 0 && (
+                  <p className="text-xs text-red-600 mt-1">Please select at least one item number.</p>
+                )}
+              </div>
+            )}
+
+            <div className="flex justify-end space-x-2">
+              <button type="button" onClick={() => setShowModal(false)} className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300">
+                Cancel
+              </button>
+              <button 
+                type="submit" 
+                className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600"
+                disabled={
+                  (formData.assignmentType === 'assignment' && !formData.assignedAssignment) ||
+                  (formData.assignmentType === 'specific' && formData.assignedItemNumbers.length === 0)
+                }
+              >
+                Assign Vacancies
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  };
+
   const VacancyDetailsModal = () => {
     if (!selectedVacancy) return null;
 
@@ -1556,7 +1674,7 @@ const AdminView = ({ user }) => {
       </div>
     );
   };
-  // Password Confirmation Modal
+
   const PasswordConfirmModal = ({ isOpen, onClose, onConfirm, actionType, itemName }) => {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
@@ -1649,7 +1767,6 @@ const AdminView = ({ user }) => {
     );
   };
 
-
   const getStatusColor = (status) => {
     switch (status) {
       case CANDIDATE_STATUS.GENERAL_LIST:
@@ -1681,276 +1798,358 @@ const AdminView = ({ user }) => {
   };
 
   const getAssignmentDisplay = (user) => {
-      if (user.assignedVacancies === 'none') {
-        return 'No Vacancies';
-      } else if (user.assignedVacancies === 'all') {
-        return 'All Vacancies';
-      } else if (user.assignedVacancies === 'assignment') {
-        return `Assignment: ${user.assignedAssignment || 'Not Set'}`;
-      } else if (user.assignedVacancies === 'specific') {
-        const count = user.assignedItemNumbers?.length || 0;
-        return `Specific Items (${count})`;
-      }
+    if (user.assignedVacancies === 'none') {
       return 'No Vacancies';
-    };
+    } else if (user.assignedVacancies === 'all') {
+      return 'All Vacancies';
+    } else if (user.assignedVacancies === 'assignment') {
+      return `Assignment: ${user.assignedAssignment || 'Not Set'}`;
+    } else if (user.assignedVacancies === 'specific') {
+      const count = user.assignedItemNumbers?.length || 0;
+      return `Specific Items (${count})`;
+    }
+    return 'No Vacancies';
+  };
 
+  // RENDER FUNCTIONS
   const renderUsers = () => {
-  const filteredUsers = filterAndSortData(users, ['name', 'email', 'userType', 'raterType', 'position']);
+    const filteredUsers = filterAndSortData(users, ['name', 'email', 'userType', 'raterType', 'position']);
 
-  return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <h2 className="text-xl font-bold text-gray-900">Users Management</h2>
-        <div className="flex space-x-2">
-          <button
-            onClick={() => handleExportCSV('users')}
-            className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
-            disabled={users.length === 0}
-          >
-            Export CSV
-          </button>
-          <button
-            onClick={() => handleExportEmptyTemplate('users')}
-            className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
-          >
-            Download Template
-          </button>
-          <button onClick={() => handleAdd('user')} className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600">
-            Add User
-          </button>
+    return (
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <h2 className="text-xl font-bold text-gray-900">Users Management</h2>
+          <div className="flex space-x-2">
+            <button
+              onClick={() => handleExportCSV('users')}
+              className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
+              disabled={users.length === 0}
+            >
+              Export CSV
+            </button>
+            <button
+              onClick={() => handleExportEmptyTemplate('users')}
+              className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
+            >
+              Download Template
+            </button>
+            <button onClick={() => handleAdd('user')} className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600">
+              Add User
+            </button>
+          </div>
         </div>
-      </div>
-      <div className="card bg-white rounded-lg shadow overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <FilterableHeader label="Name" filterKey="name" sortKey="name" filterValue={filters.name || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
-                <FilterableHeader label="Email" filterKey="email" sortKey="email" filterValue={filters.email || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
-                <FilterableHeader label="User Type" filterKey="userType" sortKey="userType" filterValue={filters.userType || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
-                <FilterableHeader label="Rater Type" filterKey="raterType" sortKey="raterType" filterValue={filters.raterType || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
-                <FilterableHeader label="Position" filterKey="position" sortKey="position" filterValue={filters.position || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
-                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredUsers.map(user => (
-                <tr key={user._id}>
-                  <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{user.name}</td>
-                  <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{user.email}</td>
-                  <td className="table-cell px-4 py-2">
-                    <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded text-xs">
-                      {user.userType}
-                    </span>
-                  </td>
-                  <td className="table-cell px-4 py-2 text-xs">{user.raterType || '-'}</td>
-                  <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{user.position || '-'}</td>
-                  <td className="table-cell px-4 py-2">
-                    <button
-                      onClick={() => handleEdit(user, 'user')}
-                      className="btn-secondary px-2 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300 mr-1"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(user._id, 'user', user.name)}
-                      className="btn-danger px-2 py-1 rounded text-xs bg-red-500 text-white hover:bg-red-600"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {filteredUsers.length === 0 && (
+        <div className="card bg-white rounded-lg shadow overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200 text-sm">
+              <thead className="bg-gray-50">
                 <tr>
-                  <td colSpan="6" className="px-4 py-8 text-center text-gray-500">
-                    No users found matching your search criteria.
-                  </td>
+                  <FilterableHeader label="Name" filterKey="name" sortKey="name" filterValue={filters.name || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Email" filterKey="email" sortKey="email" filterValue={filters.email || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="User Type" filterKey="userType" sortKey="userType" filterValue={filters.userType || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Rater Type" filterKey="raterType" sortKey="raterType" filterValue={filters.raterType || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Position" filterKey="position" sortKey="position" filterValue={filters.position || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                 </tr>
-              )}
-              
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredUsers.map(user => (
+                  <tr key={user._id}>
+                    <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{user.name}</td>
+                    <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{user.email}</td>
+                    <td className="table-cell px-4 py-2">
+                      <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded text-xs">
+                        {user.userType}
+                      </span>
+                    </td>
+                    <td className="table-cell px-4 py-2 text-xs">{user.raterType || '-'}</td>
+                    <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{user.position || '-'}</td>
+                    <td className="table-cell px-4 py-2">
+                      <button
+                        onClick={() => handleEdit(user, 'user')}
+                        className="btn-secondary px-2 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300 mr-1"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDelete(user._id, 'user', user.name)}
+                        className="btn-danger px-2 py-1 rounded text-xs bg-red-500 text-white hover:bg-red-600"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {filteredUsers.length === 0 && (
+                  <tr>
+                    <td colSpan="6" className="px-4 py-8 text-center text-gray-500">
+                      No users found matching your search criteria.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
-    </div>
-  );
-};
+    );
+  };
 
+  // UPDATED: renderVacancies with Publication Range selector for CSV upload
   const renderVacancies = () => {
-  const filteredVacancies = filterAndSortData(vacancies, ['itemNumber', 'position', 'assignment', 'salaryGrade']);
+    const filteredVacancies = filterAndSortData(vacancies, ['itemNumber', 'position', 'assignment', 'salaryGrade']);
+    const activePublicationRanges = publicationRanges.filter(pr => pr.isActive && !pr.isArchived);
 
-  return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <h2 className="text-xl font-bold text-gray-900">Vacancies Management</h2>
-        <div className="flex space-x-2">
-          <button
-            onClick={() => handleExportCSV('vacancies')}
-            className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
-            disabled={vacancies.length === 0}
-          >
-            Export CSV
-          </button>
-          <button
-            onClick={() => handleExportEmptyTemplate('vacancies')}
-            className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
-          >
-            Download Template
-          </button>
-          <input
-            type="file"
-            accept=".csv"
-            onChange={(e) => e.target.files[0] && handleCSVUpload(e.target.files[0], 'vacancies')}
-            className="hidden"
-            id="vacancy-csv-upload"
-          />
-          <label htmlFor="vacancy-csv-upload" className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300 cursor-pointer">
-            Upload CSV
-          </label>
-          <button onClick={() => handleAdd('vacancy')} className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600">
-            Add Vacancy
-          </button>
-        </div>
-      </div>
-      <div className="card bg-white rounded-lg shadow overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <FilterableHeader label="Item Number" filterKey="itemNumber" sortKey="itemNumber" filterValue={filters.itemNumber || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
-                <FilterableHeader label="Position" filterKey="position" sortKey="position" filterValue={filters.position || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
-                <FilterableHeader label="Assignment" filterKey="assignment" sortKey="assignment" filterValue={filters.assignment || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
-                <FilterableHeader label="Salary Grade" filterKey="salaryGrade" sortKey="salaryGrade" filterValue={filters.salaryGrade || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
-                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredVacancies.map(vacancy => (
-                <tr key={vacancy._id}>
-                  <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{vacancy.itemNumber}</td>
-                  <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{vacancy.position}</td>
-                  <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{vacancy.assignment}</td>
-                  <td className="table-cell px-4 py-2 text-xs">{vacancy.salaryGrade}</td>
-                  <td className="table-cell px-4 py-2">
-                    <button
-                      onClick={() => handleEdit(vacancy, 'vacancy')}
-                      className="btn-secondary px-2 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300 mr-1"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(vacancy._id, 'vacancy', vacancy.itemNumber)}
-                      className="btn-danger px-2 py-1 rounded text-xs bg-red-500 text-white hover:bg-red-600"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
+    return (
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <h2 className="text-xl font-bold text-gray-900">Vacancies Management</h2>
+          <div className="flex space-x-2">
+            <button
+              onClick={() => handleExportCSV('vacancies')}
+              className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
+              disabled={vacancies.length === 0}
+            >
+              Export CSV
+            </button>
+            <button
+              onClick={() => handleExportEmptyTemplate('vacancies')}
+              className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
+            >
+              Download Template
+            </button>
+
+            {/* NEW: Publication Range Selector for CSV Upload */}
+            <select
+              value={selectedPublicationRange || ''}
+              onChange={(e) => setSelectedPublicationRange(e.target.value)}
+              className="px-3 py-1 text-xs border border-gray-300 rounded bg-white"
+            >
+              <option value="">Select Publication Range</option>
+              {activePublicationRanges.map(pr => (
+                <option key={pr._id} value={pr._id}>{pr.name}</option>
               ))}
-              {filteredVacancies.length === 0 && (
+            </select>
+
+            <input
+              type="file"
+              accept=".csv"
+              onChange={(e) => {
+                if (!selectedPublicationRange) {
+                  showToast('Please select a publication range first', 'error');
+                  e.target.value = ''; // Clear the file input
+                  return;
+                }
+                if (e.target.files[0]) {
+                  handleCSVUpload(e.target.files[0], 'vacancies');
+                }
+              }}
+              className="hidden"
+              id="vacancy-csv-upload"
+            />
+            <label 
+              htmlFor="vacancy-csv-upload" 
+              className={`btn-secondary px-3 py-1 rounded text-xs cursor-pointer ${
+                !selectedPublicationRange ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-gray-200 hover:bg-gray-300'
+              }`}
+              onClick={(e) => {
+                if (!selectedPublicationRange) {
+                  e.preventDefault();
+                  showToast('Please select a publication range first', 'error');
+                }
+              }}
+            >
+              Upload CSV
+            </label>
+            <button onClick={() => handleAdd('vacancy')} className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600">
+              Add Vacancy
+            </button>
+          </div>
+        </div>
+        <div className="card bg-white rounded-lg shadow overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200 text-sm">
+              <thead className="bg-gray-50">
                 <tr>
-                  <td colSpan="5" className="px-4 py-8 text-center text-gray-500">
-                    No vacancies found matching your search criteria.
-                  </td>
+                  <FilterableHeader label="Item Number" filterKey="itemNumber" sortKey="itemNumber" filterValue={filters.itemNumber || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Position" filterKey="position" sortKey="position" filterValue={filters.position || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Assignment" filterKey="assignment" sortKey="assignment" filterValue={filters.assignment || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Salary Grade" filterKey="salaryGrade" sortKey="salaryGrade" filterValue={filters.salaryGrade || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredVacancies.map(vacancy => (
+                  <tr key={vacancy._id} className={vacancy.isArchived ? 'bg-gray-50 opacity-60' : ''}>
+                    <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">
+                      {vacancy.itemNumber}
+                      {vacancy.isArchived && <span className="ml-2 text-xs text-gray-500">(Archived)</span>}
+                    </td>
+                    <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{vacancy.position}</td>
+                    <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{vacancy.assignment}</td>
+                    <td className="table-cell px-4 py-2 text-xs">{vacancy.salaryGrade}</td>
+                    <td className="table-cell px-4 py-2">
+                      <button
+                        onClick={() => handleEdit(vacancy, 'vacancy')}
+                        className="btn-secondary px-2 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300 mr-1"
+                        disabled={vacancy.isArchived}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDelete(vacancy._id, 'vacancy', vacancy.itemNumber)}
+                        className="btn-danger px-2 py-1 rounded text-xs bg-red-500 text-white hover:bg-red-600"
+                        disabled={vacancy.isArchived}
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {filteredVacancies.length === 0 && (
+                  <tr>
+                    <td colSpan="5" className="px-4 py-8 text-center text-gray-500">
+                      No vacancies found matching your search criteria.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
-    </div>
-  );
-};
+    );
+  };
 
+  // UPDATED: renderCandidates with Publication Range selector and Undo button
   const renderCandidates = () => {
-  const filteredCandidates = filterAndSortData(candidates, ['fullName', 'itemNumber', 'gender', 'age', 'status']);
+    const filteredCandidates = filterAndSortData(candidates, ['fullName', 'itemNumber', 'gender', 'age', 'status']);
+    const activePublicationRanges = publicationRanges.filter(pr => pr.isActive && !pr.isArchived);
 
-  return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <h2 className="text-xl font-bold text-gray-900">Candidates Management</h2>
-        <div className="flex space-x-2">
-          <button
-            onClick={() => handleExportCSV('candidates')}
-            className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
-            disabled={candidates.length === 0}
-          >
-            Export CSV
-          </button>
-          <button
-            onClick={() => handleExportEmptyTemplate('candidates')}
-            className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
-          >
-            Download Template
-          </button>
-          <input
-            type="file"
-            accept=".csv"
-            onChange={(e) => e.target.files[0] && handleCSVUpload(e.target.files[0], 'candidates')}
-            className="hidden"
-            id="candidate-csv-upload"
-          />
-          <label htmlFor="candidate-csv-upload" className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300 cursor-pointer">
-            Upload CSV
-          </label>
-          <button onClick={() => handleAdd('candidate')} className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600">
-            Add Candidate
-          </button>
-        </div>
-      </div>
-      <div className="card bg-white rounded-lg shadow overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <FilterableHeader label="Name" filterKey="fullName" sortKey="fullName" filterValue={filters.fullName || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
-                <FilterableHeader label="Item Number" filterKey="itemNumber" sortKey="itemNumber" filterValue={filters.itemNumber || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
-                <FilterableHeader label="Gender" filterKey="gender" sortKey="gender" filterValue={filters.gender || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
-                <FilterableHeader label="Age" filterKey="age" sortKey="age" filterValue={filters.age || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
-                <FilterableHeader label="Status" filterKey="status" sortKey="status" filterValue={filters.status || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
-                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredCandidates.map(candidate => (
-                <tr key={candidate._id}>
-                  <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">{candidate.fullName}</td>
-                  <td className="table-cell px-4 py-2 text-xs">
-                    <button
-                      onClick={() => handleItemNumberClick(candidate.itemNumber)}
-                      className="text-blue-600 hover:text-blue-800 hover:underline"
-                    >
-                      {candidate.itemNumber}
-                    </button>
-                  </td>
-                  <td className="table-cell px-4 py-2 text-xs">{candidate.gender}</td>
-                  <td className="table-cell px-4 py-2 text-xs">{candidate.age}</td>
-                  <td className="table-cell px-4 py-2">
-                    <span className={`px-2 py-1 rounded text-xs ${getStatusColor(candidate.status)}`}>
-                      {getStatusLabel(candidate.status)}
-                    </span>
-                  </td>
-                  <td className="table-cell px-4 py-2">
-                    <button
-                      onClick={() => handleEdit(candidate, 'candidate')}
-                      className="btn-secondary px-2 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300 mr-1"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(candidate._id, 'candidate', candidate.fullName)}
-                      className="btn-danger px-2 py-1 rounded text-xs bg-red-500 text-white hover:bg-red-600"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
+    return (
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <h2 className="text-xl font-bold text-gray-900">Candidates Management</h2>
+          <div className="flex space-x-2">
+            <button
+              onClick={() => handleExportCSV('candidates')}
+              className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
+              disabled={candidates.length === 0}
+            >
+              Export CSV
+            </button>
+            <button
+              onClick={() => handleExportEmptyTemplate('candidates')}
+              className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
+            >
+              Download Template
+            </button>
+
+            {/* NEW: Publication Range Selector */}
+            <select
+              value={selectedPublicationRange || ''}
+              onChange={(e) => setSelectedPublicationRange(e.target.value)}
+              className="px-3 py-1 text-xs border border-gray-300 rounded bg-white"
+            >
+              <option value="">Select Publication Range</option>
+              {activePublicationRanges.map(pr => (
+                <option key={pr._id} value={pr._id}>{pr.name}</option>
               ))}
-              {filteredCandidates.length === 0 && (
+            </select>
+
+            <input
+              type="file"
+              accept=".csv"
+              onChange={(e) => e.target.files[0] && handleCSVUpload(e.target.files[0], 'candidates')}
+              className="hidden"
+              id="candidate-csv-upload"
+            />
+            <label 
+              htmlFor="candidate-csv-upload" 
+              className={`btn-secondary px-3 py-1 rounded text-xs cursor-pointer ${
+                !selectedPublicationRange ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-gray-200 hover:bg-gray-300'
+              }`}
+              onClick={(e) => {
+                if (!selectedPublicationRange) {
+                  e.preventDefault();
+                  showToast('Please select a publication range first', 'error');
+                }
+              }}
+            >
+              Upload CSV
+            </label>
+
+            {/* NEW: Undo Import Button */}
+            {selectedPublicationRange && (
+              <button
+                onClick={() => handleUndoImport(selectedPublicationRange)}
+                className="px-3 py-1 rounded text-xs bg-orange-500 text-white hover:bg-orange-600"
+              >
+                Undo Last Import
+              </button>
+            )}
+
+            <button onClick={() => handleAdd('candidate')} className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600">
+              Add Candidate
+            </button>
+          </div>
+        </div>
+        <div className="card bg-white rounded-lg shadow overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200 text-sm">
+              <thead className="bg-gray-50">
                 <tr>
-                  <td colSpan="6" className="px-4 py-8 text-center text-gray-500">
-                    No candidates found matching your search criteria.
+                  <FilterableHeader label="Name" filterKey="fullName" sortKey="fullName" filterValue={filters.fullName || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Item Number" filterKey="itemNumber" sortKey="itemNumber" filterValue={filters.itemNumber || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Gender" filterKey="gender" sortKey="gender" filterValue={filters.gender || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Age" filterKey="age" sortKey="age" filterValue={filters.age || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <FilterableHeader label="Status" filterKey="status" sortKey="status" filterValue={filters.status || ''} onFilterChange={handleFilterChange} onSort={handleSort} sortConfig={sortConfig} />
+                  <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredCandidates.map(candidate => (
+                  <tr key={candidate._id} className={candidate.isArchived ? 'bg-gray-50 opacity-60' : ''}>
+                    <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">
+                      {candidate.fullName}
+                      {candidate.isArchived && <span className="ml-2 text-xs text-gray-500">(Archived)</span>}
+                    </td>
+                    <td className="table-cell px-4 py-2 text-xs">
+                      <button
+                        onClick={() => handleItemNumberClick(candidate.itemNumber)}
+                        className="text-blue-600 hover:text-blue-800 hover:underline"
+                      >
+                        {candidate.itemNumber}
+                      </button>
+                    </td>
+                    <td className="table-cell px-4 py-2 text-xs">{candidate.gender}</td>
+                    <td className="table-cell px-4 py-2 text-xs">{candidate.age}</td>
+                    <td className="table-cell px-4 py-2">
+                      <span className={`px-2 py-1 rounded text-xs ${getStatusColor(candidate.status)}`}>
+                        {getStatusLabel(candidate.status)}
+                      </span>
+                    </td>
+                    <td className="table-cell px-4 py-2">
+                      <button
+                        onClick={() => handleEdit(candidate, 'candidate')}
+                        className="btn-secondary px-2 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300 mr-1"
+                        disabled={candidate.isArchived}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDelete(candidate._id, 'candidate', candidate.fullName)}
+                        className="btn-danger px-2 py-1 rounded text-xs bg-red-500 text-white hover:bg-red-600"
+                        disabled={candidate.isArchived}
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {filteredCandidates.length === 0 && (
+                  <tr>
+                    <td colSpan="6" className="px-4 py-8 text-center text-gray-500">
+                      No candidates found matching your search criteria
                   </td>
                 </tr>
               )}
@@ -2280,6 +2479,16 @@ const AdminView = ({ user }) => {
                 Rating Audit Log
               </span>
             </button>
+
+            <button
+              onClick={() => setActiveTab('publicationRanges')}
+              className={`sidebar-item ...`}
+            >
+              <span className="flex items-center gap-3">
+                <span className="text-lg">📅</span>
+                Publication Ranges
+              </span>
+            </button>
           </nav>
         </div>
       </div>
@@ -2315,6 +2524,7 @@ const AdminView = ({ user }) => {
       {activeTab === 'assignments' && renderVacancyAssignments()}
       {activeTab === 'interviewSummary' && renderInterviewSummary()}
       {activeTab === 'ratingLogs' && <RatingLogsView />}
+      {activeTab === 'publicationRanges' && <PublicationRangeManager />}
     </div>
 
     {/* Modals */}
