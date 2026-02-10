@@ -1,11 +1,62 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import usePersistedState from '../utils/usePersistedState';
 import { vacanciesAPI, candidatesAPI, usersAPI, publicationRangesAPI } from '../utils/api';
 import { getStatusColor, getStatusLabel, CANDIDATE_STATUS } from '../utils/constants';
 import PDFReport from './PDFReport';
 import { useToast } from '../utils/ToastContext';
 import { competenciesAPI } from '../utils/api';
-import { COMPETENCY_TYPES } from '../utils/constants'; 
+import { COMPETENCY_TYPES } from '../utils/constants';
+
+// Error Boundary Component
+class SecretariatErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('SecretariatView Error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-red-50 flex items-center justify-center p-4">
+          <div className="bg-white p-6 rounded-lg shadow-lg max-w-md">
+            <div className="flex items-center justify-center w-16 h-16 mx-auto mb-4 bg-red-100 rounded-full">
+              <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-1.963-1.333-2.732 0L3.732 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <h2 className="text-xl font-bold text-red-600 mb-2 text-center">Something went wrong</h2>
+            <p className="text-gray-700 text-center mb-4">
+              An unexpected error occurred. Please refresh the page or contact support if the problem persists.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => window.location.reload()}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded transition-colors"
+              >
+                Refresh Page
+              </button>
+              <button
+                onClick={() => this.setState({ hasError: false, error: null })}
+                className="flex-1 bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded transition-colors"
+              >
+                Try Again
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const SecretariatView = ({ user }) => {
   const [vacancies, setVacancies] = useState([]);
@@ -27,7 +78,7 @@ const SecretariatView = ({ user }) => {
   const [commentHistoryData, setCommentHistoryData] = useState(null);
   const [genderFilter, setGenderFilter] = useState(null);
 
-  // NEW: Publication Range states
+  // Publication Range states
   const [publicationRanges, setPublicationRanges] = useState([]);
   const [selectedPublicationRange, setSelectedPublicationRange] = usePersistedState(
     `secretariat_${user._id}_selectedPublicationRange`, 
@@ -68,29 +119,104 @@ const SecretariatView = ({ user }) => {
 
   const [statusFilter, setStatusFilter] = useState(null);
 
-  // Handle viewing comment history
-  const handleViewCommentHistory = (candidate) => {
-    setCommentHistoryData(candidate);
-    setShowCommentHistoryModal(true);
-  };
+  // STEP 1: Add Required Refs
+  const isInitialMount = useRef(true);
+  const loadingCandidates = useRef(false);
+  const previousFilters = useRef({
+    assignment: '',
+    position: '',
+    itemNumber: '',
+    publicationRange: ''
+  });
 
-  const closeCommentHistoryModal = () => {
-    setShowCommentHistoryModal(false);
-    setCommentHistoryData(null);
-  };
+  // Utility Functions with useCallback
+  const filterVacanciesByAssignment = useCallback((allVacancies, user) => {
+    if (user.administrativePrivilege) {
+      return allVacancies;
+    }
+    switch (user.assignedVacancies) {
+      case 'all':
+        return allVacancies;
+      case 'assignment':
+        if (!user.assignedAssignment) return [];
+        return allVacancies.filter(vacancy => vacancy.assignment === user.assignedAssignment);
+      case 'specific':
+        if (!user.assignedItemNumbers || user.assignedItemNumbers.length === 0) return [];
+        return allVacancies.filter(vacancy => user.assignedItemNumbers.includes(vacancy.itemNumber));
+      default:
+        return allVacancies;
+    }
+  }, []);
 
-  // Calculate statistics
-  const getStatistics = () => {
+  const getStatistics = useCallback(() => {
     const total = candidates.length;
     const longListed = candidates.filter(c => c.status === CANDIDATE_STATUS.LONG_LIST).length;
     const forReview = candidates.filter(c => c.status === CANDIDATE_STATUS.FOR_REVIEW).length;
     const disqualified = candidates.filter(c => c.status === CANDIDATE_STATUS.DISQUALIFIED).length;
     
     return { total, longListed, forReview, disqualified };
-  };
+  }, [candidates]);
 
-  // Load comment suggestions
-  const loadCommentSuggestions = async () => {
+  const getGenderStatistics = useCallback(() => {
+    let baseFiltered = candidates;
+    
+    if (statusFilter) {
+      baseFiltered = baseFiltered.filter(c => c.status === statusFilter);
+    }
+    
+    const male = baseFiltered.filter(c => 
+      c.gender === 'Male' || c.gender === 'MALE/LALAKI'
+    ).length;
+    const female = baseFiltered.filter(c => 
+      c.gender === 'Female' || c.gender === 'FEMALE/BABAE'
+    ).length;
+    const lgbtqi = baseFiltered.filter(c => 
+      c.gender === 'LGBTQI+'
+    ).length;
+    
+    return { male, female, lgbtqi, total: baseFiltered.length };
+  }, [candidates, statusFilter]);
+
+  const getFilteredCandidates = useCallback(() => {
+    let filtered = candidates;
+    
+    if (statusFilter) {
+      filtered = filtered.filter(c => c.status === statusFilter);
+    }
+    
+    if (genderFilter) {
+      if (genderFilter === 'Male') {
+        filtered = filtered.filter(c => c.gender === 'Male' || c.gender === 'MALE/LALAKI');
+      } else if (genderFilter === 'Female') {
+        filtered = filtered.filter(c => c.gender === 'Female' || c.gender === 'FEMALE/BABAE');
+      } else if (genderFilter === 'LGBTQI+') {
+        filtered = filtered.filter(c => c.gender === 'LGBTQI+');
+      }
+    }
+    
+    return filtered;
+  }, [candidates, statusFilter, genderFilter]);
+
+  const loadCandidateDetails = useCallback(async (candidateId) => {
+    try {
+      const candidate = await candidatesAPI.getById(candidateId);
+      setCandidateDetails(candidate);
+      setComments(candidate.comments || {
+        education: '',
+        training: '',
+        experience: '',
+        eligibility: ''
+      });
+      const vacancy = vacancies.find(v => v.itemNumber === candidate.itemNumber);
+      setVacancyDetails(vacancy || null);
+    } catch (error) {
+      console.error('Failed to load candidate details:', error);
+      showToast('Failed to load candidate details.', 'error');
+      setCandidateDetails(null);
+    }
+  }, [vacancies, showToast]);
+
+  const loadCommentSuggestions = useCallback(async () => {
     try {
       const fields = ['education', 'training', 'experience', 'eligibility'];
       const suggestions = {};
@@ -114,9 +240,9 @@ const SecretariatView = ({ user }) => {
         eligibility: []
       });
     }
-  };
+  }, []);
 
-  const fetchRatersForVacancy = async (itemNumber) => {
+  const fetchRatersForVacancy = useCallback(async (itemNumber) => {
     try {
       const allRaters = await usersAPI.getRaters();
       const vacancy = vacancies.find(v => v.itemNumber === itemNumber);
@@ -152,9 +278,9 @@ const SecretariatView = ({ user }) => {
       showToast('Failed to fetch raters for report.', 'error');
       return [];
     }
-  };
+  }, [vacancies, showToast]);
 
-  const loadCompetenciesByItemNumber = async (itemNumber) => {
+  const loadCompetenciesByItemNumber = useCallback(async (itemNumber) => {
     try {
       const vacancy = vacancies.find(v => v.itemNumber === itemNumber);
       if (vacancy) {
@@ -180,9 +306,261 @@ const SecretariatView = ({ user }) => {
         minimum: []
       });
     }
-  };
+  }, [vacancies, showToast]);
 
-  const closeCompetenciesModal = () => {
+  // STEP 4: Replace loadInitialData with three separate functions
+  const loadPublicationRanges = useCallback(async () => {
+    try {
+      setLoading(true);
+      const ranges = await publicationRangesAPI.getAll(showArchivedRanges);
+      setPublicationRanges(ranges);
+      
+      // CRITICAL: Validate selected range is still available
+      if (selectedPublicationRange) {
+        const stillExists = ranges.find(r => r._id === selectedPublicationRange);
+        if (!stillExists) {
+          setSelectedPublicationRange('');
+          showToast('Selected publication range is no longer available', 'info');
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load publication ranges:', error);
+      setError('Failed to load publication ranges. Please refresh the page.');
+      showToast('Failed to load publication ranges', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [showArchivedRanges, selectedPublicationRange, setSelectedPublicationRange, showToast]);
+
+  const loadAllActiveVacancies = useCallback(async () => {
+    try {
+      setLoading(true);
+      const vacanciesRes = await vacanciesAPI.getAll();
+      const activeVacancies = vacanciesRes.filter(v => !v.isArchived);
+      const filteredVacancies = filterVacanciesByAssignment(activeVacancies, user);
+      setVacancies(filteredVacancies);
+    } catch (error) {
+      console.error('Failed to load vacancies:', error);
+      setError('Failed to load vacancies. Please refresh the page.');
+      showToast('Failed to load vacancies', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [filterVacanciesByAssignment, user, showToast]);
+
+  const loadDataForPublicationRange = useCallback(async () => {
+    if (!selectedPublicationRange) {
+      await loadAllActiveVacancies();
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const selectedRange = publicationRanges.find(r => r._id === selectedPublicationRange);
+      const includeArchived = selectedRange?.isArchived || false;
+      
+      const vacanciesRes = await vacanciesAPI.getByPublicationRange(
+        selectedPublicationRange, 
+        includeArchived
+      );
+      
+      const filteredVacancies = filterVacanciesByAssignment(vacanciesRes, user);
+      setVacancies(filteredVacancies);
+    } catch (error) {
+      console.error('Failed to load data for publication range:', error);
+      showToast('Failed to load publication range data', 'error');
+      setError('Failed to load publication range data.');
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedPublicationRange, publicationRanges, loadAllActiveVacancies, filterVacanciesByAssignment, user, showToast]);
+
+  // STEP 5: Update loadCandidatesByFilters
+  const loadCandidatesByFilters = useCallback(async () => {
+    // Prevent concurrent loading
+    if (loadingCandidates.current) {
+      return;
+    }
+
+    // Check if filters actually changed
+    const currentFilters = {
+      assignment: selectedAssignment,
+      position: selectedPosition,
+      itemNumber: selectedItemNumber,
+      publicationRange: selectedPublicationRange
+    };
+
+    if (JSON.stringify(currentFilters) === JSON.stringify(previousFilters.current)) {
+      return;
+    }
+
+    previousFilters.current = currentFilters;
+    loadingCandidates.current = true;
+
+    try {
+      setLoading(true);
+      let filteredCandidates = [];
+      
+      // Determine if we're viewing archived data
+      const selectedRange = publicationRanges.find(r => r._id === selectedPublicationRange);
+      const includeArchived = selectedRange?.isArchived || false;
+      
+      if (selectedItemNumber) {
+        filteredCandidates = await candidatesAPI.getByItemNumber(selectedItemNumber);
+        if (selectedRange) {
+          filteredCandidates = filteredCandidates.filter(c => 
+            c.isArchived === includeArchived
+          );
+        }
+      } else if (selectedPosition) {
+        const vacancyItemNumbers = vacancies
+          .filter(v => v.assignment === selectedAssignment && v.position === selectedPosition)
+          .map(v => v.itemNumber);
+        const candidatesRes = await Promise.all(
+          vacancyItemNumbers.map(itemNumber => candidatesAPI.getByItemNumber(itemNumber))
+        );
+        filteredCandidates = candidatesRes.flat();
+        if (selectedRange) {
+          filteredCandidates = filteredCandidates.filter(c => 
+            c.isArchived === includeArchived
+          );
+        }
+      } else if (selectedAssignment) {
+        const vacancyItemNumbers = vacancies
+          .filter(v => v.assignment === selectedAssignment)
+          .map(v => v.itemNumber);
+        const candidatesRes = await Promise.all(
+          vacancyItemNumbers.map(itemNumber => candidatesAPI.getByItemNumber(itemNumber))
+        );
+        filteredCandidates = candidatesRes.flat();
+        if (selectedRange) {
+          filteredCandidates = filteredCandidates.filter(c => 
+            c.isArchived === includeArchived
+          );
+        }
+      } else {
+        const vacancyItemNumbers = vacancies.map(v => v.itemNumber);
+        const candidatesRes = await Promise.all(
+          vacancyItemNumbers.map(itemNumber => candidatesAPI.getByItemNumber(itemNumber))
+        );
+        filteredCandidates = candidatesRes.flat();
+        if (selectedRange) {
+          filteredCandidates = filteredCandidates.filter(c => 
+            c.isArchived === includeArchived
+          );
+        }
+      }
+      
+      // CRITICAL: Deduplicate candidates by _id
+      const uniqueCandidates = Array.from(
+        new Map(filteredCandidates.map(c => [c._id, c])).values()
+      );
+      
+      uniqueCandidates.sort((a, b) => a.fullName.localeCompare(b.fullName));
+      setCandidates(uniqueCandidates);
+    } catch (error) {
+      console.error('Failed to load candidates:', error);
+      setError('Failed to load candidates.');
+      showToast('Failed to load candidates', 'error');
+      setCandidates([]);
+    } finally {
+      setLoading(false);
+      loadingCandidates.current = false;
+    }
+  }, [selectedAssignment, selectedPosition, selectedItemNumber, selectedPublicationRange, publicationRanges, vacancies, showToast]);
+
+  // Event Handlers with useCallback
+  const handleCommentChange = useCallback((field, value) => {
+    setComments(prev => ({ ...prev, [field]: value }));
+  }, []);
+
+  const handleStatusUpdate = useCallback(async (status) => {
+    try {
+      const updateData = {
+        status,
+        comments
+      };
+      await candidatesAPI.update(selectedCandidate, updateData);
+      setCandidateDetails(prev => ({ ...prev, status, comments }));
+      setCandidates(prev =>
+        prev.map(c => (c._id === selectedCandidate ? { ...c, status, comments } : c))
+      );
+      setShowCommentModal(false);
+      showToast('Candidate status updated successfully!', 'success');
+    } catch (error) {
+      console.error('Failed to update status:', error);
+      showToast('Failed to update status: ' + (error.response?.data?.message || error.message), 'error');
+    }
+  }, [comments, selectedCandidate, showToast]);
+
+  const handleViewComments = useCallback((candidate) => {
+    const vacancy = vacancies.find(v => v.itemNumber === candidate.itemNumber);
+    setViewCandidateData({ candidate, vacancy });
+    setShowViewCommentsModal(true);
+  }, [vacancies]);
+
+  const handleViewCommentHistory = useCallback((candidate) => {
+    setCommentHistoryData(candidate);
+    setShowCommentHistoryModal(true);
+  }, []);
+
+  const handleGenerateReport = useCallback(async () => {
+    const filteredRaters = await fetchRatersForVacancy(selectedItemNumber);
+    setReportRaters(filteredRaters);
+    setReportCandidateId('');
+    setReportItemNumber(selectedItemNumber);
+    setShowReportModal(true);
+  }, [fetchRatersForVacancy, selectedItemNumber]);
+
+  const handleViewVacancy = useCallback((itemNumber) => {
+    const vacancy = vacancies.find(v => v.itemNumber === itemNumber);
+    setVacancyDetails(vacancy);
+    setShowVacancyModal(true);
+  }, [vacancies]);
+
+  const handleStatusCardClick = useCallback((status) => {
+    if (statusFilter === status) {
+      setStatusFilter(null);
+    } else {
+      setStatusFilter(status);
+    }
+  }, [statusFilter]);
+
+  const openDocumentLink = useCallback((url) => {
+    if (url) {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
+  }, []);
+
+  const closeCommentModal = useCallback(() => {
+    setShowCommentModal(false);
+    setSelectedCandidate('');
+    setCandidateDetails(null);
+    setComments({
+      education: '',
+      training: '',
+      experience: '',
+      eligibility: ''
+    });
+  }, [setSelectedCandidate]);
+
+  const closeViewCommentsModal = useCallback(() => {
+    setShowViewCommentsModal(false);
+    setViewCandidateData(null);
+  }, []);
+
+  const closeReportModal = useCallback(() => {
+    setShowReportModal(false);
+    setReportCandidateId('');
+    setReportItemNumber('');
+  }, []);
+
+  const closeVacancyModal = useCallback(() => {
+    setShowVacancyModal(false);
+    setVacancyDetails(null);
+  }, []);
+
+  const closeCompetenciesModal = useCallback(() => {
     setShowCompetenciesModal(false);
     setCompetencies([]);
     setGroupedCompetencies({
@@ -191,19 +569,53 @@ const SecretariatView = ({ user }) => {
       leadership: [],
       minimum: []
     });
-  };
+  }, []);
 
-  // Load initial data on mount
-  useEffect(() => {
-    loadInitialData();
-  }, [showArchivedRanges]);
+  const closeCommentHistoryModal = useCallback(() => {
+    setShowCommentHistoryModal(false);
+    setCommentHistoryData(null);
+  }, []);
 
-  // NEW: Load publication ranges and vacancies when publication range selection changes
-  useEffect(() => {
-    if (selectedPublicationRange) {
-      loadDataForPublicationRange();
+  const handleExportCSV = useCallback(async () => {
+    try {
+      await candidatesAPI.exportCSV({
+        itemNumber: selectedItemNumber,
+        assignment: selectedAssignment,
+        position: selectedPosition
+      });
+      showToast('CSV exported successfully!', 'success');
+    } catch (error) {
+      console.error('Export error:', error);
+      showToast('Failed to export CSV: ' + error.message, 'error');
     }
-  }, [selectedPublicationRange]);
+  }, [selectedItemNumber, selectedAssignment, selectedPosition, showToast]);
+
+  const handleExportSummaryCSV = useCallback(async () => {
+    try {
+      await candidatesAPI.exportSummaryCSV();
+      showToast('Summary CSV exported successfully!', 'success');
+    } catch (error) {
+      console.error('Export error:', error);
+      showToast('Failed to export summary CSV: ' + error.message, 'error');
+    }
+  }, [showToast]);
+
+  // STEP 6: Update useEffect Hooks
+  // Load publication ranges when archive toggle changes
+  useEffect(() => {
+    loadPublicationRanges();
+  }, [loadPublicationRanges]);
+
+  // Load data when publication range changes
+  useEffect(() => {
+    // Skip on initial mount
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+
+    loadDataForPublicationRange();
+  }, [selectedPublicationRange, loadDataForPublicationRange]);
 
   // Handle state restoration and population of dropdowns
   useEffect(() => {
@@ -261,7 +673,7 @@ const SecretariatView = ({ user }) => {
       setCandidateDetails(null);
       setVacancyDetails(null);
     }
-  }, [vacancies, loading, selectedAssignment, selectedPosition, selectedItemNumber]);
+  }, [vacancies, loading, selectedAssignment, selectedPosition, selectedItemNumber, loadCandidatesByFilters, setSelectedAssignment, setSelectedPosition, setSelectedItemNumber, setSelectedCandidate]);
 
   // Validate and load candidate details
   useEffect(() => {
@@ -279,273 +691,22 @@ const SecretariatView = ({ user }) => {
         loadCandidateDetails(selectedCandidate);
       }
     }
-  }, [candidates, selectedCandidate]);
+  }, [candidates, selectedCandidate, loadCandidateDetails, setSelectedCandidate]);
 
-  // Filter vacancies based on user's assignment type
-  const filterVacanciesByAssignment = (allVacancies, user) => {
-    if (user.administrativePrivilege) {
-      return allVacancies;
-    }
-    switch (user.assignedVacancies) {
-      case 'all':
-        return allVacancies;
-      case 'assignment':
-        if (!user.assignedAssignment) return [];
-        return allVacancies.filter(vacancy => vacancy.assignment === user.assignedAssignment);
-      case 'specific':
-        if (!user.assignedItemNumbers || user.assignedItemNumbers.length === 0) return [];
-        return allVacancies.filter(vacancy => user.assignedItemNumbers.includes(vacancy.itemNumber));
-      default:
-        return allVacancies;
-    }
-  };
-
-  // NEW: Load publication ranges
-  const loadInitialData = async () => {
-    try {
-      setLoading(true);
-      
-      // Load publication ranges
-      const ranges = await publicationRangesAPI.getAll(showArchivedRanges);
-      setPublicationRanges(ranges);
-      
-      // If there's a selected publication range, load its data
-      if (selectedPublicationRange) {
-        await loadDataForPublicationRange();
-      } else {
-        // Otherwise load all active vacancies (legacy behavior)
-        const vacanciesRes = await vacanciesAPI.getAll();
-        const activeVacancies = vacanciesRes.filter(v => !v.isArchived);
-        const filteredVacancies = filterVacanciesByAssignment(activeVacancies, user);
-        setVacancies(filteredVacancies);
-      }
-    } catch (error) {
-      console.error('Failed to load initial data:', error);
-      setError('Failed to load data. Please refresh the page.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // NEW: Load vacancies and candidates for selected publication range
-  const loadDataForPublicationRange = async () => {
-    if (!selectedPublicationRange) {
-      // If no publication range selected, load all active vacancies
-      const vacanciesRes = await vacanciesAPI.getAll();
-      const activeVacancies = vacanciesRes.filter(v => !v.isArchived);
-      const filteredVacancies = filterVacanciesByAssignment(activeVacancies, user);
-      setVacancies(filteredVacancies);
-      return;
-    }
-
-    try {
-      // Load vacancies for this publication range (including archived if range is archived)
-      const selectedRange = publicationRanges.find(r => r._id === selectedPublicationRange);
-      const includeArchived = selectedRange?.isArchived || false;
-      
-      const vacanciesRes = await vacanciesAPI.getByPublicationRange(
-        selectedPublicationRange, 
-        includeArchived
-      );
-      
-      const filteredVacancies = filterVacanciesByAssignment(vacanciesRes, user);
-      setVacancies(filteredVacancies);
-    } catch (error) {
-      console.error('Failed to load data for publication range:', error);
-      showToast('Failed to load publication range data', 'error');
-    }
-  };
-
-  const loadCandidatesByFilters = async () => {
-    try {
-      let filteredCandidates = [];
-      
-      // Determine if we're viewing archived data
-      const selectedRange = publicationRanges.find(r => r._id === selectedPublicationRange);
-      const includeArchived = selectedRange?.isArchived || false;
-      
-      if (selectedItemNumber) {
-        filteredCandidates = await candidatesAPI.getByItemNumber(selectedItemNumber);
-        // Filter by archive status based on publication range
-        if (selectedRange) {
-          filteredCandidates = filteredCandidates.filter(c => 
-            c.isArchived === includeArchived
-          );
-        }
-      } else if (selectedPosition) {
-        const vacancyItemNumbers = vacancies
-          .filter(v => v.assignment === selectedAssignment && v.position === selectedPosition)
-          .map(v => v.itemNumber);
-        const candidatesRes = await Promise.all(
-          vacancyItemNumbers.map(itemNumber => candidatesAPI.getByItemNumber(itemNumber))
-        );
-        filteredCandidates = candidatesRes.flat();
-        if (selectedRange) {
-          filteredCandidates = filteredCandidates.filter(c => 
-            c.isArchived === includeArchived
-          );
-        }
-      } else if (selectedAssignment) {
-        const vacancyItemNumbers = vacancies
-          .filter(v => v.assignment === selectedAssignment)
-          .map(v => v.itemNumber);
-        const candidatesRes = await Promise.all(
-          vacancyItemNumbers.map(itemNumber => candidatesAPI.getByItemNumber(itemNumber))
-        );
-        filteredCandidates = candidatesRes.flat();
-        if (selectedRange) {
-          filteredCandidates = filteredCandidates.filter(c => 
-            c.isArchived === includeArchived
-          );
-        }
-      } else {
-        const vacancyItemNumbers = vacancies.map(v => v.itemNumber);
-        const candidatesRes = await Promise.all(
-          vacancyItemNumbers.map(itemNumber => candidatesAPI.getByItemNumber(itemNumber))
-        );
-        filteredCandidates = candidatesRes.flat();
-        if (selectedRange) {
-          filteredCandidates = filteredCandidates.filter(c => 
-            c.isArchived === includeArchived
-          );
-        }
-      }
-      
-      filteredCandidates.sort((a, b) => a.fullName.localeCompare(b.fullName));
-      setCandidates(filteredCandidates);
-    } catch (error) {
-      console.error('Failed to load candidates:', error);
-      setError('Failed to load candidates.');
-      setCandidates([]);
-    }
-  };
-
-  const loadCandidateDetails = async (candidateId) => {
-    try {
-      const candidate = await candidatesAPI.getById(candidateId);
-      setCandidateDetails(candidate);
-      setComments(candidate.comments || {
-        education: '',
-        training: '',
-        experience: '',
-        eligibility: ''
-      });
-      const vacancy = vacancies.find(v => v.itemNumber === candidate.itemNumber);
-      setVacancyDetails(vacancy || null);
-    } catch (error) {
-      console.error('Failed to load candidate details:', error);
-      setError('Failed to load candidate details.');
-      setCandidateDetails(null);
-    }
-  };
-
-  const handleCommentChange = (field, value) => {
-    setComments(prev => ({
-      ...prev,
-      [field]: value
-    }));
-  };
-
-  const handleStatusUpdate = async (status) => {
-    try {
-      const updateData = {
-        status,
-        comments
+  // STEP 7: Add Modal Focus Management
+  useEffect(() => {
+    const anyModalOpen = showCommentModal || showViewCommentsModal || 
+                         showReportModal || showVacancyModal || 
+                         showCompetenciesModal || showCommentHistoryModal;
+                         
+    if (anyModalOpen) {
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = 'unset';
       };
-      await candidatesAPI.update(selectedCandidate, updateData);
-      setCandidateDetails(prev => ({ ...prev, status, comments }));
-      setCandidates(prev =>
-        prev.map(c => (c._id === selectedCandidate ? { ...c, status, comments } : c))
-      );
-      setShowCommentModal(false);
-      showToast('Candidate status updated successfully!', 'success');
-    } catch (error) {
-      console.error('Failed to update status:', error);
-      showToast('Failed to update status: ' + (error.response?.data?.message || error.message), 'error');
     }
-  };
-
-  const handleViewComments = (candidate) => {
-    const vacancy = vacancies.find(v => v.itemNumber === candidate.itemNumber);
-    setViewCandidateData({ candidate, vacancy });
-    setShowViewCommentsModal(true);
-  };
-
-  const handleGenerateReport = async () => {
-    const filteredRaters = await fetchRatersForVacancy(selectedItemNumber);
-    setReportRaters(filteredRaters);
-    setReportCandidateId('');
-    setReportItemNumber(selectedItemNumber);
-    setShowReportModal(true);
-  };
-
-  const handleViewVacancy = (itemNumber) => {
-    const vacancy = vacancies.find(v => v.itemNumber === itemNumber);
-    setVacancyDetails(vacancy);
-    setShowVacancyModal(true);
-  };
-
-  const closeCommentModal = () => {
-    setShowCommentModal(false);
-    setSelectedCandidate('');
-    setCandidateDetails(null);
-    setComments({
-      education: '',
-      training: '',
-      experience: '',
-      eligibility: ''
-    });
-  };
-
-  const closeViewCommentsModal = () => {
-    setShowViewCommentsModal(false);
-    setViewCandidateData(null);
-  };
-
-  const closeReportModal = () => {
-    setShowReportModal(false);
-    setReportCandidateId('');
-    setReportItemNumber('');
-  };
-
-  const closeVacancyModal = () => {
-    setShowVacancyModal(false);
-    setVacancyDetails(null);
-  };
-
-  const openDocumentLink = (url) => {
-    if (url) {
-      window.open(url, '_blank');
-    }
-  };
-
-  const handleStatusCardClick = (status) => {
-    if (statusFilter === status) {
-      setStatusFilter(null);
-    } else {
-      setStatusFilter(status);
-    }
-  };
-
-  const getFilteredCandidates = () => {
-    let filtered = candidates;
-    
-    if (statusFilter) {
-      filtered = filtered.filter(c => c.status === statusFilter);
-    }
-    
-    if (genderFilter) {
-      if (genderFilter === 'Male') {
-        filtered = filtered.filter(c => c.gender === 'Male' || c.gender === 'MALE/LALAKI');
-      } else if (genderFilter === 'Female') {
-        filtered = filtered.filter(c => c.gender === 'Female' || c.gender === 'FEMALE/BABAE');
-      } else if (genderFilter === 'LGBTQI+') {
-        filtered = filtered.filter(c => c.gender === 'LGBTQI+');
-      }
-    }
-    
-    return filtered;
-  };
+  }, [showCommentModal, showViewCommentsModal, showReportModal, 
+      showVacancyModal, showCompetenciesModal, showCommentHistoryModal]);
 
   if (loading) {
     return (
@@ -557,34 +718,13 @@ const SecretariatView = ({ user }) => {
 
   const stats = getStatistics();
   const filteredCandidates = getFilteredCandidates();
-
-  const getGenderStatistics = () => {
-    let baseFiltered = candidates;
-    
-    if (statusFilter) {
-      baseFiltered = baseFiltered.filter(c => c.status === statusFilter);
-    }
-    
-    const male = baseFiltered.filter(c => 
-      c.gender === 'Male' || c.gender === 'MALE/LALAKI'
-    ).length;
-    const female = baseFiltered.filter(c => 
-      c.gender === 'Female' || c.gender === 'FEMALE/BABAE'
-    ).length;
-    const lgbtqi = baseFiltered.filter(c => 
-      c.gender === 'LGBTQI+'
-    ).length;
-    
-    return { male, female, lgbtqi, total: baseFiltered.length };
-  };
-
-  // Get current publication range info
+  const genderStats = getGenderStatistics();
   const currentPublicationRange = publicationRanges.find(r => r._id === selectedPublicationRange);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
-      {/* Header */}
-      <div className="sticky top-14 z-30 pt-3 pb-3">
+      {/* Header - STEP 10: Fixed z-index */}
+      <div className="sticky top-14 z-50 pt-3 pb-3">
         <div className="max-w-7xl mx-auto px-4">
           <div className="bg-white shadow-md border-b border-gray-200 rounded-xl">
             <div className="px-4 py-4">
@@ -605,19 +745,8 @@ const SecretariatView = ({ user }) => {
                   {selectedItemNumber && (
                     <>
                       <button
-                        onClick={async () => {
-                          try {
-                            await candidatesAPI.exportCSV({
-                              itemNumber: selectedItemNumber,
-                              assignment: selectedAssignment,
-                              position: selectedPosition
-                            });
-                            showToast('CSV exported successfully!', 'success');
-                          } catch (error) {
-                            console.error('Export error:', error);
-                            showToast('Failed to export CSV: ' + error.message, 'error');
-                          }
-                        }}
+                        onClick={handleExportCSV}
+                        aria-label="Export CSV for selected item"
                         className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-2.5 px-6 rounded-lg text-sm transition-all duration-200 shadow-lg hover:shadow-xl"
                       >
                         <div className="flex items-center space-x-2">
@@ -630,6 +759,7 @@ const SecretariatView = ({ user }) => {
                       
                       <button
                         onClick={handleGenerateReport}
+                        aria-label="Generate PDF report"
                         className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-bold py-2.5 px-6 rounded-lg text-sm transition-all duration-200 shadow-lg hover:shadow-xl"
                       >
                         <div className="flex items-center space-x-2">
@@ -643,15 +773,8 @@ const SecretariatView = ({ user }) => {
                   )}
                   
                   <button
-                    onClick={async () => {
-                      try {
-                        await candidatesAPI.exportSummaryCSV();
-                        showToast('Summary CSV exported successfully!', 'success');
-                      } catch (error) {
-                        console.error('Export error:', error);
-                        showToast('Failed to export summary CSV: ' + error.message, 'error');
-                      }
-                    }}
+                    onClick={handleExportSummaryCSV}
+                    aria-label="Export summary CSV for all candidates"
                     className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-bold py-2.5 px-6 rounded-lg text-sm transition-all duration-200 shadow-lg hover:shadow-xl"
                   >
                     <div className="flex items-center space-x-2">
@@ -676,13 +799,14 @@ const SecretariatView = ({ user }) => {
           </div>
         )}
 
-        {/* NEW: Publication Range Selector */}
-        <div className="sticky top-36 z-20 pt-3 pb-1">
+        {/* Publication Range Selector - STEP 10: Fixed z-index */}
+        <div className="sticky top-36 z-40 pt-3 pb-1">
           <div className="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl shadow-lg border-2 border-purple-700 p-4">
             <div className="flex items-center justify-between gap-4">
               <div className="flex-1">
-                <label className="block text-xs font-bold text-white mb-1.5">Publication Range</label>
+                <label htmlFor="publication-range-select" className="block text-xs font-bold text-white mb-1.5">Publication Range</label>
                 <select
+                  id="publication-range-select"
                   value={selectedPublicationRange}
                   onChange={(e) => {
                     setSelectedPublicationRange(e.target.value);
@@ -693,6 +817,7 @@ const SecretariatView = ({ user }) => {
                     setStatusFilter(null);
                     setGenderFilter(null);
                   }}
+                  aria-label="Filter by publication range"
                   className="w-full px-3 py-2.5 border-2 border-purple-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:border-white bg-white text-sm font-medium shadow-sm"
                 >
                   <option value="">All Publication Ranges</option>
@@ -709,6 +834,8 @@ const SecretariatView = ({ user }) => {
               <div className="flex items-end">
                 <button
                   onClick={() => setShowArchivedRanges(!showArchivedRanges)}
+                  aria-label={showArchivedRanges ? 'Hide archived publication ranges' : 'Show archived publication ranges'}
+                  aria-pressed={showArchivedRanges}
                   className={`px-4 py-2.5 rounded-lg text-sm font-bold transition-all shadow-md ${
                     showArchivedRanges
                       ? 'bg-white text-purple-700 hover:bg-gray-100'
@@ -739,15 +866,17 @@ const SecretariatView = ({ user }) => {
           </div>
         </div>
 
-        {/* Filters */}
-        <div className="sticky top-[230px] z-19 pt-3 pb-1">
+        {/* Filters - STEP 10: Fixed z-index */}
+        <div className="sticky top-[230px] z-30 pt-3 pb-1">
           <div className="bg-white rounded-xl shadow-lg border-2 border-gray-300 p-5">
             <div className="flex flex-wrap gap-4">
               <div className="flex-1 min-w-48">
-                <label className="block text-xs font-bold text-gray-800 mb-1.5">Assignment</label>
+                <label htmlFor="assignment-select" className="block text-xs font-bold text-gray-800 mb-1.5">Assignment</label>
                 <select
+                  id="assignment-select"
                   value={selectedAssignment}
                   onChange={(e) => setSelectedAssignment(e.target.value)}
+                  aria-label="Filter by assignment"
                   className="w-full px-3 py-2.5 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white text-sm font-medium shadow-sm"
                 >
                   <option value="">All Assignments</option>
@@ -758,10 +887,12 @@ const SecretariatView = ({ user }) => {
               </div>
 
               <div className="flex-1 min-w-48">
-                <label className="block text-xs font-bold text-gray-800 mb-1.5">Position</label>
+                <label htmlFor="position-select" className="block text-xs font-bold text-gray-800 mb-1.5">Position</label>
                 <select
+                  id="position-select"
                   value={selectedPosition}
                   onChange={(e) => setSelectedPosition(e.target.value)}
+                  aria-label="Filter by position"
                   className="w-full px-3 py-2.5 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white text-sm font-medium disabled:bg-gray-100 shadow-sm"
                   disabled={!selectedAssignment}
                 >
@@ -773,10 +904,12 @@ const SecretariatView = ({ user }) => {
               </div>
 
               <div className="flex-1 min-w-48">
-                <label className="block text-xs font-bold text-gray-800 mb-1.5">Item Number</label>
+                <label htmlFor="item-number-select" className="block text-xs font-bold text-gray-800 mb-1.5">Item Number</label>
                 <select
+                  id="item-number-select"
                   value={selectedItemNumber}
                   onChange={(e) => setSelectedItemNumber(e.target.value)}
+                  aria-label="Filter by item number"
                   className="w-full px-3 py-2.5 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white text-sm font-medium disabled:bg-gray-100 shadow-sm"
                   disabled={!selectedPosition}
                 >
@@ -790,11 +923,15 @@ const SecretariatView = ({ user }) => {
           </div>
         </div>
 
-        {/* Statistics Cards */}
-        <div className="sticky top-[362px] z-10 pt-1 pb-4">
+        {/* Statistics Cards - STEP 10: Fixed z-index */}
+        <div className="sticky top-[362px] z-20 pt-1 pb-4">
           <div className="grid grid-cols-4 gap-4">
             <div 
               onClick={() => setStatusFilter(null)}
+              role="button"
+              tabIndex={0}
+              aria-label="Show all candidates"
+              aria-pressed={statusFilter === null}
               className={`bg-white rounded-xl shadow-lg border-2 p-4 transition-all cursor-pointer ${
                 statusFilter === null 
                   ? 'border-blue-500 ring-4 ring-blue-200 shadow-xl' 
@@ -820,6 +957,10 @@ const SecretariatView = ({ user }) => {
 
             <div 
               onClick={() => handleStatusCardClick(CANDIDATE_STATUS.LONG_LIST)}
+              role="button"
+              tabIndex={0}
+              aria-label="Show long listed candidates"
+              aria-pressed={statusFilter === CANDIDATE_STATUS.LONG_LIST}
               className={`bg-white rounded-xl shadow-lg border-2 p-4 transition-all cursor-pointer ${
                 statusFilter === CANDIDATE_STATUS.LONG_LIST 
                   ? 'border-green-500 ring-4 ring-green-200 shadow-xl' 
@@ -845,6 +986,10 @@ const SecretariatView = ({ user }) => {
 
             <div 
               onClick={() => handleStatusCardClick(CANDIDATE_STATUS.FOR_REVIEW)}
+              role="button"
+              tabIndex={0}
+              aria-label="Show candidates for review"
+              aria-pressed={statusFilter === CANDIDATE_STATUS.FOR_REVIEW}
               className={`bg-white rounded-xl shadow-lg border-2 p-4 transition-all cursor-pointer ${
                 statusFilter === CANDIDATE_STATUS.FOR_REVIEW 
                   ? 'border-yellow-500 ring-4 ring-yellow-200 shadow-xl' 
@@ -870,6 +1015,10 @@ const SecretariatView = ({ user }) => {
 
             <div 
               onClick={() => handleStatusCardClick(CANDIDATE_STATUS.DISQUALIFIED)}
+              role="button"
+              tabIndex={0}
+              aria-label="Show disqualified candidates"
+              aria-pressed={statusFilter === CANDIDATE_STATUS.DISQUALIFIED}
               className={`bg-white rounded-xl shadow-lg border-2 p-4 transition-all cursor-pointer ${
                 statusFilter === CANDIDATE_STATUS.DISQUALIFIED 
                   ? 'border-red-500 ring-4 ring-red-200 shadow-xl' 
@@ -895,7 +1044,7 @@ const SecretariatView = ({ user }) => {
           </div>
         </div>
 
-        {/* Gender Filter Section */}
+        {/* Gender Filter Section - STEP 10: Fixed z-index */}
         <div className="sticky top-[450px] z-10 pt-2 pb-4">
           <div className="bg-white rounded-xl shadow-lg border-2 border-gray-300 p-3">
             <div className="flex items-center justify-between gap-3">
@@ -903,43 +1052,51 @@ const SecretariatView = ({ user }) => {
               <div className="flex gap-2 flex-1">
                 <button
                   onClick={() => setGenderFilter(null)}
+                  aria-label="Show all genders"
+                  aria-pressed={genderFilter === null}
                   className={`flex-1 px-3 py-1.5 rounded-lg font-medium text-xs transition-all ${
                     genderFilter === null
                       ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md'
                       : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                   }`}
                 >
-                  All ({getGenderStatistics().total})
+                  All ({genderStats.total})
                 </button>
                 <button
                   onClick={() => setGenderFilter('Male')}
+                  aria-label="Show male candidates"
+                  aria-pressed={genderFilter === 'Male'}
                   className={`flex-1 px-3 py-1.5 rounded-lg font-medium text-xs transition-all ${
                     genderFilter === 'Male'
                       ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md'
                       : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                   }`}
                 >
-                  Male ({getGenderStatistics().male})
+                  Male ({genderStats.male})
                 </button>
                 <button
                   onClick={() => setGenderFilter('Female')}
+                  aria-label="Show female candidates"
+                  aria-pressed={genderFilter === 'Female'}
                   className={`flex-1 px-3 py-1.5 rounded-lg font-medium text-xs transition-all ${
                     genderFilter === 'Female'
                       ? 'bg-gradient-to-r from-pink-600 to-rose-600 text-white shadow-md'
                       : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                   }`}
                 >
-                  Female ({getGenderStatistics().female})
+                  Female ({genderStats.female})
                 </button>
                 <button
                   onClick={() => setGenderFilter('LGBTQI+')}
+                  aria-label="Show LGBTQI+ candidates"
+                  aria-pressed={genderFilter === 'LGBTQI+'}
                   className={`flex-1 px-3 py-1.5 rounded-lg font-medium text-xs transition-all ${
                     genderFilter === 'LGBTQI+'
                       ? 'bg-gradient-to-r from-purple-600 to-violet-600 text-white shadow-md'
                       : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                   }`}
                 >
-                  LGBTQI+ ({getGenderStatistics().lgbtqi})
+                  LGBTQI+ ({genderStats.lgbtqi})
                 </button>
               </div>
             </div>
@@ -1001,6 +1158,7 @@ const SecretariatView = ({ user }) => {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         <button
                           onClick={() => handleViewVacancy(candidate.itemNumber)}
+                          aria-label={`View vacancy details for ${candidate.itemNumber}`}
                           className="bg-gray-600 hover:bg-gray-700 text-white px-2 py-1 rounded text-xs transition-colors duration-200"
                         >
                           View
@@ -1020,12 +1178,14 @@ const SecretariatView = ({ user }) => {
                         <div className="flex space-x-2">
                           <button
                             onClick={() => handleViewComments(candidate)}
+                            aria-label={`View comments for ${candidate.fullName}`}
                             className="bg-gray-600 hover:bg-gray-700 text-white px-2 py-1 rounded text-xs transition-colors duration-200"
                           >
                             View
                           </button>
                           <button
                             onClick={() => handleViewCommentHistory(candidate)}
+                            aria-label={`View comment history for ${candidate.fullName}`}
                             className="bg-purple-600 hover:bg-purple-700 text-white px-2 py-1 rounded text-xs transition-colors duration-200"
                             title="View Comment History"
                           >
@@ -1040,6 +1200,7 @@ const SecretariatView = ({ user }) => {
                                 loadCommentSuggestions();
                                 setShowCommentModal(true);
                               }}
+                              aria-label={`Update status for ${candidate.fullName}`}
                               className="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-xs transition-colors duration-200"
                             >
                               Update
@@ -1092,10 +1253,10 @@ const SecretariatView = ({ user }) => {
         }
 
         return (
-          <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50" role="dialog" aria-modal="true" aria-labelledby="view-comments-title">
             <div className="relative top-8 mx-auto border w-11/12 max-w-6xl shadow-lg rounded-lg bg-white">
               <div className={`${headerStyle} px-6 py-4 rounded-t-lg text-center`}>
-                <h2 className="text-2xl font-bold">{candidate.fullName}</h2>
+                <h2 id="view-comments-title" className="text-2xl font-bold">{candidate.fullName}</h2>
                 <p className="text-base font-medium mt-1 uppercase tracking-wide">{displayStatus}</p>
                 {candidate.isArchived && (
                   <p className="text-sm mt-1 bg-orange-200 text-orange-900 px-3 py-1 rounded inline-block">ARCHIVED</p>
@@ -1141,6 +1302,7 @@ const SecretariatView = ({ user }) => {
                         <button
                           key={doc.key}
                           onClick={() => candidate[doc.key] && openDocumentLink(candidate[doc.key])}
+                          aria-label={`Open ${doc.label} document`}
                           className={`inline-flex items-center justify-center px-2 py-1 rounded text-xs font-medium ${doc.color} ${candidate[doc.key] ? 'hover:opacity-75 transition-opacity cursor-pointer' : 'opacity-50 cursor-not-allowed'}`}
                           disabled={!candidate[doc.key]}
                         >
@@ -1177,6 +1339,7 @@ const SecretariatView = ({ user }) => {
               <div className="px-5 py-4 border-t bg-gray-50 rounded-b-lg">
                 <button
                   onClick={closeViewCommentsModal}
+                  aria-label="Close comments modal"
                   className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded text-sm transition-colors duration-200"
                 >
                   Close
@@ -1189,12 +1352,12 @@ const SecretariatView = ({ user }) => {
 
       {/* Comment History Modal */}
       {showCommentHistoryModal && commentHistoryData && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50" role="dialog" aria-modal="true" aria-labelledby="comment-history-title">
           <div className="relative top-8 mx-auto border w-11/12 max-w-5xl shadow-lg rounded-lg bg-white max-h-[90vh] overflow-y-auto">
             <div className="bg-gradient-to-r from-purple-600 to-indigo-600 px-6 py-4 rounded-t-lg">
               <div className="flex justify-between items-center">
                 <div>
-                  <h2 className="text-2xl font-bold text-white">Comment History</h2>
+                  <h2 id="comment-history-title" className="text-2xl font-bold text-white">Comment History</h2>
                   <p className="text-purple-100 mt-1">{commentHistoryData.fullName}</p>
                   {commentHistoryData.isArchived && (
                     <p className="text-sm mt-1 bg-orange-200 text-orange-900 px-3 py-1 rounded inline-block">ARCHIVED</p>
@@ -1202,6 +1365,7 @@ const SecretariatView = ({ user }) => {
                 </div>
                 <button
                   onClick={closeCommentHistoryModal}
+                  aria-label="Close comment history modal"
                   className="text-white hover:text-gray-200 text-2xl font-bold"
                 >
                   ×
@@ -1347,6 +1511,7 @@ const SecretariatView = ({ user }) => {
             <div className="px-6 py-4 border-t bg-gray-50 rounded-b-lg">
               <button
                 onClick={closeCommentHistoryModal}
+                aria-label="Close comment history modal"
                 className="bg-gray-600 hover:bg-gray-700 text-white px-6 py-2 rounded-lg text-sm transition-colors duration-200"
               >
                 Close
@@ -1357,10 +1522,10 @@ const SecretariatView = ({ user }) => {
       )}
 
       {showCommentModal && candidateDetails && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50" role="dialog" aria-modal="true" aria-labelledby="update-status-title">
           <div className="relative top-4 mx-auto p-6 border w-[95%] max-w-7xl shadow-lg rounded-md bg-white max-h-[95vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold text-gray-900">
+              <h2 id="update-status-title" className="text-xl font-bold text-gray-900">
                 Update Status: {candidateDetails.fullName}
                 {candidateDetails.isArchived && (
                   <span className="ml-3 px-3 py-1 bg-orange-100 text-orange-800 text-sm font-bold rounded">ARCHIVED</span>
@@ -1368,6 +1533,7 @@ const SecretariatView = ({ user }) => {
               </h2>
               <button
                 onClick={closeCommentModal}
+                aria-label="Close update status modal"
                 className="text-gray-500 hover:text-gray-700 text-xl font-bold"
               >
                 ×
@@ -1408,6 +1574,7 @@ const SecretariatView = ({ user }) => {
                       <button
                         key={doc.key}
                         onClick={() => candidateDetails[doc.key] && openDocumentLink(candidateDetails[doc.key])}
+                        aria-label={`Open ${doc.label} document`}
                         className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${doc.color} ${candidateDetails[doc.key] ? 'hover:opacity-75 transition-opacity cursor-pointer' : 'opacity-50 cursor-not-allowed'}`}
                         disabled={!candidateDetails[doc.key]}
                       >
@@ -1471,18 +1638,21 @@ const SecretariatView = ({ user }) => {
             <div className="flex justify-end space-x-3 mt-6 pt-4 border-t">
               <button
                 onClick={() => handleStatusUpdate(CANDIDATE_STATUS.LONG_LIST)}
+                aria-label="Mark candidate as long listed"
                 className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded transition-colors duration-200"
               >
                 Long List
               </button>
               <button
                 onClick={() => handleStatusUpdate(CANDIDATE_STATUS.FOR_REVIEW)}
+                aria-label="Mark candidate for review"
                 className="bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-2 rounded transition-colors duration-200"
               >
                 For Review
               </button>
               <button
                 onClick={() => handleStatusUpdate(CANDIDATE_STATUS.DISQUALIFIED)}
+                aria-label="Disqualify candidate"
                 className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded transition-colors duration-200"
               >
                 Disqualify
@@ -1493,11 +1663,11 @@ const SecretariatView = ({ user }) => {
       )}
 
       {showVacancyModal && vacancyDetails && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50" role="dialog" aria-modal="true" aria-labelledby="vacancy-details-title">
           <div className="relative top-20 mx-auto p-5 border w-11/12 max-w-3xl shadow-lg rounded-md bg-white">
             <div className="flex justify-between items-center mb-4">
               <div>
-                <h2 className="text-xl font-bold text-gray-900">Vacancy Details</h2>
+                <h2 id="vacancy-details-title" className="text-xl font-bold text-gray-900">Vacancy Details</h2>
                 <p className="text-sm text-gray-600">{vacancyDetails.itemNumber}</p>
                 {vacancyDetails.isArchived && (
                   <span className="inline-block mt-1 px-3 py-1 bg-orange-100 text-orange-800 text-xs font-bold rounded">ARCHIVED</span>
@@ -1505,12 +1675,12 @@ const SecretariatView = ({ user }) => {
               </div>
               <button
                 onClick={closeVacancyModal}
+                aria-label="Close vacancy details modal"
                 className="text-gray-500 hover:text-gray-700 text-xl font-bold"
               >
                 ×
               </button>
             </div>
-            
             <div className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-4">
@@ -1570,6 +1740,7 @@ const SecretariatView = ({ user }) => {
               <div className="pt-4 border-t">
                 <button
                   onClick={() => loadCompetenciesByItemNumber(vacancyDetails.itemNumber)}
+                  aria-label="View competencies for this position"
                   className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl flex items-center justify-center space-x-2"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1584,17 +1755,18 @@ const SecretariatView = ({ user }) => {
       )}
 
       {showCompetenciesModal && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50" role="dialog" aria-modal="true" aria-labelledby="competencies-title">
           <div className="relative top-10 mx-auto p-6 border w-11/12 max-w-5xl shadow-lg rounded-md bg-white max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-6 sticky top-0 bg-white pb-4 border-b">
               <div>
-                <h2 className="text-2xl font-bold text-gray-900">Competencies</h2>
+                <h2 id="competencies-title" className="text-2xl font-bold text-gray-900">Competencies</h2>
                 <p className="text-sm text-gray-600 mt-1">
                   {vacancyDetails?.position} • Item # {vacancyDetails?.itemNumber} • SG {vacancyDetails?.salaryGrade}
                 </p>
               </div>
               <button
                 onClick={closeCompetenciesModal}
+                aria-label="Close competencies modal"
                 className="text-gray-500 hover:text-gray-700 text-2xl font-bold"
               >
                 ×
@@ -1731,6 +1903,7 @@ const SecretariatView = ({ user }) => {
             <div className="mt-6 pt-4 border-t sticky bottom-0 bg-white">
               <button
                 onClick={closeCompetenciesModal}
+                aria-label="Close competencies modal"
                 className="w-full bg-gray-600 hover:bg-gray-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors duration-200"
               >
                 Close
@@ -1741,12 +1914,13 @@ const SecretariatView = ({ user }) => {
       )}
 
       {showReportModal && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50" role="dialog" aria-modal="true" aria-labelledby="report-modal-title">
           <div className="relative top-10 mx-auto p-5 border w-11/12 max-w-4xl shadow-lg rounded-md bg-white">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold text-gray-900">Candidate Report</h2>
+              <h2 id="report-modal-title" className="text-xl font-bold text-gray-900">Candidate Report</h2>
               <button
                 onClick={closeReportModal}
+                aria-label="Close report modal"
                 className="text-gray-500 hover:text-gray-700 text-xl font-bold"
               >
                 ×
@@ -1765,6 +1939,7 @@ const SecretariatView = ({ user }) => {
   );
 };
 
+// STEP 3: Fix CommentInput Component
 const CommentInput = ({ label, value, onChange, suggestions, placeholder }) => {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [filteredSuggestions, setFilteredSuggestions] = useState([]);
@@ -1773,7 +1948,7 @@ const CommentInput = ({ label, value, onChange, suggestions, placeholder }) => {
 
   useEffect(() => {
     if (value && suggestions.length > 0) {
-      const filtered = suggestions.filter(s => 
+      const filtered = suggestions.filter(s =>
         s.toLowerCase().includes(value.toLowerCase())
       ).slice(0, 10);
       setFilteredSuggestions(filtered);
@@ -1782,7 +1957,10 @@ const CommentInput = ({ label, value, onChange, suggestions, placeholder }) => {
     }
   }, [value, suggestions]);
 
+  // FIXED: Proper dependency management
   useEffect(() => {
+    if (!showSuggestions) return; // Only add listener when needed
+
     const handleClickOutside = (event) => {
       if (
         inputRef.current && 
@@ -1796,7 +1974,7 @@ const CommentInput = ({ label, value, onChange, suggestions, placeholder }) => {
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  }, [showSuggestions]);
 
   const handleSelectSuggestion = (suggestion) => {
     onChange(suggestion);
@@ -1852,4 +2030,11 @@ const CommentInput = ({ label, value, onChange, suggestions, placeholder }) => {
   );
 };
 
-export default SecretariatView;
+// STEP 13: Update Export with Error Boundary
+export default function SecretariatViewWithErrorBoundary(props) {
+  return (
+    <SecretariatErrorBoundary>
+      <SecretariatView {...props} />
+    </SecretariatErrorBoundary>
+  );
+}
