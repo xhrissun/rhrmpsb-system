@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { publicationRangesAPI } from '../utils/api';
+import { publicationRangesAPI, vacanciesAPI, candidatesAPI } from '../utils/api';
 import { useToast } from '../utils/ToastContext';
 import { 
   getPublicationStatusColor, 
@@ -15,6 +15,18 @@ const PublicationRangeManager = () => {
   const [showArchived, setShowArchived] = useState(false);
   const [showStatsModal, setShowStatsModal] = useState(false);
   const [selectedStats, setSelectedStats] = useState(null);
+  
+  // NEW: States for viewing archived data
+  const [showArchivedDataModal, setShowArchivedDataModal] = useState(false);
+  const [archivedDataType, setArchivedDataType] = useState('vacancies'); // 'vacancies' or 'candidates'
+  const [selectedPublicationRange, setSelectedPublicationRange] = useState(null);
+  const [archivedVacancies, setArchivedVacancies] = useState([]);
+  const [archivedCandidates, setArchivedCandidates] = useState([]);
+  
+  // NEW: States for cloning vacancies
+  const [showCloneModal, setShowCloneModal] = useState(false);
+  const [vacancyToClone, setVacancyToClone] = useState(null);
+  
   const { showToast } = useToast();
 
   useEffect(() => {
@@ -31,6 +43,59 @@ const PublicationRangeManager = () => {
       showToast('Failed to load publication ranges', 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // NEW: Load archived vacancies for a publication range
+  const loadArchivedVacancies = async (publicationRangeId) => {
+    try {
+      const data = await vacanciesAPI.getByPublicationRange(publicationRangeId, true);
+      setArchivedVacancies(data.filter(v => v.isArchived));
+    } catch (error) {
+      console.error('Failed to load archived vacancies:', error);
+      showToast('Failed to load archived vacancies', 'error');
+    }
+  };
+
+  // NEW: Load archived candidates for a publication range
+  const loadArchivedCandidates = async (publicationRangeId) => {
+    try {
+      const data = await candidatesAPI.getByPublicationRange(publicationRangeId, true);
+      setArchivedCandidates(data.filter(c => c.isArchived));
+    } catch (error) {
+      console.error('Failed to load archived candidates:', error);
+      showToast('Failed to load archived candidates', 'error');
+    }
+  };
+
+  // NEW: View archived data
+  const handleViewArchivedData = async (publicationRange, type) => {
+    setSelectedPublicationRange(publicationRange);
+    setArchivedDataType(type);
+    
+    if (type === 'vacancies') {
+      await loadArchivedVacancies(publicationRange._id);
+    } else {
+      await loadArchivedCandidates(publicationRange._id);
+    }
+    
+    setShowArchivedDataModal(true);
+  };
+
+  // NEW: Clone vacancy to new publication range
+  const handleCloneVacancy = async (vacancy, targetPublicationRangeId) => {
+    try {
+      const result = await vacanciesAPI.cloneToPublication(vacancy._id, targetPublicationRangeId);
+      showToast(result.message, 'success');
+      setShowCloneModal(false);
+      setVacancyToClone(null);
+      // Refresh archived vacancies
+      if (selectedPublicationRange) {
+        await loadArchivedVacancies(selectedPublicationRange._id);
+      }
+    } catch (error) {
+      console.error('Clone error:', error);
+      showToast(error.response?.data?.message || 'Failed to clone vacancy', 'error');
     }
   };
 
@@ -351,6 +416,182 @@ const PublicationRangeManager = () => {
     );
   };
 
+  // NEW: Modal to view archived vacancies/candidates
+  const ArchivedDataModal = () => {
+    if (!selectedPublicationRange) return null;
+
+    return (
+      <div className="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="modal-content bg-white rounded-lg shadow-xl max-w-6xl w-full mx-4 p-6 overflow-y-auto max-h-[90vh]">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-bold">
+              Archived {archivedDataType === 'vacancies' ? 'Vacancies' : 'Candidates'}: {selectedPublicationRange.name}
+            </h2>
+            <button 
+              onClick={() => setShowArchivedDataModal(false)} 
+              className="text-gray-500 hover:text-gray-700 text-xl"
+            >
+              ✕
+            </button>
+          </div>
+
+          {archivedDataType === 'vacancies' ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-2 text-left">Item Number</th>
+                    <th className="px-4 py-2 text-left">Position</th>
+                    <th className="px-4 py-2 text-left">Assignment</th>
+                    <th className="px-4 py-2 text-left">Salary Grade</th>
+                    <th className="px-4 py-2 text-left">Archived At</th>
+                    <th className="px-4 py-2 text-left">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {archivedVacancies.map(vacancy => (
+                    <tr key={vacancy._id} className="hover:bg-gray-50">
+                      <td className="px-4 py-2">{vacancy.itemNumber}</td>
+                      <td className="px-4 py-2">{vacancy.position}</td>
+                      <td className="px-4 py-2">{vacancy.assignment}</td>
+                      <td className="px-4 py-2">SG {vacancy.salaryGrade}</td>
+                      <td className="px-4 py-2">
+                        {vacancy.archivedAt ? new Date(vacancy.archivedAt).toLocaleDateString() : 'N/A'}
+                      </td>
+                      <td className="px-4 py-2">
+                        <button
+                          onClick={() => {
+                            setVacancyToClone(vacancy);
+                            setShowCloneModal(true);
+                          }}
+                          className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs"
+                          title="Clone to new publication range"
+                        >
+                          Clone
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {archivedVacancies.length === 0 && (
+                <div className="text-center py-8 text-gray-500">
+                  No archived vacancies found
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-2 text-left">Full Name</th>
+                    <th className="px-4 py-2 text-left">Item Number</th>
+                    <th className="px-4 py-2 text-left">Gender</th>
+                    <th className="px-4 py-2 text-left">Status</th>
+                    <th className="px-4 py-2 text-left">Archived At</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {archivedCandidates.map(candidate => (
+                    <tr key={candidate._id} className="hover:bg-gray-50">
+                      <td className="px-4 py-2">{candidate.fullName}</td>
+                      <td className="px-4 py-2">{candidate.itemNumber}</td>
+                      <td className="px-4 py-2">{candidate.gender}</td>
+                      <td className="px-4 py-2">
+                        <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded text-xs">
+                          {candidate.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2">
+                        {candidate.archivedAt ? new Date(candidate.archivedAt).toLocaleDateString() : 'N/A'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {archivedCandidates.length === 0 && (
+                <div className="text-center py-8 text-gray-500">
+                  No archived candidates found
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="flex justify-end mt-6">
+            <button
+              onClick={() => setShowArchivedDataModal(false)}
+              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // NEW: Clone vacancy modal
+  const CloneVacancyModal = () => {
+    if (!vacancyToClone) return null;
+
+    return (
+      <div className="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+          <h3 className="text-lg font-bold mb-4">Clone Vacancy</h3>
+          <p className="text-sm text-gray-600 mb-4">
+            Clone <strong>{vacancyToClone.itemNumber} - {vacancyToClone.position}</strong> to:
+          </p>
+          
+          <select
+            id="target-publication-range"
+            className="w-full px-3 py-2 border rounded mb-4"
+            defaultValue=""
+          >
+            <option value="" disabled>Select target publication range</option>
+            {publicationRanges
+              .filter(pr => pr.isActive && !pr.isArchived)
+              .map(pr => (
+                <option key={pr._id} value={pr._id}>{pr.name}</option>
+              ))}
+          </select>
+          
+          <div className="bg-blue-50 border border-blue-200 rounded p-3 mb-4">
+            <p className="text-xs text-blue-800">
+              <strong>Note:</strong> This will create a copy of the vacancy in the selected publication range. 
+              The original archived vacancy will remain unchanged.
+            </p>
+          </div>
+          
+          <div className="flex justify-end space-x-2">
+            <button
+              onClick={() => {
+                setShowCloneModal(false);
+                setVacancyToClone(null);
+              }}
+              className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => {
+                const select = document.getElementById('target-publication-range');
+                if (select.value) {
+                  handleCloneVacancy(vacancyToClone, select.value);
+                } else {
+                  showToast('Please select a target publication range', 'error');
+                }
+              }}
+              className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+            >
+              Clone Vacancy
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -418,6 +659,24 @@ const PublicationRangeManager = () => {
                 Statistics
               </button>
               
+              {/* NEW: View archived data buttons */}
+              {item.isArchived && (
+                <>
+                  <button
+                    onClick={() => handleViewArchivedData(item, 'vacancies')}
+                    className="text-xs px-3 py-1 bg-purple-100 text-purple-700 rounded hover:bg-purple-200"
+                  >
+                    View Vacancies
+                  </button>
+                  <button
+                    onClick={() => handleViewArchivedData(item, 'candidates')}
+                    className="text-xs px-3 py-1 bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200"
+                  >
+                    View Candidates
+                  </button>
+                </>
+              )}
+              
               {!item.isArchived && (
                 <>
                   <button
@@ -463,6 +722,8 @@ const PublicationRangeManager = () => {
 
       {showModal && <PublicationRangeModal />}
       {showStatsModal && <StatisticsModal />}
+      {showArchivedDataModal && <ArchivedDataModal />}
+      {showCloneModal && <CloneVacancyModal />}
     </div>
   );
 };
