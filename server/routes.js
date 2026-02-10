@@ -2333,4 +2333,98 @@ router.post('/candidates/undo-import/:publicationRangeId', authMiddleware, async
   }
 });
 
+// Clone archived vacancy to new publication range
+router.post('/vacancies/:vacancyId/clone-to-publication/:publicationRangeId', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin') {
+    return res.status(403).json({ message: 'Access denied' });
+  }
+  
+  try {
+    // Get source vacancy
+    const sourceVacancy = await Vacancy.findById(req.params.vacancyId);
+    if (!sourceVacancy) {
+      return res.status(404).json({ message: 'Source vacancy not found' });
+    }
+    
+    // Get target publication range
+    const targetPublicationRange = await PublicationRange.findById(req.params.publicationRangeId);
+    if (!targetPublicationRange) {
+      return res.status(404).json({ message: 'Target publication range not found' });
+    }
+    
+    if (targetPublicationRange.isArchived) {
+      return res.status(400).json({ message: 'Cannot clone to archived publication range' });
+    }
+    
+    // Check if item number already exists in target publication range
+    const existingVacancy = await Vacancy.findOne({
+      itemNumber: sourceVacancy.itemNumber,
+      publicationRangeId: targetPublicationRange._id,
+      isArchived: false
+    });
+    
+    if (existingVacancy) {
+      return res.status(400).json({ 
+        message: `Vacancy with item number ${sourceVacancy.itemNumber} already exists in ${targetPublicationRange.name}` 
+      });
+    }
+    
+    // Create cloned vacancy
+    const clonedVacancy = new Vacancy({
+      itemNumber: sourceVacancy.itemNumber,
+      position: sourceVacancy.position,
+      assignment: sourceVacancy.assignment,
+      salaryGrade: sourceVacancy.salaryGrade,
+      publicationRangeId: targetPublicationRange._id,
+      qualifications: {
+        education: sourceVacancy.qualifications?.education || '',
+        training: sourceVacancy.qualifications?.training || '',
+        experience: sourceVacancy.qualifications?.experience || '',
+        eligibility: sourceVacancy.qualifications?.eligibility || ''
+      },
+      isArchived: false,
+      archivedAt: null,
+      archivedBy: null
+    });
+    
+    await clonedVacancy.save();
+    
+    // Clone competencies linked to the source vacancy
+    const sourceCompetencies = await Competency.find({
+      $or: [
+        { vacancyId: sourceVacancy._id },
+        { vacancyIds: sourceVacancy._id }
+      ]
+    });
+    
+    const clonedCompetencies = [];
+    for (const comp of sourceCompetencies) {
+      // Only clone non-fixed competencies
+      if (!comp.isFixed) {
+        const clonedComp = new Competency({
+          name: comp.name,
+          type: comp.type,
+          vacancyId: comp.vacancyIds && comp.vacancyIds.length > 1 ? null : clonedVacancy._id,
+          vacancyIds: comp.vacancyIds && comp.vacancyIds.length > 1 ? [clonedVacancy._id] : [],
+          isFixed: false
+        });
+        await clonedComp.save();
+        clonedCompetencies.push(clonedComp);
+      }
+    }
+    
+    res.json({
+      message: `Vacancy cloned successfully to ${targetPublicationRange.name}`,
+      clonedVacancy,
+      competenciesCloned: clonedCompetencies.length,
+      sourcePublicationRange: sourceVacancy.publicationRangeId,
+      targetPublicationRange: targetPublicationRange._id
+    });
+    
+  } catch (error) {
+    console.error('Clone vacancy error:', error);
+    res.status(500).json({ message: 'Server error: ' + error.message });
+  }
+});
+
 export default router;
