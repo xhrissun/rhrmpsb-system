@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import usePersistedState from '../utils/usePersistedState';
-import { vacanciesAPI, candidatesAPI, usersAPI } from '../utils/api';
+import { vacanciesAPI, candidatesAPI, usersAPI, publicationRangesAPI } from '../utils/api';
 import { getStatusColor, getStatusLabel, CANDIDATE_STATUS } from '../utils/constants';
 import PDFReport from './PDFReport';
 import { useToast } from '../utils/ToastContext';
@@ -23,21 +23,17 @@ const SecretariatView = ({ user }) => {
     minimum: [],
   });
   const [showCompetenciesModal, setShowCompetenciesModal] = useState(false);
-  // Add this state at the top with your other states
   const [showCommentHistoryModal, setShowCommentHistoryModal] = useState(false);
   const [commentHistoryData, setCommentHistoryData] = useState(null);
   const [genderFilter, setGenderFilter] = useState(null);
 
-  // Add this function to handle viewing comment history
-  const handleViewCommentHistory = (candidate) => {
-    setCommentHistoryData(candidate);
-    setShowCommentHistoryModal(true);
-  };
-
-  const closeCommentHistoryModal = () => {
-    setShowCommentHistoryModal(false);
-    setCommentHistoryData(null);
-  };
+  // NEW: Publication Range states
+  const [publicationRanges, setPublicationRanges] = useState([]);
+  const [selectedPublicationRange, setSelectedPublicationRange] = usePersistedState(
+    `secretariat_${user._id}_selectedPublicationRange`, 
+    ''
+  );
+  const [showArchivedRanges, setShowArchivedRanges] = useState(false);
 
   // Use usePersistedState for dropdown selections
   const [selectedAssignment, setSelectedAssignment] = usePersistedState(`secretariat_${user._id}_selectedAssignment`, '');
@@ -63,7 +59,6 @@ const SecretariatView = ({ user }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // NEW: Comment suggestions state
   const [commentSuggestions, setCommentSuggestions] = useState({
     education: [],
     training: [],
@@ -71,8 +66,18 @@ const SecretariatView = ({ user }) => {
     eligibility: []
   });
 
-  // NEW: Status filter state
   const [statusFilter, setStatusFilter] = useState(null);
+
+  // Handle viewing comment history
+  const handleViewCommentHistory = (candidate) => {
+    setCommentHistoryData(candidate);
+    setShowCommentHistoryModal(true);
+  };
+
+  const closeCommentHistoryModal = () => {
+    setShowCommentHistoryModal(false);
+    setCommentHistoryData(null);
+  };
 
   // Calculate statistics
   const getStatistics = () => {
@@ -84,39 +89,32 @@ const SecretariatView = ({ user }) => {
     return { total, longListed, forReview, disqualified };
   };
 
-  // NEW: Function to load comment suggestions from database
-const loadCommentSuggestions = async () => {
-  console.log('🔍 Environment check:', {
-    isProd: import.meta.env.PROD,
-    mode: import.meta.env.MODE
-  });
-  
-  try {
-    const fields = ['education', 'training', 'experience', 'eligibility'];
-    const suggestions = {};
-    
-    for (const field of fields) {
-      console.log(`📥 Fetching ${field} suggestions...`);
-      try {
-        suggestions[field] = await candidatesAPI.getCommentSuggestions(field);
-        console.log(`✅ Got ${suggestions[field].length} ${field} suggestions`);
-      } catch (error) {
-        console.error(`❌ Failed to load ${field}:`, error.message);
-        suggestions[field] = [];
+  // Load comment suggestions
+  const loadCommentSuggestions = async () => {
+    try {
+      const fields = ['education', 'training', 'experience', 'eligibility'];
+      const suggestions = {};
+      
+      for (const field of fields) {
+        try {
+          suggestions[field] = await candidatesAPI.getCommentSuggestions(field);
+        } catch (error) {
+          console.error(`Failed to load ${field}:`, error.message);
+          suggestions[field] = [];
+        }
       }
+      
+      setCommentSuggestions(suggestions);
+    } catch (error) {
+      console.error('Failed to load comment suggestions:', error);
+      setCommentSuggestions({
+        education: [],
+        training: [],
+        experience: [],
+        eligibility: []
+      });
     }
-    
-    setCommentSuggestions(suggestions);
-  } catch (error) {
-    console.error('Failed to load comment suggestions:', error);
-    setCommentSuggestions({
-      education: [],
-      training: [],
-      experience: [],
-      eligibility: []
-    });
-  }
-};
+  };
 
   const fetchRatersForVacancy = async (itemNumber) => {
     try {
@@ -134,7 +132,6 @@ const loadCommentSuggestions = async () => {
         }
       });
 
-      // Sort raters by raterType hierarchy
       const raterTypeOrder = {
         'Chairperson': 1,
         'Vice-Chairperson': 2,
@@ -199,30 +196,32 @@ const loadCommentSuggestions = async () => {
   // Load initial data on mount
   useEffect(() => {
     loadInitialData();
-  }, []);
+  }, [showArchivedRanges]);
+
+  // NEW: Load publication ranges and vacancies when publication range selection changes
+  useEffect(() => {
+    if (selectedPublicationRange) {
+      loadDataForPublicationRange();
+    }
+  }, [selectedPublicationRange]);
 
   // Handle state restoration and population of dropdowns
   useEffect(() => {
     if (!loading && vacancies.length > 0) {
-      // Populate assignments
       const uniqueAssignments = [...new Set(vacancies.map(v => v.assignment))].filter(a => a).sort();
       setAssignments(uniqueAssignments);
 
-      // Restore persisted state if valid
       if (selectedAssignment && uniqueAssignments.includes(selectedAssignment)) {
-        // Restore positions
         const filteredVacancies = vacancies.filter(v => v.assignment === selectedAssignment);
         const uniquePositions = [...new Set(filteredVacancies.map(v => v.position))].filter(p => p).sort();
         setPositions(uniquePositions);
 
         if (selectedPosition && uniquePositions.includes(selectedPosition)) {
-          // Restore item numbers
           const positionVacancies = filteredVacancies.filter(v => v.position === selectedPosition);
           const uniqueItemNumbers = [...new Set(positionVacancies.map(v => v.itemNumber))].filter(i => i).sort();
           setItemNumbers(uniqueItemNumbers);
 
           if (selectedItemNumber && uniqueItemNumbers.includes(selectedItemNumber)) {
-            // Trigger loading of candidates
             loadCandidatesByFilters();
           } else {
             setSelectedItemNumber('');
@@ -251,7 +250,6 @@ const loadCommentSuggestions = async () => {
         setVacancyDetails(null);
       }
     } else if (!loading && vacancies.length === 0) {
-      // Clear all state if no vacancies are available
       setAssignments([]);
       setPositions([]);
       setItemNumbers([]);
@@ -302,16 +300,25 @@ const loadCommentSuggestions = async () => {
     }
   };
 
+  // NEW: Load publication ranges
   const loadInitialData = async () => {
     try {
       setLoading(true);
-      const vacanciesRes = await vacanciesAPI.getAll();
       
-      // FIX: Filter out archived vacancies first, then by assignment
-      const activeVacancies = vacanciesRes.filter(v => !v.isArchived);
-      const filteredVacancies = filterVacanciesByAssignment(activeVacancies, user);
+      // Load publication ranges
+      const ranges = await publicationRangesAPI.getAll(showArchivedRanges);
+      setPublicationRanges(ranges);
       
-      setVacancies(filteredVacancies);
+      // If there's a selected publication range, load its data
+      if (selectedPublicationRange) {
+        await loadDataForPublicationRange();
+      } else {
+        // Otherwise load all active vacancies (legacy behavior)
+        const vacanciesRes = await vacanciesAPI.getAll();
+        const activeVacancies = vacanciesRes.filter(v => !v.isArchived);
+        const filteredVacancies = filterVacanciesByAssignment(activeVacancies, user);
+        setVacancies(filteredVacancies);
+      }
     } catch (error) {
       console.error('Failed to load initial data:', error);
       setError('Failed to load data. Please refresh the page.');
@@ -320,11 +327,51 @@ const loadCommentSuggestions = async () => {
     }
   };
 
+  // NEW: Load vacancies and candidates for selected publication range
+  const loadDataForPublicationRange = async () => {
+    if (!selectedPublicationRange) {
+      // If no publication range selected, load all active vacancies
+      const vacanciesRes = await vacanciesAPI.getAll();
+      const activeVacancies = vacanciesRes.filter(v => !v.isArchived);
+      const filteredVacancies = filterVacanciesByAssignment(activeVacancies, user);
+      setVacancies(filteredVacancies);
+      return;
+    }
+
+    try {
+      // Load vacancies for this publication range (including archived if range is archived)
+      const selectedRange = publicationRanges.find(r => r._id === selectedPublicationRange);
+      const includeArchived = selectedRange?.isArchived || false;
+      
+      const vacanciesRes = await vacanciesAPI.getByPublicationRange(
+        selectedPublicationRange, 
+        includeArchived
+      );
+      
+      const filteredVacancies = filterVacanciesByAssignment(vacanciesRes, user);
+      setVacancies(filteredVacancies);
+    } catch (error) {
+      console.error('Failed to load data for publication range:', error);
+      showToast('Failed to load publication range data', 'error');
+    }
+  };
+
   const loadCandidatesByFilters = async () => {
     try {
       let filteredCandidates = [];
+      
+      // Determine if we're viewing archived data
+      const selectedRange = publicationRanges.find(r => r._id === selectedPublicationRange);
+      const includeArchived = selectedRange?.isArchived || false;
+      
       if (selectedItemNumber) {
         filteredCandidates = await candidatesAPI.getByItemNumber(selectedItemNumber);
+        // Filter by archive status based on publication range
+        if (selectedRange) {
+          filteredCandidates = filteredCandidates.filter(c => 
+            c.isArchived === includeArchived
+          );
+        }
       } else if (selectedPosition) {
         const vacancyItemNumbers = vacancies
           .filter(v => v.assignment === selectedAssignment && v.position === selectedPosition)
@@ -333,6 +380,11 @@ const loadCommentSuggestions = async () => {
           vacancyItemNumbers.map(itemNumber => candidatesAPI.getByItemNumber(itemNumber))
         );
         filteredCandidates = candidatesRes.flat();
+        if (selectedRange) {
+          filteredCandidates = filteredCandidates.filter(c => 
+            c.isArchived === includeArchived
+          );
+        }
       } else if (selectedAssignment) {
         const vacancyItemNumbers = vacancies
           .filter(v => v.assignment === selectedAssignment)
@@ -341,13 +393,24 @@ const loadCommentSuggestions = async () => {
           vacancyItemNumbers.map(itemNumber => candidatesAPI.getByItemNumber(itemNumber))
         );
         filteredCandidates = candidatesRes.flat();
+        if (selectedRange) {
+          filteredCandidates = filteredCandidates.filter(c => 
+            c.isArchived === includeArchived
+          );
+        }
       } else {
         const vacancyItemNumbers = vacancies.map(v => v.itemNumber);
         const candidatesRes = await Promise.all(
           vacancyItemNumbers.map(itemNumber => candidatesAPI.getByItemNumber(itemNumber))
         );
         filteredCandidates = candidatesRes.flat();
+        if (selectedRange) {
+          filteredCandidates = filteredCandidates.filter(c => 
+            c.isArchived === includeArchived
+          );
+        }
       }
+      
       filteredCandidates.sort((a, b) => a.fullName.localeCompare(b.fullName));
       setCandidates(filteredCandidates);
     } catch (error) {
@@ -456,27 +519,21 @@ const loadCommentSuggestions = async () => {
     }
   };
 
-  // NEW: Handle status card click to filter candidates
   const handleStatusCardClick = (status) => {
     if (statusFilter === status) {
-      // If clicking the same card, clear the filter
       setStatusFilter(null);
     } else {
-      // Otherwise, set the new filter
       setStatusFilter(status);
     }
   };
 
-  // NEW: Filter candidates based on status filter
   const getFilteredCandidates = () => {
     let filtered = candidates;
     
-    // Apply status filter
     if (statusFilter) {
       filtered = filtered.filter(c => c.status === statusFilter);
     }
     
-    // Apply gender filter
     if (genderFilter) {
       if (genderFilter === 'Male') {
         filtered = filtered.filter(c => c.gender === 'Male' || c.gender === 'MALE/LALAKI');
@@ -501,17 +558,13 @@ const loadCommentSuggestions = async () => {
   const stats = getStatistics();
   const filteredCandidates = getFilteredCandidates();
 
-  // Update this function to use filtered candidates instead of all candidates
   const getGenderStatistics = () => {
-    // Use the base filtered candidates (by status only, not gender)
     let baseFiltered = candidates;
     
-    // Apply status filter if active
     if (statusFilter) {
       baseFiltered = baseFiltered.filter(c => c.status === statusFilter);
     }
     
-    // Now count genders from the status-filtered list
     const male = baseFiltered.filter(c => 
       c.gender === 'Male' || c.gender === 'MALE/LALAKI'
     ).length;
@@ -525,9 +578,12 @@ const loadCommentSuggestions = async () => {
     return { male, female, lgbtqi, total: baseFiltered.length };
   };
 
+  // Get current publication range info
+  const currentPublicationRange = publicationRanges.find(r => r._id === selectedPublicationRange);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
-      {/* Header - Now Sticky */}
+      {/* Header */}
       <div className="sticky top-14 z-30 pt-3 pb-3">
         <div className="max-w-7xl mx-auto px-4">
           <div className="bg-white shadow-md border-b border-gray-200 rounded-xl">
@@ -546,61 +602,61 @@ const loadCommentSuggestions = async () => {
                 </div>
                 
                 <div className="flex items-center space-x-3">
-                {selectedItemNumber && (
-                  <>
-                    <button
-                      onClick={async () => {
-                        try {
-                          await candidatesAPI.exportCSV({
-                            itemNumber: selectedItemNumber,
-                            assignment: selectedAssignment,
-                            position: selectedPosition
-                          });
-                          showToast('CSV exported successfully!', 'success');
-                        } catch (error) {
-                          console.error('Export error:', error);
-                          showToast('Failed to export CSV: ' + error.message, 'error');
-                        }
-                      }}
-                      className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-2.5 px-6 rounded-lg text-sm transition-all duration-200 shadow-lg hover:shadow-xl"
-                    >
-                      <div className="flex items-center space-x-2">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                        <span>Export CSV</span>
-                      </div>
-                    </button>
-                    
-                    <button
-                      onClick={handleGenerateReport}
-                      className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-bold py-2.5 px-6 rounded-lg text-sm transition-all duration-200 shadow-lg hover:shadow-xl"
-                    >
-                      <div className="flex items-center space-x-2">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                        <span>Generate Report</span>
-                      </div>
-                    </button>
-                  </>
-                )}
-                
-                <button
-                  onClick={async () => {
-                    try {
-                      await candidatesAPI.exportSummaryCSV();
-                      showToast('Summary CSV exported successfully!', 'success');
-                    } catch (error) {
-                      console.error('Export error:', error);
-                      showToast('Failed to export summary CSV: ' + error.message, 'error');
-                    }
-                  }}
-                  className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-bold py-2.5 px-6 rounded-lg text-sm transition-all duration-200 shadow-lg hover:shadow-xl"
-                >
-                  <div className="flex items-center space-x-2">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  {selectedItemNumber && (
+                    <>
+                      <button
+                        onClick={async () => {
+                          try {
+                            await candidatesAPI.exportCSV({
+                              itemNumber: selectedItemNumber,
+                              assignment: selectedAssignment,
+                              position: selectedPosition
+                            });
+                            showToast('CSV exported successfully!', 'success');
+                          } catch (error) {
+                            console.error('Export error:', error);
+                            showToast('Failed to export CSV: ' + error.message, 'error');
+                          }
+                        }}
+                        className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-2.5 px-6 rounded-lg text-sm transition-all duration-200 shadow-lg hover:shadow-xl"
+                      >
+                        <div className="flex items-center space-x-2">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                          <span>Export CSV</span>
+                        </div>
+                      </button>
+                      
+                      <button
+                        onClick={handleGenerateReport}
+                        className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-bold py-2.5 px-6 rounded-lg text-sm transition-all duration-200 shadow-lg hover:shadow-xl"
+                      >
+                        <div className="flex items-center space-x-2">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                          <span>Generate Report</span>
+                        </div>
+                      </button>
+                    </>
+                  )}
+                  
+                  <button
+                    onClick={async () => {
+                      try {
+                        await candidatesAPI.exportSummaryCSV();
+                        showToast('Summary CSV exported successfully!', 'success');
+                      } catch (error) {
+                        console.error('Export error:', error);
+                        showToast('Failed to export summary CSV: ' + error.message, 'error');
+                      }
+                    }}
+                    className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-bold py-2.5 px-6 rounded-lg text-sm transition-all duration-200 shadow-lg hover:shadow-xl"
+                  >
+                    <div className="flex items-center space-x-2">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
                       <span>Export All (Summary)</span>
                     </div>
@@ -620,8 +676,71 @@ const loadCommentSuggestions = async () => {
           </div>
         )}
 
-        {/* Filters - More compact layout with better styling */}
+        {/* NEW: Publication Range Selector */}
         <div className="sticky top-36 z-20 pt-3 pb-1">
+          <div className="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl shadow-lg border-2 border-purple-700 p-4">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex-1">
+                <label className="block text-xs font-bold text-white mb-1.5">Publication Range</label>
+                <select
+                  value={selectedPublicationRange}
+                  onChange={(e) => {
+                    setSelectedPublicationRange(e.target.value);
+                    // Reset filters when changing publication range
+                    setSelectedAssignment('');
+                    setSelectedPosition('');
+                    setSelectedItemNumber('');
+                    setStatusFilter(null);
+                    setGenderFilter(null);
+                  }}
+                  className="w-full px-3 py-2.5 border-2 border-purple-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:border-white bg-white text-sm font-medium shadow-sm"
+                >
+                  <option value="">All Publication Ranges</option>
+                  {publicationRanges.map(range => (
+                    <option key={range._id} value={range._id}>
+                      {range.name}
+                      {range.isArchived ? ' (ARCHIVED)' : ''}
+                      {range.isActive ? ' • Active' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              
+              <div className="flex items-end">
+                <button
+                  onClick={() => setShowArchivedRanges(!showArchivedRanges)}
+                  className={`px-4 py-2.5 rounded-lg text-sm font-bold transition-all shadow-md ${
+                    showArchivedRanges
+                      ? 'bg-white text-purple-700 hover:bg-gray-100'
+                      : 'bg-purple-800 text-white hover:bg-purple-900'
+                  }`}
+                >
+                  {showArchivedRanges ? 'Hide Archived' : 'Show Archived'}
+                </button>
+              </div>
+            </div>
+            
+            {/* Show archive status badge if viewing archived range */}
+            {currentPublicationRange?.isArchived && (
+              <div className="mt-3 bg-orange-100 border-l-4 border-orange-500 p-3 rounded">
+                <div className="flex items-center">
+                  <svg className="w-5 h-5 text-orange-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                  </svg>
+                  <div>
+                    <p className="text-sm font-bold text-orange-800">Viewing Archived Publication Range</p>
+                    <p className="text-xs text-orange-700">
+                      All data shown below is from the archived publication range "{currentPublicationRange.name}"
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Filters */}
+        <div className="sticky top-[230px] z-19 pt-3 pb-1">
           <div className="bg-white rounded-xl shadow-lg border-2 border-gray-300 p-5">
             <div className="flex flex-wrap gap-4">
               <div className="flex-1 min-w-48">
@@ -671,10 +790,9 @@ const loadCommentSuggestions = async () => {
           </div>
         </div>
 
-        {/* Statistics Cards - NOW CLICKABLE with active state */}
-        <div className="sticky top-[268px] z-10 pt-1 pb-4">
+        {/* Statistics Cards */}
+        <div className="sticky top-[362px] z-10 pt-1 pb-4">
           <div className="grid grid-cols-4 gap-4">
-            {/* Total Card - No filter, just shows all */}
             <div 
               onClick={() => setStatusFilter(null)}
               className={`bg-white rounded-xl shadow-lg border-2 p-4 transition-all cursor-pointer ${
@@ -700,7 +818,6 @@ const loadCommentSuggestions = async () => {
               </div>
             </div>
 
-            {/* Long Listed Card */}
             <div 
               onClick={() => handleStatusCardClick(CANDIDATE_STATUS.LONG_LIST)}
               className={`bg-white rounded-xl shadow-lg border-2 p-4 transition-all cursor-pointer ${
@@ -726,7 +843,6 @@ const loadCommentSuggestions = async () => {
               </div>
             </div>
 
-            {/* For Review Card */}
             <div 
               onClick={() => handleStatusCardClick(CANDIDATE_STATUS.FOR_REVIEW)}
               className={`bg-white rounded-xl shadow-lg border-2 p-4 transition-all cursor-pointer ${
@@ -752,7 +868,6 @@ const loadCommentSuggestions = async () => {
               </div>
             </div>
 
-            {/* Disqualified Card */}
             <div 
               onClick={() => handleStatusCardClick(CANDIDATE_STATUS.DISQUALIFIED)}
               className={`bg-white rounded-xl shadow-lg border-2 p-4 transition-all cursor-pointer ${
@@ -781,7 +896,7 @@ const loadCommentSuggestions = async () => {
         </div>
 
         {/* Gender Filter Section */}
-        <div className="sticky top-[356px] z-10 pt-2 pb-4">
+        <div className="sticky top-[450px] z-10 pt-2 pb-4">
           <div className="bg-white rounded-xl shadow-lg border-2 border-gray-300 p-3">
             <div className="flex items-center justify-between gap-3">
               <span className="text-xs font-bold text-gray-800 whitespace-nowrap">Gender:</span>
@@ -839,6 +954,7 @@ const loadCommentSuggestions = async () => {
               Showing {filteredCandidates.length} candidate{filteredCandidates.length !== 1 ? 's' : ''}
               {statusFilter && ` (${getStatusLabel(statusFilter)})`}
               {genderFilter && ` (${genderFilter})`}
+              {currentPublicationRange && ` from ${currentPublicationRange.name}`}
             </p>
           </div>
 
@@ -870,8 +986,13 @@ const loadCommentSuggestions = async () => {
                             </div>
                           </div>
                           <div className="ml-3">
-                            <div className="text-sm font-medium text-gray-900">
+                            <div className="text-sm font-medium text-gray-900 flex items-center gap-2">
                               {candidate.fullName}
+                              {candidate.isArchived && (
+                                <span className="px-2 py-0.5 bg-orange-100 text-orange-800 text-xs font-bold rounded">
+                                  ARCHIVED
+                                </span>
+                              )}
                             </div>
                             <div className="text-xs text-gray-500">{candidate.gender} • Age: {candidate.age || 'N/A'}</div>
                           </div>
@@ -910,17 +1031,20 @@ const loadCommentSuggestions = async () => {
                           >
                             History
                           </button>
-                          <button
-                            onClick={() => {
-                              setSelectedCandidate(candidate._id);
-                              loadCandidateDetails(candidate._id);
-                              loadCommentSuggestions();
-                              setShowCommentModal(true);
-                            }}
-                            className="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-xs transition-colors duration-200"
-                          >
-                            Update
-                          </button>
+                          {/* Only show Update button for non-archived candidates */}
+                          {!candidate.isArchived && (
+                            <button
+                              onClick={() => {
+                                setSelectedCandidate(candidate._id);
+                                loadCandidateDetails(candidate._id);
+                                loadCommentSuggestions();
+                                setShowCommentModal(true);
+                              }}
+                              className="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-xs transition-colors duration-200"
+                            >
+                              Update
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -973,6 +1097,9 @@ const loadCommentSuggestions = async () => {
               <div className={`${headerStyle} px-6 py-4 rounded-t-lg text-center`}>
                 <h2 className="text-2xl font-bold">{candidate.fullName}</h2>
                 <p className="text-base font-medium mt-1 uppercase tracking-wide">{displayStatus}</p>
+                {candidate.isArchived && (
+                  <p className="text-sm mt-1 bg-orange-200 text-orange-900 px-3 py-1 rounded inline-block">ARCHIVED</p>
+                )}
               </div>
               
               <div className="p-5">
@@ -1060,7 +1187,7 @@ const loadCommentSuggestions = async () => {
         );
       })()}
 
-      {/* Comment History Modal - CORRECTED VERSION */}
+      {/* Comment History Modal */}
       {showCommentHistoryModal && commentHistoryData && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
           <div className="relative top-8 mx-auto border w-11/12 max-w-5xl shadow-lg rounded-lg bg-white max-h-[90vh] overflow-y-auto">
@@ -1069,6 +1196,9 @@ const loadCommentSuggestions = async () => {
                 <div>
                   <h2 className="text-2xl font-bold text-white">Comment History</h2>
                   <p className="text-purple-100 mt-1">{commentHistoryData.fullName}</p>
+                  {commentHistoryData.isArchived && (
+                    <p className="text-sm mt-1 bg-orange-200 text-orange-900 px-3 py-1 rounded inline-block">ARCHIVED</p>
+                  )}
                 </div>
                 <button
                   onClick={closeCommentHistoryModal}
@@ -1214,7 +1344,6 @@ const loadCommentSuggestions = async () => {
               )}
             </div>
 
-            {/* Close Button Footer */}
             <div className="px-6 py-4 border-t bg-gray-50 rounded-b-lg">
               <button
                 onClick={closeCommentHistoryModal}
@@ -1227,13 +1356,15 @@ const loadCommentSuggestions = async () => {
         </div>
       )}
 
-
       {showCommentModal && candidateDetails && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
           <div className="relative top-4 mx-auto p-6 border w-[95%] max-w-7xl shadow-lg rounded-md bg-white max-h-[95vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-bold text-gray-900">
                 Update Status: {candidateDetails.fullName}
+                {candidateDetails.isArchived && (
+                  <span className="ml-3 px-3 py-1 bg-orange-100 text-orange-800 text-sm font-bold rounded">ARCHIVED</span>
+                )}
               </h2>
               <button
                 onClick={closeCommentModal}
@@ -1242,6 +1373,14 @@ const loadCommentSuggestions = async () => {
                 ×
               </button>
             </div>
+            
+            {candidateDetails.isArchived && (
+              <div className="mb-4 bg-orange-100 border-l-4 border-orange-500 p-3 rounded">
+                <p className="text-sm text-orange-800">
+                  <strong>Note:</strong> This candidate is archived. Updates can still be made for historical record purposes.
+                </p>
+              </div>
+            )}
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
               <div className="bg-gray-50 p-4 rounded-lg">
@@ -1295,7 +1434,6 @@ const loadCommentSuggestions = async () => {
               )}
             </div>
 
-            {/* NEW: Comment fields with auto-suggestions */}
             <div className="space-y-4">
               <CommentInput
                 label="Education Comments"
@@ -1361,6 +1499,9 @@ const loadCommentSuggestions = async () => {
               <div>
                 <h2 className="text-xl font-bold text-gray-900">Vacancy Details</h2>
                 <p className="text-sm text-gray-600">{vacancyDetails.itemNumber}</p>
+                {vacancyDetails.isArchived && (
+                  <span className="inline-block mt-1 px-3 py-1 bg-orange-100 text-orange-800 text-xs font-bold rounded">ARCHIVED</span>
+                )}
               </div>
               <button
                 onClick={closeVacancyModal}
@@ -1465,7 +1606,7 @@ const loadCommentSuggestions = async () => {
                 <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
                   <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                    </svg>
+                  </svg>
                 </div>
                 <h3 className="text-lg font-medium text-gray-900 mb-2">No Competencies Found</h3>
                 <p className="text-gray-500">No competencies have been assigned to this position yet.</p>
@@ -1624,7 +1765,6 @@ const loadCommentSuggestions = async () => {
   );
 };
 
-// NEW: CommentInput component with auto-suggestions
 const CommentInput = ({ label, value, onChange, suggestions, placeholder }) => {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [filteredSuggestions, setFilteredSuggestions] = useState([]);
@@ -1632,18 +1772,16 @@ const CommentInput = ({ label, value, onChange, suggestions, placeholder }) => {
   const suggestionsRef = useRef(null);
 
   useEffect(() => {
-    // Filter suggestions based on current input
     if (value && suggestions.length > 0) {
       const filtered = suggestions.filter(s => 
         s.toLowerCase().includes(value.toLowerCase())
-      ).slice(0, 10); // Limit to 10 suggestions
+      ).slice(0, 10);
       setFilteredSuggestions(filtered);
     } else {
       setFilteredSuggestions(suggestions.slice(0, 10));
     }
   }, [value, suggestions]);
 
-  // Close suggestions when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (
