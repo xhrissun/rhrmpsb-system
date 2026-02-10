@@ -170,6 +170,14 @@ export const vacanciesAPI = {
       `/vacancies/by-publication/${publicationRangeId}?includeArchived=${includeArchived}`
     );
     return response.data;
+  },
+
+  // ✅ ADD THIS HERE - Clone vacancy to new publication range
+  cloneToPublication: async (vacancyId, publicationRangeId) => {
+    const response = await api.post(
+      `/vacancies/${vacancyId}/clone-to-publication/${publicationRangeId}`
+    );
+    return response.data;
   }
 };
 
@@ -312,7 +320,7 @@ export const candidatesAPI = {
       { minutesAgo }
     );
     return response.data;
-  }
+  },
 };
 
 // Ratings API
