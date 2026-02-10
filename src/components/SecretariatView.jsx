@@ -872,7 +872,6 @@ const loadCommentSuggestions = async () => {
                           <div className="ml-3">
                             <div className="text-sm font-medium text-gray-900">
                               {candidate.fullName}
-                              {candidate.isArchived && <span className="ml-2 text-xs text-red-600 font-semibold">(ARCHIVED)</span>}
                             </div>
                             <div className="text-xs text-gray-500">{candidate.gender} • Age: {candidate.age || 'N/A'}</div>
                           </div>
