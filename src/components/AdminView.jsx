@@ -295,7 +295,6 @@ const AdminView = ({ user }) => {
       const ranges = await publicationRangesAPI.getAll(showArchivedRanges);
       setPublicationRanges(ranges);
 
-      // Validate selected range is still available
       if (selectedPublicationRange) {
         const stillExists = ranges.find(r => r._id === selectedPublicationRange);
         if (!stillExists) {
@@ -307,7 +306,8 @@ const AdminView = ({ user }) => {
       console.error('Failed to load publication ranges:', error);
       showToast('Failed to load publication ranges', 'error');
     }
-  }, [showArchivedRanges, selectedPublicationRange, setSelectedPublicationRange, showToast]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showArchivedRanges, selectedPublicationRange]);
 
   const loadUsers = useCallback(async () => {
     try {
@@ -317,26 +317,24 @@ const AdminView = ({ user }) => {
       console.error('Failed to load users:', error);
       showToast('Failed to load users', 'error');
     }
-  }, [showToast]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const loadVacancies = useCallback(async () => {
     try {
       let vacanciesRes;
       
       if (selectedPublicationRange) {
-        // Load vacancies for specific publication range
         const selectedRange = publicationRanges.find(r => r._id === selectedPublicationRange);
         const includeArchived = selectedRange?.isArchived || false;
         vacanciesRes = await vacanciesAPI.getByPublicationRange(selectedPublicationRange, includeArchived);
       } else {
-        // Load all active vacancies
         vacanciesRes = await vacanciesAPI.getAll();
         vacanciesRes = vacanciesRes.filter(v => !v.isArchived || showArchivedRanges);
       }
       
       setVacancies(vacanciesRes);
 
-      // Extract unique assignments
       const uniqueAssignments = [...new Set(
         vacanciesRes.map(v => v.assignment).filter(a => a && a.trim() !== '')
       )].sort();
@@ -345,19 +343,18 @@ const AdminView = ({ user }) => {
       console.error('Failed to load vacancies:', error);
       showToast('Failed to load vacancies', 'error');
     }
-  }, [selectedPublicationRange, publicationRanges, showArchivedRanges, showToast]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPublicationRange, publicationRanges, showArchivedRanges]);
 
   const loadCandidates = useCallback(async () => {
     try {
       let candidatesRes;
       
       if (selectedPublicationRange) {
-        // Load candidates for specific publication range
         const selectedRange = publicationRanges.find(r => r._id === selectedPublicationRange);
         const includeArchived = selectedRange?.isArchived || false;
         candidatesRes = await candidatesAPI.getByPublicationRange(selectedPublicationRange, includeArchived);
       } else {
-        // Load all active candidates
         candidatesRes = await candidatesAPI.getAll();
         candidatesRes = candidatesRes.filter(c => !c.isArchived || showArchivedRanges);
       }
@@ -367,7 +364,8 @@ const AdminView = ({ user }) => {
       console.error('Failed to load candidates:', error);
       showToast('Failed to load candidates', 'error');
     }
-  }, [selectedPublicationRange, publicationRanges, showArchivedRanges, showToast]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPublicationRange, publicationRanges, showArchivedRanges]);
 
   const loadCompetencies = useCallback(async () => {
     try {
@@ -377,7 +375,8 @@ const AdminView = ({ user }) => {
       console.error('Failed to load competencies:', error);
       showToast('Failed to load competencies', 'error');
     }
-  }, [showToast]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const loadDataForCurrentTab = useCallback(async () => {
     // Prevent concurrent loading
@@ -772,25 +771,137 @@ const AdminView = ({ user }) => {
     showToast(`Empty ${type} template exported successfully!`, 'success');
   }, [convertToCSV, downloadCSV, showToast]);
 
-  // ─── useEffect Hooks ───────────────────────────────────────────────────────
-
+  // Load publication ranges on mount and when archive toggle changes
   // Load publication ranges when archive toggle changes
   useEffect(() => {
-    loadPublicationRanges();
-  }, [loadPublicationRanges]);
+    const loadRanges = async () => {
+      try {
+        const ranges = await publicationRangesAPI.getAll(showArchivedRanges);
+        setPublicationRanges(ranges);
 
-  // Load data when tab, publication range, or archive setting changes
+        if (selectedPublicationRange) {
+          const stillExists = ranges.find(r => r._id === selectedPublicationRange);
+          if (!stillExists) {
+            setSelectedPublicationRange('');
+            showToast('Selected publication range is no longer available', 'info');
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load publication ranges:', error);
+        showToast('Failed to load publication ranges', 'error');
+      }
+    };
+    
+    loadRanges();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showArchivedRanges]);
+
+  // Initial data load on mount
   useEffect(() => {
-    // Skip on initial mount
+    const loadInitialData = async () => {
+      setLoading(true);
+      try {
+        await loadPublicationRanges();
+        
+        // Load data for the initial active tab
+        switch (activeTab) {
+          case 'users':
+          case 'assignments':
+            await loadUsers();
+            break;
+          case 'vacancies':
+            await loadVacancies();
+            break;
+          case 'candidates':
+            await loadCandidates();
+            break;
+          case 'competencies':
+            await loadCompetencies();
+            break;
+        }
+      } catch (error) {
+        console.error('Initial data load failed:', error);
+        showToast('Failed to load initial data', 'error');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadInitialData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run on mount
+
+  // Reload data when tab changes (after initial mount)
+  useEffect(() => {
     if (isInitialMount.current) {
       isInitialMount.current = false;
       return;
     }
 
-    loadDataForCurrentTab();
-  }, [loadDataForCurrentTab]);
+    const loadTabData = async () => {
+      if (loadingData.current) return;
 
-  // Modal focus management - prevent body scroll when modals are open
+      loadingData.current = true;
+      setLoading(true);
+
+      try {
+        switch (activeTab) {
+          case 'users':
+          case 'assignments':
+            await loadUsers();
+            break;
+          case 'vacancies':
+            await loadVacancies();
+            break;
+          case 'candidates':
+            await loadCandidates();
+            break;
+          case 'competencies':
+            await loadCompetencies();
+            break;
+        }
+      } catch (error) {
+        console.error('Tab data load failed:', error);
+        showToast('Failed to load data', 'error');
+      } finally {
+        setLoading(false);
+        loadingData.current = false;
+      }
+    };
+
+    loadTabData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  // Reload data when publication range or archive setting changes
+  useEffect(() => {
+    if (isInitialMount.current) return;
+
+    const reloadData = async () => {
+      if (loadingData.current) return;
+      
+      loadingData.current = true;
+      setLoading(true);
+
+      try {
+        if (activeTab === 'vacancies') {
+          await loadVacancies();
+        } else if (activeTab === 'candidates') {
+          await loadCandidates();
+        }
+      } catch (error) {
+        console.error('Data reload failed:', error);
+      } finally {
+        setLoading(false);
+        loadingData.current = false;
+      }
+    };
+
+    reloadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPublicationRange, showArchivedRanges]);
+
+  // Modal focus management
   useEffect(() => {
     const anyModalOpen = showModal || showVacancyModal || showPasswordModal;
     
