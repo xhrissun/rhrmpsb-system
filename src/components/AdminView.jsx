@@ -174,6 +174,15 @@ const AdminView = ({ user }) => {
     archived: showArchivedRanges
   });
 
+  // Add a data cache ref at the top with other refs
+  const dataCacheRef = useRef({
+    users: null,
+    vacancies: null,
+    candidates: null,
+    competencies: null,
+    publicationRanges: null
+  });
+
   // ─── Utility Functions ─────────────────────────────────────────────────────
   
   const getAssignmentDisplay = useCallback((user) => {
@@ -309,99 +318,140 @@ const AdminView = ({ user }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showArchivedRanges, selectedPublicationRange]);
 
-  const loadUsers = useCallback(async () => {
-    try {
-      const usersData = await usersAPI.getAll();
-      setUsers(usersData);
-    } catch (error) {
-      console.error('Failed to load users:', error);
-      showToast('Failed to load users', 'error');
+  const loadUsers = useCallback(async (forceRefresh = false) => {
+  if (dataCacheRef.current.users && !forceRefresh) {
+    setUsers(dataCacheRef.current.users);
+    return;
+  }
+  
+  try {
+    const usersData = await usersAPI.getAll();
+    setUsers(usersData);
+    dataCacheRef.current.users = usersData;
+  } catch (error) {
+    console.error('Failed to load users:', error);
+    showToast('Failed to load users', 'error');
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
+
+const loadVacancies = useCallback(async (forceRefresh = false) => {
+  // Check cache key
+  const cacheKey = `${selectedPublicationRange}_${showArchivedRanges}`;
+  if (dataCacheRef.current.vacancies?.cacheKey === cacheKey && !forceRefresh) {
+    setVacancies(dataCacheRef.current.vacancies.data);
+    setAssignments(dataCacheRef.current.vacancies.assignments);
+    return;
+  }
+  
+  try {
+    let vacanciesRes;
+    
+    if (selectedPublicationRange) {
+      const selectedRange = publicationRanges.find(r => r._id === selectedPublicationRange);
+      const includeArchived = selectedRange?.isArchived || false;
+      vacanciesRes = await vacanciesAPI.getByPublicationRange(selectedPublicationRange, includeArchived);
+    } else {
+      vacanciesRes = await vacanciesAPI.getAll();
+      vacanciesRes = vacanciesRes.filter(v => !v.isArchived || showArchivedRanges);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    
+    setVacancies(vacanciesRes);
 
-  const loadVacancies = useCallback(async () => {
-    try {
-      let vacanciesRes;
-      
-      if (selectedPublicationRange) {
-        const selectedRange = publicationRanges.find(r => r._id === selectedPublicationRange);
-        const includeArchived = selectedRange?.isArchived || false;
-        vacanciesRes = await vacanciesAPI.getByPublicationRange(selectedPublicationRange, includeArchived);
-      } else {
-        vacanciesRes = await vacanciesAPI.getAll();
-        vacanciesRes = vacanciesRes.filter(v => !v.isArchived || showArchivedRanges);
-      }
-      
-      setVacancies(vacanciesRes);
-
-      const uniqueAssignments = [...new Set(
-        vacanciesRes.map(v => v.assignment).filter(a => a && a.trim() !== '')
-      )].sort();
-      setAssignments(uniqueAssignments);
-    } catch (error) {
-      console.error('Failed to load vacancies:', error);
-      showToast('Failed to load vacancies', 'error');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPublicationRange, publicationRanges, showArchivedRanges]);
-
-  const loadCandidates = useCallback(async () => {
-    try {
-      let candidatesRes;
-      
-      if (selectedPublicationRange) {
-        const selectedRange = publicationRanges.find(r => r._id === selectedPublicationRange);
-        const includeArchived = selectedRange?.isArchived || false;
-        candidatesRes = await candidatesAPI.getByPublicationRange(selectedPublicationRange, includeArchived);
-      } else {
-        candidatesRes = await candidatesAPI.getAll();
-        candidatesRes = candidatesRes.filter(c => !c.isArchived || showArchivedRanges);
-      }
-      
-      setCandidates(candidatesRes);
-    } catch (error) {
-      console.error('Failed to load candidates:', error);
-      showToast('Failed to load candidates', 'error');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPublicationRange, publicationRanges, showArchivedRanges]);
-
-  const loadCompetencies = useCallback(async () => {
-    try {
-      const competenciesData = await competenciesAPI.getAll();
-      setCompetencies(competenciesData);
-    } catch (error) {
-      console.error('Failed to load competencies:', error);
-      showToast('Failed to load competencies', 'error');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const loadDataForCurrentTab = useCallback(async () => {
-    // Prevent concurrent loading
-    if (loadingData.current) {
-      return;
-    }
-
-    // Check if state actually changed
-    const currentState = {
-      tab: activeTab,
-      range: selectedPublicationRange,
-      archived: showArchivedRanges
+    const uniqueAssignments = [...new Set(
+      vacanciesRes.map(v => v.assignment).filter(a => a && a.trim() !== '')
+    )].sort();
+    setAssignments(uniqueAssignments);
+    
+    // Cache the result
+    dataCacheRef.current.vacancies = {
+      cacheKey,
+      data: vacanciesRes,
+      assignments: uniqueAssignments
     };
+  } catch (error) {
+    console.error('Failed to load vacancies:', error);
+    showToast('Failed to load vacancies', 'error');
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [selectedPublicationRange, publicationRanges, showArchivedRanges]);
 
-    if (JSON.stringify(currentState) === JSON.stringify(previousStateRef.current)) {
-      return;
+const loadCandidates = useCallback(async (forceRefresh = false) => {
+  const cacheKey = `${selectedPublicationRange}_${showArchivedRanges}`;
+  if (dataCacheRef.current.candidates?.cacheKey === cacheKey && !forceRefresh) {
+    setCandidates(dataCacheRef.current.candidates.data);
+    return;
+  }
+  
+  try {
+    let candidatesRes;
+    
+    if (selectedPublicationRange) {
+      const selectedRange = publicationRanges.find(r => r._id === selectedPublicationRange);
+      const includeArchived = selectedRange?.isArchived || false;
+      candidatesRes = await candidatesAPI.getByPublicationRange(selectedPublicationRange, includeArchived);
+    } else {
+      candidatesRes = await candidatesAPI.getAll();
+      candidatesRes = candidatesRes.filter(c => !c.isArchived || showArchivedRanges);
     }
+    
+    setCandidates(candidatesRes);
+    dataCacheRef.current.candidates = {
+      cacheKey,
+      data: candidatesRes
+    };
+  } catch (error) {
+    console.error('Failed to load candidates:', error);
+    showToast('Failed to load candidates', 'error');
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [selectedPublicationRange, publicationRanges, showArchivedRanges]);
 
-    previousStateRef.current = currentState;
+const loadCompetencies = useCallback(async (forceRefresh = false) => {
+  if (dataCacheRef.current.competencies && !forceRefresh) {
+    setCompetencies(dataCacheRef.current.competencies);
+    return;
+  }
+  
+  try {
+    const competenciesData = await competenciesAPI.getAll();
+    setCompetencies(competenciesData);
+    dataCacheRef.current.competencies = competenciesData;
+  } catch (error) {
+    console.error('Failed to load competencies:', error);
+    showToast('Failed to load competencies', 'error');
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
+
+// Replace the tab change useEffect with this smarter version
+useEffect(() => {
+  if (isInitialMount.current) {
+    isInitialMount.current = false;
+    return;
+  }
+
+  const loadTabData = async () => {
+    if (loadingData.current) return;
+
     loadingData.current = true;
-    setLoading(true);
+    
+    // NO LOADING SPINNER for cached data
+    const needsLoading = 
+      (activeTab === 'users' && !dataCacheRef.current.users) ||
+      (activeTab === 'assignments' && !dataCacheRef.current.users) ||
+      (activeTab === 'vacancies' && !dataCacheRef.current.vacancies) ||
+      (activeTab === 'candidates' && !dataCacheRef.current.candidates) ||
+      (activeTab === 'competencies' && !dataCacheRef.current.competencies);
+    
+    if (needsLoading) {
+      setLoading(true);
+    }
 
     try {
       switch (activeTab) {
         case 'users':
+        case 'assignments':
           await loadUsers();
           break;
         case 'vacancies':
@@ -413,37 +463,53 @@ const AdminView = ({ user }) => {
         case 'competencies':
           await loadCompetencies();
           break;
-        case 'assignments':
-          // Assignments tab needs users data
-          await loadUsers();
-          break;
-        case 'publicationRanges':
-          // Publication ranges are already loaded separately
-          break;
-        case 'interviewSummary':
-        case 'ratingLogs':
-          // These tabs handle their own data loading
-          break;
-        default:
-          console.warn('Unknown tab:', activeTab);
       }
     } catch (error) {
-      console.error('Data load failed for tab', activeTab, error);
+      console.error('Tab data load failed:', error);
       showToast('Failed to load data', 'error');
     } finally {
       setLoading(false);
       loadingData.current = false;
     }
-  }, [
-    activeTab, 
-    selectedPublicationRange, 
-    showArchivedRanges, 
-    loadUsers, 
-    loadVacancies, 
-    loadCandidates, 
-    loadCompetencies, 
-    showToast
-  ]);
+  };
+
+  loadTabData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [activeTab]);
+
+// Update loadDataForCurrentTab to invalidate cache
+const loadDataForCurrentTab = useCallback(async () => {
+  if (loadingData.current) return;
+
+  loadingData.current = true;
+  setLoading(true);
+
+  try {
+    switch (activeTab) {
+      case 'users':
+        await loadUsers(true); // Force refresh
+        break;
+      case 'vacancies':
+        await loadVacancies(true);
+        break;
+      case 'candidates':
+        await loadCandidates(true);
+        break;
+      case 'competencies':
+        await loadCompetencies(true);
+        break;
+      case 'assignments':
+        await loadUsers(true);
+        break;
+    }
+  } catch (error) {
+    console.error('Data load failed for tab', activeTab, error);
+    showToast('Failed to load data', 'error');
+  } finally {
+    setLoading(false);
+    loadingData.current = false;
+  }
+}, [activeTab, loadUsers, loadVacancies, loadCandidates, loadCompetencies, showToast]);
 
   // ─── Event Handlers ────────────────────────────────────────────────────────
 
@@ -830,48 +896,6 @@ const AdminView = ({ user }) => {
     loadInitialData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run on mount
-
-  // Reload data when tab changes (after initial mount)
-  useEffect(() => {
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
-      return;
-    }
-
-    const loadTabData = async () => {
-      if (loadingData.current) return;
-
-      loadingData.current = true;
-      setLoading(true);
-
-      try {
-        switch (activeTab) {
-          case 'users':
-          case 'assignments':
-            await loadUsers();
-            break;
-          case 'vacancies':
-            await loadVacancies();
-            break;
-          case 'candidates':
-            await loadCandidates();
-            break;
-          case 'competencies':
-            await loadCompetencies();
-            break;
-        }
-      } catch (error) {
-        console.error('Tab data load failed:', error);
-        showToast('Failed to load data', 'error');
-      } finally {
-        setLoading(false);
-        loadingData.current = false;
-      }
-    };
-
-    loadTabData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab]);
 
   // Reload data when publication range or archive setting changes
   useEffect(() => {
