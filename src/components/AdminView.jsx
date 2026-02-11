@@ -862,29 +862,21 @@ const loadDataForCurrentTab = useCallback(async () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showArchivedRanges]);
 
-  // Initial data load on mount
+  // Initial data load on mount - LOAD ALL TABS
   useEffect(() => {
     const loadInitialData = async () => {
       setLoading(true);
       try {
         await loadPublicationRanges();
         
-        // Load data for the initial active tab
-        switch (activeTab) {
-          case 'users':
-          case 'assignments':
-            await loadUsers();
-            break;
-          case 'vacancies':
-            await loadVacancies();
-            break;
-          case 'candidates':
-            await loadCandidates();
-            break;
-          case 'competencies':
-            await loadCompetencies();
-            break;
-        }
+        // 🚀 PRE-LOAD ALL TABS IN PARALLEL
+        await Promise.all([
+          loadUsers(),        // For users + assignments tabs
+          loadVacancies(),    // For vacancies tab
+          loadCandidates(),   // For candidates tab
+          loadCompetencies()  // For competencies tab
+        ]);
+        
       } catch (error) {
         console.error('Initial data load failed:', error);
         showToast('Failed to load initial data', 'error');
