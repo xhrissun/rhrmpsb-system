@@ -1895,13 +1895,13 @@ const loadDataForCurrentTab = useCallback(async () => {
                     vacancyIds = [competency.vacancyId];
                   }
 
-                  const vacancyNames =
-                    vacancyIds.length > 0
-                      ? vacancyIds
-                          .map((id) => vacancies.find((v) => v._id === id)?.itemNumber)
-                          .filter(Boolean)
-                          .join(', ')
-                      : 'All Vacancies';
+                  const activeVacancyNames = vacancyIds
+                    .map((id) => vacancies.find((v) => v._id === id && !v.isArchived)?.itemNumber)
+                    .filter(Boolean);
+                  const archivedVacancyNames = vacancyIds
+                    .map((id) => vacancies.find((v) => v._id === id && v.isArchived)?.itemNumber)
+                    .filter(Boolean);
+                  const vacancyNames = vacancyIds.length === 0 ? 'All Vacancies' : null;
 
                   return (
                     <tr key={competency._id}>
@@ -1914,7 +1914,21 @@ const loadDataForCurrentTab = useCallback(async () => {
                         </span>
                       </td>
                       <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">
-                        {vacancyNames}
+                        {vacancyNames ?? (
+                          <div className="flex flex-col gap-1">
+                            {activeVacancyNames.length > 0 && (
+                              <span>{activeVacancyNames.join(', ')}</span>
+                            )}
+                            {archivedVacancyNames.length > 0 && (
+                              <span className="text-amber-600" title="These item numbers are from archived publication ranges">
+                                ⚠ Archived: {archivedVacancyNames.join(', ')}
+                              </span>
+                            )}
+                            {activeVacancyNames.length === 0 && archivedVacancyNames.length === 0 && (
+                              <span className="text-gray-400 italic">No vacancies linked</span>
+                            )}
+                          </div>
+                        )}
                       </td>
                       <td className="table-cell px-4 py-2">
                         <span
