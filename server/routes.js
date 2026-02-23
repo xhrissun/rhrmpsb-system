@@ -1946,6 +1946,8 @@ router.post('/publication-ranges', authMiddleware, async (req, res) => {
 });
 
 // /:id sub-routes BEFORE generic /:id GET
+// ─── REPLACE the archive route in routes.js ───────────────────────────────
+
 router.post('/publication-ranges/:id/archive', authMiddleware, async (req, res) => {
   if (req.user.userType !== 'admin') return res.status(403).json({ message: 'Access denied' });
 
@@ -1957,12 +1959,21 @@ router.post('/publication-ranges/:id/archive', authMiddleware, async (req, res) 
       return res.status(400).json({ message: 'Publication range is already archived' });
     }
 
+    // 1. Get item numbers BEFORE archiving
+    const activeVacancies = await Vacancy.find(
+      { publicationRangeId: publicationRange._id, isArchived: false },
+      'itemNumber'
+    );
+    const vacancyItemNumbers = activeVacancies.map(v => v.itemNumber);
+
+    // 2. Archive the publication range
     publicationRange.isArchived = true;
     publicationRange.isActive   = false;
     publicationRange.archivedAt = new Date();
     publicationRange.archivedBy = req.user._id;
     await publicationRange.save();
 
+    // 3. Archive all vacancies and candidates
     const vacancyUpdateResult = await Vacancy.updateMany(
       { publicationRangeId: publicationRange._id },
       { $set: { isArchived: true, archivedAt: new Date(), archivedBy: req.user._id } }
@@ -1973,16 +1984,117 @@ router.post('/publication-ranges/:id/archive', authMiddleware, async (req, res) 
       { $set: { isArchived: true, archivedAt: new Date(), archivedBy: req.user._id } }
     );
 
+    // 4. Suspend item numbers from users with 'specific' assignments
+    let usersUpdated = 0;
+    if (vacancyItemNumbers.length > 0) {
+      const usersWithSpecific = await User.find({
+        assignedVacancies: 'specific',
+        assignedItemNumbers: { $in: vacancyItemNumbers }
+      });
+
+      for (const user of usersWithSpecific) {
+        const toSuspend = user.assignedItemNumbers.filter(n => vacancyItemNumbers.includes(n));
+        const remaining = user.assignedItemNumbers.filter(n => !vacancyItemNumbers.includes(n));
+        const alreadySuspended = user.suspendedItemNumbers || [];
+
+        // Avoid duplicates in suspendedItemNumbers
+        const newSuspended = [...new Set([...alreadySuspended, ...toSuspend])];
+
+        await User.findByIdAndUpdate(user._id, {
+          assignedItemNumbers: remaining,
+          suspendedItemNumbers: newSuspended
+        });
+        usersUpdated++;
+      }
+    }
+
     res.json({
-      message           : 'Publication range archived successfully',
+      message            : 'Publication range archived successfully',
       publicationRange,
-      vacanciesArchived : vacancyUpdateResult.modifiedCount,
-      candidatesArchived: candidateUpdateResult.modifiedCount,
-      note              : 'Associated ratings preserved for historical record'
+      vacanciesArchived  : vacancyUpdateResult.modifiedCount,
+      candidatesArchived : candidateUpdateResult.modifiedCount,
+      assignmentsSuspended: usersUpdated,
+      note               : 'User vacancy assignments suspended; will restore on unarchive'
     });
 
   } catch (error) {
     console.error('Failed to archive publication range:', error);
+    res.status(500).json({ message: 'Server error: ' + error.message });
+  }
+});
+
+
+// ─── REPLACE the unarchive route in routes.js ─────────────────────────────
+
+router.post('/publication-ranges/:id/unarchive', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin') return res.status(403).json({ message: 'Access denied' });
+
+  try {
+    const publicationRange = await PublicationRange.findById(req.params.id);
+    if (!publicationRange) return res.status(404).json({ message: 'Publication range not found' });
+
+    if (!publicationRange.isArchived) {
+      return res.status(400).json({ message: 'Publication range is not archived' });
+    }
+
+    // 1. Get item numbers being unarchived
+    const archivedVacancies = await Vacancy.find(
+      { publicationRangeId: publicationRange._id },
+      'itemNumber'
+    );
+    const vacancyItemNumbers = archivedVacancies.map(v => v.itemNumber);
+
+    // 2. Unarchive the publication range
+    publicationRange.isArchived = false;
+    publicationRange.archivedAt = null;
+    publicationRange.archivedBy = null;
+    await publicationRange.save();
+
+    // 3. Unarchive all vacancies and candidates
+    const vacancyUpdateResult = await Vacancy.updateMany(
+      { publicationRangeId: publicationRange._id },
+      { $set: { isArchived: false, archivedAt: null, archivedBy: null } }
+    );
+
+    const candidateUpdateResult = await Candidate.updateMany(
+      { publicationRangeId: publicationRange._id },
+      { $set: { isArchived: false, archivedAt: null, archivedBy: null } }
+    );
+
+    // 4. Restore suspended item numbers back to assignedItemNumbers
+    let usersRestored = 0;
+    if (vacancyItemNumbers.length > 0) {
+      const usersWithSuspended = await User.find({
+        suspendedItemNumbers: { $in: vacancyItemNumbers }
+      });
+
+      for (const user of usersWithSuspended) {
+        const toRestore       = (user.suspendedItemNumbers || []).filter(n => vacancyItemNumbers.includes(n));
+        const remainingSusp   = (user.suspendedItemNumbers || []).filter(n => !vacancyItemNumbers.includes(n));
+        const currentAssigned = user.assignedItemNumbers || [];
+
+        // Avoid duplicates in assignedItemNumbers
+        const newAssigned = [...new Set([...currentAssigned, ...toRestore])];
+
+        await User.findByIdAndUpdate(user._id, {
+          assignedItemNumbers  : newAssigned,
+          suspendedItemNumbers : remainingSusp
+        });
+        usersRestored++;
+      }
+    }
+
+    res.json({
+      message              : 'Publication range unarchived successfully',
+      publicationRange,
+      vacanciesUnarchived  : vacancyUpdateResult.modifiedCount,
+      candidatesUnarchived : candidateUpdateResult.modifiedCount,
+      assignmentsRestored  : usersRestored,
+      note                 : 'User vacancy assignments restored'
+    });
+
+  } catch (error) {
+    console.error('Failed to unarchive publication range:', error);
     res.status(500).json({ message: 'Server error: ' + error.message });
   }
 });
