@@ -166,6 +166,18 @@ const AdminView = ({ user }) => {
   const [showAssignmentDetailsModal, setShowAssignmentDetailsModal] = useState(false);
   const [selectedUserForDetails, setSelectedUserForDetails] = useState(null);
 
+  // ─── CSV Upload UX State ───────────────────────────────────────────────────
+  const [csvUploading, setCsvUploading] = useState({
+    vacancies: false,
+    candidates: false,
+    competencies: false,
+  });
+  const [uploadResults, setUploadResults] = useState({
+    vacancies: null,
+    candidates: null,
+    competencies: null,
+  });
+
   // ─── Toast Context ─────────────────────────────────────────────────────────
   const { showToast } = useToast();
 
@@ -186,6 +198,19 @@ const AdminView = ({ user }) => {
     competencies: null,
     publicationRanges: null
   });
+
+  // ─── CSV Upload UX Helpers ─────────────────────────────────────────────────
+  const setUploading = useCallback((type, val) => {
+    setCsvUploading(prev => ({ ...prev, [type]: val }));
+  }, []);
+
+  const setUploadResult = useCallback((type, result) => {
+    setUploadResults(prev => ({ ...prev, [type]: result }));
+  }, []);
+
+  const dismissUploadResult = useCallback((type) => {
+    setUploadResults(prev => ({ ...prev, [type]: null }));
+  }, []);
 
   // ─── Utility Functions ─────────────────────────────────────────────────────
   
@@ -639,32 +664,39 @@ const loadDataForCurrentTab = useCallback(async () => {
         return;
       }
 
+      setUploading(type, true);
+      setUploadResult(type, null);
+
       const formData = new FormData();
       formData.append('csv', file);
 
+      let response;
       switch (type) {
         case 'vacancies':
-          await vacanciesAPI.uploadCSV(formData, selectedPublicationRange);
+          response = await vacanciesAPI.uploadCSV(formData, selectedPublicationRange);
           break;
         case 'candidates':
-          await candidatesAPI.uploadCSVWithPublication(formData, selectedPublicationRange);
+          response = await candidatesAPI.uploadCSVWithPublication(formData, selectedPublicationRange);
           break;
         case 'competencies':
-          await competenciesAPI.uploadCSV(formData);
+          response = await competenciesAPI.uploadCSV(formData);
           break;
       }
 
       await loadDataForCurrentTab();
       showToast('CSV uploaded successfully!', 'success');
+      setUploadResult(type, { type: 'success', message: response?.message || 'Upload successful' });
     } catch (error) {
       console.error('Failed to upload CSV:', error);
-      if (error.response?.data?.invalidItemNumbers) {
-        showToast(`Import failed: Invalid item numbers: ${error.response.data.invalidItemNumbers.join(', ')}`, 'error');
-      } else {
-        showToast(error.response?.data?.message || 'Failed to upload CSV. Please check the format and try again.', 'error');
-      }
+      const msg = error.response?.data?.invalidItemNumbers
+        ? `Import failed: Invalid item numbers: ${error.response.data.invalidItemNumbers.join(', ')}`
+        : error.response?.data?.message || 'Failed to upload CSV. Please check the format and try again.';
+      showToast(msg, 'error');
+      setUploadResult(type, { type: 'error', message: msg });
+    } finally {
+      setUploading(type, false);
     }
-  }, [selectedPublicationRange, loadDataForCurrentTab, showToast]);
+  }, [selectedPublicationRange, loadDataForCurrentTab, showToast, setUploading, setUploadResult]);
 
   const handleUndoImport = useCallback(async (publicationRangeId) => {
     if (!publicationRangeId) {
@@ -1096,6 +1128,8 @@ const loadDataForCurrentTab = useCallback(async () => {
   const renderVacancies = useCallback(() => {
     const filteredVacancies = filterAndSortData(vacancies, ['itemNumber', 'position', 'assignment', 'salaryGrade']);
     const activePublicationRanges = publicationRanges.filter(pr => pr.isActive && !pr.isArchived);
+    const isUploading = csvUploading.vacancies;
+    const uploadResult = uploadResults.vacancies;
 
     return (
       <div className="space-y-4">
@@ -1137,25 +1171,42 @@ const loadDataForCurrentTab = useCallback(async () => {
             <input
               type="file"
               accept=".csv"
-              onChange={(e) => e.target.files[0] && handleCSVUpload(e.target.files[0], 'vacancies')}
+              onChange={(e) => {
+                if (e.target.files[0]) {
+                  handleCSVUpload(e.target.files[0], 'vacancies');
+                  e.target.value = '';
+                }
+              }}
               className="hidden"
               id="vacancy-csv-upload"
+              disabled={isUploading}
             />
             <label
               htmlFor="vacancy-csv-upload"
-              className={`btn-secondary px-3 py-1 rounded text-xs cursor-pointer ${
-                !selectedPublicationRange 
-                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
-                  : 'bg-gray-200 hover:bg-gray-300'
+              className={`btn-secondary px-3 py-1 rounded text-xs flex items-center gap-1 ${
+                isUploading
+                  ? 'bg-blue-100 text-blue-600 cursor-wait'
+                  : !selectedPublicationRange
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  : 'bg-gray-200 hover:bg-gray-300 cursor-pointer'
               }`}
               onClick={(e) => {
+                if (isUploading) { e.preventDefault(); return; }
                 if (!selectedPublicationRange) {
                   e.preventDefault();
                   showToast('Please select a publication range first', 'error');
                 }
               }}
             >
-              Upload CSV
+              {isUploading ? (
+                <>
+                  <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                  </svg>
+                  Uploading…
+                </>
+              ) : 'Upload CSV'}
             </label>
             <button 
               onClick={() => handleAdd('vacancy')} 
@@ -1165,6 +1216,19 @@ const loadDataForCurrentTab = useCallback(async () => {
             </button>
           </div>
         </div>
+
+        {/* Upload result banner */}
+        {uploadResult && (
+          <div className={`flex items-center justify-between px-3 py-2 rounded text-xs border ${
+            uploadResult.type === 'success'
+              ? 'bg-green-50 border-green-200 text-green-800'
+              : 'bg-red-50 border-red-200 text-red-800'
+          }`}>
+            <span>{uploadResult.type === 'success' ? '✅' : '❌'} {uploadResult.message}</span>
+            <button onClick={() => dismissUploadResult('vacancies')} className="ml-4 text-gray-400 hover:text-gray-600">✕</button>
+          </div>
+        )}
+
         <div className="card bg-white rounded-lg shadow overflow-hidden">
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200 text-sm" role="table">
@@ -1295,11 +1359,16 @@ const loadDataForCurrentTab = useCallback(async () => {
     setSelectedPublicationRange,
     showToast,
     repostedItemNumbers,
+    csvUploading.vacancies,
+    uploadResults.vacancies,
+    dismissUploadResult,
   ]);
 
   const renderCandidates = useCallback(() => {
     const filteredCandidates = filterAndSortData(candidates, ['fullName', 'itemNumber', 'gender', 'age', 'status']);
     const activePublicationRanges = publicationRanges.filter(pr => pr.isActive && !pr.isArchived);
+    const isUploading = csvUploading.candidates;
+    const uploadResult = uploadResults.candidates;
 
     return (
       <div className="space-y-4">
@@ -1332,25 +1401,42 @@ const loadDataForCurrentTab = useCallback(async () => {
             <input
               type="file"
               accept=".csv"
-              onChange={(e) => e.target.files[0] && handleCSVUpload(e.target.files[0], 'candidates')}
+              onChange={(e) => {
+                if (e.target.files[0]) {
+                  handleCSVUpload(e.target.files[0], 'candidates');
+                  e.target.value = '';
+                }
+              }}
               className="hidden"
               id="candidate-csv-upload"
+              disabled={isUploading}
             />
             <label
               htmlFor="candidate-csv-upload"
-              className={`btn-secondary px-3 py-1 rounded text-xs cursor-pointer ${
-                !selectedPublicationRange 
-                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
-                  : 'bg-gray-200 hover:bg-gray-300'
+              className={`btn-secondary px-3 py-1 rounded text-xs flex items-center gap-1 ${
+                isUploading
+                  ? 'bg-blue-100 text-blue-600 cursor-wait'
+                  : !selectedPublicationRange
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  : 'bg-gray-200 hover:bg-gray-300 cursor-pointer'
               }`}
               onClick={(e) => {
+                if (isUploading) { e.preventDefault(); return; }
                 if (!selectedPublicationRange) {
                   e.preventDefault();
                   showToast('Please select a publication range first', 'error');
                 }
               }}
             >
-              Upload CSV
+              {isUploading ? (
+                <>
+                  <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                  </svg>
+                  Uploading…
+                </>
+              ) : 'Upload CSV'}
             </label>
             {selectedPublicationRange && (
               <button
@@ -1368,6 +1454,19 @@ const loadDataForCurrentTab = useCallback(async () => {
             </button>
           </div>
         </div>
+
+        {/* Upload result banner */}
+        {uploadResult && (
+          <div className={`flex items-center justify-between px-3 py-2 rounded text-xs border ${
+            uploadResult.type === 'success'
+              ? 'bg-green-50 border-green-200 text-green-800'
+              : 'bg-red-50 border-red-200 text-red-800'
+          }`}>
+            <span>{uploadResult.type === 'success' ? '✅' : '❌'} {uploadResult.message}</span>
+            <button onClick={() => dismissUploadResult('candidates')} className="ml-4 text-gray-400 hover:text-gray-600">✕</button>
+          </div>
+        )}
+
         <div className="card bg-white rounded-lg shadow overflow-hidden">
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200 text-sm" role="table">
@@ -1502,11 +1601,17 @@ const loadDataForCurrentTab = useCallback(async () => {
     getStatusColor,
     getStatusLabel,
     setSelectedPublicationRange,
-    showToast
+    showToast,
+    csvUploading.candidates,
+    uploadResults.candidates,
+    dismissUploadResult,
   ]);
 
-  const handleCompetencyUpload = async (file) => {
+  const handleCompetencyUpload = useCallback(async (file) => {
     try {
+      setUploading('competencies', true);
+      setUploadResult('competencies', null);
+
       const formData = new FormData();
       formData.append('csv', file);
 
@@ -1531,6 +1636,7 @@ const loadDataForCurrentTab = useCallback(async () => {
         'success'
       );
 
+      setUploadResult('competencies', { type: 'success', message: result.message, results: result.results });
       await loadDataForCurrentTab();
     } catch (error) {
       console.error('Competency CSV upload error:', error);
@@ -1539,10 +1645,13 @@ const loadDataForCurrentTab = useCallback(async () => {
         error.response?.data?.message ||
         'Failed to upload CSV. Please check the format and try again.';
       showToast(serverMessage, 'error');
+      setUploadResult('competencies', { type: 'error', message: serverMessage });
+    } finally {
+      setUploading('competencies', false);
     }
-  };
+  }, [loadDataForCurrentTab, showToast, setUploading, setUploadResult]);
 
-  const handleUndoCompetencyUpload = async () => {
+  const handleUndoCompetencyUpload = useCallback(async () => {
     if (!lastCompetencyUpload) {
       showToast('No upload to undo', 'error');
       return;
@@ -1561,6 +1670,7 @@ const loadDataForCurrentTab = useCallback(async () => {
       const result = await competenciesAPI.undoUpload(lastCompetencyUpload.uploadId);
       showToast(result.message, 'success');
       setLastCompetencyUpload(null);
+      setUploadResult('competencies', null);
       await loadDataForCurrentTab();
     } catch (error) {
       console.error('Undo upload error:', error);
@@ -1569,10 +1679,12 @@ const loadDataForCurrentTab = useCallback(async () => {
         'error'
       );
     }
-  };
+  }, [lastCompetencyUpload, loadDataForCurrentTab, showToast, setUploadResult]);
 
   const renderCompetencies = useCallback(() => {
     const filteredCompetencies = filterAndSortData(competencies, ['name', 'type']);
+    const isUploading = csvUploading.competencies;
+    const uploadResult = uploadResults.competencies;
 
     return (
       <div className="space-y-4">
@@ -1606,12 +1718,26 @@ const loadDataForCurrentTab = useCallback(async () => {
               }}
               className="hidden"
               id="competency-csv-upload"
+              disabled={isUploading}
             />
             <label
               htmlFor="competency-csv-upload"
-              className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300 cursor-pointer"
+              className={`btn-secondary px-3 py-1 rounded text-xs flex items-center gap-1 ${
+                isUploading
+                  ? 'bg-blue-100 text-blue-600 cursor-wait'
+                  : 'bg-gray-200 hover:bg-gray-300 cursor-pointer'
+              }`}
+              onClick={(e) => { if (isUploading) e.preventDefault(); }}
             >
-              Upload CSV
+              {isUploading ? (
+                <>
+                  <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                  </svg>
+                  Uploading…
+                </>
+              ) : 'Upload CSV'}
             </label>
 
             {/* Undo button — only visible if a recent upload exists */}
@@ -1634,34 +1760,44 @@ const loadDataForCurrentTab = useCallback(async () => {
           </div>
         </div>
 
-        {/* ── Upload result summary banner ── */}
-        {lastCompetencyUpload && (
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs">
-            <div className="font-semibold text-blue-800 mb-1">
-              Last upload result — <span className="font-normal">{lastCompetencyUpload.message}</span>
+        {/* ── Upload result banner ── */}
+        {uploadResult && (
+          <div className={`flex items-center justify-between px-3 py-2 rounded text-xs border ${
+            uploadResult.type === 'success'
+              ? 'bg-blue-50 border-blue-200 text-blue-800'
+              : 'bg-red-50 border-red-200 text-red-800'
+          }`}>
+            <div className="flex flex-col gap-1 flex-1">
+              <div className="font-semibold">
+                {uploadResult.type === 'success' ? 'Last upload result — ' : '❌ '}
+                <span className="font-normal">{uploadResult.message}</span>
+              </div>
+              {uploadResult.type === 'success' && uploadResult.results && (
+                <div className="flex flex-wrap gap-4 text-blue-700">
+                  {uploadResult.results.created.length > 0 && (
+                    <span>
+                      ✅ <strong>Created ({uploadResult.results.created.length}):</strong>{' '}
+                      {uploadResult.results.created.map((c) => c.name).join(', ')}
+                    </span>
+                  )}
+                  {uploadResult.results.merged.length > 0 && (
+                    <span>
+                      🔀 <strong>Merged ({uploadResult.results.merged.length}):</strong>{' '}
+                      {uploadResult.results.merged
+                        .map((m) => `"${m.uploadedName}" → "${m.existingName}" (${m.similarity}% match, +${m.addedItemCount} vacancy link${m.addedItemCount !== 1 ? 's' : ''})`)
+                        .join(' | ')}
+                    </span>
+                  )}
+                  {uploadResult.results.skipped.length > 0 && (
+                    <span>
+                      ⏭ <strong>Skipped ({uploadResult.results.skipped.length}):</strong>{' '}
+                      {uploadResult.results.skipped.map((s) => s.name).join(', ')}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
-            <div className="flex flex-wrap gap-4 text-blue-700">
-              {lastCompetencyUpload.results.created.length > 0 && (
-                <span>
-                  ✅ <strong>Created ({lastCompetencyUpload.results.created.length}):</strong>{' '}
-                  {lastCompetencyUpload.results.created.map((c) => c.name).join(', ')}
-                </span>
-              )}
-              {lastCompetencyUpload.results.merged.length > 0 && (
-                <span>
-                  🔀 <strong>Merged ({lastCompetencyUpload.results.merged.length}):</strong>{' '}
-                  {lastCompetencyUpload.results.merged
-                    .map((m) => `"${m.uploadedName}" → "${m.existingName}" (${m.similarity}% match, +${m.addedItemCount} vacancy link${m.addedItemCount !== 1 ? 's' : ''})`)
-                    .join(' | ')}
-                </span>
-              )}
-              {lastCompetencyUpload.results.skipped.length > 0 && (
-                <span>
-                  ⏭ <strong>Skipped ({lastCompetencyUpload.results.skipped.length}):</strong>{' '}
-                  {lastCompetencyUpload.results.skipped.map((s) => s.name).join(', ')}
-                </span>
-              )}
-            </div>
+            <button onClick={() => dismissUploadResult('competencies')} className="ml-4 text-gray-400 hover:text-gray-600 flex-shrink-0">✕</button>
           </div>
         )}
 
@@ -1793,6 +1929,9 @@ const loadDataForCurrentTab = useCallback(async () => {
     handleEdit,
     handleDelete,
     lastCompetencyUpload,
+    csvUploading.competencies,
+    uploadResults.competencies,
+    dismissUploadResult,
   ]);
 
   const renderVacancyAssignments = useCallback(() => {
