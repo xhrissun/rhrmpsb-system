@@ -1919,13 +1919,13 @@ const loadDataForCurrentTab = useCallback(async () => {
                           <span className="text-gray-500 italic">All Vacancies</span>
                         ) : (
                           <button
-                            onClick={() => {
-                              const active = vacancyIds
-                                .map(id => vacancies.find(v => v._id === id))
-                                .filter(v => v && !v.isArchived);
-                              const archived = vacancyIds
-                                .map(id => vacancies.find(v => v._id === id))
-                                .filter(v => v && v.isArchived);
+                            onClick={async () => {
+                              const allVacancies = await vacanciesAPI.getAll();
+                              const linked = vacancyIds
+                                .map(id => allVacancies.find(v => v._id === id || v._id?.toString() === id?.toString()))
+                                .filter(Boolean);
+                              const active = linked.filter(v => !v.isArchived);
+                              const archived = linked.filter(v => v.isArchived);
                               setCompetencyVacancyModal({ competency, active, archived });
                             }}
                             className="text-blue-600 hover:underline text-left"
