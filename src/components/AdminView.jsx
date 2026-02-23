@@ -168,6 +168,7 @@ const AdminView = ({ user }) => {
   const [uploadFileName, setUploadFileName] = useState('');
   const [uploadingType, setUploadingType] = useState('');
   const [lastVacancyUpload, setLastVacancyUpload] = useState(null);
+  const [competencyVacancyModal, setCompetencyVacancyModal] = useState(null);
 
   // ─── CSV Upload UX State ───────────────────────────────────────────────────
   const [csvUploading, setCsvUploading] = useState({
@@ -1913,21 +1914,27 @@ const loadDataForCurrentTab = useCallback(async () => {
                           {competency.type}
                         </span>
                       </td>
-                      <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">
-                        {vacancyNames ?? (
-                          <div className="flex flex-col gap-1">
-                            {activeVacancyNames.length > 0 && (
-                              <span>{activeVacancyNames.join(', ')}</span>
+                        <td className="table-cell px-4 py-2 text-xs">
+                        {vacancyIds.length === 0 ? (
+                          <span className="text-gray-500 italic">All Vacancies</span>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              const active = vacancyIds
+                                .map(id => vacancies.find(v => v._id === id))
+                                .filter(v => v && !v.isArchived);
+                              const archived = vacancyIds
+                                .map(id => vacancies.find(v => v._id === id))
+                                .filter(v => v && v.isArchived);
+                              setCompetencyVacancyModal({ competency, active, archived });
+                            }}
+                            className="text-blue-600 hover:underline text-left"
+                          >
+                            {vacancyIds.length} linked
+                            {vacancyIds.some(id => vacancies.find(v => v._id === id && v.isArchived)) && (
+                              <span className="ml-1 text-amber-500">⚠</span>
                             )}
-                            {archivedVacancyNames.length > 0 && (
-                              <span className="text-amber-600" title="These item numbers are from archived publication ranges">
-                                ⚠ Archived: {archivedVacancyNames.join(', ')}
-                              </span>
-                            )}
-                            {activeVacancyNames.length === 0 && archivedVacancyNames.length === 0 && (
-                              <span className="text-gray-400 italic">No vacancies linked</span>
-                            )}
-                          </div>
+                          </button>
                         )}
                       </td>
                       <td className="table-cell px-4 py-2">
@@ -1990,6 +1997,7 @@ const loadDataForCurrentTab = useCallback(async () => {
     csvUploading.competencies,
     uploadResults.competencies,
     dismissUploadResult,
+    competencyVacancyModal,
   ]);
 
   const renderVacancyAssignments = useCallback(() => {
@@ -2383,6 +2391,11 @@ const loadDataForCurrentTab = useCallback(async () => {
           isOpen={!!uploadingType}
           type={uploadingType}
           fileName={uploadFileName}
+        />
+        
+        <CompetencyVacancyModal
+          data={competencyVacancyModal}
+          onClose={() => setCompetencyVacancyModal(null)}
         />
 
         {/* Password Confirmation Modal */}
@@ -3694,6 +3707,64 @@ const CsvUploadProgressModal = ({ isOpen, type, fileName }) => {
             100% { transform: translateX(400%); }
           }
         `}</style>
+      </div>
+    </div>
+  );
+};
+
+const CompetencyVacancyModal = ({ data, onClose }) => {
+  if (!data) return null;
+  const { competency, active, archived } = data;
+
+  return (
+    <div className="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="modal-content bg-white rounded-lg shadow-xl max-w-lg w-full mx-4 p-6 overflow-y-auto max-h-[90vh]">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-base font-bold text-gray-900">Linked Vacancies</h2>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700">✕</button>
+        </div>
+        <p className="text-xs text-gray-500 mb-4 italic">{competency.name}</p>
+
+        {active.length > 0 && (
+          <div className="mb-4">
+            <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">
+              ✅ Active ({active.length})
+            </h3>
+            <div className="space-y-1">
+              {active.map(v => (
+                <div key={v._id} className="flex items-center gap-2 px-2 py-1 bg-gray-50 rounded text-xs">
+                  <span className="font-mono font-medium">{v.itemNumber}</span>
+                  <span className="text-gray-500">— {v.position}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {archived.length > 0 && (
+          <div>
+            <h3 className="text-xs font-semibold text-amber-700 uppercase tracking-wider mb-2">
+              ⚠ Archived ({archived.length})
+            </h3>
+            <p className="text-xs text-amber-600 mb-2">
+              These item numbers belong to archived publication ranges and are no longer active.
+            </p>
+            <div className="space-y-1">
+              {archived.map(v => (
+                <div key={v._id} className="flex items-center gap-2 px-2 py-1 bg-amber-50 border border-amber-200 rounded text-xs">
+                  <span className="font-mono font-medium text-amber-800">{v.itemNumber}</span>
+                  <span className="text-amber-600">— {v.position}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="flex justify-end mt-6">
+          <button onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm">
+            Close
+          </button>
+        </div>
       </div>
     </div>
   );
