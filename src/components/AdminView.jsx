@@ -162,8 +162,7 @@ const AdminView = ({ user }) => {
   const [pendingAction, setPendingAction] = useState(null);
   const [showArchivedRanges, setShowArchivedRanges] = useState(false);
   const [lastCompetencyUpload, setLastCompetencyUpload] = useState(null);
-  const [showAssignmentDetailsModal, setShowAssignmentDetailsModal] = useState(false);
-  const [selectedUserForDetails, setSelectedUserForDetails] = useState(null);
+  const [repostedItemNumbers, setRepostedItemNumbers] = useState(new Set());
 
   // ─── Toast Context ─────────────────────────────────────────────────────────
   const { showToast } = useToast();
@@ -339,17 +338,16 @@ const AdminView = ({ user }) => {
 }, []);
 
 const loadVacancies = useCallback(async (forceRefresh = false) => {
-  // Check cache key
   const cacheKey = `${selectedPublicationRange}_${showArchivedRanges}`;
   if (dataCacheRef.current.vacancies?.cacheKey === cacheKey && !forceRefresh) {
     setVacancies(dataCacheRef.current.vacancies.data);
     setAssignments(dataCacheRef.current.vacancies.assignments);
+    setRepostedItemNumbers(dataCacheRef.current.vacancies.repostedItemNumbers);
     return;
   }
-  
+
   try {
     let vacanciesRes;
-    
     if (selectedPublicationRange) {
       const selectedRange = publicationRanges.find(r => r._id === selectedPublicationRange);
       const includeArchived = selectedRange?.isArchived || false;
@@ -358,19 +356,34 @@ const loadVacancies = useCallback(async (forceRefresh = false) => {
       vacanciesRes = await vacanciesAPI.getAll();
       vacanciesRes = vacanciesRes.filter(v => !v.isArchived || showArchivedRanges);
     }
-    
+
     setVacancies(vacanciesRes);
 
     const uniqueAssignments = [...new Set(
       vacanciesRes.map(v => v.assignment).filter(a => a && a.trim() !== '')
     )].sort();
     setAssignments(uniqueAssignments);
-    
-    // Cache the result
+
+    // ── Repost detection ──────────────────────────────────────────────────
+    // Fetch ALL vacancies (active + archived) to find item numbers that
+    // appear in both — those active ones have been reposted.
+    const allVacancies = await vacanciesAPI.getAll();
+    const archivedItemNumbers = new Set(
+      allVacancies.filter(v => v.isArchived).map(v => v.itemNumber)
+    );
+    const activeItemNumbers = new Set(
+      allVacancies.filter(v => !v.isArchived).map(v => v.itemNumber)
+    );
+    const reposted = new Set(
+      [...activeItemNumbers].filter(n => archivedItemNumbers.has(n))
+    );
+    setRepostedItemNumbers(reposted);
+
     dataCacheRef.current.vacancies = {
       cacheKey,
       data: vacanciesRes,
-      assignments: uniqueAssignments
+      assignments: uniqueAssignments,
+      repostedItemNumbers: reposted
     };
   } catch (error) {
     console.error('Failed to load vacancies:', error);
@@ -1200,15 +1213,25 @@ const loadDataForCurrentTab = useCallback(async () => {
                 {filteredVacancies.map(vacancy => (
                   <tr key={vacancy._id} className={vacancy.isArchived ? 'bg-gray-50 opacity-60' : ''}>
                     <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">
-                      <button
-                        onClick={() => handleItemNumberClick(vacancy.itemNumber)}
-                        className="text-blue-600 hover:text-blue-800 hover:underline"
-                      >
-                        {vacancy.itemNumber}
-                      </button>
-                      {vacancy.isArchived && (
-                        <span className="ml-2 text-xs text-gray-500">(Archived)</span>
-                      )}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                          onClick={() => handleItemNumberClick(vacancy.itemNumber)}
+                          className="text-blue-600 hover:text-blue-800 hover:underline"
+                        >
+                          {vacancy.itemNumber}
+                        </button>
+                        {vacancy.isArchived && (
+                          <span className="text-xs text-gray-500">(Archived)</span>
+                        )}
+                        {!vacancy.isArchived && repostedItemNumbers.has(vacancy.itemNumber) && (
+                          <span
+                            className="px-1.5 py-0.5 bg-amber-100 text-amber-700 border border-amber-300 rounded text-xs font-medium"
+                            title="This item number also exists in an archived publication range — it has been reposted."
+                          >
+                            ♻ Reposted
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">
                       {vacancy.position}
@@ -1268,7 +1291,8 @@ const loadDataForCurrentTab = useCallback(async () => {
     handleDelete, 
     handleItemNumberClick,
     setSelectedPublicationRange,
-    showToast
+    showToast,
+    repostedItemNumbers,
   ]);
 
   const renderCandidates = useCallback(() => {
