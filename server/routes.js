@@ -378,6 +378,32 @@ router.get('/vacancies/by-publication/:publicationRangeId', authMiddleware, asyn
   }
 });
 
+router.post('/vacancies/undo-import/:publicationRangeId', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin') return res.status(403).json({ message: 'Access denied' });
+
+  try {
+    const { minutesAgo = 5 } = req.body;
+    const cutoffTime = new Date(Date.now() - minutesAgo * 60 * 1000);
+
+    // Deletes vacancies that were freshly created (not unarchived) in this window.
+    // Unarchived vacancies have an older createdAt so they won't be touched.
+    const result = await Vacancy.deleteMany({
+      publicationRangeId: req.params.publicationRangeId,
+      createdAt: { $gte: cutoffTime },
+      isArchived: false,
+    });
+
+    res.json({
+      message     : `Undo successful: Deleted ${result.deletedCount} recently imported vacancies`,
+      deletedCount: result.deletedCount,
+      cutoffTime,
+    });
+  } catch (error) {
+    console.error('Undo vacancy import error:', error);
+    res.status(500).json({ message: 'Server error: ' + error.message });
+  }
+});
+
 router.post('/vacancies/upload-csv/:publicationRangeId', authMiddleware, async (req, res) => {
   if (req.user.userType !== 'admin') return res.status(403).json({ message: 'Access denied' });
 
@@ -1302,8 +1328,20 @@ router.post('/competencies/upload-csv', authMiddleware, async (req, res) => {
       let bestMatch = null;
       let bestScore = 0;
 
+      // Extract level prefix e.g. (BAS), (INT), (ADV)
+      const extractLevel = (name) => {
+        const m = name.match(/^\((BAS|INT|ADV|SUP)\)/i);
+        return m ? m[1].toUpperCase() : null;
+      };
+      const uploadedLevel = extractLevel(row.name);
+
       for (const existing of existingCompetencies) {
         if (existing.type !== rowType) continue;
+
+        // Never merge competencies with different level prefixes
+        const existingLevel = extractLevel(existing.name);
+        if (uploadedLevel && existingLevel && uploadedLevel !== existingLevel) continue;
+
         const score = stringSimilarity(row.name, existing.name);
         if (score >= SIMILARITY_THRESHOLD && score > bestScore) {
           bestScore = score;
