@@ -108,6 +108,10 @@ const userSchema = new mongoose.Schema({
   assignedItemNumbers: [{
     type: String,
     trim: true
+  }],
+  suspendedItemNumbers: [{
+    type: String,
+    trim: true
   }]
 }, {
   timestamps: true
