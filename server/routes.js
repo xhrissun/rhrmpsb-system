@@ -1,53 +1,104 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import mongoose from 'mongoose';
 import { parse } from 'csv-parse/sync';
 import { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange } from './models.js';
 
 const router = express.Router();
 
-// Authentication middleware
+// ─── Authentication middleware (unchanged) ────────────────────────────────────
 const authMiddleware = async (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
-  if (!token) {
-    return res.status(401).json({ message: 'No token provided' });
-  }
-
+  if (!token) return res.status(401).json({ message: 'No token provided' });
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = await User.findById(decoded.id).select('-password');
-    if (!req.user) {
-      return res.status(401).json({ message: 'Invalid token' });
-    }
+    if (!req.user) return res.status(401).json({ message: 'Invalid token' });
     next();
-  } catch (error) {
+  } catch {
     res.status(401).json({ message: 'Invalid token' });
   }
 };
 
-// Parse CSV data from buffer - Handle empty values properly
+// ─── CSV parser (unchanged) ───────────────────────────────────────────────────
 const parseCSV = (buffer) => {
   try {
-    let csvString = buffer.toString('utf8')
-      .replace(/\r\n/g, '\n')     // normalize line endings
-      .replace(/\uFEFF/g, '')     // remove BOM if present
-      .trim();                    // remove trailing blank lines
+    const csvString = buffer
+      .toString('utf8')
+      .replace(/\r\n/g, '\n')
+      .replace(/\uFEFF/g, '')
+      .trim();
 
-    const results = parse(csvString, {
+    return parse(csvString, {
       columns: true,
       skip_empty_lines: true,
       trim: true,
       relax_column_count: true,
       bom: true,
-      cast: (value, context) => {
-        if (typeof value === 'string') return value.trim();
-        return value;
-      }
+      cast: (value) => (typeof value === 'string' ? value.trim() : value),
     });
-
-    return results;
   } catch (error) {
     throw new Error('Failed to parse CSV: ' + error.message);
+  }
+};
+
+// ─── NEW: Fuzzy-match helpers ─────────────────────────────────────────────────
+
+/**
+ * Strips noise from a competency name so cosmetic differences
+ * (extra spaces, punctuation, capitalisation) don't fool the matcher.
+ */
+const normalizeCompetencyName = (name) =>
+  name
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, ' ')            // collapse whitespace
+    .replace(/[^A-Z0-9\s()\/]/g, '') // keep only letters, digits, parens, slash
+    .trim();
+
+/**
+ * Returns a 0–1 similarity score between two strings using
+ * Levenshtein distance on their normalised forms.
+ * 1.0 = identical after normalisation.
+ */
+const stringSimilarity = (a, b) => {
+  const na = normalizeCompetencyName(a);
+  const nb = normalizeCompetencyName(b);
+  if (na === nb) return 1.0;
+
+  const longer  = na.length >= nb.length ? na : nb;
+  const shorter = na.length >= nb.length ? nb : na;
+  if (longer.length === 0) return 1.0;
+
+  // Build Levenshtein matrix
+  const m = Array.from({ length: shorter.length + 1 }, (_, i) =>
+    Array.from({ length: longer.length + 1 }, (__, j) => (i === 0 ? j : j === 0 ? i : 0))
+  );
+
+  for (let i = 1; i <= shorter.length; i++) {
+    for (let j = 1; j <= longer.length; j++) {
+      m[i][j] =
+        shorter[i - 1] === longer[j - 1]
+          ? m[i - 1][j - 1]
+          : 1 + Math.min(m[i - 1][j - 1], m[i][j - 1], m[i - 1][j]);
+    }
+  }
+
+  return (longer.length - m[shorter.length][longer.length]) / longer.length;
+};
+
+/** 85 % similarity → treated as the same competency */
+const SIMILARITY_THRESHOLD = 0.85;
+
+// ─── In-memory upload log store ───────────────────────────────────────────────
+// Keyed by uploadId; auto-expires after 1 hour.
+const _uploadLogs = {};
+
+const pruneOldLogs = () => {
+  const cutoff = Date.now() - 60 * 60 * 1000;
+  for (const key of Object.keys(_uploadLogs)) {
+    if (_uploadLogs[key].uploadedAt.getTime() < cutoff) delete _uploadLogs[key];
   }
 };
 
@@ -290,22 +341,6 @@ router.post('/vacancies/upload-csv/:publicationRangeId', authMiddleware, async (
   try {
     if (!req.files || !req.files.csv) {
       return res.status(400).json({ message: 'No file uploaded' });
-    }
-
-    // NEW: Check for duplicate item numbers within this publication range
-    const existingItemNumbers = await Vacancy.find({
-      publicationRangeId: publicationRange._id,
-      isArchived: false
-    }).distinct('itemNumber');
-    
-    const existingSet = new Set(existingItemNumbers);
-    const duplicates = processedVacancies.filter(v => existingSet.has(v.itemNumber));
-    
-    if (duplicates.length > 0) {
-      return res.status(400).json({
-        message: 'Duplicate item numbers found in this publication range',
-        duplicates: duplicates.map(d => d.itemNumber)
-      });
     }
     
     // Verify publication range exists
@@ -955,122 +990,276 @@ router.delete('/competencies/:id', authMiddleware, async (req, res) => {
 
 // Updated competencies upload route with support for multiple vacancies
 router.post('/competencies/upload-csv', authMiddleware, async (req, res) => {
-  if (req.user.userType !== 'admin') {
+  if (req.user.userType !== 'admin')
     return res.status(403).json({ message: 'Access denied' });
-  }
 
   try {
-    if (!req.files || !req.files.csv) {
+    if (!req.files?.csv)
       return res.status(400).json({ message: 'No file uploaded' });
-    }
 
-    const competenciesData = parseCSV(req.files.csv.data);
-    const processedCompetencies = [];
+    const rows   = parseCSV(req.files.csv.data);
     const errors = [];
 
-    for (const competency of competenciesData) {
-      // 🔍 Validate required fields
-      if (!competency.name || !competency.type) {
-        errors.push(`Missing required fields (name, type) for: ${JSON.stringify(competency)}`);
+    // Load every existing competency for fuzzy matching.
+    // Archive status is IRRELEVANT here — we match by name+type only.
+    const existingCompetencies = await Competency.find({});
+
+    const uploadLog = {
+      uploadedAt  : new Date(),
+      uploadedBy  : req.user._id,
+      createdIds  : [],  // _id strings of brand-new competencies
+      updatedChanges: [] // { competencyId, previousVacancyIds, previousVacancyId, addedVacancyIds }
+    };
+
+    const results = { created: [], merged: [], skipped: [] };
+
+    for (const row of rows) {
+      // ── Basic validation ──────────────────────────────────────────────────
+      if (!row.name || !row.type) {
+        errors.push(`Missing name/type: ${JSON.stringify(row)}`);
         continue;
       }
 
-      // 🔍 Validate type
+      const rowType = row.type.trim().toLowerCase();
       const validTypes = ['basic', 'organizational', 'leadership', 'minimum'];
-      if (!validTypes.includes(competency.type.trim().toLowerCase())) {
-        errors.push(`Invalid competency type '${competency.type}' for: ${competency.name}`);
+      if (!validTypes.includes(rowType)) {
+        errors.push(`Invalid type '${row.type}' for: ${row.name}`);
         continue;
       }
 
-      let vacancyIds = [];
-
-      // 🧩 Handle linked vacancy item numbers - THIS IS THE FIX!
-      if (competency.vacancyItemNumbers && competency.vacancyItemNumbers.trim() !== '') {
-        // Split by semicolon, trim each item, and filter out empty strings
-        const itemNumbers = competency.vacancyItemNumbers
+      // ── Resolve vacancy IDs ───────────────────────────────────────────────
+      // Only ACTIVE (non-archived) vacancies are touched.
+      // Archived vacancies keep their competency links untouched.
+      const vacancyIds = [];
+      if (row.vacancyItemNumbers?.trim()) {
+        const itemNumbers = row.vacancyItemNumbers
           .split(';')
-          .map(item => item.trim())
-          .filter(item => item !== '');
+          .map((s) => s.trim())
+          .filter(Boolean);
 
-        console.log(`Processing competency "${competency.name}" with item numbers:`, itemNumbers);
-
-        // Only process if we have actual item numbers after filtering
-        if (itemNumbers.length > 0) {
-          for (const itemNumber of itemNumbers) {
-            const vacancy = await Vacancy.findOne({ itemNumber: itemNumber.trim() });
-            if (!vacancy) {
-              errors.push(`Vacancy with item number '${itemNumber}' not found for competency: ${competency.name}`);
-              continue;
-            }
-            vacancyIds.push(vacancy._id);
-          }
-
-          // Skip if any vacancy failed to resolve
-          if (vacancyIds.length !== itemNumbers.length) {
+        for (const itemNumber of itemNumbers) {
+          const vacancy = await Vacancy.findOne({
+            itemNumber,
+            isArchived: { $ne: true }, // skip archived vacancies
+          });
+          if (!vacancy) {
+            errors.push(`Active vacancy '${itemNumber}' not found for: ${row.name}`);
             continue;
           }
+          vacancyIds.push(vacancy._id.toString());
         }
       }
 
-      // 🧠 Normalize isFixed
       const isFixed =
-        competency.isFixed === true ||
-        competency.isFixed?.toString().toLowerCase() === 'true' ||
-        competency.isFixed === '1';
+        row.isFixed === true ||
+        row.isFixed?.toString().toLowerCase() === 'true' ||
+        row.isFixed === '1';
 
-      // 🧩 Build competency data safely
-      const competencyData = {
-        name: competency.name.trim(),
-        type: competency.type.trim().toLowerCase(),
-        isFixed
-      };
+      // ── Fuzzy match against existing competencies ─────────────────────────
+      let bestMatch = null;
+      let bestScore = 0;
 
-      // Assign the correct references based on how many vacancies were found
-      if (vacancyIds.length > 1) {
-        // Multiple vacancies: use vacancyIds array
-        competencyData.vacancyIds = vacancyIds;
-        competencyData.vacancyId = null;
-        console.log(`✅ Assigned ${vacancyIds.length} vacancies to competency "${competency.name}"`);
-      } else if (vacancyIds.length === 1) {
-        // Single vacancy: use vacancyId field only
-        competencyData.vacancyId = vacancyIds[0];
-        // Don't include vacancyIds field at all
-        console.log(`✅ Assigned 1 vacancy to competency "${competency.name}"`);
-      } else {
-        // No vacancies specified and not fixed: applies to all vacancies
-        competencyData.vacancyId = null;
-        competencyData.vacancyIds = [];
-        console.log(`✅ Competency "${competency.name}" applies to all vacancies (no specific assignment)`);
+      for (const existing of existingCompetencies) {
+        if (existing.type !== rowType) continue; // type must match
+        const score = stringSimilarity(row.name, existing.name);
+        if (score >= SIMILARITY_THRESHOLD && score > bestScore) {
+          bestScore = score;
+          bestMatch = existing;
+        }
       }
 
-      processedCompetencies.push(competencyData);
+      // ── MERGE path ────────────────────────────────────────────────────────
+      if (bestMatch) {
+        // Collect the existing vacancy ID list (normalise legacy single-id format)
+        const existingVacancyIds = [];
+        if (Array.isArray(bestMatch.vacancyIds) && bestMatch.vacancyIds.length > 0) {
+          bestMatch.vacancyIds.forEach((id) => existingVacancyIds.push(id.toString()));
+        } else if (bestMatch.vacancyId) {
+          existingVacancyIds.push(bestMatch.vacancyId.toString());
+        }
+
+        const newVacancyIds = vacancyIds.filter(
+          (id) => !existingVacancyIds.includes(id)
+        );
+
+        if (newVacancyIds.length > 0) {
+          // Record state before change (for undo)
+          uploadLog.updatedChanges.push({
+            competencyId      : bestMatch._id.toString(),
+            previousVacancyIds: [...existingVacancyIds],
+            previousVacancyId : bestMatch.vacancyId
+              ? bestMatch.vacancyId.toString()
+              : null,
+            addedVacancyIds   : newVacancyIds,
+          });
+
+          const mergedObjectIds = [
+            ...existingVacancyIds,
+            ...newVacancyIds,
+          ].map((id) => new mongoose.Types.ObjectId(id));
+
+          await Competency.findByIdAndUpdate(bestMatch._id, {
+            vacancyIds: mergedObjectIds,
+            vacancyId : null, // normalise to array format
+          });
+
+          results.merged.push({
+            existingName   : bestMatch.name,
+            uploadedName   : row.name,
+            similarity     : Math.round(bestScore * 100),
+            addedItemCount : newVacancyIds.length,
+          });
+        } else {
+          results.skipped.push({
+            name  : row.name,
+            reason: `Matched '${bestMatch.name}' (${Math.round(bestScore * 100)}% similar) — no new vacancies to add`,
+          });
+        }
+
+        continue; // don't fall through to create
+      }
+
+      // ── CREATE path ───────────────────────────────────────────────────────
+      const data = { name: row.name.trim(), type: rowType, isFixed };
+
+      if (vacancyIds.length > 1) {
+        data.vacancyIds = vacancyIds.map((id) => new mongoose.Types.ObjectId(id));
+        data.vacancyId  = null;
+      } else if (vacancyIds.length === 1) {
+        data.vacancyId  = new mongoose.Types.ObjectId(vacancyIds[0]);
+        data.vacancyIds = [];
+      } else {
+        data.vacancyId  = null;
+        data.vacancyIds = [];
+      }
+
+      const created = new Competency(data);
+      await created.save();
+
+      uploadLog.createdIds.push(created._id.toString());
+      results.created.push({ name: row.name });
     }
 
-    // ⚠️ If any validation errors occurred
+    // ── Return validation errors before persisting anything ───────────────
+    // NOTE: Since we write row-by-row above we detect errors eagerly.
+    // If you want atomic all-or-nothing, wrap in a MongoDB session/transaction.
     if (errors.length > 0) {
-      return res.status(400).json({
-        message: 'CSV validation failed',
-        errors,
-      });
+      return res.status(400).json({ message: 'CSV validation failed', errors });
     }
 
-    // 💾 Insert all valid competencies
-    if (processedCompetencies.length > 0) {
-      await Competency.insertMany(processedCompetencies);
-      return res.json({
-        message: `Successfully uploaded ${processedCompetencies.length} competencies`,
-        count: processedCompetencies.length,
-      });
-    }
+    // ── Save upload log for undo ───────────────────────────────────────────
+    pruneOldLogs();
+    const uploadId = `comp_${Date.now()}_${req.user._id}`;
+    _uploadLogs[uploadId] = uploadLog;
 
-    res.status(400).json({ message: 'No valid competencies found in CSV file' });
-  } catch (error) {
-    console.error('CSV upload error:', error);
-    res.status(500).json({
-      message: 'Failed to upload CSV: ' + error.message,
-      error: error.message,
+    return res.json({
+      message     : `Upload complete: ${results.created.length} created, ${results.merged.length} merged, ${results.skipped.length} skipped`,
+      uploadId,
+      results,
+      canUndo     : true,
+      undoExpiresIn: '1 hour',
     });
+  } catch (error) {
+    console.error('Competency CSV upload error:', error);
+    res.status(500).json({ message: 'Failed to upload CSV: ' + error.message });
   }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ROUTE 2 (NEW): POST /competencies/undo-upload/:uploadId
+// ═══════════════════════════════════════════════════════════════════════════
+
+router.post('/competencies/undo-upload/:uploadId', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin')
+    return res.status(403).json({ message: 'Access denied' });
+
+  try {
+    const log = _uploadLogs[req.params.uploadId];
+    if (!log) {
+      return res.status(404).json({
+        message: 'Upload log not found or has expired (logs expire after 1 hour)',
+      });
+    }
+
+    let deletedCount  = 0;
+    let revertedCount = 0;
+
+    // 1. Delete brand-new competencies
+    if (log.createdIds.length > 0) {
+      const result = await Competency.deleteMany({
+        _id: { $in: log.createdIds.map((id) => new mongoose.Types.ObjectId(id)) },
+      });
+      deletedCount = result.deletedCount;
+    }
+
+    // 2. Revert merged competencies to their previous vacancy-id state.
+    //    Archived competencies are unaffected — we only touch the IDs we changed.
+    for (const change of log.updatedChanges) {
+      const prev = change.previousVacancyIds ?? [];
+
+      let updatePayload;
+      if (prev.length > 1) {
+        updatePayload = {
+          vacancyIds: prev.map((id) => new mongoose.Types.ObjectId(id)),
+          vacancyId : null,
+        };
+      } else if (prev.length === 1) {
+        updatePayload = {
+          vacancyId : new mongoose.Types.ObjectId(prev[0]),
+          vacancyIds: [],
+        };
+      } else {
+        // Was originally empty / single-id format before upload
+        updatePayload = {
+          vacancyId : change.previousVacancyId
+            ? new mongoose.Types.ObjectId(change.previousVacancyId)
+            : null,
+          vacancyIds: [],
+        };
+      }
+
+      await Competency.findByIdAndUpdate(
+        new mongoose.Types.ObjectId(change.competencyId),
+        updatePayload
+      );
+      revertedCount++;
+    }
+
+    delete _uploadLogs[req.params.uploadId];
+
+    res.json({
+      message      : `Undo successful: ${deletedCount} deleted, ${revertedCount} reverted`,
+      deletedCount,
+      revertedCount,
+    });
+  } catch (error) {
+    console.error('Undo upload error:', error);
+    res.status(500).json({ message: 'Server error: ' + error.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ROUTE 3 (NEW): GET /competencies/recent-uploads
+// Returns the last 5 upload logs available for undo.
+// ═══════════════════════════════════════════════════════════════════════════
+
+router.get('/competencies/recent-uploads', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin')
+    return res.status(403).json({ message: 'Access denied' });
+
+  pruneOldLogs();
+
+  const recent = Object.entries(_uploadLogs)
+    .map(([uploadId, log]) => ({
+      uploadId,
+      uploadedAt  : log.uploadedAt,
+      createdCount: log.createdIds.length,
+      mergedCount : log.updatedChanges.length,
+    }))
+    .sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt))
+    .slice(0, 5);
+
+  res.json(recent);
 });
 
 
