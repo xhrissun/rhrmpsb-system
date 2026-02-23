@@ -1690,6 +1690,8 @@ const loadDataForCurrentTab = useCallback(async () => {
       setUploadResult('competencies', { type: 'error', message: serverMessage });
     } finally {
       setUploading('competencies', false);
+      setUploadFileName('');
+      setUploadingType('');
     }
   }, [loadDataForCurrentTab, showToast, setUploading, setUploadResult]);
 
