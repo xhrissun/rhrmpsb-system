@@ -432,7 +432,9 @@ export const competenciesAPI = {
       responseType: 'blob'
     });
     return response.data;
-  }
+  },
+  undoUpload: (uploadId) => api.post(`/competencies/undo-upload/${uploadId}`),
+  getRecentUploads: () => api.get('/competencies/recent-uploads'),
 };
 
 // Reports API
