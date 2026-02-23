@@ -3636,7 +3636,52 @@ const AssignmentDetailsModal = ({ user, vacancies, onClose }) => {
   );
 };
 
+const CsvUploadProgressModal = ({ isOpen, type, fileName }) => {
+  const labels = {
+    vacancies   : 'Uploading Vacancies',
+    candidates  : 'Uploading Candidates',
+    competencies: 'Uploading Competencies',
+  };
+  const icons = {
+    vacancies   : '💼',
+    candidates  : '📋',
+    competencies: '⭐',
+  };
 
+  if (!isOpen) return null;
+
+  return (
+    <div className="modal-overlay fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
+      <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full mx-4 text-center">
+        <div className="relative inline-flex items-center justify-center mb-5">
+          <div className="w-20 h-20 rounded-full bg-blue-50 flex items-center justify-center text-4xl animate-pulse">
+            {icons[type] || '📁'}
+          </div>
+          <svg className="absolute inset-0 w-20 h-20 animate-spin" viewBox="0 0 80 80" fill="none">
+            <circle cx="40" cy="40" r="36" stroke="#3B82F6" strokeWidth="4" strokeDasharray="56 170" strokeLinecap="round" />
+          </svg>
+        </div>
+        <h3 className="text-lg font-bold text-gray-900 mb-1">{labels[type] || 'Uploading…'}</h3>
+        {fileName && (
+          <p className="text-xs text-gray-400 mb-4 truncate px-2" title={fileName}>{fileName}</p>
+        )}
+        <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
+          <div
+            className="h-2 rounded-full bg-blue-500"
+            style={{ width: '40%', animation: 'csv-progress-slide 1.4s ease-in-out infinite' }}
+          />
+        </div>
+        <p className="text-xs text-gray-400 mt-3">Please wait — do not close this tab</p>
+        <style>{`
+          @keyframes csv-progress-slide {
+            0%   { transform: translateX(-150%); }
+            100% { transform: translateX(400%); }
+          }
+        `}</style>
+      </div>
+    </div>
+  );
+};
 
 const PasswordConfirmModal = ({ isOpen, onClose, onConfirm, actionType, itemName, user }) => {
   const [password, setPassword] = useState('');
