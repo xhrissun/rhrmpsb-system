@@ -163,6 +163,8 @@ const AdminView = ({ user }) => {
   const [showArchivedRanges, setShowArchivedRanges] = useState(false);
   const [lastCompetencyUpload, setLastCompetencyUpload] = useState(null);
   const [repostedItemNumbers, setRepostedItemNumbers] = useState(new Set());
+  const [showAssignmentDetailsModal, setShowAssignmentDetailsModal] = useState(false);
+  const [selectedUserForDetails, setSelectedUserForDetails] = useState(null);
 
   // ─── Toast Context ─────────────────────────────────────────────────────────
   const { showToast } = useToast();
