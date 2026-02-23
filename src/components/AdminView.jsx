@@ -162,6 +162,8 @@ const AdminView = ({ user }) => {
   const [pendingAction, setPendingAction] = useState(null);
   const [showArchivedRanges, setShowArchivedRanges] = useState(false);
   const [lastCompetencyUpload, setLastCompetencyUpload] = useState(null);
+  const [showAssignmentDetailsModal, setShowAssignmentDetailsModal] = useState(false);
+  const [selectedUserForDetails, setSelectedUserForDetails] = useState(null);
 
   // ─── Toast Context ─────────────────────────────────────────────────────────
   const { showToast } = useToast();
