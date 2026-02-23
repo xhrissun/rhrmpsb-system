@@ -342,7 +342,7 @@ router.post('/vacancies/upload-csv/:publicationRangeId', authMiddleware, async (
     if (!req.files || !req.files.csv) {
       return res.status(400).json({ message: 'No file uploaded' });
     }
-    
+
     // Verify publication range exists
     const publicationRange = await PublicationRange.findById(req.params.publicationRangeId);
     if (!publicationRange) {
@@ -359,7 +359,7 @@ router.post('/vacancies/upload-csv/:publicationRangeId', authMiddleware, async (
       position: vacancy.position || '',
       assignment: vacancy.assignment || '',
       salaryGrade: vacancy.salaryGrade || 1,
-      publicationRangeId: publicationRange._id, // FIX: Add publication range
+      publicationRangeId: publicationRange._id,
       qualifications: {
         education: vacancy.education || '',
         training: vacancy.training || '',
@@ -367,9 +367,79 @@ router.post('/vacancies/upload-csv/:publicationRangeId', authMiddleware, async (
         eligibility: vacancy.eligibility || ''
       }
     }));
+
+    // Check for duplicates against ACTIVE vacancies in this publication range
+    const existingItemNumbers = await Vacancy.find({
+      publicationRangeId: publicationRange._id,
+      isArchived: false
+    }).distinct('itemNumber');
     
-    await Vacancy.insertMany(processedVacancies);
-    res.json({ message: 'Vacancies uploaded successfully' });
+    const existingSet = new Set(existingItemNumbers);
+    const duplicates = processedVacancies.filter(v => existingSet.has(v.itemNumber));
+    
+    if (duplicates.length > 0) {
+      return res.status(400).json({
+        message: 'Duplicate item numbers found in this publication range',
+        duplicates: duplicates.map(d => d.itemNumber)
+      });
+    }
+
+    // For each vacancy to upload, check if it exists as ARCHIVED
+    // If archived, unarchive vacancy + competencies only
+    // Candidates, ratings, logs tied to that vacancy remain archived — nothing is deleted
+    const unarchived = [];
+    const toInsert = [];
+
+    for (const v of processedVacancies) {
+      const archivedVacancy = await Vacancy.findOne({
+        itemNumber: v.itemNumber,
+        publicationRangeId: publicationRange._id,
+        isArchived: true
+      });
+
+      if (archivedVacancy) {
+        // Unarchive the vacancy only — no other records are touched or deleted
+        await Vacancy.findByIdAndUpdate(archivedVacancy._id, {
+          isArchived: false,
+          archivedAt: null,
+          archivedBy: null
+        });
+
+        // Unarchive competencies linked to this vacancy only
+        // Candidates, ratings, and audit logs remain archived and untouched
+        await Competency.updateMany(
+          {
+            $or: [
+              { vacancyId: archivedVacancy._id },
+              { vacancyIds: archivedVacancy._id }
+            ]
+          },
+          {
+            $set: {
+              isArchived: false,
+              archivedAt: null,
+              archivedBy: null
+            }
+          }
+        );
+
+        unarchived.push(v.itemNumber);
+      } else {
+        toInsert.push(v);
+      }
+    }
+
+    if (toInsert.length > 0) {
+      await Vacancy.insertMany(toInsert);
+    }
+
+    res.json({
+      message: `Vacancies uploaded successfully. ${toInsert.length} created, ${unarchived.length} unarchived.`,
+      created: toInsert.length,
+      unarchived: unarchived.length,
+      unarchivedItemNumbers: unarchived
+    });
+
   } catch (error) {
     console.error('CSV upload error:', error);
     res.status(500).json({ message: 'Failed to upload CSV: ' + error.message });
