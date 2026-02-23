@@ -146,13 +146,11 @@ export const vacanciesAPI = {
     const response = await api.delete(`/vacancies/${id}`);
     return response.data;
   },
-  uploadCSV: async (formData) => {
-    const response = await api.post('/vacancies/upload-csv', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data'
-      }
-    });
-    return response.data;
+  uploadCSV: async (formData, publicationRangeId) => {
+      const response = await api.post(`/vacancies/upload-csv/${publicationRangeId}`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      return response.data;
   },
   exportCSV: async () => {
     const response = await api.get('/vacancies/export-csv', {
