@@ -161,6 +161,7 @@ const AdminView = ({ user }) => {
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [pendingAction, setPendingAction] = useState(null);
   const [showArchivedRanges, setShowArchivedRanges] = useState(false);
+  const [lastCompetencyUpload, setLastCompetencyUpload] = useState(null);
 
   // ─── Toast Context ─────────────────────────────────────────────────────────
   const { showToast } = useToast();
@@ -1476,14 +1477,81 @@ const loadDataForCurrentTab = useCallback(async () => {
     showToast
   ]);
 
+  const handleCompetencyUpload = async (file) => {
+    try {
+      const formData = new FormData();
+      formData.append('csv', file);
+
+      const result = await competenciesAPI.uploadCSV(formData);
+
+      // Store upload info so the Undo button can reference it
+      setLastCompetencyUpload({
+        uploadId : result.uploadId,
+        message  : result.message,
+        results  : result.results,
+      });
+
+      // Build a human-readable summary for the toast
+      const { created, merged, skipped } = result.results;
+      const parts = [];
+      if (created.length)  parts.push(`${created.length} created`);
+      if (merged.length)   parts.push(`${merged.length} merged`);
+      if (skipped.length)  parts.push(`${skipped.length} skipped`);
+
+      showToast(
+        `Competencies uploaded — ${parts.join(', ')}. Click "Undo Upload" to revert.`,
+        'success'
+      );
+
+      await loadDataForCurrentTab();
+    } catch (error) {
+      console.error('Competency CSV upload error:', error);
+      const serverMessage =
+        error.response?.data?.errors?.join('\n') ||
+        error.response?.data?.message ||
+        'Failed to upload CSV. Please check the format and try again.';
+      showToast(serverMessage, 'error');
+    }
+  };
+
+  const handleUndoCompetencyUpload = async () => {
+    if (!lastCompetencyUpload) {
+      showToast('No upload to undo', 'error');
+      return;
+    }
+
+    if (
+      !window.confirm(
+        `Undo the last competency upload?\n\n${lastCompetencyUpload.message}\n\nThis will:\n` +
+        `• Delete ${lastCompetencyUpload.results.created.length} newly created competencies\n` +
+        `• Remove ${lastCompetencyUpload.results.merged.length} newly added vacancy links\n\n` +
+        `This action cannot be undone again.`
+      )
+    ) return;
+
+    try {
+      const result = await competenciesAPI.undoUpload(lastCompetencyUpload.uploadId);
+      showToast(result.message, 'success');
+      setLastCompetencyUpload(null);
+      await loadDataForCurrentTab();
+    } catch (error) {
+      console.error('Undo upload error:', error);
+      showToast(
+        error.response?.data?.message || 'Failed to undo upload',
+        'error'
+      );
+    }
+  };
+
   const renderCompetencies = useCallback(() => {
     const filteredCompetencies = filterAndSortData(competencies, ['name', 'type']);
 
     return (
       <div className="space-y-4">
+        {/* ── Header row ── */}
         <div className="flex justify-between items-center">
           <h2 className="text-xl font-bold text-gray-900">Competencies Management</h2>
-          <div className="flex space-x-2">
+          <div className="flex flex-wrap gap-2">
             <button
               onClick={() => handleExportCSV('competencies')}
               className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
@@ -1497,61 +1565,113 @@ const loadDataForCurrentTab = useCallback(async () => {
             >
               Download Template
             </button>
+
+            {/* Hidden file input */}
             <input
               type="file"
               accept=".csv"
-              onChange={(e) => e.target.files[0] && handleCSVUpload(e.target.files[0], 'competencies')}
+              onChange={(e) => {
+                if (e.target.files[0]) {
+                  handleCompetencyUpload(e.target.files[0]);
+                  e.target.value = ''; // reset so same file can be re-uploaded
+                }
+              }}
               className="hidden"
               id="competency-csv-upload"
             />
-            <label 
-              htmlFor="competency-csv-upload" 
+            <label
+              htmlFor="competency-csv-upload"
               className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300 cursor-pointer"
             >
               Upload CSV
             </label>
-            <button 
-              onClick={() => handleAdd('competency')} 
+
+            {/* Undo button — only visible if a recent upload exists */}
+            {lastCompetencyUpload && (
+              <button
+                onClick={handleUndoCompetencyUpload}
+                className="px-3 py-1 rounded text-xs bg-orange-500 text-white hover:bg-orange-600"
+                title={lastCompetencyUpload.message}
+              >
+                ↩ Undo Upload
+              </button>
+            )}
+
+            <button
+              onClick={() => handleAdd('competency')}
               className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600"
             >
               Add Competency
             </button>
           </div>
         </div>
+
+        {/* ── Upload result summary banner ── */}
+        {lastCompetencyUpload && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs">
+            <div className="font-semibold text-blue-800 mb-1">
+              Last upload result — <span className="font-normal">{lastCompetencyUpload.message}</span>
+            </div>
+            <div className="flex flex-wrap gap-4 text-blue-700">
+              {lastCompetencyUpload.results.created.length > 0 && (
+                <span>
+                  ✅ <strong>Created ({lastCompetencyUpload.results.created.length}):</strong>{' '}
+                  {lastCompetencyUpload.results.created.map((c) => c.name).join(', ')}
+                </span>
+              )}
+              {lastCompetencyUpload.results.merged.length > 0 && (
+                <span>
+                  🔀 <strong>Merged ({lastCompetencyUpload.results.merged.length}):</strong>{' '}
+                  {lastCompetencyUpload.results.merged
+                    .map((m) => `"${m.uploadedName}" → "${m.existingName}" (${m.similarity}% match, +${m.addedItemCount} vacancy link${m.addedItemCount !== 1 ? 's' : ''})`)
+                    .join(' | ')}
+                </span>
+              )}
+              {lastCompetencyUpload.results.skipped.length > 0 && (
+                <span>
+                  ⏭ <strong>Skipped ({lastCompetencyUpload.results.skipped.length}):</strong>{' '}
+                  {lastCompetencyUpload.results.skipped.map((s) => s.name).join(', ')}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── Table ── */}
         <div className="card bg-white rounded-lg shadow overflow-hidden">
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200 text-sm" role="table">
               <thead className="bg-gray-50">
                 <tr>
-                  <FilterableHeader 
-                    label="Name" 
-                    filterKey="name" 
-                    sortKey="name" 
-                    filterValue={filters.name || ''} 
-                    onFilterChange={handleFilterChange} 
-                    onSort={handleSort} 
-                    sortConfig={sortConfig} 
+                  <FilterableHeader
+                    label="Name"
+                    filterKey="name"
+                    sortKey="name"
+                    filterValue={filters.name || ''}
+                    onFilterChange={handleFilterChange}
+                    onSort={handleSort}
+                    sortConfig={sortConfig}
                   />
-                  <FilterableHeader 
-                    label="Type" 
-                    filterKey="type" 
-                    sortKey="type" 
-                    filterValue={filters.type || ''} 
-                    onFilterChange={handleFilterChange} 
-                    onSort={handleSort} 
-                    sortConfig={sortConfig} 
+                  <FilterableHeader
+                    label="Type"
+                    filterKey="type"
+                    sortKey="type"
+                    filterValue={filters.type || ''}
+                    onFilterChange={handleFilterChange}
+                    onSort={handleSort}
+                    sortConfig={sortConfig}
                   />
                   <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Vacancies
                   </th>
-                  <FilterableHeader 
-                    label="Fixed" 
-                    filterKey="isFixed" 
-                    sortKey="isFixed" 
-                    filterValue={filters.isFixed || ''} 
-                    onFilterChange={handleFilterChange} 
-                    onSort={handleSort} 
-                    sortConfig={sortConfig} 
+                  <FilterableHeader
+                    label="Fixed"
+                    filterKey="isFixed"
+                    sortKey="isFixed"
+                    filterValue={filters.isFixed || ''}
+                    onFilterChange={handleFilterChange}
+                    onSort={handleSort}
+                    sortConfig={sortConfig}
                   />
                   <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Actions
@@ -1559,7 +1679,7 @@ const loadDataForCurrentTab = useCallback(async () => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredCompetencies.map(competency => {
+                {filteredCompetencies.map((competency) => {
                   let vacancyIds = [];
                   if (Array.isArray(competency.vacancyIds) && competency.vacancyIds.length > 0) {
                     vacancyIds = competency.vacancyIds;
@@ -1567,12 +1687,13 @@ const loadDataForCurrentTab = useCallback(async () => {
                     vacancyIds = [competency.vacancyId];
                   }
 
-                  const vacancyNames = vacancyIds.length > 0
-                    ? vacancyIds
-                        .map(id => vacancies.find(v => v._id === id)?.itemNumber)
-                        .filter(Boolean)
-                        .join(', ')
-                    : 'All Vacancies';
+                  const vacancyNames =
+                    vacancyIds.length > 0
+                      ? vacancyIds
+                          .map((id) => vacancies.find((v) => v._id === id)?.itemNumber)
+                          .filter(Boolean)
+                          .join(', ')
+                      : 'All Vacancies';
 
                   return (
                     <tr key={competency._id}>
@@ -1588,9 +1709,13 @@ const loadDataForCurrentTab = useCallback(async () => {
                         {vacancyNames}
                       </td>
                       <td className="table-cell px-4 py-2">
-                        <span className={`px-2 py-1 rounded text-xs ${
-                          competency.isFixed ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                        }`}>
+                        <span
+                          className={`px-2 py-1 rounded text-xs ${
+                            competency.isFixed
+                              ? 'bg-green-100 text-green-800'
+                              : 'bg-gray-100 text-gray-800'
+                          }`}
+                        >
                           {competency.isFixed ? 'Yes' : 'No'}
                         </span>
                       </td>
@@ -1634,10 +1759,12 @@ const loadDataForCurrentTab = useCallback(async () => {
     handleSort,
     handleExportCSV,
     handleExportEmptyTemplate,
-    handleCSVUpload,
+    handleCompetencyUpload,
+    handleUndoCompetencyUpload,
     handleAdd,
     handleEdit,
-    handleDelete
+    handleDelete,
+    lastCompetencyUpload,
   ]);
 
   const renderVacancyAssignments = useCallback(() => {
