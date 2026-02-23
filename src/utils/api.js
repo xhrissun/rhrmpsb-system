@@ -176,7 +176,10 @@ export const vacanciesAPI = {
       `/vacancies/${vacancyId}/clone-to-publication/${publicationRangeId}`
     );
     return response.data;
-  }
+  },
+  undoImport: (publicationRangeId, minutesAgo = 5) =>
+    api.post(`/vacancies/undo-import/${publicationRangeId}`, { minutesAgo })
+    .then(res => res.data),
 };
 
 // Candidates API
