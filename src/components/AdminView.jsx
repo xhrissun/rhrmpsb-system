@@ -165,6 +165,9 @@ const AdminView = ({ user }) => {
   const [repostedItemNumbers, setRepostedItemNumbers] = useState(new Set());
   const [showAssignmentDetailsModal, setShowAssignmentDetailsModal] = useState(false);
   const [selectedUserForDetails, setSelectedUserForDetails] = useState(null);
+  const [uploadFileName, setUploadFileName] = useState('');
+  const [uploadingType, setUploadingType] = useState('');
+  const [lastVacancyUpload, setLastVacancyUpload] = useState(null);
 
   // ─── CSV Upload UX State ───────────────────────────────────────────────────
   const [csvUploading, setCsvUploading] = useState({
@@ -665,6 +668,8 @@ const loadDataForCurrentTab = useCallback(async () => {
       }
 
       setUploading(type, true);
+      setUploadFileName(file.name);   // <-- NEW
+      setUploadingType(type);         // <-- NEW
       setUploadResult(type, null);
 
       const formData = new FormData();
@@ -674,6 +679,10 @@ const loadDataForCurrentTab = useCallback(async () => {
       switch (type) {
         case 'vacancies':
           response = await vacanciesAPI.uploadCSV(formData, selectedPublicationRange);
+          setLastVacancyUpload({      // <-- NEW: track so Undo knows the range
+          publicationRangeId: selectedPublicationRange,
+          uploadedAt: new Date(),
+          });
           break;
         case 'candidates':
           response = await candidatesAPI.uploadCSVWithPublication(formData, selectedPublicationRange);
@@ -695,6 +704,8 @@ const loadDataForCurrentTab = useCallback(async () => {
       setUploadResult(type, { type: 'error', message: msg });
     } finally {
       setUploading(type, false);
+      setUploadFileName('');   // <-- NEW
+      setUploadingType(''); 
     }
   }, [selectedPublicationRange, loadDataForCurrentTab, showToast, setUploading, setUploadResult]);
 
@@ -1125,6 +1136,27 @@ const loadDataForCurrentTab = useCallback(async () => {
     );
   }, [users, filters, sortConfig, filterAndSortData, handleFilterChange, handleSort, handleExportCSV, handleExportEmptyTemplate, handleAdd, handleEdit, handleDelete]);
 
+  const handleUndoVacancyImport = useCallback(async () => {
+  if (!lastVacancyUpload) {
+    showToast('No vacancy import to undo', 'error');
+    return;
+  }
+
+  if (!confirm('Undo the last vacancy import? This will delete all vacancies imported in the last 5 minutes.')) {
+    return;
+  }
+
+  try {
+    const result = await vacanciesAPI.undoImport(lastVacancyUpload.publicationRangeId, 5);
+    showToast(`Undo successful: Deleted ${result.deletedCount} vacancies`, 'success');
+    setLastVacancyUpload(null);
+    await loadDataForCurrentTab();
+  } catch (error) {
+    console.error('Failed to undo vacancy import:', error);
+    showToast('Failed to undo import', 'error');
+  }
+}, [lastVacancyUpload, loadDataForCurrentTab, showToast]);
+
   const renderVacancies = useCallback(() => {
     const filteredVacancies = filterAndSortData(vacancies, ['itemNumber', 'position', 'assignment', 'salaryGrade']);
     const activePublicationRanges = publicationRanges.filter(pr => pr.isActive && !pr.isArchived);
@@ -1208,8 +1240,16 @@ const loadDataForCurrentTab = useCallback(async () => {
                 </>
               ) : 'Upload CSV'}
             </label>
-            <button 
-              onClick={() => handleAdd('vacancy')} 
+            {selectedPublicationRange && lastVacancyUpload && (
+              <button
+                onClick={handleUndoVacancyImport}
+                className="px-3 py-1 rounded text-xs bg-orange-500 text-white hover:bg-orange-600"
+              >
+                Undo Last Import
+              </button>
+            )}
+            <button
+              onClick={() => handleAdd('vacancy')}
               className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600"
             >
               Add Vacancy
@@ -1610,6 +1650,8 @@ const loadDataForCurrentTab = useCallback(async () => {
   const handleCompetencyUpload = useCallback(async (file) => {
     try {
       setUploading('competencies', true);
+      setUploadFileName(file.name);
+      setUploadingType('competencies');
       setUploadResult('competencies', null);
 
       const formData = new FormData();
@@ -2320,6 +2362,12 @@ const loadDataForCurrentTab = useCallback(async () => {
             onClose={() => setShowVacancyModal(false)}
           />
         )}
+
+        <CsvUploadProgressModal
+          isOpen={!!uploadingType}
+          type={uploadingType}
+          fileName={uploadFileName}
+        />
 
         {/* Password Confirmation Modal */}
         {showPasswordModal && (
