@@ -1768,121 +1768,172 @@ const loadDataForCurrentTab = useCallback(async () => {
   ]);
 
   const renderVacancyAssignments = useCallback(() => {
-    const filteredUsers = filterAndSortData(users, ['name', 'email', 'userType']);
+  const filteredUsers = filterAndSortData(users, ['name', 'email', 'userType']);
 
-    return (
-      <div className="space-y-4">
-        <div className="flex justify-between items-center">
-          <h2 className="text-xl font-bold text-gray-900">Vacancy Assignments</h2>
-          <div className="text-xs text-gray-600">
-            Manage which vacancies each user can access
-          </div>
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-bold text-gray-900">Vacancy Assignments</h2>
+        <div className="text-xs text-gray-600">
+          Manage which vacancies each user can access. Archived vacancies are excluded.
         </div>
-        <div className="card bg-white rounded-lg shadow overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200 text-sm" role="table">
-              <thead className="bg-gray-50">
-                <tr>
-                  <FilterableHeader 
-                    label="User" 
-                    filterKey="name" 
-                    sortKey="name" 
-                    filterValue={filters.name || ''} 
-                    onFilterChange={handleFilterChange} 
-                    onSort={handleSort} 
-                    sortConfig={sortConfig} 
-                  />
-                  <FilterableHeader 
-                    label="User Type" 
-                    filterKey="userType" 
-                    sortKey="userType" 
-                    filterValue={filters.userType || ''} 
-                    onFilterChange={handleFilterChange} 
-                    onSort={handleSort} 
-                    sortConfig={sortConfig} 
-                  />
-                  <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Current Assignment
-                  </th>
-                  <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Details
-                  </th>
-                  <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredUsers.map(user => (
-                  <tr key={user._id}>
+      </div>
+      <div className="card bg-white rounded-lg shadow overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200 text-sm" role="table">
+            <thead className="bg-gray-50">
+              <tr>
+                <FilterableHeader
+                  label="User"
+                  filterKey="name"
+                  sortKey="name"
+                  filterValue={filters.name || ''}
+                  onFilterChange={handleFilterChange}
+                  onSort={handleSort}
+                  sortConfig={sortConfig}
+                />
+                <FilterableHeader
+                  label="User Type"
+                  filterKey="userType"
+                  sortKey="userType"
+                  filterValue={filters.userType || ''}
+                  onFilterChange={handleFilterChange}
+                  onSort={handleSort}
+                  sortConfig={sortConfig}
+                />
+                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Assignment Type
+                </th>
+                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Active Vacancies
+                </th>
+                <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {filteredUsers.map(u => {
+                // Count active (non-archived) vacancies for display
+                const activeCount = (() => {
+                  if (u.assignedVacancies === 'all') return vacancies.filter(v => !v.isArchived).length;
+                  if (u.assignedVacancies === 'assignment' && u.assignedAssignment)
+                    return vacancies.filter(v => v.assignment === u.assignedAssignment && !v.isArchived).length;
+                  if (u.assignedVacancies === 'specific')
+                    return (u.assignedItemNumbers || []).filter(
+                      n => vacancies.find(v => v.itemNumber === n && !v.isArchived)
+                    ).length;
+                  return 0;
+                })();
+
+                const suspendedCount = (u.suspendedItemNumbers || []).length;
+
+                return (
+                  <tr key={u._id}>
                     <td className="table-cell px-4 py-2">
                       <div>
-                        <div className="font-medium text-xs">{user.name}</div>
-                        <div className="text-xs text-gray-500">{user.email}</div>
+                        <div className="font-medium text-xs">{u.name}</div>
+                        <div className="text-xs text-gray-500">{u.email}</div>
                       </div>
                     </td>
                     <td className="table-cell px-4 py-2">
                       <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded text-xs">
-                        {user.userType}
+                        {u.userType}
                       </span>
                     </td>
                     <td className="table-cell px-4 py-2">
-                      <span className={`px-2 py-1 rounded text-xs ${
-                        user.assignedVacancies === 'none' ? 'bg-gray-100 text-gray-800' :
-                        user.assignedVacancies === 'all' ? 'bg-green-100 text-green-800' :
-                        user.assignedVacancies === 'assignment' ? 'bg-blue-100 text-blue-800' :
-                        user.assignedVacancies === 'specific' ? 'bg-purple-100 text-purple-800' :
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${
+                        u.assignedVacancies === 'none'       ? 'bg-gray-100 text-gray-800' :
+                        u.assignedVacancies === 'all'        ? 'bg-green-100 text-green-800' :
+                        u.assignedVacancies === 'assignment' ? 'bg-blue-100 text-blue-800' :
+                        u.assignedVacancies === 'specific'   ? 'bg-purple-100 text-purple-800' :
                         'bg-gray-100 text-gray-800'
                       }`}>
-                        {getAssignmentDisplay(user)}
+                        {getAssignmentDisplay(u)}
                       </span>
-                    </td>
-                    <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">
-                      {user.assignedVacancies === 'assignment' && user.assignedAssignment && (
-                        <div className="text-xs text-gray-600">
-                          Assignment: {user.assignedAssignment}
-                        </div>
+                      {u.assignedVacancies === 'assignment' && u.assignedAssignment && (
+                        <div className="text-xs text-gray-500 mt-0.5">{u.assignedAssignment}</div>
                       )}
-                      {user.assignedVacancies === 'specific' && user.assignedItemNumbers?.length > 0 && (
-                        <div className="text-xs text-gray-600">
-                          Items: {user.assignedItemNumbers.slice(0, 3).join(', ')}
-                          {user.assignedItemNumbers.length > 3 && ` +${user.assignedItemNumbers.length - 3} more`}
+                    </td>
+                    <td className="table-cell px-4 py-2">
+                      {u.assignedVacancies === 'none' ? (
+                        <span className="text-xs text-gray-400 italic">No access</span>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium text-gray-700">
+                            {activeCount} active
+                          </span>
+                          {suspendedCount > 0 && (
+                            <span
+                              className="px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-xs"
+                              title="Item numbers suspended while their publication range is archived. They will restore automatically on unarchive."
+                            >
+                              {suspendedCount} suspended
+                            </span>
+                          )}
+                          {activeCount > 0 && (
+                            <button
+                              onClick={() => {
+                                setSelectedUserForDetails(u);
+                                setShowAssignmentDetailsModal(true);
+                              }}
+                              className="text-xs text-blue-600 hover:text-blue-800 hover:underline"
+                            >
+                              View Details →
+                            </button>
+                          )}
                         </div>
                       )}
                     </td>
                     <td className="table-cell px-4 py-2">
                       <button
-                        onClick={() => handleEdit(user, 'assignment')}
+                        onClick={() => handleEdit(u, 'assignment')}
                         className="btn-secondary px-2 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
                       >
                         Assign Vacancies
                       </button>
                     </td>
                   </tr>
-                ))}
-                {filteredUsers.length === 0 && (
-                  <tr>
-                    <td colSpan="5" className="px-4 py-8 text-center text-gray-500">
-                      No users found matching your search criteria.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                );
+              })}
+              {filteredUsers.length === 0 && (
+                <tr>
+                  <td colSpan="5" className="px-4 py-8 text-center text-gray-500">
+                    No users found matching your search criteria.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
-    );
-  }, [
-    users,
-    filters,
-    sortConfig,
-    filterAndSortData,
-    handleFilterChange,
-    handleSort,
-    handleEdit,
-    getAssignmentDisplay
-  ]);
+
+      {/* Assignment Details Modal */}
+      {showAssignmentDetailsModal && selectedUserForDetails && (
+        <AssignmentDetailsModal
+          user={selectedUserForDetails}
+          vacancies={vacancies}
+          onClose={() => {
+            setShowAssignmentDetailsModal(false);
+            setSelectedUserForDetails(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}, [
+  users,
+  vacancies,
+  filters,
+  sortConfig,
+  filterAndSortData,
+  handleFilterChange,
+  handleSort,
+  handleEdit,
+  getAssignmentDisplay,
+  showAssignmentDetailsModal,
+  selectedUserForDetails,
+]);
 
   const renderInterviewSummary = useCallback(() => {
     return (
@@ -2963,31 +3014,30 @@ const VacancyAssignmentModal = ({ editingItem, assignments, vacancies, onClose, 
   const [formData, setFormData] = useState(() => {
     if (editingItem) {
       return {
-        assignmentType: editingItem.assignedVacancies || 'none',
-        assignedAssignment: editingItem.assignedAssignment || '',
-        assignedItemNumbers: editingItem.assignedItemNumbers || []
+        assignmentType      : editingItem.assignedVacancies || 'none',
+        assignedAssignment  : editingItem.assignedAssignment || '',
+        assignedItemNumbers : editingItem.assignedItemNumbers || []
       };
     }
-    return {
-      assignmentType: 'none',
-      assignedAssignment: '',
-      assignedItemNumbers: []
-    };
+    return { assignmentType: 'none', assignedAssignment: '', assignedItemNumbers: [] };
   });
 
+  const [vacancySearch, setVacancySearch] = useState('');
   const { showToast } = useToast();
+
+  // Only show active (non-archived) vacancies for assignment
+  const activeVacancies = vacancies.filter(v => !v.isArchived);
+
+  // Only show assignments that have at least one active vacancy
+  const activeAssignments = [...new Set(
+    activeVacancies.map(v => v.assignment).filter(Boolean)
+  )].sort();
 
   const handleItemNumberChange = useCallback((itemNumber, checked) => {
     if (checked) {
-      setFormData(prev => ({
-        ...prev,
-        assignedItemNumbers: [...prev.assignedItemNumbers, itemNumber]
-      }));
+      setFormData(prev => ({ ...prev, assignedItemNumbers: [...prev.assignedItemNumbers, itemNumber] }));
     } else {
-      setFormData(prev => ({
-        ...prev,
-        assignedItemNumbers: prev.assignedItemNumbers.filter(item => item !== itemNumber)
-      }));
+      setFormData(prev => ({ ...prev, assignedItemNumbers: prev.assignedItemNumbers.filter(id => id !== itemNumber) }));
     }
   }, []);
 
@@ -2995,11 +3045,10 @@ const VacancyAssignmentModal = ({ editingItem, assignments, vacancies, onClose, 
     e.preventDefault();
     try {
       const submitData = {
-        assignmentType: formData.assignmentType,
-        assignedAssignment: formData.assignmentType === 'assignment' ? formData.assignedAssignment : null,
-        assignedItemNumbers: formData.assignmentType === 'specific' ? formData.assignedItemNumbers : []
+        assignmentType      : formData.assignmentType,
+        assignedAssignment  : formData.assignmentType === 'assignment' ? formData.assignedAssignment : null,
+        assignedItemNumbers : formData.assignmentType === 'specific'   ? formData.assignedItemNumbers : []
       };
-
       await usersAPI.assignVacancies(editingItem._id, submitData);
       onClose();
       onSuccess();
@@ -3010,6 +3059,12 @@ const VacancyAssignmentModal = ({ editingItem, assignments, vacancies, onClose, 
     }
   };
 
+  const filteredVacancies = activeVacancies.filter(v =>
+    `${v.itemNumber} ${v.position} ${v.assignment}`
+      .toLowerCase()
+      .includes(vacancySearch.toLowerCase())
+  );
+
   return (
     <div className="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="modal-content bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6 overflow-y-auto max-h-[90vh]">
@@ -3019,60 +3074,49 @@ const VacancyAssignmentModal = ({ editingItem, assignments, vacancies, onClose, 
           </h2>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-700">✕</button>
         </div>
+
+        {/* Suspended notice */}
+        {(editingItem?.suspendedItemNumbers?.length || 0) > 0 && (
+          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
+            ℹ️ <strong>{editingItem.suspendedItemNumbers.length}</strong> item number(s) are currently
+            suspended because their publication range is archived. They will be automatically restored
+            when the publication range is unarchived.
+            <div className="mt-1 font-mono text-amber-700">
+              {editingItem.suspendedItemNumbers.join(', ')}
+            </div>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="space-y-3 text-sm">
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Assignment Type</label>
+            <label className="block text-xs font-medium text-gray-700 mb-2">Assignment Type</label>
             <div className="space-y-2">
-              <label className="flex items-center text-sm">
-                <input
-                  type="radio"
-                  name="assignmentType"
-                  value="none"
-                  checked={formData.assignmentType === 'none'}
-                  onChange={(e) => setFormData({ ...formData, assignmentType: e.target.value })}
-                  className="mr-2"
-                />
-                No Vacancies (No Access)
-              </label>
-              <label className="flex items-center text-sm">
-                <input
-                  type="radio"
-                  name="assignmentType"
-                  value="all"
-                  checked={formData.assignmentType === 'all'}
-                  onChange={(e) => setFormData({ ...formData, assignmentType: e.target.value })}
-                  className="mr-2"
-                />
-                All Vacancies
-              </label>
-              <label className="flex items-center text-sm">
-                <input
-                  type="radio"
-                  name="assignmentType"
-                  value="assignment"
-                  checked={formData.assignmentType === 'assignment'}
-                  onChange={(e) => setFormData({ ...formData, assignmentType: e.target.value })}
-                  className="mr-2"
-                />
-                By Assignment/Department (from vacancy.assignment field)
-              </label>
-              <label className="flex items-center text-sm">
-                <input
-                  type="radio"
-                  name="assignmentType"
-                  value="specific"
-                  checked={formData.assignmentType === 'specific'}
-                  onChange={(e) => setFormData({ ...formData, assignmentType: e.target.value })}
-                  className="mr-2"
-                />
-                Specific Item Numbers
-              </label>
+              {[
+                { value: 'none',       label: 'No Vacancies (No Access)' },
+                { value: 'all',        label: `All Active Vacancies (${activeVacancies.length})` },
+                { value: 'assignment', label: 'By Assignment / Department' },
+                { value: 'specific',   label: 'Specific Item Numbers' },
+              ].map(opt => (
+                <label key={opt.value} className="flex items-center text-sm">
+                  <input
+                    type="radio"
+                    name="assignmentType"
+                    value={opt.value}
+                    checked={formData.assignmentType === opt.value}
+                    onChange={(e) => setFormData({ ...formData, assignmentType: e.target.value })}
+                    className="mr-2"
+                  />
+                  {opt.label}
+                </label>
+              ))}
             </div>
           </div>
 
           {formData.assignmentType === 'assignment' && (
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Select Assignment</label>
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Select Assignment <span className="text-gray-400">(active ranges only)</span>
+              </label>
               <select
                 value={formData.assignedAssignment}
                 onChange={(e) => setFormData({ ...formData, assignedAssignment: e.target.value })}
@@ -3080,42 +3124,67 @@ const VacancyAssignmentModal = ({ editingItem, assignments, vacancies, onClose, 
                 required
               >
                 <option value="">Select Assignment</option>
-                {assignments.map(assignment => (
-                  <option key={assignment} value={assignment}>{assignment}</option>
+                {activeAssignments.map(a => (
+                  <option key={a} value={a}>{a}</option>
                 ))}
               </select>
-              <p className="text-xs text-gray-600 mt-1">
-                This will assign all vacancies where vacancy.assignment matches the selected value.
+              {activeAssignments.length === 0 && (
+                <p className="text-xs text-red-600 mt-1">No active assignments available.</p>
+              )}
+              <p className="text-xs text-gray-500 mt-1">
+                Assigns all active vacancies where vacancy.assignment matches the selected value.
               </p>
             </div>
           )}
 
           {formData.assignmentType === 'specific' && (
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Select Item Numbers</label>
-              <div className="max-h-40 overflow-y-auto border border-gray-300 rounded-md p-2 space-y-1 text-sm">
-                {vacancies.map(vacancy => (
-                  <label key={vacancy._id} className="flex items-center text-xs">
-                    <input
-                      type="checkbox"
-                      checked={formData.assignedItemNumbers.includes(vacancy.itemNumber)}
-                      onChange={(e) => handleItemNumberChange(vacancy.itemNumber, e.target.checked)}
-                      className="mr-2"
-                    />
-                    {vacancy.itemNumber} - {vacancy.position} ({vacancy.assignment})
-                  </label>
-                ))}
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Select Item Numbers <span className="text-gray-400">(active only)</span>
+              </label>
+              <input
+                type="text"
+                placeholder="Search item number, position, or office..."
+                value={vacancySearch}
+                onChange={(e) => setVacancySearch(e.target.value)}
+                className="w-full px-2 py-1 mb-2 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+              <div className="max-h-48 overflow-y-auto border border-gray-300 rounded-md p-2 space-y-1 text-sm">
+                {filteredVacancies.length > 0 ? (
+                  filteredVacancies.map(v => (
+                    <label key={v._id} className="flex items-start text-xs gap-2 py-0.5">
+                      <input
+                        type="checkbox"
+                        checked={formData.assignedItemNumbers.includes(v.itemNumber)}
+                        onChange={(e) => handleItemNumberChange(v.itemNumber, e.target.checked)}
+                        className="mt-0.5 flex-shrink-0"
+                      />
+                      <span>
+                        <span className="font-mono font-medium">{v.itemNumber}</span>
+                        <span className="text-gray-600"> — {v.position}</span>
+                        <span className="text-gray-400"> ({v.assignment})</span>
+                      </span>
+                    </label>
+                  ))
+                ) : (
+                  <p className="text-gray-400 text-xs italic">No active vacancies found.</p>
+                )}
               </div>
-              {formData.assignedItemNumbers.length === 0 && (
+              {formData.assignedItemNumbers.length > 0 && (
+                <p className="text-xs text-blue-600 mt-1">
+                  {formData.assignedItemNumbers.length} item{formData.assignedItemNumbers.length !== 1 ? 's' : ''} selected
+                </p>
+              )}
+              {formData.assignmentType === 'specific' && formData.assignedItemNumbers.length === 0 && (
                 <p className="text-xs text-red-600 mt-1">Please select at least one item number.</p>
               )}
             </div>
           )}
 
-          <div className="flex justify-end space-x-2">
-            <button 
-              type="button" 
-              onClick={onClose} 
+          <div className="flex justify-end space-x-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
               className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
             >
               Cancel
@@ -3125,10 +3194,10 @@ const VacancyAssignmentModal = ({ editingItem, assignments, vacancies, onClose, 
               className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600"
               disabled={
                 (formData.assignmentType === 'assignment' && !formData.assignedAssignment) ||
-                (formData.assignmentType === 'specific' && formData.assignedItemNumbers.length === 0)
+                (formData.assignmentType === 'specific'   && formData.assignedItemNumbers.length === 0)
               }
             >
-              Assign Vacancies
+              Save Assignment
             </button>
           </div>
         </form>
@@ -3215,6 +3284,144 @@ const VacancyDetailsModal = ({ vacancy, onClose }) => {
     </div>
   );
 };
+
+
+const AssignmentDetailsModal = ({ user, vacancies, onClose }) => {
+  if (!user) return null;
+
+  // Determine which vacancies to show based on assignment type
+  const getAssignedVacancies = () => {
+    if (user.assignedVacancies === 'all') {
+      return vacancies.filter(v => !v.isArchived);
+    }
+    if (user.assignedVacancies === 'assignment' && user.assignedAssignment) {
+      return vacancies.filter(v => v.assignment === user.assignedAssignment && !v.isArchived);
+    }
+    if (user.assignedVacancies === 'specific' && user.assignedItemNumbers?.length > 0) {
+      return vacancies.filter(v => user.assignedItemNumbers.includes(v.itemNumber) && !v.isArchived);
+    }
+    return [];
+  };
+
+  const assignedVacancies = getAssignedVacancies();
+
+  const assignmentBadge = {
+    all        : 'bg-green-100 text-green-800',
+    assignment : 'bg-blue-100 text-blue-800',
+    specific   : 'bg-purple-100 text-purple-800',
+    none       : 'bg-gray-100 text-gray-800',
+  }[user.assignedVacancies] || 'bg-gray-100 text-gray-800';
+
+  const assignmentLabel = {
+    all        : 'All Vacancies',
+    assignment : `By Assignment: ${user.assignedAssignment || '—'}`,
+    specific   : 'Specific Item Numbers',
+    none       : 'No Access',
+  }[user.assignedVacancies] || 'Unknown';
+
+  return (
+    <div className="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="modal-content bg-white rounded-lg shadow-xl w-full max-w-4xl mx-4 p-6 flex flex-col max-h-[90vh]">
+        {/* Header */}
+        <div className="flex justify-between items-start mb-4 flex-shrink-0">
+          <div>
+            <h2 className="text-xl font-bold text-gray-900">{user.name}</h2>
+            <p className="text-sm text-gray-500">{user.email}</p>
+            <div className="mt-2 flex items-center gap-2">
+              <span className={`px-2 py-1 rounded text-xs font-medium ${assignmentBadge}`}>
+                {assignmentLabel}
+              </span>
+              <span className="text-xs text-gray-500">
+                {assignedVacancies.length} active vacanc{assignedVacancies.length !== 1 ? 'ies' : 'y'}
+              </span>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">✕</button>
+        </div>
+
+        {/* No vacancies state */}
+        {user.assignedVacancies === 'none' && (
+          <div className="flex-1 flex items-center justify-center py-12">
+            <div className="text-center text-gray-500">
+              <div className="text-4xl mb-3">🚫</div>
+              <p className="font-medium">No vacancy access assigned</p>
+              <p className="text-sm mt-1">Use "Assign Vacancies" to grant access.</p>
+            </div>
+          </div>
+        )}
+
+        {/* Vacancies table */}
+        {user.assignedVacancies !== 'none' && (
+          <>
+            {assignedVacancies.length === 0 ? (
+              <div className="flex-1 flex items-center justify-center py-12">
+                <div className="text-center text-gray-500">
+                  <div className="text-4xl mb-3">📭</div>
+                  <p className="font-medium">No active vacancies found</p>
+                  <p className="text-sm mt-1">
+                    {user.assignedVacancies === 'assignment'
+                      ? `No active vacancies match assignment "${user.assignedAssignment}".`
+                      : 'The assigned item numbers have no active vacancies.'}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="overflow-auto flex-1">
+                <table className="min-w-full divide-y divide-gray-200 text-sm">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Item #</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Position</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Assignment / Office</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">SG</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Education</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Experience</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Eligibility</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {assignedVacancies.map(v => (
+                      <tr key={v._id} className="hover:bg-gray-50">
+                        <td className="px-4 py-2 text-xs font-mono whitespace-nowrap">{v.itemNumber}</td>
+                        <td className="px-4 py-2 text-xs font-medium max-w-[180px] whitespace-normal">{v.position}</td>
+                        <td className="px-4 py-2 text-xs text-gray-600 max-w-[160px] whitespace-normal">{v.assignment}</td>
+                        <td className="px-4 py-2 text-xs text-center">
+                          <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded font-medium">
+                            {v.salaryGrade}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2 text-xs text-gray-600 max-w-[160px] whitespace-normal">
+                          {v.qualifications?.education || <span className="text-gray-300 italic">—</span>}
+                        </td>
+                        <td className="px-4 py-2 text-xs text-gray-600 max-w-[160px] whitespace-normal">
+                          {v.qualifications?.experience || <span className="text-gray-300 italic">—</span>}
+                        </td>
+                        <td className="px-4 py-2 text-xs text-gray-600 max-w-[140px] whitespace-normal">
+                          {v.qualifications?.eligibility || <span className="text-gray-300 italic">—</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
+
+        <div className="flex justify-end mt-4 flex-shrink-0 pt-2 border-t">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
 
 const PasswordConfirmModal = ({ isOpen, onClose, onConfirm, actionType, itemName, user }) => {
   const [password, setPassword] = useState('');
