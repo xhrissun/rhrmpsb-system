@@ -168,7 +168,7 @@ function extractLevels(rows, headerY) {
   if (firstComp) {
     const compName = firstComp.map(i => i.str).join(' ');
     if (compName.includes('RO2')) {
-      console.log('RO2 INTERMEDIATE parsed result:', levels.INTERMEDIATE);
+      console.log('RO2 Debug - INTERMEDIATE column lines:', cols[1]);
     }
   }
   
