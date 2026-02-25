@@ -94,36 +94,12 @@ function fixSpacing(text) {
 function parseColumn(lines) {
   const biLines = [], items = [], cur = [];
   let inItems = false;
-  
   for (const line of lines) {
     const t = line.trim();
     if (!t) continue;
-    
-    // Check if this line starts a numbered item
     if (/^\d+\./.test(t)) {
-      // Check if this might be a continuation of behavioral indicator
-      // If we haven't seen any items yet AND this line is very short (less than 50 chars)
-      // it might be the end of the behavioral indicator, not a real item
-      if (!inItems && biLines.length > 0 && t.length < 100) {
-        // This might be behavioral indicator continuation
-        // Check if it looks like a sentence fragment (no verb at start)
-        const afterNumber = t.replace(/^\d+\.\s*/, '');
-        const startsWithVerb = /^(Knows|Identifies|Develops|Prepares|Integrates|Conducts|Leads|Assists|Formulates|Creates|Analyzes|Evaluates|Implements|Applies|Uses|Performs|Executes|Manages|Coordinates|Facilitates|Monitors|Reviews|Assesses|Documents|Reports|Communicates|Collaborates|Supports|Maintains|Updates|Ensures|Provides|Demonstrates|Understands|Recognizes|Describes|Explains|Interprets|Compares|Synthesizes|Designs|Plans|Organizes|Establishes|Initiates|Completes)\b/i.test(afterNumber);
-        
-        if (!startsWithVerb) {
-          // Likely behavioral indicator continuation - add to biLines
-          biLines.push(afterNumber);
-          continue;
-        }
-      }
-      
-      // This is a real item - save previous item if exists
-      if (cur.length) { 
-        items.push(cur.join(' ').trim()); 
-        cur.length = 0; 
-      }
-      cur.push(t); 
-      inItems = true;
+      if (cur.length) { items.push(cur.join(' ').trim()); cur.length = 0; }
+      cur.push(t); inItems = true;
     } else if (inItems) {
       cur.push(t);
     } else if (t.length > 3 && !LEVEL_NAMES.includes(t)) {
