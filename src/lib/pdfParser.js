@@ -5,7 +5,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 
 const COLUMN_BOUNDARIES = [192, 384, 589];
 const LEVEL_NAMES = ['BASIC', 'INTERMEDIATE', 'ADVANCED', 'SUPERIOR'];
-const PDF_PATH = '/rhrmpsb-system/CBS_REGION_PENRO_CENRO.pdf';
+const PDF_PATH = '/rhrmpsb-system/2025_CBS.pdf';
 const CODE_RE = /^([A-Z]+\d+[A-Z]?)\s*[-–]\s*(.+)/;
 
 let _cache = null;
@@ -54,23 +54,105 @@ function findHeaderRow(rows) {
   return null;
 }
 
+function cleanText(text) {
+  if (!text) return text;
+  
+  // Fix ONLY very specific known broken words from the CBS manual
+  // These are confirmed OCR errors where a space appears mid-word
+  const fixes = {
+    'Deve lops': 'Develops',
+    'deve lops': 'develops',
+    'st rategies': 'strategies',
+    'St rategies': 'Strategies',
+    'con cepts': 'concepts',
+    'Con cepts': 'Concepts',
+    'pro cedures': 'procedures',
+    'Pro cedures': 'Procedures',
+    'imple ments': 'implements',
+    'Imple ments': 'Implements',
+    'pro grams': 'programs',
+    'Pro grams': 'Programs',
+    'pro jects': 'projects',
+    'Pro jects': 'Projects',
+    'inte grates': 'integrates',
+    'Inte grates': 'Integrates',
+    'inter ventions': 'interventions',
+    'Inter ventions': 'Interventions',
+    'poli cies': 'policies',
+    'Poli cies': 'Policies',
+    'guide lines': 'guidelines',
+    'Guide lines': 'Guidelines',
+    'cri teria': 'criteria',
+    'Cri teria': 'Criteria',
+    'stra tegic': 'strategic',
+    'Stra tegic': 'Strategic',
+    'opera tions': 'operations',
+    'Opera tions': 'Operations',
+    'solu tions': 'solutions',
+    'Solu tions': 'Solutions',
+    'ana lyzes': 'analyzes',
+    'Ana lyzes': 'Analyzes',
+    'eva luates': 'evaluates',
+    'Eva luates': 'Evaluates',
+    'com munication': 'communication',
+    'Com munication': 'Communication',
+    'recom mends': 'recommends',
+    'Recom mends': 'Recommends',
+    'iden tifies': 'identifies',
+    'Iden tifies': 'Identifies',
+    'ini tiates': 'initiates',
+    'Ini tiates': 'Initiates',
+  };
+  
+  // Apply each fix
+  for (const [broken, fixed] of Object.entries(fixes)) {
+    text = text.replace(new RegExp(broken, 'g'), fixed);
+  }
+  
+  // Remove excessive spaces (3 or more spaces -> 1 space)
+  text = text.replace(/\s{3,}/g, ' ');
+  
+  // Trim
+  text = text.trim();
+  
+  return text;
+}
+
 function parseColumn(lines) {
   const biLines = [], items = [], cur = [];
   let inItems = false;
-  for (const line of lines) {
-    const t = line.trim();
+  
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
     if (!t) continue;
+    
+    // Check if this line starts a numbered item
     if (/^\d+\./.test(t)) {
-      if (cur.length) { items.push(cur.join(' ').trim()); cur.length = 0; }
-      cur.push(t); inItems = true;
+      // Save previous item if exists
+      if (cur.length) { 
+        items.push(cleanText(cur.join(' '))); 
+        cur.length = 0; 
+      }
+      cur.push(t); 
+      inItems = true;
     } else if (inItems) {
+      // Continue building current item
       cur.push(t);
     } else if (t.length > 3 && !LEVEL_NAMES.includes(t)) {
+      // This is part of behavioral indicator
       biLines.push(t);
     }
   }
-  if (cur.length) items.push(cur.join(' ').trim());
-  return { behavioralIndicator: biLines.join(' ').trim(), items };
+  
+  // Don't forget the last item
+  if (cur.length) {
+    items.push(cleanText(cur.join(' ')));
+  }
+  
+  // Clean and join behavioral indicator
+  const behavioralIndicator = cleanText(biLines.join(' '));
+  
+  return { behavioralIndicator, items };
 }
 
 function extractLevels(rows, headerY) {
