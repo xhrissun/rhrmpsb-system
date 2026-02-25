@@ -278,8 +278,15 @@ const AdminView = ({ user }) => {
     // Apply sorting
     if (sortConfig.key) {
       filteredData.sort((a, b) => {
-        const aValue = sortConfig.key.split('.').reduce((obj, key) => obj?.[key], a);
-        const bValue = sortConfig.key.split('.').reduce((obj, key) => obj?.[key], b);
+        let aValue = sortConfig.key.split('.').reduce((obj, key) => obj?.[key], a);
+        let bValue = sortConfig.key.split('.').reduce((obj, key) => obj?.[key], b);
+
+        // Strip competency prefixes when sorting by 'name'
+        if (sortConfig.key === 'name' && typeof aValue === 'string' && typeof bValue === 'string') {
+          // Remove patterns like "(ADV) -", "(BAS) -", "(INT) -" from the beginning
+          aValue = aValue.replace(/^\([A-Z]+\)\s*-\s*/i, '').trim();
+          bValue = bValue.replace(/^\([A-Z]+\)\s*-\s*/i, '').trim();
+        }
 
         if (aValue === null || aValue === undefined) return 1;
         if (bValue === null || bValue === undefined) return -1;
