@@ -191,9 +191,14 @@ export async function ensureParsed(onProgress) {
 
 export async function findCompetencyByName(name, threshold = 0.30) {
   const comps = await ensureParsed();
+  
+  // Strip common level prefixes from the search name
+  // Patterns: (ADV) -, (BAS) -, (INT) -, (SUP) -, etc.
+  const cleanName = name.replace(/^\([A-Z]+\)\s*-\s*/i, '').trim();
+  
   let best = null, bestScore = 0;
   for (const c of comps) {
-    const s = score(name, c.name);
+    const s = score(cleanName, c.name);
     if (s > bestScore) { bestScore = s; best = c; }
   }
   return bestScore >= threshold ? best : null;
