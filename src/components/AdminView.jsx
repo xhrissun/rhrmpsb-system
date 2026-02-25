@@ -6,6 +6,7 @@ import InterviewSummaryGenerator from './InterviewSummaryGenerator';
 import { useToast } from '../utils/ToastContext';
 import RatingLogsView from './RatingLogsView';
 import PublicationRangeManager from './PublicationRangeManager';
+import CompetencyDetailModal from './CompetencyDetailModal';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Exported reusable components
@@ -174,6 +175,14 @@ const AdminView = ({ user }) => {
   const [vacancyCompetencies, setVacancyCompetencies] = useState([]);
   const [loadingCompetencies, setLoadingCompetencies] = useState(false);
   const [showCompetencySummary, setShowCompetencySummary] = useState(false);
+
+  const [showCompetencyDetail, setShowCompetencyDetail] = useState(false);
+  const [selectedCompetencyForDetail, setSelectedCompetencyForDetail] = useState(null);
+
+  const handleViewCompetencyDetail = useCallback((competency) => {
+    setSelectedCompetencyForDetail(competency);
+    setShowCompetencyDetail(true);
+  }, []);
 
   // ─── CSV Upload UX State ───────────────────────────────────────────────────
   const [csvUploading, setCsvUploading] = useState({
@@ -1954,7 +1963,13 @@ const loadDataForCurrentTab = useCallback(async () => {
                   return (
                     <tr key={competency._id}>
                       <td className="table-cell px-4 py-2 whitespace-normal break-words max-w-xs text-xs">
-                        {competency.name}
+                        <button
+                          onClick={() => handleViewCompetencyDetail(competency)}
+                          className="text-left text-blue-700 hover:text-blue-900 hover:underline underline-offset-2 font-medium transition-colors"
+                          title="View CBS proficiency levels"
+                        >
+                          {competency.name}
+                        </button>
                       </td>
                       <td className="table-cell px-4 py-2">
                         <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded text-xs capitalize">
@@ -2509,7 +2524,13 @@ const loadDataForCurrentTab = useCallback(async () => {
                           .map((competency, index) => (
                             <li key={competency._id} className="flex items-start">
                               <span className="text-blue-600 mr-2">{index + 1}.</span>
-                              <span className="text-gray-800">{competency.name}</span>
+                              <button
+                                onClick={() => handleViewCompetencyDetail(competency)}
+                                className="text-left text-gray-800 hover:text-blue-700 hover:underline underline-offset-2 transition-colors"
+                                title="View CBS proficiency levels"
+                              >
+                                {competency.name}
+                              </button>
                               {competency.isFixed && (
                                 <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-800 text-xs rounded">
                                   Fixed
@@ -2533,7 +2554,13 @@ const loadDataForCurrentTab = useCallback(async () => {
                           .map((competency, index) => (
                             <li key={competency._id} className="flex items-start">
                               <span className="text-purple-600 mr-2">{index + 1}.</span>
-                              <span className="text-gray-800">{competency.name}</span>
+                              <button
+                                onClick={() => handleViewCompetencyDetail(competency)}
+                                className="text-left text-gray-800 hover:text-blue-700 hover:underline underline-offset-2 transition-colors"
+                                title="View CBS proficiency levels"
+                              >
+                                {competency.name}
+                              </button>
                               {competency.isFixed && (
                                 <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-800 text-xs rounded">
                                   Fixed
@@ -2560,7 +2587,13 @@ const loadDataForCurrentTab = useCallback(async () => {
                           .map((competency, index) => (
                             <li key={competency._id} className="flex items-start">
                               <span className="text-indigo-600 mr-2">{index + 1}.</span>
-                              <span className="text-gray-800">{competency.name}</span>
+                              <button
+                                onClick={() => handleViewCompetencyDetail(competency)}
+                                className="text-left text-gray-800 hover:text-blue-700 hover:underline underline-offset-2 transition-colors"
+                                title="View CBS proficiency levels"
+                              >
+                                {competency.name}
+                              </button>
                               {competency.isFixed && (
                                 <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-800 text-xs rounded">
                                   Fixed
@@ -2584,7 +2617,13 @@ const loadDataForCurrentTab = useCallback(async () => {
                           .map((competency, index) => (
                             <li key={competency._id} className="flex items-start">
                               <span className="text-orange-600 mr-2">{index + 1}.</span>
-                              <span className="text-gray-800">{competency.name}</span>
+                              <button
+                                onClick={() => handleViewCompetencyDetail(competency)}
+                                className="text-left text-gray-800 hover:text-blue-700 hover:underline underline-offset-2 transition-colors"
+                                title="View CBS proficiency levels"
+                              >
+                                {competency.name}
+                              </button>
                               {competency.isFixed && (
                                 <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-800 text-xs rounded">
                                   Fixed
@@ -2636,6 +2675,17 @@ const loadDataForCurrentTab = useCallback(async () => {
               </div>
             </div>
           </div>
+        )}
+
+        {showCompetencyDetail && selectedCompetencyForDetail && (
+          <CompetencyDetailModal
+            competencyName={selectedCompetencyForDetail.name}
+            competencyType={selectedCompetencyForDetail.type}
+            onClose={() => {
+              setShowCompetencyDetail(false);
+              setSelectedCompetencyForDetail(null);
+            }}
+          />
         )}
 
         {/* Password Confirmation Modal */}
