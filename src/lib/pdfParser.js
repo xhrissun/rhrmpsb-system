@@ -5,7 +5,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 
 const COLUMN_BOUNDARIES = [192, 384, 589];
 const LEVEL_NAMES = ['BASIC', 'INTERMEDIATE', 'ADVANCED', 'SUPERIOR'];
-const PDF_PATH = '/rhrmpsb-system/2025_CBS.pdf';
+const PDF_PATH = '/rhrmpsb-system/CBS_REGION_PENRO_CENRO.pdf';
 const CODE_RE = /^([A-Z]+\d+[A-Z]?)\s*[-–]\s*(.+)/;
 
 let _cache = null;
@@ -57,49 +57,63 @@ function findHeaderRow(rows) {
 function cleanText(text) {
   if (!text) return text;
   
-  // Fix broken words with spaces (e.g., "Deve lops" -> "Develops", "st rategies" -> "strategies")
-  // Pattern: word ending + space + lowercase letters starting next word
-  text = text.replace(/([a-z]+)\s+([a-z]{1,4})\b/g, (match, part1, part2) => {
-    // Only merge if the second part is very short (likely a broken suffix)
-    return part1 + part2;
-  });
+  // Fix ONLY very specific known broken words from the CBS manual
+  // These are confirmed OCR errors where a space appears mid-word
+  const fixes = {
+    'Deve lops': 'Develops',
+    'deve lops': 'develops',
+    'st rategies': 'strategies',
+    'St rategies': 'Strategies',
+    'con cepts': 'concepts',
+    'Con cepts': 'Concepts',
+    'pro cedures': 'procedures',
+    'Pro cedures': 'Procedures',
+    'imple ments': 'implements',
+    'Imple ments': 'Implements',
+    'pro grams': 'programs',
+    'Pro grams': 'Programs',
+    'pro jects': 'projects',
+    'Pro jects': 'Projects',
+    'inte grates': 'integrates',
+    'Inte grates': 'Integrates',
+    'inter ventions': 'interventions',
+    'Inter ventions': 'Interventions',
+    'poli cies': 'policies',
+    'Poli cies': 'Policies',
+    'guide lines': 'guidelines',
+    'Guide lines': 'Guidelines',
+    'cri teria': 'criteria',
+    'Cri teria': 'Criteria',
+    'stra tegic': 'strategic',
+    'Stra tegic': 'Strategic',
+    'opera tions': 'operations',
+    'Opera tions': 'Operations',
+    'solu tions': 'solutions',
+    'Solu tions': 'Solutions',
+    'ana lyzes': 'analyzes',
+    'Ana lyzes': 'Analyzes',
+    'eva luates': 'evaluates',
+    'Eva luates': 'Evaluates',
+    'com munication': 'communication',
+    'Com munication': 'Communication',
+    'recom mends': 'recommends',
+    'Recom mends': 'Recommends',
+    'iden tifies': 'identifies',
+    'Iden tifies': 'Identifies',
+    'ini tiates': 'initiates',
+    'Ini tiates': 'Initiates',
+  };
   
-  // Fix specific common breaks
-  text = text.replace(/\bst rategies\b/gi, 'strategies');
-  text = text.replace(/\bDeve lops\b/gi, 'Develops');
-  text = text.replace(/\bcon cepts\b/gi, 'concepts');
-  text = text.replace(/\bpro cedures\b/gi, 'procedures');
-  text = text.replace(/\bimple ments\b/gi, 'implements');
-  text = text.replace(/\bpro grams\b/gi, 'programs');
-  text = text.replace(/\bpro jects\b/gi, 'projects');
-  text = text.replace(/\binte grates\b/gi, 'integrates');
-  text = text.replace(/\binter ventions\b/gi, 'interventions');
-  text = text.replace(/\bpoli cies\b/gi, 'policies');
-  text = text.replace(/\bguide lines\b/gi, 'guidelines');
-  text = text.replace(/\bcri teria\b/gi, 'criteria');
-  text = text.replace(/\bstra tegic\b/gi, 'strategic');
-  text = text.replace(/\bopera tions\b/gi, 'operations');
-  text = text.replace(/\bsolu tions\b/gi, 'solutions');
-  text = text.replace(/\bana lyzes\b/gi, 'analyzes');
-  text = text.replace(/\beva luates\b/gi, 'evaluates');
-  text = text.replace(/\bcom munication\b/gi, 'communication');
+  // Apply each fix
+  for (const [broken, fixed] of Object.entries(fixes)) {
+    text = text.replace(new RegExp(broken, 'g'), fixed);
+  }
   
-  // Remove excessive spaces
-  text = text.replace(/\s{2,}/g, ' ');
+  // Remove excessive spaces (3 or more spaces -> 1 space)
+  text = text.replace(/\s{3,}/g, ' ');
   
   // Trim
   text = text.trim();
-  
-  // Check if text ends abruptly (ends with lowercase letter followed by nothing, suggesting truncation)
-  // If so, add ellipsis to indicate incomplete text
-  if (text.length > 50 && /[a-z]$/.test(text) && !text.endsWith('.') && !text.endsWith('s') && !text.endsWith('d')) {
-    // Looks truncated - but only mark as such if it doesn't end naturally
-    const lastWords = text.split(/\s+/).slice(-3).join(' ');
-    if (!lastWords.match(/\b(and|or|the|of|in|on|at|to|for|with|across|through)$/)) {
-      // Doesn't end with common prepositions/conjunctions, likely truncated
-      // Don't add ellipsis, as it might continue in next item
-    }
-  }
   
   return text;
 }
