@@ -180,7 +180,7 @@ const RaterView = ({ user }) => {
       setLoading(true);
       const vacanciesRes = await vacanciesAPI.getAll();
       
-      // FIX: Filter out archived vacancies
+      // ✅ Ensure we filter archived vacancies (already done but being explicit)
       const activeVacancies = vacanciesRes.filter(v => !v.isArchived);
       const filteredVacancies = filterVacanciesByAssignment(activeVacancies, user);
       
@@ -195,9 +195,13 @@ const RaterView = ({ user }) => {
   const loadCandidatesByItemNumber = async () => {
     try {
       const candidatesRes = await candidatesAPI.getByItemNumber(selectedItemNumber);
+      
+      // ✅ Filter for BOTH long-list status AND non-archived
       const longListCandidates = candidatesRes.filter(candidate =>
-        candidate.status === CANDIDATE_STATUS.LONG_LIST
+        candidate.status === CANDIDATE_STATUS.LONG_LIST &&
+        !candidate.isArchived  // ← ADD THIS
       );
+      
       setCandidates(longListCandidates);
     } catch (error) {
       console.error('Failed to load candidates:', error);
