@@ -74,43 +74,58 @@ function LevelPanel({ level, data }) {
 
   return (
     <div style={{ animation: 'cdmSlide .2s ease-out' }}>
+      {/* Behavioral Indicator Section */}
       {data.behavioralIndicator && (
-        <div className={`rounded-xl p-5 mb-4 ${cfg.card}`}>
-          <div className="flex flex-wrap gap-2 mb-2">
-            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full uppercase tracking-wide ${cfg.badge}`}>{level}</span>
-            <span className="text-gray-400 text-xs">{cfg.sub}</span>
+        <div className={`rounded-xl p-6 mb-6 ${cfg.card}`}>
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-2xl">{cfg.icon}</span>
+            <div>
+              <h3 className={`text-lg font-bold ${cfg.title}`}>{cfg.label} Level</h3>
+              <p className="text-xs text-gray-500">{cfg.sub}</p>
+            </div>
           </div>
-          <p className={`text-base font-semibold leading-snug ${cfg.title}`}>{data.behavioralIndicator}</p>
+          <div className="pl-9">
+            <p className={`text-base leading-relaxed ${cfg.title.replace('text-', 'text-gray-')}800`}>
+              {data.behavioralIndicator}
+            </p>
+          </div>
         </div>
       )}
+
+      {/* KSAs Section */}
       {data.items.length > 0 && (
-        <>
-          <p className="text-xs font-medium text-gray-400 uppercase tracking-widest mb-3">Knowledge, Skills &amp; Abilities</p>
-          <div className="flex flex-col gap-2">
+        <div>
+          <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+            <span>Knowledge, Skills &amp; Abilities</span>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] ${cfg.badge}`}>{data.items.length}</span>
+          </h4>
+          <div className="space-y-2.5">
             {data.items.map((item, idx) => {
               const m = item.match(/^(\d+)\.\s*/);
               const num = m ? m[1] : String(idx + 1);
               const text = m ? item.slice(m[0].length) : item;
               return (
-                <div key={idx} className="flex gap-3 p-3.5 rounded-xl bg-white border border-gray-100 shadow-sm">
-                  <div className={`flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold font-mono ${cfg.num}`}>{num}</div>
+                <div key={idx} className="flex gap-3 p-4 rounded-xl bg-white border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
+                  <div className={`flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold font-mono ${cfg.num}`}>
+                    {num}
+                  </div>
                   <p className="text-gray-700 text-sm leading-relaxed pt-0.5">{text}</p>
                 </div>
               );
             })}
           </div>
-        </>
+        </div>
       )}
     </div>
   );
 }
 
-export default function CompetencyDetailModal({ competencyName, competencyType, onClose }) {
+export default function CompetencyDetailModal({ competencyName, competencyType, suggestedLevel, onClose }) {
   const [status, setStatus] = useState('loading');
   const [progress, setProgress] = useState(0);
   const [msg, setMsg] = useState('Checking…');
   const [data, setData] = useState(null);
-  const [activeLevel, setActiveLevel] = useState('BASIC');
+  const [activeLevel, setActiveLevel] = useState(suggestedLevel || 'BASIC');
   const overlayRef = useRef(null);
 
   useEffect(() => {
@@ -124,8 +139,13 @@ export default function CompetencyDetailModal({ competencyName, competencyType, 
         if (cancelled) return;
         if (result) {
           setData(result);
-          const first = LEVELS.find(l => result.levels[l]?.behavioralIndicator || result.levels[l]?.items.length > 0);
-          setActiveLevel(first ?? 'BASIC');
+          // Use suggested level if available and has content, otherwise find first available
+          if (suggestedLevel && (result.levels[suggestedLevel]?.behavioralIndicator || result.levels[suggestedLevel]?.items.length > 0)) {
+            setActiveLevel(suggestedLevel);
+          } else {
+            const first = LEVELS.find(l => result.levels[l]?.behavioralIndicator || result.levels[l]?.items.length > 0);
+            setActiveLevel(first ?? 'BASIC');
+          }
           setStatus('found');
         } else {
           setStatus('not_found');
@@ -133,7 +153,7 @@ export default function CompetencyDetailModal({ competencyName, competencyType, 
       } catch { if (!cancelled) setStatus('not_found'); }
     })();
     return () => { cancelled = true; };
-  }, [competencyName]);
+  }, [competencyName, suggestedLevel]);
 
   useEffect(() => {
     const h = e => { if (e.key === 'Escape') onClose(); };
@@ -156,7 +176,7 @@ export default function CompetencyDetailModal({ competencyName, competencyType, 
         style={{ animation: 'cdmFadeIn .15s ease-out' }}
       >
         <div
-          className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh] overflow-hidden"
+          className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl flex flex-col max-h-[90vh] overflow-hidden"
           style={{ animation: 'cdmIn .2s ease-out' }}
         >
           {/* Header */}
@@ -175,7 +195,9 @@ export default function CompetencyDetailModal({ competencyName, competencyType, 
                   <span className="text-xs px-2.5 py-1 rounded-full bg-amber-50 text-amber-700">{data.category}</span>
                 )}
               </div>
-              <h2 className="text-lg font-bold text-gray-900 leading-snug">{competencyName}</h2>
+              <h2 className="text-xl font-bold text-gray-900 leading-snug">
+                {competencyName.replace(/^\([A-Z]+\)\s*-\s*/i, '')}
+              </h2>
             </div>
             <button
               onClick={onClose}
@@ -216,7 +238,7 @@ export default function CompetencyDetailModal({ competencyName, competencyType, 
                 <div className="text-5xl mb-4">🔍</div>
                 <h3 className="text-base font-semibold text-gray-700 mb-2">Not Found in CBS Manual</h3>
                 <p className="text-sm text-gray-400 max-w-xs leading-relaxed">
-                  Could not match <strong>"{competencyName}"</strong> in the PDF. The database name may differ slightly from the manual's wording.
+                  Could not match <strong>"{competencyName.replace(/^\([A-Z]+\)\s*-\s*/i, '')}"</strong> in the PDF. The database name may differ slightly from the manual's wording.
                 </p>
                 <button onClick={onClose} className="mt-6 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm">Close</button>
               </div>
@@ -235,61 +257,52 @@ export default function CompetencyDetailModal({ competencyName, competencyType, 
             )}
 
             {status === 'found' && data && (
-              <div className="p-6 space-y-5">
-                <div className="flex flex-wrap gap-2">
-                  {LEVELS.map(level => {
-                    const cfg = LEVEL_CFG[level];
-                    const ld = data.levels[level];
-                    const has = ld?.behavioralIndicator || ld?.items.length > 0;
-                    return (
-                      <button
-                        key={level}
-                        onClick={() => setActiveLevel(level)}
-                        disabled={!has}
-                        className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all
-                          ${activeLevel === level ? cfg.tab : cfg.tabOff}
-                          ${!has ? 'opacity-30 cursor-not-allowed' : ''}`}
-                      >
-                        <span>{cfg.icon}</span>
-                        <span>{cfg.label}</span>
-                        {has && ld.items.length > 0 && (
-                          <span className={`text-xs font-mono px-1.5 py-0.5 rounded ${activeLevel === level ? 'bg-white/25' : cfg.badge}`}>
-                            {ld.items.length}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
+              <>
+                {/* Level Tabs */}
+                <div className="sticky top-0 bg-white border-b border-gray-100 px-6 pt-4 pb-3 z-10">
+                  <div className="flex flex-wrap gap-2">
+                    {LEVELS.map(level => {
+                      const cfg = LEVEL_CFG[level];
+                      const ld = data.levels[level];
+                      const has = ld?.behavioralIndicator || ld?.items.length > 0;
+                      return (
+                        <button
+                          key={level}
+                          onClick={() => setActiveLevel(level)}
+                          disabled={!has}
+                          className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all
+                            ${activeLevel === level ? cfg.tab : cfg.tabOff}
+                            ${!has ? 'opacity-30 cursor-not-allowed' : ''}`}
+                        >
+                          <span>{cfg.icon}</span>
+                          <span>{cfg.label}</span>
+                          {has && ld.items.length > 0 && (
+                            <span className={`text-xs font-mono px-1.5 py-0.5 rounded ${activeLevel === level ? 'bg-white/25' : cfg.badge}`}>
+                              {ld.items.length}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-                <LevelPanel level={activeLevel} data={data.levels[activeLevel]} />
-              </div>
+
+                {/* Content Area */}
+                <div className="p-6">
+                  <LevelPanel level={activeLevel} data={data.levels[activeLevel]} />
+                </div>
+              </>
             )}
           </div>
 
-          {/* Footer summary strip */}
+          {/* Footer */}
           {status === 'found' && data && (
             <div className="flex-shrink-0 border-t border-gray-100 px-6 py-3 bg-gray-50/50">
-              <div className="flex gap-3 overflow-x-auto pb-2 mb-2">
-                {LEVELS.map(level => {
-                  const cfg = LEVEL_CFG[level];
-                  const ld = data.levels[level];
-                  if (!ld?.behavioralIndicator) return null;
-                  return (
-                    <button
-                      key={level}
-                      onClick={() => setActiveLevel(level)}
-                      className={`flex-shrink-0 text-left p-2.5 rounded-lg text-xs max-w-[175px] transition-all
-                        ${activeLevel === level ? 'bg-white ring-1 ring-gray-200 shadow-sm' : 'hover:bg-white/70 opacity-60 hover:opacity-100'}`}
-                    >
-                      <span className={`font-semibold block mb-0.5 ${cfg.title}`}>{cfg.icon} {cfg.label}</span>
-                      <span className="text-gray-500 leading-relaxed line-clamp-2">{ld.behavioralIndicator}</span>
-                    </button>
-                  );
-                })}
-              </div>
               <div className="flex items-center justify-between">
                 <p className="text-xs text-gray-400">Source: CBS Manual · {data.code}</p>
-                <button onClick={onClose} className="px-4 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg text-sm transition-colors">Close</button>
+                <button onClick={onClose} className="px-4 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg text-sm transition-colors">
+                  Close
+                </button>
               </div>
             </div>
           )}
