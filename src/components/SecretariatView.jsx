@@ -409,49 +409,37 @@ const SecretariatView = ({ user }) => {
       const includeArchived = selectedRange?.isArchived || false;
       
       if (selectedItemNumber) {
-        filteredCandidates = await candidatesAPI.getByItemNumber(selectedItemNumber);
-        if (selectedRange) {
-          filteredCandidates = filteredCandidates.filter(c => 
-            c.isArchived === includeArchived
-          );
-        }
+        // ✅ CHANGE THIS LINE:
+        filteredCandidates = await candidatesAPI.getByItemNumber(selectedItemNumber, includeArchived);
+        // REMOVED: Manual filtering since backend now handles it
       } else if (selectedPosition) {
         const vacancyItemNumbers = vacancies
           .filter(v => v.assignment === selectedAssignment && v.position === selectedPosition)
           .map(v => v.itemNumber);
         const candidatesRes = await Promise.all(
-          vacancyItemNumbers.map(itemNumber => candidatesAPI.getByItemNumber(itemNumber))
+          vacancyItemNumbers.map(itemNumber => 
+            candidatesAPI.getByItemNumber(itemNumber, includeArchived) // ✅ ADD includeArchived
+          )
         );
         filteredCandidates = candidatesRes.flat();
-        if (selectedRange) {
-          filteredCandidates = filteredCandidates.filter(c => 
-            c.isArchived === includeArchived
-          );
-        }
       } else if (selectedAssignment) {
         const vacancyItemNumbers = vacancies
           .filter(v => v.assignment === selectedAssignment)
           .map(v => v.itemNumber);
         const candidatesRes = await Promise.all(
-          vacancyItemNumbers.map(itemNumber => candidatesAPI.getByItemNumber(itemNumber))
+          vacancyItemNumbers.map(itemNumber => 
+            candidatesAPI.getByItemNumber(itemNumber, includeArchived) // ✅ ADD includeArchived
+          )
         );
         filteredCandidates = candidatesRes.flat();
-        if (selectedRange) {
-          filteredCandidates = filteredCandidates.filter(c => 
-            c.isArchived === includeArchived
-          );
-        }
       } else {
         const vacancyItemNumbers = vacancies.map(v => v.itemNumber);
         const candidatesRes = await Promise.all(
-          vacancyItemNumbers.map(itemNumber => candidatesAPI.getByItemNumber(itemNumber))
+          vacancyItemNumbers.map(itemNumber => 
+            candidatesAPI.getByItemNumber(itemNumber, includeArchived) // ✅ ADD includeArchived
+          )
         );
         filteredCandidates = candidatesRes.flat();
-        if (selectedRange) {
-          filteredCandidates = filteredCandidates.filter(c => 
-            c.isArchived === includeArchived
-          );
-        }
       }
       
       // CRITICAL: Deduplicate candidates by _id
