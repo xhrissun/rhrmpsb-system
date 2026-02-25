@@ -5,7 +5,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 
 const COLUMN_BOUNDARIES = [192, 384, 589];
 const LEVEL_NAMES = ['BASIC', 'INTERMEDIATE', 'ADVANCED', 'SUPERIOR'];
-const PDF_PATH = '/rhrmpsb-system/CBS_REGION_PENRO_CENRO.pdf';
+const PDF_PATH = '/rhrmpsb-system/2025_CBS.pdf';
 const CODE_RE = /^([A-Z]+\d+[A-Z]?)\s*[-–]\s*(.+)/;
 
 let _cache = null;
@@ -60,6 +60,7 @@ function cleanText(text) {
   // Fix ONLY very specific known broken words from the CBS manual
   // These are confirmed OCR errors where a space appears mid-word
   const fixes = {
+    // Common broken words
     'Deve lops': 'Develops',
     'deve lops': 'develops',
     'st rategies': 'strategies',
@@ -102,6 +103,35 @@ function cleanText(text) {
     'Iden tifies': 'Identifies',
     'ini tiates': 'initiates',
     'Ini tiates': 'Initiates',
+    // Common short words that get broken
+    'th e': 'the',
+    'Th e': 'The',
+    'an d': 'and',
+    'An d': 'And',
+    'o f': 'of',
+    'O f': 'Of',
+    't o': 'to',
+    'T o': 'To',
+    'i n': 'in',
+    'I n': 'In',
+    'i s': 'is',
+    'I s': 'Is',
+    'a s': 'as',
+    'A s': 'As',
+    'a t': 'at',
+    'A t': 'At',
+    'i t': 'it',
+    'I t': 'It',
+    'b e': 'be',
+    'B e': 'Be',
+    'b y': 'by',
+    'B y': 'By',
+    'o r': 'or',
+    'O r': 'Or',
+    'o n': 'on',
+    'O n': 'On',
+    'w e': 'we',
+    'W e': 'We',
   };
   
   // Apply each fix
