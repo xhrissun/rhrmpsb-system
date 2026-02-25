@@ -54,23 +54,91 @@ function findHeaderRow(rows) {
   return null;
 }
 
+function cleanText(text) {
+  if (!text) return text;
+  
+  // Fix broken words with spaces (e.g., "Deve lops" -> "Develops", "st rategies" -> "strategies")
+  // Pattern: word ending + space + lowercase letters starting next word
+  text = text.replace(/([a-z]+)\s+([a-z]{1,4})\b/g, (match, part1, part2) => {
+    // Only merge if the second part is very short (likely a broken suffix)
+    return part1 + part2;
+  });
+  
+  // Fix specific common breaks
+  text = text.replace(/\bst rategies\b/gi, 'strategies');
+  text = text.replace(/\bDeve lops\b/gi, 'Develops');
+  text = text.replace(/\bcon cepts\b/gi, 'concepts');
+  text = text.replace(/\bpro cedures\b/gi, 'procedures');
+  text = text.replace(/\bimple ments\b/gi, 'implements');
+  text = text.replace(/\bpro grams\b/gi, 'programs');
+  text = text.replace(/\bpro jects\b/gi, 'projects');
+  text = text.replace(/\binte grates\b/gi, 'integrates');
+  text = text.replace(/\binter ventions\b/gi, 'interventions');
+  text = text.replace(/\bpoli cies\b/gi, 'policies');
+  text = text.replace(/\bguide lines\b/gi, 'guidelines');
+  text = text.replace(/\bcri teria\b/gi, 'criteria');
+  text = text.replace(/\bstra tegic\b/gi, 'strategic');
+  text = text.replace(/\bopera tions\b/gi, 'operations');
+  text = text.replace(/\bsolu tions\b/gi, 'solutions');
+  text = text.replace(/\bana lyzes\b/gi, 'analyzes');
+  text = text.replace(/\beva luates\b/gi, 'evaluates');
+  text = text.replace(/\bcom munication\b/gi, 'communication');
+  
+  // Remove excessive spaces
+  text = text.replace(/\s{2,}/g, ' ');
+  
+  // Trim
+  text = text.trim();
+  
+  // Check if text ends abruptly (ends with lowercase letter followed by nothing, suggesting truncation)
+  // If so, add ellipsis to indicate incomplete text
+  if (text.length > 50 && /[a-z]$/.test(text) && !text.endsWith('.') && !text.endsWith('s') && !text.endsWith('d')) {
+    // Looks truncated - but only mark as such if it doesn't end naturally
+    const lastWords = text.split(/\s+/).slice(-3).join(' ');
+    if (!lastWords.match(/\b(and|or|the|of|in|on|at|to|for|with|across|through)$/)) {
+      // Doesn't end with common prepositions/conjunctions, likely truncated
+      // Don't add ellipsis, as it might continue in next item
+    }
+  }
+  
+  return text;
+}
+
 function parseColumn(lines) {
   const biLines = [], items = [], cur = [];
   let inItems = false;
-  for (const line of lines) {
-    const t = line.trim();
+  
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
     if (!t) continue;
+    
+    // Check if this line starts a numbered item
     if (/^\d+\./.test(t)) {
-      if (cur.length) { items.push(cur.join(' ').trim()); cur.length = 0; }
-      cur.push(t); inItems = true;
+      // Save previous item if exists
+      if (cur.length) { 
+        items.push(cleanText(cur.join(' '))); 
+        cur.length = 0; 
+      }
+      cur.push(t); 
+      inItems = true;
     } else if (inItems) {
+      // Continue building current item
       cur.push(t);
     } else if (t.length > 3 && !LEVEL_NAMES.includes(t)) {
+      // This is part of behavioral indicator
       biLines.push(t);
     }
   }
-  if (cur.length) items.push(cur.join(' ').trim());
-  return { behavioralIndicator: biLines.join(' ').trim(), items };
+  
+  // Don't forget the last item
+  if (cur.length) {
+    items.push(cleanText(cur.join(' ')));
+  }
+  
+  // Clean and join behavioral indicator
+  const behavioralIndicator = cleanText(biLines.join(' '));
+  
+  return { behavioralIndicator, items };
 }
 
 function extractLevels(rows, headerY) {
