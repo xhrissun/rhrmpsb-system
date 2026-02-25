@@ -132,11 +132,10 @@ function parseColumn(lines) {
   return { behavioralIndicator, items: fixedItems };
 }
 
-// ✅ IMPROVED: Extract ALL content from header onwards, not just immediate rows
+// ✅ FIXED: Properly reconstruct text lines within each column
 function extractLevels(rows, headerY) {
   const cols = [[], [], [], []];
   let past = false;
-  let hitSectionBreak = false; // ✅ NEW: Track section breaks
   
   for (const [y, items] of rows) {
     // Start collecting after header
@@ -148,20 +147,27 @@ function extractLevels(rows, headerY) {
     // Skip header row itself
     if (y === headerY) continue;
     
-    // ✅ NEW: Stop if we hit a section break
+    // Check for section break
     const rowText = items.map(i => i.str).join(' ').trim();
-    if (isSectionBreak(rowText)) {
-      hitSectionBreak = true;
-      break; // Stop collecting content here
-    }
+    if (isSectionBreak(rowText)) break;
     
     // Skip page numbers
     if (/^\d+$/.test(rowText)) continue;
     
-    // Collect all text
+    // ✅ FIX: Group items by column FIRST, then join within each column
+    const rowByCol = [[], [], [], []];
     for (const item of items) {
-      cols[getColumn(item.x)].push(item.str);
+      const colIdx = getColumn(item.x);
+      rowByCol[colIdx].push(item.str);
     }
+    
+    // ✅ FIX: Push joined text as complete lines to each column
+    rowByCol.forEach((colItems, colIdx) => {
+      if (colItems.length > 0) {
+        const line = colItems.join(' ').trim();
+        if (line) cols[colIdx].push(line);
+      }
+    });
   }
   
   const levels = {};
