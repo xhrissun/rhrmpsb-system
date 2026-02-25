@@ -18,7 +18,7 @@ function getColumn(x) {
   return 3;
 }
 
-function groupByRow(items, tol = 5) { // ✅ INCREASED tolerance from 3 to 5
+function groupByRow(items, tol = 5) {
   const rows = new Map();
   for (const item of items) {
     let key = null;
@@ -87,7 +87,6 @@ function fixSpacing(text) {
   return text;
 }
 
-// ✅ IMPROVED: Better column parsing with continuation handling
 function parseColumn(lines) {
   const biLines = [], items = [], cur = [];
   let inItems = false;
@@ -113,7 +112,7 @@ function parseColumn(lines) {
     else if (t.length > 3 && !LEVEL_NAMES.includes(t) && !inItems) {
       biLines.push(t);
     }
-    // ✅ NEW: If we hit a new competency code or header, finalize current item
+    // If we hit a new competency code or header, finalize current item
     else if (CODE_RE.test(t) || LEVEL_NAMES.includes(t)) {
       if (cur.length) {
         items.push(cur.join(' ').trim());
@@ -133,7 +132,7 @@ function parseColumn(lines) {
 }
 
 // ✅ FIXED: Properly reconstruct text lines within each column
-function extractLevels(rows, headerY) {
+function extractLevels(rows, headerY, code) {
   const cols = [[], [], [], []];
   let past = false;
   
@@ -163,19 +162,15 @@ function extractLevels(rows, headerY) {
     });
   }
   
-  // ✅ ADD THIS DEBUG LOG
-  const firstComp = Array.from(rows.values())[0];
-  if (firstComp) {
-    const compName = firstComp.map(i => i.str).join(' ');
-    if (compName.includes('RO2')) {
-      console.log('RO2 Debug - INTERMEDIATE column lines:', cols[1]);
-    }
-  }
-  
   const levels = {};
   LEVEL_NAMES.forEach((name, i) => { 
     levels[name] = parseColumn(cols[i]); 
   });
+  
+  // ✅ Optional: Debug specific competency (remove when done debugging)
+  // if (code === 'RO2') {
+  //   console.log('RO2 INTERMEDIATE parsed:', levels.INTERMEDIATE);
+  // }
   
   return levels;
 }
@@ -251,13 +246,12 @@ async function _parse(onProgress = () => {}) {
       if (next && pi > next.pi) break;
       
       let maxY = 0;
-      let shouldBreak = false; // ✅ NEW: Flag to break outer loop
+      let shouldBreak = false;
       
       for (const [y, items] of allRows[pi]) {
         if (pi === loc.pi && y < loc.y) continue;
         if (pi === next?.pi && y >= next.y) continue;
         
-        // ✅ NEW: Check for section breaks
         const rowText = items.map(i => i.str).join(' ').trim();
         if (isSectionBreak(rowText)) {
           shouldBreak = true;
@@ -268,7 +262,7 @@ async function _parse(onProgress = () => {}) {
         maxY = Math.max(maxY, y);
       }
       
-      if (shouldBreak) break; // ✅ NEW: Stop collecting if section break found
+      if (shouldBreak) break;
       
       yOff += maxY + 50;
       
@@ -279,7 +273,8 @@ async function _parse(onProgress = () => {}) {
     const headerY = findHeaderRow(section);
     if (!headerY) continue;
     
-    const levels = extractLevels(section, headerY);
+    // ✅ Pass code to extractLevels for optional debugging
+    const levels = extractLevels(section, headerY, loc.code);
     const hasContent = LEVEL_NAMES.some(l => 
       levels[l].behavioralIndicator || levels[l].items.length > 0
     );
