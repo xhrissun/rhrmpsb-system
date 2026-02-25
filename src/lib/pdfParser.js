@@ -167,10 +167,10 @@ function extractLevels(rows, headerY, code) {
     levels[name] = parseColumn(cols[i]); 
   });
   
-  // ✅ Optional: Debug specific competency (remove when done debugging)
-  // if (code === 'RO2') {
-  //   console.log('RO2 INTERMEDIATE parsed:', levels.INTERMEDIATE);
-  // }
+  // ✅ Debug ALL competencies to see what's happening
+  console.log(`Processing: ${code}`, {
+    INTERMEDIATE: levels.INTERMEDIATE
+  });
   
   return levels;
 }
