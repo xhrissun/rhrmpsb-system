@@ -138,36 +138,38 @@ function extractLevels(rows, headerY) {
   let past = false;
   
   for (const [y, items] of rows) {
-    // Start collecting after header
     if (!past) { 
       if (y >= headerY) past = true; 
       else continue; 
     }
     
-    // Skip header row itself
     if (y === headerY) continue;
     
-    // Check for section break
     const rowText = items.map(i => i.str).join(' ').trim();
     if (isSectionBreak(rowText)) break;
-    
-    // Skip page numbers
     if (/^\d+$/.test(rowText)) continue;
     
-    // ✅ FIX: Group items by column FIRST, then join within each column
     const rowByCol = [[], [], [], []];
     for (const item of items) {
       const colIdx = getColumn(item.x);
       rowByCol[colIdx].push(item.str);
     }
     
-    // ✅ FIX: Push joined text as complete lines to each column
     rowByCol.forEach((colItems, colIdx) => {
       if (colItems.length > 0) {
         const line = colItems.join(' ').trim();
         if (line) cols[colIdx].push(line);
       }
     });
+  }
+  
+  // ✅ ADD THIS DEBUG LOG
+  const firstComp = Array.from(rows.values())[0];
+  if (firstComp) {
+    const compName = firstComp.map(i => i.str).join(' ');
+    if (compName.includes('RO2')) {
+      console.log('RO2 Debug - INTERMEDIATE column lines:', cols[1]);
+    }
   }
   
   const levels = {};
