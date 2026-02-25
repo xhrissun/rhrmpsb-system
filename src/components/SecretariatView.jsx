@@ -702,16 +702,25 @@ const SecretariatView = ({ user }) => {
   // Auto-collapse filter panel on scroll down, re-expand near top
   useEffect(() => {
     let lastScrollY = window.scrollY;
+    let ticking = false;
+    
     const handleScroll = () => {
-      const currentScrollY = window.scrollY;
-      if (currentScrollY > 160 && currentScrollY > lastScrollY) {
-        setIsFiltersExpanded(false);
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          const currentScrollY = window.scrollY;
+          if (currentScrollY > 160 && currentScrollY > lastScrollY) {
+            setIsFiltersExpanded(false);
+          }
+          if (currentScrollY < 80) {
+            setIsFiltersExpanded(true);
+          }
+          lastScrollY = currentScrollY;
+          ticking = false;
+        });
+        ticking = true;
       }
-      if (currentScrollY < 80) {
-        setIsFiltersExpanded(true);
-      }
-      lastScrollY = currentScrollY;
     };
+    
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
@@ -808,261 +817,178 @@ const SecretariatView = ({ user }) => {
         )}
 
         {/* ── Smart Collapsible Filter Panel ──────────────────────────────────
-             Replaces the 4 previous stacked sticky sections.
-             Single sticky container: expanded = full controls,
-             collapsed = slim summary bar (auto-collapses on scroll down). */}
-        <div className="sticky top-36 z-40 pt-3 pb-2">
+     Replaces the 4 previous stacked sticky sections.
+     Single sticky container: expanded = full controls,
+     collapsed = slim summary bar (auto-collapses on scroll down). */}
+      <div className="sticky top-36 z-40 pt-3 pb-2">
 
-          {/* EXPANDED PANEL */}
-          {isFiltersExpanded && (
-            <div className="bg-white rounded-xl shadow-lg border-2 border-gray-200 overflow-hidden">
+        {/* EXPANDED PANEL */}
+        {isFiltersExpanded && (
+          <div className="bg-white rounded-xl shadow-lg border-2 border-gray-200 overflow-hidden">
 
-              {/* Publication Range row */}
-              <div className="bg-gradient-to-r from-purple-600 to-indigo-600 px-4 py-3">
-                <div className="flex items-center gap-3">
-                  <div className="flex-1">
-                    <label htmlFor="publication-range-select" className="block text-xs font-bold text-purple-100 mb-1">Publication Range</label>
-                    <select
-                      id="publication-range-select"
-                      value={selectedPublicationRange}
-                      onChange={(e) => {
-                        setSelectedPublicationRange(e.target.value);
-                        setSelectedAssignment('');
-                        setSelectedPosition('');
-                        setSelectedItemNumber('');
-                        setStatusFilter(null);
-                        setGenderFilter(null);
-                      }}
-                      aria-label="Filter by publication range"
-                      className="w-full px-3 py-2 border-2 border-purple-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:border-white bg-white text-sm font-medium shadow-sm"
-                    >
-                      <option value="">All Publication Ranges</option>
-                      {publicationRanges.map(range => (
-                        <option key={range._id} value={range._id}>
-                          {range.name}
-                          {range.isArchived ? ' (ARCHIVED)' : ''}
-                          {range.isActive ? ' • Active' : ''}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="flex items-end gap-2 shrink-0">
-                    <button
-                      onClick={() => setShowArchivedRanges(!showArchivedRanges)}
-                      aria-label={showArchivedRanges ? 'Hide archived publication ranges' : 'Show archived publication ranges'}
-                      aria-pressed={showArchivedRanges}
-                      className={`px-3 py-2 rounded-lg text-xs font-bold transition-all shadow-md ${
-                        showArchivedRanges
-                          ? 'bg-white text-purple-700 hover:bg-gray-100'
-                          : 'bg-purple-800 text-white hover:bg-purple-900'
-                      }`}
-                    >
-                      {showArchivedRanges ? 'Hide Archived' : 'Show Archived'}
-                    </button>
-                    {/* Collapse toggle */}
-                    <button
-                      onClick={() => setIsFiltersExpanded(false)}
-                      aria-label="Collapse filter panel"
-                      title="Collapse filters"
-                      className="p-2 bg-white/20 hover:bg-white/30 text-white rounded-lg transition-all"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                      </svg>
-                    </button>
-                  </div>
+            {/* Publication Range row */}
+            <div className="bg-gradient-to-r from-purple-600 to-indigo-600 px-4 py-3">
+              <div className="flex items-center gap-3">
+                <div className="flex-1">
+                  <label htmlFor="publication-range-select" className="block text-xs font-bold text-purple-100 mb-1">Publication Range</label>
+                  <select
+                    id="publication-range-select"
+                    value={selectedPublicationRange}
+                    onChange={(e) => {
+                      setSelectedPublicationRange(e.target.value);
+                      setSelectedAssignment('');
+                      setSelectedPosition('');
+                      setSelectedItemNumber('');
+                      setStatusFilter(null);
+                      setGenderFilter(null);
+                    }}
+                    aria-label="Filter by publication range"
+                    className="w-full px-3 py-2 border-2 border-purple-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:border-white bg-white text-sm font-medium shadow-sm"
+                  >
+                    <option value="">All Publication Ranges</option>
+                    {publicationRanges.map(range => (
+                      <option key={range._id} value={range._id}>
+                        {range.name}
+                        {range.isArchived ? ' (ARCHIVED)' : ''}
+                        {range.isActive ? ' • Active' : ''}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-                {currentPublicationRange?.isArchived && (
-                  <div className="mt-2 bg-orange-100 border-l-4 border-orange-500 p-2 rounded">
-                    <div className="flex items-center">
-                      <svg className="w-4 h-4 text-orange-600 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                      </svg>
-                      <div>
-                        <p className="text-xs font-bold text-orange-800">Viewing Archived Publication Range</p>
-                        <p className="text-xs text-orange-700">All data shown below is from the archived publication range "{currentPublicationRange.name}"</p>
-                      </div>
+                <div className="flex items-end gap-2 shrink-0">
+                  <button
+                    onClick={() => setShowArchivedRanges(!showArchivedRanges)}
+                    aria-label={showArchivedRanges ? 'Hide archived publication ranges' : 'Show archived publication ranges'}
+                    aria-pressed={showArchivedRanges}
+                    className={`px-3 py-2 rounded-lg text-xs font-bold transition-all shadow-md ${
+                      showArchivedRanges
+                        ? 'bg-white text-purple-700 hover:bg-gray-100'
+                        : 'bg-purple-800 text-white hover:bg-purple-900'
+                    }`}
+                  >
+                    {showArchivedRanges ? 'Hide Archived' : 'Show Archived'}
+                  </button>
+                  {/* Collapse toggle */}
+                  <button
+                    onClick={() => setIsFiltersExpanded(false)}
+                    aria-label="Collapse filter panel"
+                    title="Collapse filters"
+                    className="p-2 bg-white/20 hover:bg-white/30 text-white rounded-lg transition-all"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              {currentPublicationRange?.isArchived && (
+                <div className="mt-2 bg-orange-100 border-l-4 border-orange-500 p-2 rounded">
+                  <div className="flex items-center">
+                    <svg className="w-4 h-4 text-orange-600 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                    </svg>
+                    <div>
+                      <p className="text-xs font-bold text-orange-800">Viewing Archived Publication Range</p>
+                      <p className="text-xs text-orange-700">All data shown below is from the archived publication range "{currentPublicationRange.name}"</p>
                     </div>
                   </div>
-                )}
-              </div>
-
-              <div className="p-4 space-y-3">
-                {/* Dropdowns row */}
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <label htmlFor="assignment-select" className="block text-xs font-bold text-gray-700 mb-1">Assignment</label>
-                    <select
-                      id="assignment-select"
-                      value={selectedAssignment}
-                      onChange={(e) => setSelectedAssignment(e.target.value)}
-                      aria-label="Filter by assignment"
-                      className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white text-sm font-medium shadow-sm"
-                    >
-                      <option value="">All Assignments</option>
-                      {assignments.map(assignment => (
-                        <option key={assignment} value={assignment}>{assignment}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label htmlFor="position-select" className="block text-xs font-bold text-gray-700 mb-1">Position</label>
-                    <select
-                      id="position-select"
-                      value={selectedPosition}
-                      onChange={(e) => setSelectedPosition(e.target.value)}
-                      aria-label="Filter by position"
-                      className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white text-sm font-medium disabled:bg-gray-100 shadow-sm"
-                      disabled={!selectedAssignment}
-                    >
-                      <option value="">All Positions</option>
-                      {positions.map(position => (
-                        <option key={position} value={position}>{position}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label htmlFor="item-number-select" className="block text-xs font-bold text-gray-700 mb-1">Item Number</label>
-                    <select
-                      id="item-number-select"
-                      value={selectedItemNumber}
-                      onChange={(e) => setSelectedItemNumber(e.target.value)}
-                      aria-label="Filter by item number"
-                      className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white text-sm font-medium disabled:bg-gray-100 shadow-sm"
-                      disabled={!selectedPosition}
-                    >
-                      <option value="">All Item Numbers</option>
-                      {itemNumbers.map(itemNumber => (
-                        <option key={itemNumber} value={itemNumber}>{itemNumber}</option>
-                      ))}
-                    </select>
-                  </div>
                 </div>
-
-                {/* Stats + Gender in one inline row */}
-                <div className="flex items-center gap-3 flex-wrap">
-                  {/* Stat filter buttons */}
-                  {[
-                    { label: 'Total', count: stats.total, status: null, base: 'border-blue-200 bg-blue-50 text-blue-800', active: 'border-blue-500 ring-2 ring-blue-300' },
-                    { label: 'Long Listed', count: stats.longListed, status: CANDIDATE_STATUS.LONG_LIST, base: 'border-green-200 bg-green-50 text-green-800', active: 'border-green-500 ring-2 ring-green-300' },
-                    { label: 'For Review', count: stats.forReview, status: CANDIDATE_STATUS.FOR_REVIEW, base: 'border-yellow-200 bg-yellow-50 text-yellow-800', active: 'border-yellow-500 ring-2 ring-yellow-300' },
-                    { label: 'Disqualified', count: stats.disqualified, status: CANDIDATE_STATUS.DISQUALIFIED, base: 'border-red-200 bg-red-50 text-red-800', active: 'border-red-500 ring-2 ring-red-300' },
-                  ].map(({ label, count, status, base, active }) => (
-                    <button
-                      key={label}
-                      onClick={() => status === null ? setStatusFilter(null) : handleStatusCardClick(status)}
-                      aria-pressed={statusFilter === status}
-                      aria-label={`Filter by ${label}`}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 cursor-pointer transition-all ${base} ${
-                        (statusFilter === status || (status === null && statusFilter === null)) ? active : 'hover:shadow-md'
-                      }`}
-                    >
-                      <span className="text-xl font-bold leading-none">{count}</span>
-                      <span className="text-xs font-semibold leading-tight">{label}</span>
-                    </button>
-                  ))}
-
-                  {/* Divider */}
-                  <div className="w-px h-8 bg-gray-200 shrink-0" />
-
-                  {/* Gender filter pills */}
-                  <span className="text-xs font-bold text-gray-600 whitespace-nowrap">Gender:</span>
-                  {[
-                    { label: `All (${genderStats.total})`, value: null, active: 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md' },
-                    { label: `Male (${genderStats.male})`, value: 'Male', active: 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md' },
-                    { label: `Female (${genderStats.female})`, value: 'Female', active: 'bg-gradient-to-r from-pink-600 to-rose-600 text-white shadow-md' },
-                    { label: `LGBTQI+ (${genderStats.lgbtqi})`, value: 'LGBTQI+', active: 'bg-gradient-to-r from-purple-600 to-violet-600 text-white shadow-md' },
-                  ].map(({ label, value, active }) => (
-                    <button
-                      key={label}
-                      onClick={() => setGenderFilter(value)}
-                      aria-pressed={genderFilter === value}
-                      aria-label={`Show ${label}`}
-                      className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all ${
-                        genderFilter === value ? active : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              )}
             </div>
-          )}
 
-          {/* COLLAPSED COMPACT BAR */}
-          {!isFiltersExpanded && (
-            <div className="bg-white rounded-xl shadow-lg border-2 border-gray-200 px-3 py-2 flex items-center gap-3 flex-wrap">
-              {/* Expand button */}
-              <button
-                onClick={() => setIsFiltersExpanded(true)}
-                aria-label="Expand filter panel"
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition-all shadow-sm shrink-0"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-                <span>Filters</span>
-              </button>
-
-              {/* Breadcrumb trail of active filters */}
-              <div className="flex items-center gap-1 text-xs text-gray-600 flex-1 min-w-0 overflow-hidden">
-                {[
-                  currentPublicationRange?.name || 'All Ranges',
-                  selectedAssignment || null,
-                  selectedPosition || null,
-                  selectedItemNumber || null,
-                ].filter(Boolean).map((crumb, i, arr) => (
-                  <React.Fragment key={i}>
-                    {i > 0 && (
-                      <svg className="w-3 h-3 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
-                    )}
-                    <span className={`truncate ${i === 0 ? 'font-semibold text-purple-700' : i === arr.length - 1 ? 'font-bold text-gray-900' : 'text-gray-600'}`}>
-                      {crumb}
-                    </span>
-                  </React.Fragment>
-                ))}
+            <div className="p-4 space-y-3">
+              {/* Dropdowns row */}
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label htmlFor="assignment-select" className="block text-xs font-bold text-gray-700 mb-1">Assignment</label>
+                  <select
+                    id="assignment-select"
+                    value={selectedAssignment}
+                    onChange={(e) => setSelectedAssignment(e.target.value)}
+                    aria-label="Filter by assignment"
+                    className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white text-sm font-medium shadow-sm"
+                  >
+                    <option value="">All Assignments</option>
+                    {assignments.map(assignment => (
+                      <option key={assignment} value={assignment}>{assignment}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="position-select" className="block text-xs font-bold text-gray-700 mb-1">Position</label>
+                  <select
+                    id="position-select"
+                    value={selectedPosition}
+                    onChange={(e) => setSelectedPosition(e.target.value)}
+                    aria-label="Filter by position"
+                    className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white text-sm font-medium disabled:bg-gray-100 shadow-sm"
+                    disabled={!selectedAssignment}
+                  >
+                    <option value="">All Positions</option>
+                    {positions.map(position => (
+                      <option key={position} value={position}>{position}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="item-number-select" className="block text-xs font-bold text-gray-700 mb-1">Item Number</label>
+                  <select
+                    id="item-number-select"
+                    value={selectedItemNumber}
+                    onChange={(e) => setSelectedItemNumber(e.target.value)}
+                    aria-label="Filter by item number"
+                    className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white text-sm font-medium disabled:bg-gray-100 shadow-sm"
+                    disabled={!selectedPosition}
+                  >
+                    <option value="">All Item Numbers</option>
+                    {itemNumbers.map(itemNumber => (
+                      <option key={itemNumber} value={itemNumber}>{itemNumber}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
-              {/* Mini stat pills */}
-              <div className="flex items-center gap-1 shrink-0">
+              {/* Stats + Gender in one inline row */}
+              <div className="flex items-center gap-3 flex-wrap">
+                {/* Stat filter buttons */}
                 {[
-                  { label: `All ${stats.total}`, status: null, cls: 'bg-blue-100 text-blue-800', ring: 'ring-2 ring-blue-400' },
-                  { label: `✓ ${stats.longListed}`, status: CANDIDATE_STATUS.LONG_LIST, cls: 'bg-green-100 text-green-800', ring: 'ring-2 ring-green-400' },
-                  { label: `⚠ ${stats.forReview}`, status: CANDIDATE_STATUS.FOR_REVIEW, cls: 'bg-yellow-100 text-yellow-800', ring: 'ring-2 ring-yellow-400' },
-                  { label: `✕ ${stats.disqualified}`, status: CANDIDATE_STATUS.DISQUALIFIED, cls: 'bg-red-100 text-red-800', ring: 'ring-2 ring-red-400' },
-                ].map(({ label, status, cls, ring }) => (
+                  { label: 'Total', count: stats.total, status: null, base: 'border-blue-200 bg-blue-50 text-blue-800', active: 'border-blue-500 ring-2 ring-blue-300' },
+                  { label: 'Long Listed', count: stats.longListed, status: CANDIDATE_STATUS.LONG_LIST, base: 'border-green-200 bg-green-50 text-green-800', active: 'border-green-500 ring-2 ring-green-300' },
+                  { label: 'For Review', count: stats.forReview, status: CANDIDATE_STATUS.FOR_REVIEW, base: 'border-yellow-200 bg-yellow-50 text-yellow-800', active: 'border-yellow-500 ring-2 ring-yellow-300' },
+                  { label: 'Disqualified', count: stats.disqualified, status: CANDIDATE_STATUS.DISQUALIFIED, base: 'border-red-200 bg-red-50 text-red-800', active: 'border-red-500 ring-2 ring-red-300' },
+                ].map(({ label, count, status, base, active }) => (
                   <button
                     key={label}
                     onClick={() => status === null ? setStatusFilter(null) : handleStatusCardClick(status)}
                     aria-pressed={statusFilter === status}
-                    className={`px-2 py-1 rounded text-xs font-bold transition-all ${cls} ${
-                      (statusFilter === status || (status === null && statusFilter === null)) ? ring : 'hover:opacity-80'
+                    aria-label={`Filter by ${label}`}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 cursor-pointer transition-all ${base} ${
+                      (statusFilter === status || (status === null && statusFilter === null)) ? active : 'hover:shadow-md'
                     }`}
                   >
-                    {label}
+                    <span className="text-xl font-bold leading-none">{count}</span>
+                    <span className="text-xs font-semibold leading-tight">{label}</span>
                   </button>
                 ))}
-              </div>
 
-              {/* Mini gender pills */}
-              <div className="w-px h-5 bg-gray-200 shrink-0" />
-              <div className="flex items-center gap-1 shrink-0">
+                {/* Divider */}
+                <div className="w-px h-8 bg-gray-200 shrink-0" />
+
+                {/* Gender filter pills */}
+                <span className="text-xs font-bold text-gray-600 whitespace-nowrap">Gender:</span>
                 {[
-                  { label: 'All', value: null },
-                  { label: 'M', value: 'Male' },
-                  { label: 'F', value: 'Female' },
-                  { label: '🏳️‍🌈', value: 'LGBTQI+' },
-                ].map(({ label, value }) => (
+                  { label: `All (${genderStats.total})`, value: null, active: 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md' },
+                  { label: `Male (${genderStats.male})`, value: 'Male', active: 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md' },
+                  { label: `Female (${genderStats.female})`, value: 'Female', active: 'bg-gradient-to-r from-pink-600 to-rose-600 text-white shadow-md' },
+                  { label: `LGBTQI+ (${genderStats.lgbtqi})`, value: 'LGBTQI+', active: 'bg-gradient-to-r from-purple-600 to-violet-600 text-white shadow-md' },
+                ].map(({ label, value, active }) => (
                   <button
                     key={label}
                     onClick={() => setGenderFilter(value)}
                     aria-pressed={genderFilter === value}
-                    aria-label={`Gender filter: ${label}`}
-                    className={`px-2 py-1 rounded text-xs font-semibold transition-all ${
-                      genderFilter === value ? 'bg-indigo-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    aria-label={`Show ${label}`}
+                    className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all ${
+                      genderFilter === value ? active : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                     }`}
                   >
                     {label}
@@ -1070,9 +996,92 @@ const SecretariatView = ({ user }) => {
                 ))}
               </div>
             </div>
-          )}
-        </div>
-        {/* ── End Smart Collapsible Filter Panel ─────────────────────────── */}
+          </div>
+        )}
+
+        {/* COLLAPSED COMPACT BAR */}
+        {!isFiltersExpanded && (
+          <div className="bg-white rounded-xl shadow-lg border-2 border-gray-200 px-3 py-2 flex items-center gap-3 flex-wrap">
+            {/* Expand button */}
+            <button
+              onClick={() => setIsFiltersExpanded(true)}
+              aria-label="Expand filter panel"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition-all shadow-sm shrink-0"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+              <span>Filters</span>
+            </button>
+
+            {/* Breadcrumb trail of active filters */}
+            <div className="flex items-center gap-1 text-xs text-gray-600 flex-1 min-w-0 overflow-hidden">
+              {[
+                currentPublicationRange?.name || 'All Ranges',
+                selectedAssignment || null,
+                selectedPosition || null,
+                selectedItemNumber || null,
+              ].filter(Boolean).map((crumb, i, arr) => (
+                <React.Fragment key={i}>
+                  {i > 0 && (
+                    <svg className="w-3 h-3 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  )}
+                  <span className={`truncate ${i === 0 ? 'font-semibold text-purple-700' : i === arr.length - 1 ? 'font-bold text-gray-900' : 'text-gray-600'}`}>
+                    {crumb}
+                  </span>
+                </React.Fragment>
+              ))}
+            </div>
+
+            {/* Mini stat pills */}
+            <div className="flex items-center gap-1 shrink-0">
+              {[
+                { label: `All ${stats.total}`, status: null, cls: 'bg-blue-100 text-blue-800', ring: 'ring-2 ring-blue-400' },
+                { label: `✓ ${stats.longListed}`, status: CANDIDATE_STATUS.LONG_LIST, cls: 'bg-green-100 text-green-800', ring: 'ring-2 ring-green-400' },
+                { label: `⚠ ${stats.forReview}`, status: CANDIDATE_STATUS.FOR_REVIEW, cls: 'bg-yellow-100 text-yellow-800', ring: 'ring-2 ring-yellow-400' },
+                { label: `✕ ${stats.disqualified}`, status: CANDIDATE_STATUS.DISQUALIFIED, cls: 'bg-red-100 text-red-800', ring: 'ring-2 ring-red-400' },
+              ].map(({ label, status, cls, ring }) => (
+                <button
+                  key={label}
+                  onClick={() => status === null ? setStatusFilter(null) : handleStatusCardClick(status)}
+                  aria-pressed={statusFilter === status}
+                  className={`px-2 py-1 rounded text-xs font-bold transition-all ${cls} ${
+                    (statusFilter === status || (status === null && statusFilter === null)) ? ring : 'hover:opacity-80'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* Mini gender pills */}
+            <div className="w-px h-5 bg-gray-200 shrink-0" />
+            <div className="flex items-center gap-1 shrink-0">
+              {[
+                { label: 'All', value: null },
+                { label: 'M', value: 'Male' },
+                { label: 'F', value: 'Female' },
+                { label: '🏳️‍🌈', value: 'LGBTQI+' },
+              ].map(({ label, value }) => (
+                <button
+                  key={label}
+                  onClick={() => setGenderFilter(value)}
+                  aria-pressed={genderFilter === value}
+                  aria-label={`Gender filter: ${label}`}
+                  className={`px-2 py-1 rounded text-xs font-semibold transition-all ${
+                    genderFilter === value ? 'bg-indigo-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+      {/* ── End Smart Collapsible Filter Panel ─────────────────────────── */}
 
         {/* Candidates Table */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
