@@ -196,12 +196,32 @@ export async function findCompetencyByName(name, threshold = 0.30) {
   // Patterns: (ADV) -, (BAS) -, (INT) -, (SUP) -, etc.
   const cleanName = name.replace(/^\([A-Z]+\)\s*-\s*/i, '').trim();
   
+  // First attempt: search with full cleaned name
   let best = null, bestScore = 0;
   for (const c of comps) {
     const s = score(cleanName, c.name);
     if (s > bestScore) { bestScore = s; best = c; }
   }
-  return bestScore >= threshold ? best : null;
+  
+  // If found with good confidence, return it
+  if (bestScore >= threshold) return best;
+  
+  // Fallback: Strip everything after the first opening parenthesis
+  // Example: "CREATING AND NURTURING... (BUILDS A SHARED..." -> "CREATING AND NURTURING..."
+  const fallbackName = cleanName.split('(')[0].trim();
+  
+  // Only try fallback if it's actually different and not too short
+  if (fallbackName !== cleanName && fallbackName.length > 10) {
+    best = null;
+    bestScore = 0;
+    for (const c of comps) {
+      const s = score(fallbackName, c.name);
+      if (s > bestScore) { bestScore = s; best = c; }
+    }
+    if (bestScore >= threshold) return best;
+  }
+  
+  return null;
 }
 
 export async function isPDFAvailable() {
