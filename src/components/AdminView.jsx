@@ -169,6 +169,10 @@ const AdminView = ({ user }) => {
   const [uploadingType, setUploadingType] = useState('');
   const [lastVacancyUpload, setLastVacancyUpload] = useState(null);
   const [competencyVacancyModal, setCompetencyVacancyModal] = useState(null);
+  const [showCompetencyModal, setShowCompetencyModal] = useState(false);
+  const [selectedVacancyForCompetencies, setSelectedVacancyForCompetencies] = useState(null);
+  const [vacancyCompetencies, setVacancyCompetencies] = useState([]);
+  const [loadingCompetencies, setLoadingCompetencies] = useState(false);
 
   // ─── CSV Upload UX State ───────────────────────────────────────────────────
   const [csvUploading, setCsvUploading] = useState({
@@ -470,6 +474,23 @@ const loadCompetencies = useCallback(async (forceRefresh = false) => {
   }
   // eslint-disable-next-line react-hooks/exhaustive-deps
 }, []);
+
+const handleViewCompetencies = async (vacancy) => {
+  setSelectedVacancyForCompetencies(vacancy);
+  setShowCompetencyModal(true);
+  setLoadingCompetencies(true);
+  
+  try {
+    const competenciesData = await competenciesAPI.getByVacancy(vacancy._id);
+    setVacancyCompetencies(competenciesData);
+  } catch (error) {
+    console.error('Failed to load competencies:', error);
+    showToast('Failed to load competencies', 'error');
+    setVacancyCompetencies([]);
+  } finally {
+    setLoadingCompetencies(false);
+  }
+};
 
 // Replace the tab change useEffect with this smarter version
 useEffect(() => {
@@ -1312,6 +1333,9 @@ const loadDataForCurrentTab = useCallback(async () => {
                     sortConfig={sortConfig} 
                   />
                   <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Competencies
+                  </th>
+                  <th className="table-header px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Actions
                   </th>
                 </tr>
@@ -1351,6 +1375,15 @@ const loadDataForCurrentTab = useCallback(async () => {
                     </td>
                     <td className="table-cell px-4 py-2">
                       <button
+                        onClick={() => handleViewCompetencies(vacancy)}
+                        className="text-blue-600 hover:text-blue-800 hover:underline text-xs"
+                        disabled={vacancy.isArchived}
+                      >
+                        View
+                      </button>
+                    </td>
+                    <td className="table-cell px-4 py-2">
+                      <button
                         onClick={() => handleEdit(vacancy, 'vacancy')}
                         className="btn-secondary px-2 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300 mr-1"
                         disabled={vacancy.isArchived}
@@ -1369,7 +1402,7 @@ const loadDataForCurrentTab = useCallback(async () => {
                 ))}
                 {filteredVacancies.length === 0 && (
                   <tr>
-                    <td colSpan="5" className="px-4 py-8 text-center text-gray-500">
+                    <td colSpan="6" className="px-4 py-8 text-center text-gray-500">
                       No vacancies found matching your search criteria.
                     </td>
                   </tr>
@@ -2397,6 +2430,192 @@ const loadDataForCurrentTab = useCallback(async () => {
           data={competencyVacancyModal}
           onClose={() => setCompetencyVacancyModal(null)}
         />
+
+        
+
+        {/* Competency Viewing Modal */}
+        {showCompetencyModal && selectedVacancyForCompetencies && (
+          <div className="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="modal-content bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 p-6 overflow-y-auto max-h-[90vh]">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold text-gray-900">Competencies</h2>
+                <button 
+                  onClick={() => {
+                    setShowCompetencyModal(false);
+                    setSelectedVacancyForCompetencies(null);
+                    setVacancyCompetencies([]);
+                  }} 
+                  className="text-gray-500 hover:text-gray-700 text-2xl"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  {selectedVacancyForCompetencies.position}
+                </h3>
+                <p className="text-sm text-gray-600">
+                  Item Number: {selectedVacancyForCompetencies.itemNumber}
+                </p>
+                <p className="text-sm text-gray-600">
+                  Assignment: {selectedVacancyForCompetencies.assignment}
+                </p>
+                <p className="text-sm text-gray-600">
+                  Salary Grade: SG {selectedVacancyForCompetencies.salaryGrade}
+                </p>
+              </div>
+
+              {loadingCompetencies ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                </div>
+              ) : vacancyCompetencies.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <p>No competencies assigned to this vacancy yet.</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {/* Basic Competencies */}
+                  {vacancyCompetencies.filter(c => c.type === 'basic').length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-2 pb-2 border-b border-gray-200">
+                        Core Competencies (Psycho-Social)
+                      </h4>
+                      <ul className="space-y-2">
+                        {vacancyCompetencies
+                          .filter(c => c.type === 'basic')
+                          .map((competency, index) => (
+                            <li key={competency._id} className="flex items-start">
+                              <span className="text-blue-600 mr-2">{index + 1}.</span>
+                              <span className="text-gray-800">{competency.name}</span>
+                              {competency.isFixed && (
+                                <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-800 text-xs rounded">
+                                  Fixed
+                                </span>
+                              )}
+                            </li>
+                          ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Organizational Competencies */}
+                  {vacancyCompetencies.filter(c => c.type === 'organizational').length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-2 pb-2 border-b border-gray-200">
+                        Organizational Competencies (Potential)
+                      </h4>
+                      <ul className="space-y-2">
+                        {vacancyCompetencies
+                          .filter(c => c.type === 'organizational')
+                          .map((competency, index) => (
+                            <li key={competency._id} className="flex items-start">
+                              <span className="text-purple-600 mr-2">{index + 1}.</span>
+                              <span className="text-gray-800">{competency.name}</span>
+                              {competency.isFixed && (
+                                <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-800 text-xs rounded">
+                                  Fixed
+                                </span>
+                              )}
+                            </li>
+                          ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Leadership Competencies */}
+                  {vacancyCompetencies.filter(c => c.type === 'leadership').length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-2 pb-2 border-b border-gray-200">
+                        Leadership Competencies
+                        {selectedVacancyForCompetencies.salaryGrade >= 18 && (
+                          <span className="ml-2 text-xs text-green-600">(Required for SG {selectedVacancyForCompetencies.salaryGrade})</span>
+                        )}
+                      </h4>
+                      <ul className="space-y-2">
+                        {vacancyCompetencies
+                          .filter(c => c.type === 'leadership')
+                          .map((competency, index) => (
+                            <li key={competency._id} className="flex items-start">
+                              <span className="text-indigo-600 mr-2">{index + 1}.</span>
+                              <span className="text-gray-800">{competency.name}</span>
+                              {competency.isFixed && (
+                                <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-800 text-xs rounded">
+                                  Fixed
+                                </span>
+                              )}
+                            </li>
+                          ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Minimum Competencies */}
+                  {vacancyCompetencies.filter(c => c.type === 'minimum').length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-2 pb-2 border-b border-gray-200">
+                        Minimum Competencies
+                      </h4>
+                      <ul className="space-y-2">
+                        {vacancyCompetencies
+                          .filter(c => c.type === 'minimum')
+                          .map((competency, index) => (
+                            <li key={competency._id} className="flex items-start">
+                              <span className="text-orange-600 mr-2">{index + 1}.</span>
+                              <span className="text-gray-800">{competency.name}</span>
+                              {competency.isFixed && (
+                                <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-800 text-xs rounded">
+                                  Fixed
+                                </span>
+                              )}
+                            </li>
+                          ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Summary */}
+                  <div className="mt-6 pt-4 border-t border-gray-200">
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="font-medium text-gray-700">Total Competencies:</span>
+                      <span className="font-bold text-gray-900">{vacancyCompetencies.length}</span>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">
+                        Core: {vacancyCompetencies.filter(c => c.type === 'basic').length}
+                      </span>
+                      <span className="px-2 py-1 bg-purple-100 text-purple-800 text-xs rounded">
+                        Organizational: {vacancyCompetencies.filter(c => c.type === 'organizational').length}
+                      </span>
+                      {vacancyCompetencies.filter(c => c.type === 'leadership').length > 0 && (
+                        <span className="px-2 py-1 bg-indigo-100 text-indigo-800 text-xs rounded">
+                          Leadership: {vacancyCompetencies.filter(c => c.type === 'leadership').length}
+                        </span>
+                      )}
+                      <span className="px-2 py-1 bg-orange-100 text-orange-800 text-xs rounded">
+                        Minimum: {vacancyCompetencies.filter(c => c.type === 'minimum').length}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end mt-6">
+                <button
+                  onClick={() => {
+                    setShowCompetencyModal(false);
+                    setSelectedVacancyForCompetencies(null);
+                    setVacancyCompetencies([]);
+                  }}
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Password Confirmation Modal */}
         {showPasswordModal && (
