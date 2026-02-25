@@ -5,7 +5,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 
 const COLUMN_BOUNDARIES = [192, 384, 589];
 const LEVEL_NAMES = ['BASIC', 'INTERMEDIATE', 'ADVANCED', 'SUPERIOR'];
-const PDF_PATH = '/CBS_REGION_PENRO_CENRO.pdf';
+const PDF_PATH = '/rhrmpsb-system/CBS_REGION_PENRO_CENRO.pdf';
 const CODE_RE = /^([A-Z]+\d+[A-Z]?)\s*[-–]\s*(.+)/;
 
 let _cache = null;
@@ -202,6 +202,10 @@ export async function findCompetencyByName(name, threshold = 0.30) {
 export async function isPDFAvailable() {
   try {
     const r = await fetch(PDF_PATH, { method: 'HEAD' });
+    console.log('PDF fetch status:', r.status, r.statusText);
     return r.ok;
-  } catch { return false; }
+  } catch (e) { 
+    console.error('PDF fetch error:', e);
+    return false; 
+  }
 }
