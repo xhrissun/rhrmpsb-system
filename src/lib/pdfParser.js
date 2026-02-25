@@ -5,7 +5,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 
 const COLUMN_BOUNDARIES = [192, 384, 589];
 const LEVEL_NAMES = ['BASIC', 'INTERMEDIATE', 'ADVANCED', 'SUPERIOR'];
-const PDF_PATH = '/rhrmpsb-system/CBS_REGION_PENRO_CENRO.pdf';
+const PDF_PATH = '/rhrmpsb-system/2025_PDS.pdf';
 const CODE_RE = /^([A-Z]+\d+[A-Z]?)\s*[-–]\s*(.+)/;
 
 let _cache = null;
