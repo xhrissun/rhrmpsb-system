@@ -18,7 +18,7 @@ function getColumn(x) {
   return 3;
 }
 
-function groupByRow(items, tol = 3) {
+function groupByRow(items, tol = 5) { // ✅ INCREASED tolerance from 3 to 5
   const rows = new Map();
   for (const item of items) {
     let key = null;
@@ -57,9 +57,7 @@ function findHeaderRow(rows) {
 function fixSpacing(text) {
   if (!text) return text;
   
-  // Fix ONLY the most common broken words - very conservative list
   const fixes = {
-    // Common broken words confirmed in CBS manual
     'Deve lops': 'Develops',
     'deve lops': 'develops',
     'st rategies': 'strategies',
@@ -76,14 +74,12 @@ function fixSpacing(text) {
     'Guide lines': 'Guidelines',
     'recom mends': 'recommends',
     'Recom mends': 'Recommends',
-    // Very short common words that get broken
     'th e': 'the',
     'Th e': 'The',
     'an d': 'and',
     'An d': 'And',
   };
   
-  // Apply each fix
   for (const [broken, fixed] of Object.entries(fixes)) {
     text = text.replace(new RegExp('\\b' + broken.replace(/\s/g, '\\s') + '\\b', 'g'), fixed);
   }
@@ -91,41 +87,80 @@ function fixSpacing(text) {
   return text;
 }
 
+// ✅ IMPROVED: Better column parsing with continuation handling
 function parseColumn(lines) {
   const biLines = [], items = [], cur = [];
   let inItems = false;
+  
   for (const line of lines) {
     const t = line.trim();
     if (!t) continue;
+    
+    // Numbered items (KSAs)
     if (/^\d+\./.test(t)) {
-      if (cur.length) { items.push(cur.join(' ').trim()); cur.length = 0; }
-      cur.push(t); inItems = true;
-    } else if (inItems) {
+      if (cur.length) { 
+        items.push(cur.join(' ').trim()); 
+        cur.length = 0; 
+      }
+      cur.push(t); 
+      inItems = true;
+    } 
+    // Continuation of numbered item
+    else if (inItems && cur.length > 0) {
       cur.push(t);
-    } else if (t.length > 3 && !LEVEL_NAMES.includes(t)) {
+    } 
+    // Behavioral indicator text
+    else if (t.length > 3 && !LEVEL_NAMES.includes(t) && !inItems) {
       biLines.push(t);
     }
+    // ✅ NEW: If we hit a new competency code or header, finalize current item
+    else if (CODE_RE.test(t) || LEVEL_NAMES.includes(t)) {
+      if (cur.length) {
+        items.push(cur.join(' ').trim());
+        cur.length = 0;
+      }
+      inItems = false;
+    }
   }
+  
+  // Finalize any remaining item
   if (cur.length) items.push(cur.join(' ').trim());
   
-  // Apply spacing fixes to the final joined text
   const behavioralIndicator = fixSpacing(biLines.join(' ').trim());
   const fixedItems = items.map(item => fixSpacing(item));
   
   return { behavioralIndicator, items: fixedItems };
 }
 
+// ✅ IMPROVED: Extract ALL content from header onwards, not just immediate rows
 function extractLevels(rows, headerY) {
   const cols = [[], [], [], []];
   let past = false;
+  
   for (const [y, items] of rows) {
-    if (!past) { if (y >= headerY) past = true; else continue; }
+    // Start collecting after header
+    if (!past) { 
+      if (y >= headerY) past = true; 
+      else continue; 
+    }
+    
+    // Skip header row itself
     if (y === headerY) continue;
+    
+    // Skip page numbers
     if (/^\d+$/.test(items.map(i => i.str).join('').trim())) continue;
-    for (const item of items) cols[getColumn(item.x)].push(item.str);
+    
+    // ✅ COLLECT ALL TEXT - don't stop early
+    for (const item of items) {
+      cols[getColumn(item.x)].push(item.str);
+    }
   }
+  
   const levels = {};
-  LEVEL_NAMES.forEach((name, i) => { levels[name] = parseColumn(cols[i]); });
+  LEVEL_NAMES.forEach((name, i) => { 
+    levels[name] = parseColumn(cols[i]); 
+  });
+  
   return levels;
 }
 
@@ -182,26 +217,45 @@ async function _parse(onProgress = () => {}) {
     const section = new Map();
     let yOff = 0;
 
+    // ✅ COLLECT MORE CONTENT - go further to capture wrapped text
     for (let pi = loc.pi; pi < allRows.length; pi++) {
       if (next && pi > next.pi) break;
+      
       let maxY = 0;
       for (const [y, items] of allRows[pi]) {
         if (pi === loc.pi && y < loc.y) continue;
         if (pi === next?.pi && y >= next.y) continue;
+        
         section.set(y + yOff, items);
         maxY = Math.max(maxY, y);
       }
+      
       yOff += maxY + 50;
+      
+      // ✅ CONTINUE to next page if we haven't hit the next competency
+      if (!next || pi < next.pi - 1) continue;
+      if (next && pi === next.pi - 1) break; // Stop just before next competency
     }
 
     const headerY = findHeaderRow(section);
     if (!headerY) continue;
+    
     const levels = extractLevels(section, headerY);
-    const hasContent = LEVEL_NAMES.some(l => levels[l].behavioralIndicator || levels[l].items.length > 0);
+    const hasContent = LEVEL_NAMES.some(l => 
+      levels[l].behavioralIndicator || levels[l].items.length > 0
+    );
+    
     if (!hasContent) continue;
 
-    result.push({ code: loc.code, name: loc.name, category: getCategory(loc.code), levels });
-    if (ci % 15 === 0) onProgress(Math.round(70 + (ci / locs.length) * 28), `Extracted ${ci + 1}…`);
+    result.push({ 
+      code: loc.code, 
+      name: loc.name, 
+      category: getCategory(loc.code), 
+      levels 
+    });
+    
+    if (ci % 15 === 0) 
+      onProgress(Math.round(70 + (ci / locs.length) * 28), `Extracted ${ci + 1}…`);
   }
 
   onProgress(100, 'Done');
@@ -234,25 +288,18 @@ export async function ensureParsed(onProgress) {
 export async function findCompetencyByName(name, threshold = 0.30) {
   const comps = await ensureParsed();
   
-  // Strip common level prefixes from the search name
-  // Patterns: (ADV) -, (BAS) -, (INT) -, (SUP) -, etc.
   const cleanName = name.replace(/^\([A-Z]+\)\s*-\s*/i, '').trim();
   
-  // First attempt: search with full cleaned name
   let best = null, bestScore = 0;
   for (const c of comps) {
     const s = score(cleanName, c.name);
     if (s > bestScore) { bestScore = s; best = c; }
   }
   
-  // If found with good confidence, return it
   if (bestScore >= threshold) return best;
   
-  // Fallback: Strip everything after the first opening parenthesis
-  // Example: "CREATING AND NURTURING... (BUILDS A SHARED..." -> "CREATING AND NURTURING..."
   const fallbackName = cleanName.split('(')[0].trim();
   
-  // Only try fallback if it's actually different and not too short
   if (fallbackName !== cleanName && fallbackName.length > 10) {
     best = null;
     bestScore = 0;
@@ -269,7 +316,6 @@ export async function findCompetencyByName(name, threshold = 0.30) {
 export async function isPDFAvailable() {
   try {
     const r = await fetch(PDF_PATH, { method: 'HEAD' });
-    console.log('PDF fetch status:', r.status, r.statusText);
     return r.ok;
   } catch (e) { 
     console.error('PDF fetch error:', e);
