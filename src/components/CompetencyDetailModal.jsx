@@ -72,11 +72,6 @@ function LevelPanel({ level, data }) {
     </div>
   );
 
-  // Check if behavioral indicator appears truncated
-  const bi = data.behavioralIndicator;
-  const appearsTruncated = bi && bi.length > 50 && !bi.endsWith('.') && !bi.endsWith(';') && 
-                          !bi.match(/\b(and|or|to|for|with|in|of|across|through)\s*$/i);
-
   return (
     <div style={{ animation: 'cdmSlide .2s ease-out' }}>
       {/* Behavioral Indicator Section */}
@@ -92,9 +87,6 @@ function LevelPanel({ level, data }) {
           <div className="pl-9">
             <p className={`text-base leading-relaxed ${cfg.title.replace('text-', 'text-gray-')}800`}>
               {data.behavioralIndicator}
-              {appearsTruncated && (
-                <span className="text-gray-400 italic"> [text continues in KSAs below]</span>
-              )}
             </p>
           </div>
         </div>
