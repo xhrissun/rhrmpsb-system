@@ -180,7 +180,21 @@ const AdminView = ({ user }) => {
   const [selectedCompetencyForDetail, setSelectedCompetencyForDetail] = useState(null);
 
   const handleViewCompetencyDetail = useCallback((competency) => {
-    setSelectedCompetencyForDetail(competency);
+    // Extract level from prefix (BAS) -> BASIC, (ADV) -> ADVANCED, etc.
+    const prefixMatch = competency.name.match(/^\(([A-Z]+)\)/);
+    let suggestedLevel = null;
+    if (prefixMatch) {
+      const prefix = prefixMatch[1].toUpperCase();
+      const levelMap = {
+        'BAS': 'BASIC',
+        'INT': 'INTERMEDIATE',
+        'ADV': 'ADVANCED',
+        'SUP': 'SUPERIOR'
+      };
+      suggestedLevel = levelMap[prefix] || null;
+    }
+    
+    setSelectedCompetencyForDetail({ ...competency, suggestedLevel });
     setShowCompetencyDetail(true);
   }, []);
 
@@ -2681,6 +2695,7 @@ const loadDataForCurrentTab = useCallback(async () => {
           <CompetencyDetailModal
             competencyName={selectedCompetencyForDetail.name}
             competencyType={selectedCompetencyForDetail.type}
+            suggestedLevel={selectedCompetencyForDetail.suggestedLevel}
             onClose={() => {
               setShowCompetencyDetail(false);
               setSelectedCompetencyForDetail(null);
