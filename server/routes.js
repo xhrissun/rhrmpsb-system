@@ -835,12 +835,15 @@ router.get('/candidates/export-csv', authMiddleware, async (req, res) => {
 router.get('/candidates/item/:itemNumber', authMiddleware, async (req, res) => {
   try {
     const itemNumber = decodeURIComponent(req.params.itemNumber);
+    const { includeArchived = 'false' } = req.query; // ✅ NEW: Accept query param
     
-    // ✅ ADD: Only return non-archived candidates
-    const candidates = await Candidate.find({ 
-      itemNumber,
-      isArchived: false  // ← ADD THIS
-    })
+    // ✅ FIXED: Dynamic filtering based on query param
+    const query = { itemNumber };
+    if (includeArchived === 'false') {
+      query.isArchived = false;
+    }
+    
+    const candidates = await Candidate.find(query)
       .populate('commentsHistory.commentedBy', 'name userType')
       .populate('statusHistory.changedBy', 'name userType')
       .sort({ fullName: 1 });
