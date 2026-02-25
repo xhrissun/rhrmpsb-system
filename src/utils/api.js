@@ -216,10 +216,11 @@ export const candidatesAPI = {
     const response = await api.put(`/candidates/${id}/status`, { status, comments });
     return response.data;
   },
-  getByItemNumber: async (itemNumber) => {
+  getByItemNumber: async (itemNumber, includeArchived = false) => {
     // Encode the item number to handle special characters
     const encodedItemNumber = encodeURIComponent(itemNumber);
-    const response = await api.get(`/candidates/item/${encodedItemNumber}`);
+    const params = includeArchived ? '?includeArchived=true' : '';
+    const response = await api.get(`/candidates/item/${encodedItemNumber}${params}`);
     return response.data;
   },
   exportCSV: async (filters = {}) => {
