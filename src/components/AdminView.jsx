@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, memo, useMemo } from 'react';
 import usePersistedState from '../utils/usePersistedState';
 import { usersAPI, vacanciesAPI, candidatesAPI, competenciesAPI, publicationRangesAPI, authAPI } from '../utils/api';
 import { USER_TYPES, RATER_TYPES, SALARY_GRADES, CANDIDATE_STATUS } from '../utils/constants';
@@ -173,6 +173,7 @@ const AdminView = ({ user }) => {
   const [selectedVacancyForCompetencies, setSelectedVacancyForCompetencies] = useState(null);
   const [vacancyCompetencies, setVacancyCompetencies] = useState([]);
   const [loadingCompetencies, setLoadingCompetencies] = useState(false);
+  const [showCompetencySummary, setShowCompetencySummary] = useState(false);
 
   // ─── CSV Upload UX State ───────────────────────────────────────────────────
   const [csvUploading, setCsvUploading] = useState({
@@ -1771,6 +1772,12 @@ const loadDataForCurrentTab = useCallback(async () => {
           <h2 className="text-xl font-bold text-gray-900">Competencies Management</h2>
           <div className="flex flex-wrap gap-2">
             <button
+              onClick={() => setShowCompetencySummary(true)}
+              className="px-3 py-1 rounded text-xs bg-purple-500 text-white hover:bg-purple-600 flex items-center gap-1"
+            >
+              📊 View Summary by Position
+            </button>
+            <button
               onClick={() => handleExportCSV('competencies')}
               className="btn-secondary px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300"
               disabled={competencies.length === 0}
@@ -2431,7 +2438,14 @@ const loadDataForCurrentTab = useCallback(async () => {
           onClose={() => setCompetencyVacancyModal(null)}
         />
 
-        
+        {/* Competency Summary by Position Modal */}
+        {showCompetencySummary && (
+          <CompetencySummaryModal
+            vacancies={vacancies}
+            competencies={competencies}
+            onClose={() => setShowCompetencySummary(false)}
+          />
+        )}
 
         {/* Competency Viewing Modal */}
         {showCompetencyModal && selectedVacancyForCompetencies && (
@@ -3926,6 +3940,281 @@ const CsvUploadProgressModal = ({ isOpen, type, fileName }) => {
             100% { transform: translateX(400%); }
           }
         `}</style>
+      </div>
+    </div>
+  );
+};
+
+const CompetencySummaryModal = ({ vacancies, competencies, onClose }) => {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortBy, setSortBy] = useState('itemNumber'); // itemNumber, position, assignment, salaryGrade
+
+  // Build a map of vacancy ID -> competencies
+  const vacancyCompetencyMap = useMemo(() => {
+    const map = new Map();
+    
+    // Initialize all vacancies with empty arrays
+    vacancies.forEach(v => {
+      map.set(v._id, []);
+    });
+
+    // Populate with competencies
+    competencies.forEach(comp => {
+      if (comp.isFixed) {
+        // Fixed competencies apply to ALL vacancies
+        vacancies.forEach(v => {
+          map.get(v._id).push(comp);
+        });
+      } else if (comp.vacancyIds && comp.vacancyIds.length > 0) {
+        // Specific competencies
+        comp.vacancyIds.forEach(vId => {
+          if (map.has(vId)) {
+            map.get(vId).push(comp);
+          }
+        });
+      } else if (!comp.vacancyIds || comp.vacancyIds.length === 0) {
+        // No specific vacancies = applies to all
+        vacancies.forEach(v => {
+          map.get(v._id).push(comp);
+        });
+      }
+    });
+
+    return map;
+  }, [vacancies, competencies]);
+
+  // Filter and sort vacancies
+  const filteredVacancies = useMemo(() => {
+    let filtered = vacancies.filter(v => !v.isArchived);
+
+    if (searchTerm) {
+      filtered = filtered.filter(v =>
+        v.itemNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        v.position.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        v.assignment.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+
+    // Sort
+    filtered.sort((a, b) => {
+      if (sortBy === 'itemNumber') return a.itemNumber.localeCompare(b.itemNumber);
+      if (sortBy === 'position') return a.position.localeCompare(b.position);
+      if (sortBy === 'assignment') return a.assignment.localeCompare(b.assignment);
+      if (sortBy === 'salaryGrade') return a.salaryGrade - b.salaryGrade;
+      return 0;
+    });
+
+    return filtered;
+  }, [vacancies, searchTerm, sortBy]);
+
+  const groupCompetenciesByType = (comps) => {
+    return {
+      basic: comps.filter(c => c.type === 'basic'),
+      organizational: comps.filter(c => c.type === 'organizational'),
+      leadership: comps.filter(c => c.type === 'leadership'),
+      minimum: comps.filter(c => c.type === 'minimum')
+    };
+  };
+
+  return (
+    <div className="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="modal-content bg-white rounded-lg shadow-xl w-full max-w-7xl mx-4 p-6 flex flex-col max-h-[90vh]">
+        {/* Header */}
+        <div className="flex justify-between items-center mb-4 flex-shrink-0">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900">📊 Competency Summary by Position</h2>
+            <p className="text-sm text-gray-600 mt-1">
+              Showing {filteredVacancies.length} active position{filteredVacancies.length !== 1 ? 's' : ''} with their assigned competencies
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-3xl leading-none">✕</button>
+        </div>
+
+        {/* Search and Sort Controls */}
+        <div className="flex gap-3 mb-4 flex-shrink-0">
+          <input
+            type="text"
+            placeholder="🔍 Search by item number, position, or assignment..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+          />
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+          >
+            <option value="itemNumber">Sort by Item Number</option>
+            <option value="position">Sort by Position</option>
+            <option value="assignment">Sort by Assignment</option>
+            <option value="salaryGrade">Sort by Salary Grade</option>
+          </select>
+        </div>
+
+        {/* Scrollable Content */}
+        <div className="overflow-y-auto flex-1 space-y-4 pr-2">
+          {filteredVacancies.length === 0 ? (
+            <div className="flex items-center justify-center py-12 text-gray-500">
+              <div className="text-center">
+                <div className="text-5xl mb-3">🔍</div>
+                <p className="font-medium">No positions found</p>
+                <p className="text-sm mt-1">Try adjusting your search criteria</p>
+              </div>
+            </div>
+          ) : (
+            filteredVacancies.map((vacancy) => {
+              const assignedComps = vacancyCompetencyMap.get(vacancy._id) || [];
+              const grouped = groupCompetenciesByType(assignedComps);
+              const totalCount = assignedComps.length;
+
+              return (
+                <div key={vacancy._id} className="border border-gray-200 rounded-lg p-4 bg-white hover:shadow-md transition-shadow">
+                  {/* Vacancy Header */}
+                  <div className="flex items-start justify-between mb-3 pb-3 border-b border-gray-200">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-1">
+                        <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-sm font-mono font-semibold">
+                          {vacancy.itemNumber}
+                        </span>
+                        <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs font-medium">
+                          SG {vacancy.salaryGrade}
+                        </span>
+                        <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded text-xs">
+                          {totalCount} competenc{totalCount !== 1 ? 'ies' : 'y'}
+                        </span>
+                      </div>
+                      <h3 className="text-lg font-bold text-gray-900">{vacancy.position}</h3>
+                      <p className="text-sm text-gray-600">{vacancy.assignment}</p>
+                    </div>
+                  </div>
+
+                  {/* Competencies Display */}
+                  {totalCount === 0 ? (
+                    <div className="text-center py-6 text-gray-400">
+                      <p className="text-sm italic">No competencies assigned yet</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Core Competencies */}
+                      {grouped.basic.length > 0 && (
+                        <div className="bg-blue-50 rounded-lg p-3">
+                          <h4 className="text-xs font-bold text-blue-800 uppercase tracking-wider mb-2 flex items-center gap-2">
+                            <span className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs">
+                              {grouped.basic.length}
+                            </span>
+                            Core Competencies
+                          </h4>
+                          <ul className="space-y-1">
+                            {grouped.basic.map((comp, idx) => (
+                              <li key={comp._id} className="flex items-start text-xs">
+                                <span className="text-blue-600 mr-1 flex-shrink-0">{idx + 1}.</span>
+                                <span className="text-gray-800">
+                                  {comp.name}
+                                  {comp.isFixed && (
+                                    <span className="ml-1 px-1 py-0.5 bg-green-200 text-green-800 rounded text-[10px]">Fixed</span>
+                                  )}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Organizational Competencies */}
+                      {grouped.organizational.length > 0 && (
+                        <div className="bg-purple-50 rounded-lg p-3">
+                          <h4 className="text-xs font-bold text-purple-800 uppercase tracking-wider mb-2 flex items-center gap-2">
+                            <span className="w-6 h-6 bg-purple-600 text-white rounded-full flex items-center justify-center text-xs">
+                              {grouped.organizational.length}
+                            </span>
+                            Organizational
+                          </h4>
+                          <ul className="space-y-1">
+                            {grouped.organizational.map((comp, idx) => (
+                              <li key={comp._id} className="flex items-start text-xs">
+                                <span className="text-purple-600 mr-1 flex-shrink-0">{idx + 1}.</span>
+                                <span className="text-gray-800">
+                                  {comp.name}
+                                  {comp.isFixed && (
+                                    <span className="ml-1 px-1 py-0.5 bg-green-200 text-green-800 rounded text-[10px]">Fixed</span>
+                                  )}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Leadership Competencies */}
+                      {grouped.leadership.length > 0 && (
+                        <div className="bg-indigo-50 rounded-lg p-3">
+                          <h4 className="text-xs font-bold text-indigo-800 uppercase tracking-wider mb-2 flex items-center gap-2">
+                            <span className="w-6 h-6 bg-indigo-600 text-white rounded-full flex items-center justify-center text-xs">
+                              {grouped.leadership.length}
+                            </span>
+                            Leadership
+                          </h4>
+                          <ul className="space-y-1">
+                            {grouped.leadership.map((comp, idx) => (
+                              <li key={comp._id} className="flex items-start text-xs">
+                                <span className="text-indigo-600 mr-1 flex-shrink-0">{idx + 1}.</span>
+                                <span className="text-gray-800">
+                                  {comp.name}
+                                  {comp.isFixed && (
+                                    <span className="ml-1 px-1 py-0.5 bg-green-200 text-green-800 rounded text-[10px]">Fixed</span>
+                                  )}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Minimum Competencies */}
+                      {grouped.minimum.length > 0 && (
+                        <div className="bg-orange-50 rounded-lg p-3">
+                          <h4 className="text-xs font-bold text-orange-800 uppercase tracking-wider mb-2 flex items-center gap-2">
+                            <span className="w-6 h-6 bg-orange-600 text-white rounded-full flex items-center justify-center text-xs">
+                              {grouped.minimum.length}
+                            </span>
+                            Minimum
+                          </h4>
+                          <ul className="space-y-1">
+                            {grouped.minimum.map((comp, idx) => (
+                              <li key={comp._id} className="flex items-start text-xs">
+                                <span className="text-orange-600 mr-1 flex-shrink-0">{idx + 1}.</span>
+                                <span className="text-gray-800">
+                                  {comp.name}
+                                  {comp.isFixed && (
+                                    <span className="ml-1 px-1 py-0.5 bg-green-200 text-green-800 rounded text-[10px]">Fixed</span>
+                                  )}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex justify-between items-center mt-4 pt-4 border-t flex-shrink-0">
+          <div className="text-xs text-gray-600">
+            <span className="font-semibold">{filteredVacancies.length}</span> positions shown • 
+            <span className="ml-2 font-semibold">{competencies.length}</span> total competencies in system
+          </div>
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm font-medium"
+          >
+            Close
+          </button>
+        </div>
       </div>
     </div>
   );
