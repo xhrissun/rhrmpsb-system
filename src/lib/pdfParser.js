@@ -136,6 +136,7 @@ function parseColumn(lines) {
 function extractLevels(rows, headerY) {
   const cols = [[], [], [], []];
   let past = false;
+  let hitSectionBreak = false; // ✅ NEW: Track section breaks
   
   for (const [y, items] of rows) {
     // Start collecting after header
@@ -147,10 +148,17 @@ function extractLevels(rows, headerY) {
     // Skip header row itself
     if (y === headerY) continue;
     
-    // Skip page numbers
-    if (/^\d+$/.test(items.map(i => i.str).join('').trim())) continue;
+    // ✅ NEW: Stop if we hit a section break
+    const rowText = items.map(i => i.str).join(' ').trim();
+    if (isSectionBreak(rowText)) {
+      hitSectionBreak = true;
+      break; // Stop collecting content here
+    }
     
-    // ✅ COLLECT ALL TEXT - don't stop early
+    // Skip page numbers
+    if (/^\d+$/.test(rowText)) continue;
+    
+    // Collect all text
     for (const item of items) {
       cols[getColumn(item.x)].push(item.str);
     }
@@ -181,6 +189,20 @@ function getCategory(code) {
     if (code.startsWith(k)) return v;
   }
   return 'General Competencies';
+}
+
+function isSectionBreak(text) {
+  const sectionHeaders = [
+    'ORGANIZATIONAL COMPETENCIES',
+    'CORE COMPETENCIES',
+    'LEADERSHIP COMPETENCIES',
+    'MINIMUM COMPETENCIES',
+    'BASIC COMPETENCIES',
+    'TECHNICAL COMPETENCIES'
+  ];
+  
+  const normalized = text.trim().toUpperCase();
+  return sectionHeaders.some(header => normalized.includes(header));
 }
 
 async function _parse(onProgress = () => {}) {
@@ -217,24 +239,33 @@ async function _parse(onProgress = () => {}) {
     const section = new Map();
     let yOff = 0;
 
-    // ✅ COLLECT MORE CONTENT - go further to capture wrapped text
     for (let pi = loc.pi; pi < allRows.length; pi++) {
       if (next && pi > next.pi) break;
       
       let maxY = 0;
+      let shouldBreak = false; // ✅ NEW: Flag to break outer loop
+      
       for (const [y, items] of allRows[pi]) {
         if (pi === loc.pi && y < loc.y) continue;
         if (pi === next?.pi && y >= next.y) continue;
+        
+        // ✅ NEW: Check for section breaks
+        const rowText = items.map(i => i.str).join(' ').trim();
+        if (isSectionBreak(rowText)) {
+          shouldBreak = true;
+          break;
+        }
         
         section.set(y + yOff, items);
         maxY = Math.max(maxY, y);
       }
       
+      if (shouldBreak) break; // ✅ NEW: Stop collecting if section break found
+      
       yOff += maxY + 50;
       
-      // ✅ CONTINUE to next page if we haven't hit the next competency
       if (!next || pi < next.pi - 1) continue;
-      if (next && pi === next.pi - 1) break; // Stop just before next competency
+      if (next && pi === next.pi - 1) break;
     }
 
     const headerY = findHeaderRow(section);
