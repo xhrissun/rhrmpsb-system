@@ -3960,24 +3960,28 @@ const CompetencySummaryModal = ({ vacancies, competencies, onClose }) => {
 
     // Populate with competencies
     competencies.forEach(comp => {
-      if (comp.isFixed) {
-        // Fixed competencies apply to ALL vacancies
-        vacancies.forEach(v => {
-          map.get(v._id).push(comp);
-        });
-      } else if (comp.vacancyIds && comp.vacancyIds.length > 0) {
-        // Specific competencies
+      // Check if this competency has specific vacancy assignments
+      const hasSpecificVacancies = comp.vacancyIds && Array.isArray(comp.vacancyIds) && comp.vacancyIds.length > 0;
+      
+      if (hasSpecificVacancies) {
+        // Only apply to the specified vacancies
         comp.vacancyIds.forEach(vId => {
-          if (map.has(vId)) {
-            map.get(vId).push(comp);
+          // Match by _id or by string comparison (in case of ID type mismatches)
+          const matchingVacancy = vacancies.find(v => 
+            v._id === vId || v._id?.toString() === vId?.toString()
+          );
+          if (matchingVacancy && map.has(matchingVacancy._id)) {
+            map.get(matchingVacancy._id).push(comp);
           }
         });
-      } else if (!comp.vacancyIds || comp.vacancyIds.length === 0) {
-        // No specific vacancies = applies to all
+      } else if (comp.isFixed) {
+        // Fixed competencies with no specific vacancies apply to ALL vacancies
         vacancies.forEach(v => {
           map.get(v._id).push(comp);
         });
       }
+      // NOTE: Competencies without vacancyIds AND without isFixed flag are orphaned
+      // and should NOT be assigned to any vacancy
     });
 
     return map;
