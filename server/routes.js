@@ -835,10 +835,16 @@ router.get('/candidates/export-csv', authMiddleware, async (req, res) => {
 router.get('/candidates/item/:itemNumber', authMiddleware, async (req, res) => {
   try {
     const itemNumber = decodeURIComponent(req.params.itemNumber);
-    const candidates = await Candidate.find({ itemNumber })
+    
+    // ✅ ADD: Only return non-archived candidates
+    const candidates = await Candidate.find({ 
+      itemNumber,
+      isArchived: false  // ← ADD THIS
+    })
       .populate('commentsHistory.commentedBy', 'name userType')
       .populate('statusHistory.changedBy', 'name userType')
       .sort({ fullName: 1 });
+    
     res.json(candidates);
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
