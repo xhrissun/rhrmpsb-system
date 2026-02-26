@@ -408,15 +408,40 @@ function normalizeName(name) {
     .trim();
 }
 
+// Stop-words that are too common to be meaningful for competency name matching.
+// Sharing only these words should NOT inflate the similarity score.
+const STOP_WORDS = new Set([
+  'AND', 'THE', 'OF', 'FOR', 'TO', 'IN', 'ON', 'AT', 'BY', 'OR',
+  'ITS', 'WITH', 'FROM', 'THAT', 'THIS', 'ARE', 'WAS', 'HAS',
+  'THEIR', 'THEY', 'INTO', 'ALSO',
+]);
+
+function meaningfulWords(normalized) {
+  return new Set(
+    normalized.split(' ').filter(w => w.length > 2 && !STOP_WORDS.has(w))
+  );
+}
+
 function nameSimilarity(a, b) {
   const na = normalizeName(a), nb = normalizeName(b);
   if (na === nb) return 1.0;
-  const aw = new Set(na.split(' ').filter(w => w.length > 2));
-  const bw = new Set(nb.split(' ').filter(w => w.length > 2));
+
+  const aw = meaningfulWords(na);
+  const bw = meaningfulWords(nb);
+
+  // If either side has no meaningful words, bail out
+  if (aw.size === 0 || bw.size === 0) return 0;
+
   const inter = [...aw].filter(w => bw.has(w)).length;
   const union = new Set([...aw, ...bw]).size;
-  const jaccard = union === 0 ? 0 : inter / union;
-  const sub = na.includes(nb) || nb.includes(na) ? 0.3 : 0;
+  const jaccard = inter / union;
+
+  // Substring bonus ONLY when one name fully contains the other AND the
+  // shorter name is at least 60% the length of the longer name — prevents
+  // short generic substrings from inflating the score.
+  const lenRatio = Math.min(na.length, nb.length) / Math.max(na.length, nb.length);
+  const sub = (na.includes(nb) || nb.includes(na)) && lenRatio >= 0.6 ? 0.2 : 0;
+
   return Math.min(1.0, jaccard + sub);
 }
 
@@ -432,50 +457,78 @@ export async function ensureParsed(onProgress) {
 }
 
 /**
- * Find ALL competencies whose name matches well enough.
+ * Find ALL competencies whose name genuinely matches the query.
  *
- * Returns an array (may contain 1 or more entries).
- * When multiple competencies share the same name but have different codes
- * (e.g. RO2 and PCO2), ALL of them are returned so the UI can show every
- * variation with a warning banner.
+ * Two-tier strategy:
  *
- * @param {string} name       - Competency name as stored in the database
- * @param {number} threshold  - Minimum similarity score (0–1) to include
- * @returns {Array}           - Array of matched competency objects (may be empty)
+ *  1. SINGLE-MATCH threshold (0.65) — the normal bar for "this is the right
+ *     competency". Returns the best match(es) at or above this score.
+ *
+ *  2. VARIANT threshold (0.85) — two results are only both shown as "variants"
+ *     of the same competency when their scores are BOTH ≥ 0.85 AND their own
+ *     names are near-identical to each other (similarity ≥ 0.85). This
+ *     correctly groups RO2 and PCO2 (same title) while excluding unrelated
+ *     competencies that merely share common domain words like "ENVIRONMENT".
+ *
+ * @param {string} name  - Competency name as stored in the database
+ * @returns {Array}      - Array of matched competency objects (may be empty)
  */
-export async function findCompetenciesByName(name, threshold = 0.30) {
+export async function findCompetenciesByName(name) {
   const comps = await ensureParsed();
 
   // Strip UI level-prefix decoration, e.g. "(ADV) - Teamwork" → "Teamwork"
   const cleanName = name.replace(/^\([A-Z]+\)\s*-\s*/i, '').trim();
 
+  const SINGLE_THRESHOLD  = 0.65; // minimum to consider anything a match at all
+  const VARIANT_THRESHOLD = 0.85; // minimum for BOTH entries to be shown as variants
+
   const collectMatches = (searchName) => {
     return comps
       .map(c => ({ comp: c, score: nameSimilarity(searchName, c.name) }))
-      .filter(({ score }) => score >= threshold)
-      .sort((a, b) => b.score - a.score)
-      .map(({ comp }) => comp);
+      .filter(({ score }) => score >= SINGLE_THRESHOLD)
+      .sort((a, b) => b.score - a.score);
   };
 
-  let matches = collectMatches(cleanName);
+  let scored = collectMatches(cleanName);
 
-  // Fallback: strip parenthetical suffix and retry
-  if (matches.length === 0) {
+  // Fallback: strip parenthetical suffix and retry if nothing found
+  if (scored.length === 0) {
     const fallbackName = cleanName.split('(')[0].trim();
     if (fallbackName !== cleanName && fallbackName.length > 10) {
-      matches = collectMatches(fallbackName);
+      scored = collectMatches(fallbackName);
     }
   }
 
-  return matches;
+  if (scored.length === 0) return [];
+
+  // Always include the best match
+  const best = scored[0];
+  const results = [best.comp];
+
+  // Only add additional variants when:
+  //   a) their own score vs the query is also ≥ VARIANT_THRESHOLD, AND
+  //   b) their name is near-identical to the best match's name (≥ 0.85)
+  //      — this is what distinguishes "same competency, different code prefix"
+  //      from "unrelated competency that shares some domain words"
+  for (let i = 1; i < scored.length; i++) {
+    const candidate = scored[i];
+    if (candidate.score < VARIANT_THRESHOLD) break; // sorted descending, can stop early
+
+    const nameToName = nameSimilarity(best.comp.name, candidate.comp.name);
+    if (nameToName >= VARIANT_THRESHOLD) {
+      results.push(candidate.comp);
+    }
+  }
+
+  return results;
 }
 
 /**
- * Legacy single-result wrapper — kept for any callers that expect one result.
- * Returns the highest-scoring match or null.
+ * Legacy single-result wrapper — returns the highest-scoring match or null.
+ * Kept so any existing callers that expect a single object still work.
  */
-export async function findCompetencyByName(name, threshold = 0.30) {
-  const results = await findCompetenciesByName(name, threshold);
+export async function findCompetencyByName(name) {
+  const results = await findCompetenciesByName(name);
   return results[0] ?? null;
 }
 
