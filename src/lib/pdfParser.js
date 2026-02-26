@@ -403,13 +403,13 @@ async function _parse(onProgress = () => {}) {
 
 function normalizeName(name) {
   return name.toUpperCase()
+    .replace(/[()]/g, ' ')          // open/close parens → spaces so inner words tokenize cleanly
     .replace(/\s+/g, ' ')
-    .replace(/[^A-Z0-9\s()\/\-]/g, '')
+    .replace(/[^A-Z0-9\s\/\-]/g, '') // strip commas, punctuation (but keep spaces, slashes, hyphens)
     .trim();
 }
 
-// Stop-words that are too common to be meaningful for competency name matching.
-// Sharing only these words should NOT inflate the similarity score.
+// Stop-words too common to carry meaningful signal for competency name matching.
 const STOP_WORDS = new Set([
   'AND', 'THE', 'OF', 'FOR', 'TO', 'IN', 'ON', 'AT', 'BY', 'OR',
   'ITS', 'WITH', 'FROM', 'THAT', 'THIS', 'ARE', 'WAS', 'HAS',
@@ -429,20 +429,25 @@ function nameSimilarity(a, b) {
   const aw = meaningfulWords(na);
   const bw = meaningfulWords(nb);
 
-  // If either side has no meaningful words, bail out
   if (aw.size === 0 || bw.size === 0) return 0;
 
   const inter = [...aw].filter(w => bw.has(w)).length;
   const union = new Set([...aw, ...bw]).size;
   const jaccard = inter / union;
 
-  // Substring bonus ONLY when one name fully contains the other AND the
-  // shorter name is at least 60% the length of the longer name — prevents
-  // short generic substrings from inflating the score.
-  const lenRatio = Math.min(na.length, nb.length) / Math.max(na.length, nb.length);
-  const sub = (na.includes(nb) || nb.includes(na)) && lenRatio >= 0.6 ? 0.2 : 0;
+  // Containment bonus: if ALL meaningful words of the shorter name exist in the
+  // longer name's word set, the shorter name is a "short form" of the longer —
+  // give a boost regardless of raw length ratio.
+  // This handles the case where the DB stores a truncated competency title
+  // (e.g. without the parenthetical sector list) while the CBS PDF has the full title.
+  // We require the shorter side to have at least 4 meaningful words to prevent
+  // trivially short queries from matching almost anything.
+  const shorter = aw.size <= bw.size ? aw : bw;
+  const longer  = aw.size <= bw.size ? bw : aw;
+  const allContained = shorter.size >= 4 && [...shorter].every(w => longer.has(w));
+  const containmentBonus = allContained ? 0.25 : 0;
 
-  return Math.min(1.0, jaccard + sub);
+  return Math.min(1.0, jaccard + containmentBonus);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -479,7 +484,7 @@ export async function findCompetenciesByName(name) {
   // Strip UI level-prefix decoration, e.g. "(ADV) - Teamwork" → "Teamwork"
   const cleanName = name.replace(/^\([A-Z]+\)\s*-\s*/i, '').trim();
 
-  const SINGLE_THRESHOLD  = 0.65; // minimum to consider anything a match at all
+  const SINGLE_THRESHOLD  = 0.60; // minimum to consider anything a match at all
   const VARIANT_THRESHOLD = 0.85; // minimum for BOTH entries to be shown as variants
 
   const collectMatches = (searchName) => {
