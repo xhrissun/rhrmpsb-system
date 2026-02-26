@@ -412,7 +412,14 @@ async function _parse(onProgress = () => {}) {
 
     if (!foundLoc) continue;
 
-    if (tocEntry.code === 'RSCI6') {
+    // Find the next competency location to bound extraction
+    // Use pdfLocs to find the next one after foundLoc
+    const nextLocIdx = pdfLocs.findIndex(l =>
+      (l.pi > foundLoc.pi) || (l.pi === foundLoc.pi && l.y > foundLoc.y + 30)
+    );
+    const nextLoc = nextLocIdx >= 0 ? pdfLocs[nextLocIdx] : null;
+
+      if (tocEntry.code === 'RSCI6') {
       console.log('=== RSCI6 DEBUG ===');
       console.log('targetPageIdx:', targetPageIdx);
       console.log('foundLoc:', foundLoc);
@@ -428,13 +435,6 @@ async function _parse(onProgress = () => {}) {
         }
       }
     }
-
-    // Find the next competency location to bound extraction
-    // Use pdfLocs to find the next one after foundLoc
-    const nextLocIdx = pdfLocs.findIndex(l =>
-      (l.pi > foundLoc.pi) || (l.pi === foundLoc.pi && l.y > foundLoc.y + 30)
-    );
-    const nextLoc = nextLocIdx >= 0 ? pdfLocs[nextLocIdx] : null;
 
     // Extract section rows
     const section = new Map();
