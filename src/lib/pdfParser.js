@@ -398,7 +398,7 @@ async function _parse(onProgress = () => {}) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Name-matching helpers
+// Name-matching helpers with improved typo tolerance
 // ─────────────────────────────────────────────────────────────────────────────
 
 function normalizeName(name) {
@@ -464,16 +464,11 @@ export async function ensureParsed(onProgress) {
 /**
  * Find ALL competencies whose name genuinely matches the query.
  *
- * Two-tier strategy:
+ * Multi-tier strategy with improved matching:
  *
- *  1. SINGLE-MATCH threshold (0.65) — the normal bar for "this is the right
- *     competency". Returns the best match(es) at or above this score.
- *
- *  2. VARIANT threshold (0.85) — two results are only both shown as "variants"
- *     of the same competency when their scores are BOTH ≥ 0.85 AND their own
- *     names are near-identical to each other (similarity ≥ 0.85). This
- *     correctly groups RO2 and PCO2 (same title) while excluding unrelated
- *     competencies that merely share common domain words like "ENVIRONMENT".
+ *  1. SINGLE-MATCH threshold (0.50) — lowered for better recall
+ *  2. VARIANT threshold (0.85) — for grouping near-identical entries
+ *  3. Typo-tolerant fallbacks including exact substring matching
  *
  * @param {string} name  - Competency name as stored in the database
  * @returns {Array}      - Array of matched competency objects (may be empty)
@@ -484,7 +479,7 @@ export async function findCompetenciesByName(name) {
   // Strip UI level-prefix decoration, e.g. "(ADV) - Teamwork" → "Teamwork"
   const cleanName = name.replace(/^\([A-Z]+\)\s*-\s*/i, '').trim();
 
-  const SINGLE_THRESHOLD  = 0.60; // minimum to consider anything a match at all
+  const SINGLE_THRESHOLD  = 0.50; // lowered from 0.60 for better recall
   const VARIANT_THRESHOLD = 0.85; // minimum for BOTH entries to be shown as variants
 
   const collectMatches = (searchName) => {
@@ -504,6 +499,18 @@ export async function findCompetenciesByName(name) {
     }
   }
 
+  // Additional fallback: try exact substring matching for queries
+  if (scored.length === 0) {
+    const normalized = normalizeName(cleanName);
+    scored = comps
+      .filter(c => {
+        const cNorm = normalizeName(c.name);
+        // Check if query is contained in competency name or vice versa
+        return cNorm.includes(normalized) || normalized.includes(cNorm);
+      })
+      .map(c => ({ comp: c, score: 0.55 })); // give them a passing score
+  }
+
   if (scored.length === 0) return [];
 
   // Always include the best match
@@ -513,8 +520,6 @@ export async function findCompetenciesByName(name) {
   // Only add additional variants when:
   //   a) their own score vs the query is also ≥ VARIANT_THRESHOLD, AND
   //   b) their name is near-identical to the best match's name (≥ 0.85)
-  //      — this is what distinguishes "same competency, different code prefix"
-  //      from "unrelated competency that shares some domain words"
   for (let i = 1; i < scored.length; i++) {
     const candidate = scored[i];
     if (candidate.score < VARIANT_THRESHOLD) break; // sorted descending, can stop early
@@ -544,6 +549,14 @@ export async function findCompetencyByCode(code) {
   const comps = await ensureParsed();
   const upper = code.trim().toUpperCase();
   return comps.find(c => c.code.toUpperCase() === upper) ?? null;
+}
+
+/**
+ * Get all competencies (for browsing the full manual).
+ * @returns {Array} - All parsed competencies
+ */
+export async function getAllCompetencies() {
+  return await ensureParsed();
 }
 
 export async function isPDFAvailable() {
