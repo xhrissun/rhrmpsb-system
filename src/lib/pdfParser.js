@@ -400,6 +400,23 @@ async function _parse(onProgress = () => {}) {
 
     if (!foundLoc) continue;
 
+    if (tocEntry.code === 'RSCI6') {
+      console.log('=== RSCI6 DEBUG ===');
+      console.log('targetPageIdx:', targetPageIdx);
+      console.log('foundLoc:', foundLoc);
+      console.log('nextLoc:', nextLoc);
+      
+      // Check what's actually on pages around 163
+      for (let pi = targetPageIdx - 1; pi <= targetPageIdx + 2; pi++) {
+        if (pi < 0 || pi >= allRows.length) continue;
+        console.log(`--- Page index ${pi} (PDF page ~${pi+1}) ---`);
+        for (const [y, items] of allRows[pi]) {
+          const line = items.map(i => i.str).join(' ').trim();
+          if (line) console.log(`  y=${y}: "${line}"`);
+        }
+      }
+    }
+
     // Find the next competency location to bound extraction
     // Use pdfLocs to find the next one after foundLoc
     const nextLocIdx = pdfLocs.findIndex(l =>
