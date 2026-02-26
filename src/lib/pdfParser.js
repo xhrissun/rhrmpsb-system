@@ -430,8 +430,8 @@ async function _parse(onProgress = () => {}) {
 
       if (shouldBreak) break;
       yOff += maxY + 50;
-      if (!nextLoc || pi < nextLoc.pi - 1) continue;
-      if (nextLoc && pi === nextLoc.pi - 1) break;
+      //if (!nextLoc || pi < nextLoc.pi - 1) continue;
+      //if (nextLoc && pi === nextLoc.pi - 1) break;
     }
 
     const headerY = findHeaderRow(section);
