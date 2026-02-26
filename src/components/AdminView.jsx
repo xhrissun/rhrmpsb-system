@@ -180,20 +180,18 @@ const AdminView = ({ user }) => {
   const [selectedCompetencyForDetail, setSelectedCompetencyForDetail] = useState(null);
 
   const handleViewCompetencyDetail = useCallback((competency) => {
-    // Extract level from prefix (BAS) -> BASIC, (ADV) -> ADVANCED, etc.
-    const prefixMatch = competency.name.match(/^\(([A-Z]+)\)/);
+    const prefixMatch = competency.name?.match(/^\(([A-Z]+)\)/);
     let suggestedLevel = null;
     if (prefixMatch) {
       const prefix = prefixMatch[1].toUpperCase();
       const levelMap = {
-        'BAS': 'BASIC',
-        'INT': 'INTERMEDIATE',
-        'ADV': 'ADVANCED',
-        'SUP': 'SUPERIOR'
+        'BAS': 'BASIC', 'INT': 'INTERMEDIATE',
+        'ADV': 'ADVANCED', 'SUP': 'SUPERIOR'
       };
       suggestedLevel = levelMap[prefix] || null;
     }
-    
+    // Store the full competency object so the modal can use it directly
+    // without doing a fuzzy name search (which failed for shared codes).
     setSelectedCompetencyForDetail({ ...competency, suggestedLevel });
     setShowCompetencyDetail(true);
   }, []);
@@ -2706,6 +2704,13 @@ const loadDataForCurrentTab = useCallback(async () => {
             competencyType={selectedCompetencyForDetail.type}
             suggestedLevel={selectedCompetencyForDetail.suggestedLevel}
             browseMode={selectedCompetencyForDetail.browseMode || false}
+            // Pass directComp only when we have a CBS comp with levels data
+            // (i.e., clicked from the browser). This bypasses fuzzy name search.
+            directComp={
+              selectedCompetencyForDetail.levels
+                ? selectedCompetencyForDetail
+                : null
+            }
             onClose={() => {
               setShowCompetencyDetail(false);
               setSelectedCompetencyForDetail(null);
