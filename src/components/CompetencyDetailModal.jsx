@@ -386,12 +386,10 @@ export default function CompetencyDetailModal({
   }, [variants, resolveActiveLevel]);
 
   // ── When user clicks a comp in the browser ────────────────────────────────
-  // We now need to find ALL variants for that code so VariantTabs works.
+  // 🔥 FIX: Pass the CBS competency object DIRECTLY so we bypass fuzzy name search
   const handleSelectCompetency = useCallback(async (comp) => {
-    setStatus('loading');
-    setMsg('Loading competency…');
     setIsBrowsing(false);
-
+    
     try {
       // Fetch all CBS entries with the same code to support variant tabs
       const allParsed = await ensureParsed();
