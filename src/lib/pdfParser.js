@@ -403,7 +403,7 @@ async function _parse(onProgress = () => {}) {
     // Find the next competency location to bound extraction
     // Use pdfLocs to find the next one after foundLoc
     const nextLocIdx = pdfLocs.findIndex(l =>
-      (l.pi > foundLoc.pi) || (l.pi === foundLoc.pi && l.y > foundLoc.y)
+      (l.pi > foundLoc.pi) || (l.pi === foundLoc.pi && l.y > foundLoc.y + 30)
     );
     const nextLoc = nextLocIdx >= 0 ? pdfLocs[nextLocIdx] : null;
 
@@ -441,6 +441,14 @@ async function _parse(onProgress = () => {}) {
     const hasContent = LEVEL_NAMES.some(l =>
       levels[l].behavioralIndicator || levels[l].items.length > 0
     );
+
+    if (tocEntry.code === 'RSCI6') {
+      console.log('RSCI6 foundLoc:', foundLoc);
+      console.log('RSCI6 nextLoc:', nextLoc);
+      console.log('RSCI6 section size:', section.size);
+      console.log('RSCI6 headerY:', findHeaderRow(section));
+      console.log('RSCI6 levels:', JSON.stringify(levels));
+    }
     if (!hasContent) continue;
 
     result.push({
@@ -549,6 +557,9 @@ export async function ensureParsed(onProgress) {
  */
 export async function findCompetenciesByName(name) {
   const comps = await ensureParsed();
+
+  const rsci6 = comps.find(c => c.code === 'RSCI6');
+  console.log('RSCI6 in cache:', rsci6);
 
   // Strip UI level-prefix decoration
   const cleanName = name.replace(/^\([A-Z]+\)\s*-\s*/i, '').trim();
