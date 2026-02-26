@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { findCompetenciesByName, ensureParsed, isPDFAvailable } from '../lib/pdfParser';
+import { findCompetenciesByName, findCompetencyByCode, getAllCompetencies, ensureParsed, isPDFAvailable } from '../lib/pdfParser';
 
 const LEVELS = ['BASIC', 'INTERMEDIATE', 'ADVANCED', 'SUPERIOR'];
 
@@ -123,8 +123,7 @@ function LevelPanel({ level, data }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// VariantTabs — when multiple CBS variants exist, lets the user switch between
-// them above the level tabs.
+// VariantTabs — when multiple CBS variants exist
 // ─────────────────────────────────────────────────────────────────────────────
 
 function VariantTabs({ variants, activeIdx, onChange }) {
@@ -151,6 +150,148 @@ function VariantTabs({ variants, activeIdx, onChange }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Browser Mode - Full CBS Manual Browser
+// ─────────────────────────────────────────────────────────────────────────────
+
+function BrowserMode({ onSelectCompetency, onClose }) {
+  const [allCompetencies, setAllCompetencies] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterCategory, setFilterCategory] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadAll = async () => {
+      try {
+        const comps = await getAllCompetencies();
+        setAllCompetencies(comps);
+      } catch (error) {
+        console.error('Failed to load all competencies:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadAll();
+  }, []);
+
+  const categories = [...new Set(allCompetencies.map(c => c.category))].sort();
+
+  const filtered = allCompetencies.filter(comp => {
+    const matchesSearch = searchTerm === '' || 
+      comp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      comp.code.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesCategory = filterCategory === '' || comp.category === filterCategory;
+    return matchesSearch && matchesCategory;
+  });
+
+  const groupedByCategory = filtered.reduce((acc, comp) => {
+    if (!acc[comp.category]) acc[comp.category] = [];
+    acc[comp.category].push(comp);
+    return acc;
+  }, {});
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <div className="text-center">
+          <svg className="w-12 h-12 animate-spin text-blue-500 mx-auto mb-4" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3"/>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+          </svg>
+          <p className="text-gray-600">Loading CBS Manual...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Search and Filter */}
+      <div className="px-6 py-4 border-b border-gray-200 space-y-3">
+        <input
+          type="text"
+          placeholder="🔍 Search by competency name or code..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+        />
+        <div className="flex gap-2">
+          <select
+            value={filterCategory}
+            onChange={(e) => setFilterCategory(e.target.value)}
+            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+          >
+            <option value="">All Categories ({allCompetencies.length})</option>
+            {categories.map(cat => (
+              <option key={cat} value={cat}>
+                {cat} ({allCompetencies.filter(c => c.category === cat).length})
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm"
+          >
+            Exit Browser
+          </button>
+        </div>
+        <p className="text-xs text-gray-500">
+          Showing {filtered.length} of {allCompetencies.length} competencies
+        </p>
+      </div>
+
+      {/* Results */}
+      <div className="flex-1 overflow-y-auto px-6 py-4">
+        {filtered.length === 0 ? (
+          <div className="text-center py-12 text-gray-500">
+            <div className="text-5xl mb-3">🔍</div>
+            <p className="font-medium">No competencies found</p>
+            <p className="text-sm mt-1">Try adjusting your search or filter</p>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {Object.entries(groupedByCategory).map(([category, comps]) => (
+              <div key={category}>
+                <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wider mb-3 pb-2 border-b border-gray-200">
+                  {category} ({comps.length})
+                </h3>
+                <div className="space-y-2">
+                  {comps.map(comp => (
+                    <button
+                      key={comp.code}
+                      onClick={() => onSelectCompetency(comp)}
+                      className="w-full text-left p-3 bg-white border border-gray-200 rounded-lg hover:shadow-md hover:border-blue-300 transition-all"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded text-xs font-mono font-semibold">
+                              {comp.code}
+                            </span>
+                            {comp.levels && (
+                              <span className="text-xs text-gray-500">
+                                {Object.values(comp.levels).reduce((sum, level) => sum + (level.items?.length || 0), 0)} KSAs
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-sm font-medium text-gray-900 leading-snug">
+                            {comp.name}
+                          </p>
+                        </div>
+                        <span className="text-blue-600 text-xl flex-shrink-0">→</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Main modal
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -159,19 +300,26 @@ export default function CompetencyDetailModal({
   competencyType,
   suggestedLevel,
   onClose,
+  browseMode = false,
 }) {
-  const [status,       setStatus]       = useState('loading'); // 'loading' | 'found' | 'not_found' | 'no_pdf'
+  const [status,       setStatus]       = useState('loading');
   const [progress,     setProgress]     = useState(0);
   const [msg,          setMsg]          = useState('Checking…');
-  const [variants,     setVariants]     = useState([]); // all matched CBS entries
-  const [variantIdx,   setVariantIdx]   = useState(0); // which variant is shown
+  const [variants,     setVariants]     = useState([]);
+  const [variantIdx,   setVariantIdx]   = useState(0);
   const [activeLevel,  setActiveLevel]  = useState(suggestedLevel || 'BASIC');
+  const [isBrowsing,   setIsBrowsing]   = useState(browseMode);
   const overlayRef = useRef(null);
 
-  // Current displayed data
   const data = variants[variantIdx] ?? null;
 
+  // Initial load
   useEffect(() => {
+    if (isBrowsing) {
+      setStatus('browsing');
+      return;
+    }
+
     let cancelled = false;
     (async () => {
       const ok = await isPDFAvailable();
@@ -185,7 +333,6 @@ export default function CompetencyDetailModal({
           setVariants(results);
           setVariantIdx(0);
 
-          // Set initial level tab
           const firstData = results[0];
           if (
             suggestedLevel &&
@@ -206,15 +353,23 @@ export default function CompetencyDetailModal({
       } catch { if (!cancelled) setStatus('not_found'); }
     })();
     return () => { cancelled = true; };
-  }, [competencyName, suggestedLevel]);
+  }, [competencyName, suggestedLevel, isBrowsing]);
 
-  // When the user switches variant, reset level tab to first available
   const handleVariantChange = useCallback((idx) => {
     setVariantIdx(idx);
     const v = variants[idx];
     const first = LEVELS.find(l => v.levels[l]?.behavioralIndicator || v.levels[l]?.items.length > 0);
     setActiveLevel(first ?? 'BASIC');
   }, [variants]);
+
+  const handleSelectCompetency = useCallback((comp) => {
+    setVariants([comp]);
+    setVariantIdx(0);
+    const first = LEVELS.find(l => comp.levels[l]?.behavioralIndicator || comp.levels[l]?.items.length > 0);
+    setActiveLevel(first ?? 'BASIC');
+    setStatus('found');
+    setIsBrowsing(false);
+  }, []);
 
   useEffect(() => {
     const h = e => { if (e.key === 'Escape') onClose(); };
@@ -245,34 +400,67 @@ export default function CompetencyDetailModal({
           {/* ── Header ─────────────────────────────────────────────────── */}
           <div className="flex items-start justify-between px-6 pt-5 pb-4 border-b border-gray-100 flex-shrink-0">
             <div className="flex-1 min-w-0 mr-4">
-              <div className="flex flex-wrap gap-2 mb-2">
-                {competencyType && (
-                  <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${TYPE_COLOR[competencyType] ?? 'bg-gray-100 text-gray-700'}`}>
-                    {TYPE_LABEL[competencyType] ?? competencyType}
-                  </span>
-                )}
-                {data?.code && (
-                  <span className="text-xs font-mono px-2.5 py-1 rounded-full bg-gray-100 text-gray-600">{data.code}</span>
-                )}
-                {data?.category && (
-                  <span className="text-xs px-2.5 py-1 rounded-full bg-amber-50 text-amber-700">{data.category}</span>
-                )}
-              </div>
-              <h2 className="text-xl font-bold text-gray-900 leading-snug">
-                {competencyName.replace(/^\([A-Z]+\)\s*-\s*/i, '')}
-              </h2>
+              {!isBrowsing && (
+                <>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {competencyType && (
+                      <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${TYPE_COLOR[competencyType] ?? 'bg-gray-100 text-gray-700'}`}>
+                        {TYPE_LABEL[competencyType] ?? competencyType}
+                      </span>
+                    )}
+                    {data?.code && (
+                      <span className="text-xs font-mono px-2.5 py-1 rounded-full bg-gray-100 text-gray-600">{data.code}</span>
+                    )}
+                    {data?.category && (
+                      <span className="text-xs px-2.5 py-1 rounded-full bg-amber-50 text-amber-700">{data.category}</span>
+                    )}
+                  </div>
+                  <h2 className="text-xl font-bold text-gray-900 leading-snug">
+                    {competencyName?.replace(/^\([A-Z]+\)\s*-\s*/i, '') || 'CBS Manual Browser'}
+                  </h2>
+                </>
+              )}
+              {isBrowsing && (
+                <h2 className="text-xl font-bold text-gray-900 leading-snug flex items-center gap-2">
+                  <span>📚</span> Browse CBS Manual
+                </h2>
+              )}
             </div>
-            <button
-              onClick={onClose}
-              className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
-            >✕</button>
+            <div className="flex items-center gap-2">
+              {status === 'found' && !isBrowsing && (
+                <button
+                  onClick={() => setIsBrowsing(true)}
+                  className="px-3 py-1 bg-blue-100 text-blue-700 hover:bg-blue-200 rounded-lg text-xs font-medium transition-colors"
+                  title="Browse all competencies in the CBS manual"
+                >
+                  Browse Manual
+                </button>
+              )}
+              <button
+                onClick={onClose}
+                className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+              >✕</button>
+            </div>
           </div>
 
           {/* ── Body ───────────────────────────────────────────────────── */}
           <div className="flex-1 overflow-y-auto">
+            {/* Browse Mode */}
+            {status === 'browsing' && isBrowsing && (
+              <BrowserMode
+                onSelectCompetency={handleSelectCompetency}
+                onClose={() => {
+                  if (variants.length > 0) {
+                    setIsBrowsing(false);
+                  } else {
+                    onClose();
+                  }
+                }}
+              />
+            )}
 
             {/* Loading */}
-            {status === 'loading' && (
+            {status === 'loading' && !isBrowsing && (
               <div className="p-6">
                 <div className="flex items-center gap-3 mb-3">
                   <svg className="w-5 h-5 animate-spin text-blue-500 flex-shrink-0" viewBox="0 0 24 24" fill="none">
@@ -298,19 +486,25 @@ export default function CompetencyDetailModal({
             )}
 
             {/* Not found */}
-            {status === 'not_found' && (
+            {status === 'not_found' && !isBrowsing && (
               <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
                 <div className="text-5xl mb-4">🔍</div>
                 <h3 className="text-base font-semibold text-gray-700 mb-2">Not Found in CBS Manual</h3>
-                <p className="text-sm text-gray-400 max-w-xs leading-relaxed">
-                  Could not match <strong>"{competencyName.replace(/^\([A-Z]+\)\s*-\s*/i, '')}"</strong> in the PDF. The database name may differ slightly from the manual's wording.
+                <p className="text-sm text-gray-400 max-w-xs leading-relaxed mb-6">
+                  Could not match <strong>"{competencyName?.replace(/^\([A-Z]+\)\s*-\s*/i, '')}"</strong> in the PDF. The database name may differ slightly from the manual's wording.
                 </p>
-                <button onClick={onClose} className="mt-6 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm">Close</button>
+                <button
+                  onClick={() => setIsBrowsing(true)}
+                  className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm mb-2"
+                >
+                  Browse Full CBS Manual
+                </button>
+                <button onClick={onClose} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm">Close</button>
               </div>
             )}
 
             {/* No PDF */}
-            {status === 'no_pdf' && (
+            {status === 'no_pdf' && !isBrowsing && (
               <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
                 <div className="text-5xl mb-4">📄</div>
                 <h3 className="text-base font-semibold text-gray-700 mb-2">PDF Not Found</h3>
@@ -323,9 +517,8 @@ export default function CompetencyDetailModal({
             )}
 
             {/* Found */}
-            {status === 'found' && data && (
+            {status === 'found' && !isBrowsing && data && (
               <>
-                {/* ── Multiple-variant warning banner ───────────────── */}
                 {isMultiVariant && (
                   <div className="mx-6 mt-4 flex items-start gap-3 px-4 py-3 rounded-xl bg-amber-50 border border-amber-300">
                     <span className="text-xl flex-shrink-0">⚠️</span>
@@ -335,7 +528,7 @@ export default function CompetencyDetailModal({
                       </p>
                       <p className="text-xs text-amber-700 mt-0.5 leading-relaxed">
                         The CBS manual contains <strong>{variants.length} different versions</strong> of{' '}
-                        <em>"{competencyName.replace(/^\([A-Z]+\)\s*-\s*/i, '')}"</em> under different codes
+                        <em>"{competencyName?.replace(/^\([A-Z]+\)\s*-\s*/i, '')}"</em> under different codes
                         ({variants.map(v => v.code).join(', ')}). Each version may have different
                         behavioral indicators and KSAs. Use the tabs below to review all variants.
                       </p>
@@ -343,7 +536,6 @@ export default function CompetencyDetailModal({
                   </div>
                 )}
 
-                {/* ── Variant selector tabs (only when > 1) ─────────── */}
                 {isMultiVariant && (
                   <VariantTabs
                     variants={variants}
@@ -352,7 +544,6 @@ export default function CompetencyDetailModal({
                   />
                 )}
 
-                {/* ── Level tabs ────────────────────────────────────── */}
                 <div className="sticky top-0 bg-white border-b border-gray-100 px-6 pt-4 pb-3 z-10">
                   <div className="flex flex-wrap gap-2">
                     {LEVELS.map(level => {
@@ -381,7 +572,6 @@ export default function CompetencyDetailModal({
                   </div>
                 </div>
 
-                {/* ── Content area ──────────────────────────────────── */}
                 <div className="p-6">
                   <LevelPanel level={activeLevel} data={data.levels[activeLevel]} />
                 </div>
@@ -390,7 +580,7 @@ export default function CompetencyDetailModal({
           </div>
 
           {/* ── Footer ─────────────────────────────────────────────────── */}
-          {status === 'found' && data && (
+          {status === 'found' && !isBrowsing && data && (
             <div className="flex-shrink-0 border-t border-gray-100 px-6 py-3 bg-gray-50/50">
               <div className="flex items-center justify-between">
                 <p className="text-xs text-gray-400">
