@@ -3,20 +3,43 @@ import * as pdfjsLib from 'pdfjs-dist';
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Constants
+// ─────────────────────────────────────────────────────────────────────────────
+
 const COLUMN_BOUNDARIES = [192, 384, 589];
 const LEVEL_NAMES = ['BASIC', 'INTERMEDIATE', 'ADVANCED', 'SUPERIOR'];
 const PDF_PATH = '/rhrmpsb-system/2025_CBS.pdf';
 const CODE_RE = /^([A-Z]+\d+[A-Z]?)\s*[-–]\s*(.+)/;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Module-level cache
+// ─────────────────────────────────────────────────────────────────────────────
+
 let _cache = null;
 let _promise = null;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Column assignment
+//
+// FIX — rogue glyph / orphan character:
+//   PDF glyphs that belong to a word in column N but whose x-coordinate sits
+//   marginally past a column boundary get misassigned.  COLUMN_MARGIN keeps any
+//   glyph within that many px of a boundary in the LEFT column.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const COLUMN_MARGIN = 6; // px
+
 function getColumn(x) {
   for (let i = 0; i < COLUMN_BOUNDARIES.length; i++) {
-    if (x < COLUMN_BOUNDARIES[i]) return i;
+    if (x < COLUMN_BOUNDARIES[i] + COLUMN_MARGIN) return i;
   }
   return 3;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Row grouping
+// ─────────────────────────────────────────────────────────────────────────────
 
 function groupByRow(items, tol = 5) {
   const rows = new Map();
@@ -34,6 +57,10 @@ function groupByRow(items, tol = 5) {
   return sorted;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Page text extraction
+// ─────────────────────────────────────────────────────────────────────────────
+
 async function getPageItems(page) {
   const vp = page.getViewport({ scale: 1.0 });
   const content = await page.getTextContent();
@@ -46,6 +73,10 @@ async function getPageItems(page) {
     }));
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Header-row detection
+// ─────────────────────────────────────────────────────────────────────────────
+
 function findHeaderRow(rows) {
   for (const [y, items] of rows) {
     const texts = items.map(i => i.str.trim().toUpperCase());
@@ -54,144 +85,107 @@ function findHeaderRow(rows) {
   return null;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Text cleanup helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Remove a lone lowercase orphan character at the very start of a string.
+ * Handles the "t " that bleeds into the next column from e.g. "currenT".
+ */
+function stripLeadingOrphan(text) {
+  return text.replace(/^[a-z] /, '');
+}
+
+/**
+ * Strip a trailing competency code that leaked from the next page/section.
+ * e.g. "…best practice. OC2" → "…best practice."
+ */
+function stripTrailingCode(text) {
+  return text.replace(/\s+[A-Z]{1,5}\d+[A-Z]?\s*$/, '').trim();
+}
+
 function fixSpacing(text) {
   if (!text) return text;
 
-  // Fix hyphenated words split across lines: "long - term" -> "long-term", "im prove" -> "improve"
-  // Pattern: word fragment + space + hyphen + space + word fragment
+  // Heal split hyphenated phrases: "long - term" → "long-term"
   text = text.replace(/(\w+)\s+-\s+(\w+)/g, '$1-$2');
 
-  // Fix common broken words from PDF text extraction
   const fixes = {
-    'Deve lops': 'Develops',
-    'deve lops': 'develops',
-    'st rategies': 'strategies',
-    'St rategies': 'Strategies',
-    'pro cedures': 'procedures',
-    'Pro cedures': 'Procedures',
-    'inte grates': 'integrates',
-    'Inte grates': 'Integrates',
-    'inter ventions': 'interventions',
-    'Inter ventions': 'Interventions',
-    'poli cies': 'policies',
-    'Poli cies': 'Policies',
-    'guide lines': 'guidelines',
-    'Guide lines': 'Guidelines',
-    'recom mends': 'recommends',
-    'Recom mends': 'Recommends',
-    'th e': 'the',
-    'Th e': 'The',
-    'an d': 'and',
-    'An d': 'And',
-    'In fluences': 'Influences',
-    'in fluences': 'influences',
-    'im prove': 'improve',
-    'Im prove': 'Improve',
-    'im proving': 'improving',
-    'Im proving': 'Improving',
-    'im provement': 'improvement',
-    'Im provement': 'Improvement',
-    'com pliance': 'compliance',
-    'Com pliance': 'Compliance',
-    'en vironment': 'environment',
-    'En vironment': 'Environment',
-    'en vironmental': 'environmental',
-    'En vironmental': 'Environmental',
-    'sus tainable': 'sustainable',
-    'Sus tainable': 'Sustainable',
-    're silient': 'resilient',
-    'Re silent': 'Resilient',
-    'bio diversity': 'biodiversity',
-    'Bio diversity': 'Biodiversity',
-    'eco logy': 'ecology',
-    'Eco logy': 'Ecology',
-    'con struction': 'construction',
-    'Con struction': 'Construction',
-    'de velopment': 'development',
-    'De velopment': 'Development',
+    'Deve lops': 'Develops',           'deve lops': 'develops',
+    'st rategies': 'strategies',       'St rategies': 'Strategies',
+    'pro cedures': 'procedures',       'Pro cedures': 'Procedures',
+    'inte grates': 'integrates',       'Inte grates': 'Integrates',
+    'inter ventions': 'interventions', 'Inter ventions': 'Interventions',
+    'poli cies': 'policies',           'Poli cies': 'Policies',
+    'guide lines': 'guidelines',       'Guide lines': 'Guidelines',
+    'recom mends': 'recommends',       'Recom mends': 'Recommends',
+    'th e': 'the',                     'Th e': 'The',
+    'an d': 'and',                     'An d': 'And',
+    'In fluences': 'Influences',       'in fluences': 'influences',
+    'im prove': 'improve',             'Im prove': 'Improve',
+    'im proving': 'improving',         'Im proving': 'Improving',
+    'im provement': 'improvement',     'Im provement': 'Improvement',
+    'com pliance': 'compliance',       'Com pliance': 'Compliance',
+    'en vironment': 'environment',     'En vironment': 'Environment',
+    'en vironmental': 'environmental', 'En vironmental': 'Environmental',
+    'sus tainable': 'sustainable',     'Sus tainable': 'Sustainable',
+    're silient': 'resilient',         'Re silient': 'Resilient',
+    'bio diversity': 'biodiversity',   'Bio diversity': 'Biodiversity',
+    'eco logy': 'ecology',             'Eco logy': 'Ecology',
+    'con struction': 'construction',   'Con struction': 'Construction',
+    'de velopment': 'development',     'De velopment': 'Development',
+    'cur rent': 'current',             'Cur rent': 'Current',
+    'curren t': 'current',             'Curren t': 'Current',
   };
 
   for (const [broken, fixed] of Object.entries(fixes)) {
-    text = text.replace(new RegExp('\\b' + broken.replace(/\s/g, '\\s') + '\\b', 'g'), fixed);
+    text = text.replace(
+      new RegExp('\\b' + broken.replace(/\s/g, '\\s') + '\\b', 'g'),
+      fixed
+    );
   }
 
   return text;
 }
 
-/**
- * Strips any trailing competency code that leaked in from the next page/section.
- * e.g. "...best practice. OC2" -> "...best practice."
- * e.g. "...best practice. RO2" -> "...best practice."
- */
-function stripTrailingCode(text) {
-  // Remove a trailing competency code like "OC2", "RO2", "RHR1", etc.
-  return text.replace(/\s+[A-Z]{1,5}\d+[A-Z]?\s*$/, '').trim();
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// Column parser — behavioral indicator + KSA items
+// ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * IMPROVED parseColumn
- *
- * Key fixes:
- * 1. Numbered items that start with text before the digit (e.g. "Serves as a good role model … 1.")
- *    are split into: behavioralIndicator text + item starting at the digit.
- * 2. A line that contains ONLY a competency code (like "OC2") at the end is discarded.
- * 3. Hyphenated split words ("long - term") are healed.
- * 4. Items whose first token is a continuation of the previous item's last line are joined properly.
- */
 function parseColumn(lines) {
-  // ── Phase 1: pre-process lines ───────────────────────────────────────────
-  // Collapse hyphenated line-breaks inside a line segment that was split.
+  // ── Phase 1: pre-process ─────────────────────────────────────────────────
   const processed = [];
   for (const line of lines) {
-    const t = line.trim();
+    let t = line.trim();
     if (!t) continue;
-
-    // Discard lines that are ONLY a competency code (cross-page bleed)
-    if (/^[A-Z]{1,5}\d+[A-Z]?$/.test(t)) continue;
-
-    // Discard page numbers (lone digits)
-    if (/^\d+$/.test(t)) continue;
-
-    // Discard level header names
+    t = stripLeadingOrphan(t);
+    if (!t) continue;
+    if (/^[A-Z]{1,5}\d+[A-Z]?$/.test(t)) continue; // lone competency code
+    if (/^\d+$/.test(t)) continue;                   // lone page number
     if (LEVEL_NAMES.includes(t.toUpperCase())) continue;
-
     processed.push(t);
   }
 
-  // ── Phase 2: re-join lines into logical segments ─────────────────────────
-  // We treat a numbered item as: starts with "1." or "2." etc. (possibly after
-  // leading whitespace). Everything before the first numbered item goes into
-  // behavioralIndicator. But sometimes the BI and item 1 are on the SAME line
-  // (e.g. "Serves as a good role model … t 1. Influences others…") — we split
-  // that line at the "N." boundary.
-
-  const segments = []; // each segment = { type: 'bi' | 'item', num: number|null, parts: string[] }
+  // ── Phase 2: segment into BI + numbered items ────────────────────────────
+  const segments = [];
 
   for (const line of processed) {
-    // Check if this line contains an embedded "N." pattern after some BI text.
-    // This happens when the PDF renderer puts the BI and the first KSA on the same extracted line.
-    // e.g. "Serves as a good role model in conserving ... t 1. Influences others..."
+    // Detect embedded "N." after BI text on the same line
     const embeddedMatch = line.match(/^(.+?)\s+(\d+)\.\s+(.+)$/);
-
     if (embeddedMatch) {
-      const beforeNum  = embeddedMatch[1].trim();
-      const num        = parseInt(embeddedMatch[2], 10);
-      const afterNum   = embeddedMatch[3].trim();
-
-      // Only treat as embedded split if the "before" part doesn't look like it
-      // already starts a numbered item (i.e., doesn't begin with N.)
+      const beforeNum     = embeddedMatch[1].trim();
+      const num           = parseInt(embeddedMatch[2], 10);
+      const afterNum      = embeddedMatch[3].trim();
       const startsWithNum = /^\d+\./.test(beforeNum);
-
       if (!startsWithNum && beforeNum.length > 5) {
-        // Push the BI portion
-        if (beforeNum) segments.push({ type: 'bi', num: null, parts: [beforeNum] });
-        // Push the item portion
-        segments.push({ type: 'item', num, parts: [afterNum] });
+        if (beforeNum) segments.push({ type: 'bi',   num: null, parts: [beforeNum] });
+        segments.push(              { type: 'item', num,       parts: [afterNum]  });
         continue;
       }
     }
 
-    // Normal numbered item line: starts with "N."
+    // Normal numbered item
     const numMatch = line.match(/^(\d+)\.\s*(.*)/);
     if (numMatch) {
       const num  = parseInt(numMatch[1], 10);
@@ -200,48 +194,46 @@ function parseColumn(lines) {
       continue;
     }
 
-    // Continuation: append to the last segment if we're inside an item
+    // Continuation of previous segment
     if (segments.length > 0 && segments[segments.length - 1].type === 'item') {
       segments[segments.length - 1].parts.push(line);
       continue;
     }
 
-    // Otherwise it's part of the behavioral indicator
+    // Behavioral indicator
     if (segments.length === 0 || segments[segments.length - 1].type === 'bi') {
       if (segments.length === 0) segments.push({ type: 'bi', num: null, parts: [] });
       segments[segments.length - 1].parts.push(line);
     } else {
-      // We already have items but hit non-numbered text — treat as BI continuation
-      // (can happen in badly ordered PDFs; safer to ignore late BI noise)
-      // Actually append to the last item as continuation (common for wrapped lines)
       segments[segments.length - 1].parts.push(line);
     }
   }
 
-  // ── Phase 3: build output ────────────────────────────────────────────────
-  const biParts  = [];
-  const items    = [];
+  // ── Phase 3: assemble ────────────────────────────────────────────────────
+  const biParts = [];
+  const items   = [];
 
   for (const seg of segments) {
     if (seg.type === 'bi') {
       biParts.push(seg.parts.join(' '));
     } else {
       const raw  = seg.parts.join(' ').trim();
-      const text = `${seg.num}. ${raw}`;
-      items.push(stripTrailingCode(text));
+      items.push(stripTrailingCode(`${seg.num}. ${raw}`));
     }
   }
 
   const behavioralIndicator = fixSpacing(biParts.join(' ').trim());
   const fixedItems = items
     .map(item => fixSpacing(item))
-    // Filter out items that ended up with no real content after the number
     .filter(item => item.replace(/^\d+\.\s*/, '').trim().length > 3);
 
   return { behavioralIndicator, items: fixedItems };
 }
 
-// ✅ FIXED: Properly reconstruct text lines within each column
+// ─────────────────────────────────────────────────────────────────────────────
+// Level extraction
+// ─────────────────────────────────────────────────────────────────────────────
+
 function extractLevels(rows, headerY, code) {
   const cols = [[], [], [], []];
   let past = false;
@@ -251,7 +243,6 @@ function extractLevels(rows, headerY, code) {
       if (y >= headerY) past = true;
       else continue;
     }
-
     if (y === headerY) continue;
 
     const rowText = items.map(i => i.str).join(' ').trim();
@@ -279,11 +270,15 @@ function extractLevels(rows, headerY, code) {
 
   console.log(`Processing: ${code}`, {
     INTERMEDIATE: levels.INTERMEDIATE,
-    ADVANCED: levels.ADVANCED,
+    ADVANCED:     levels.ADVANCED,
   });
 
   return levels;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Category mapping
+// ─────────────────────────────────────────────────────────────────────────────
 
 const CATEGORY_MAP = {
   RSCI: 'Strategic Communication & Information',
@@ -311,12 +306,15 @@ function isSectionBreak(text) {
     'LEADERSHIP COMPETENCIES',
     'MINIMUM COMPETENCIES',
     'BASIC COMPETENCIES',
-    'TECHNICAL COMPETENCIES'
+    'TECHNICAL COMPETENCIES',
   ];
-
   const normalized = text.trim().toUpperCase();
   return sectionHeaders.some(header => normalized.includes(header));
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PDF parsing pipeline
+// ─────────────────────────────────────────────────────────────────────────────
 
 async function _parse(onProgress = () => {}) {
   onProgress(0, 'Loading PDF…');
@@ -359,23 +357,18 @@ async function _parse(onProgress = () => {}) {
       let shouldBreak = false;
 
       for (const [y, items] of allRows[pi]) {
-        if (pi === loc.pi && y < loc.y) continue;
-        if (pi === next?.pi && y >= next.y) continue;
+        if (pi === loc.pi   && y < loc.y)   continue;
+        if (pi === next?.pi && y >= next.y)  continue;
 
         const rowText = items.map(i => i.str).join(' ').trim();
-        if (isSectionBreak(rowText)) {
-          shouldBreak = true;
-          break;
-        }
+        if (isSectionBreak(rowText)) { shouldBreak = true; break; }
 
         section.set(y + yOff, items);
         maxY = Math.max(maxY, y);
       }
 
       if (shouldBreak) break;
-
       yOff += maxY + 50;
-
       if (!next || pi < next.pi - 1) continue;
       if (next && pi === next.pi - 1) break;
     }
@@ -387,14 +380,13 @@ async function _parse(onProgress = () => {}) {
     const hasContent = LEVEL_NAMES.some(l =>
       levels[l].behavioralIndicator || levels[l].items.length > 0
     );
-
     if (!hasContent) continue;
 
     result.push({
-      code: loc.code,
-      name: loc.name,
+      code:     loc.code,
+      name:     loc.name,
       category: getCategory(loc.code),
-      levels
+      levels,
     });
 
     if (ci % 15 === 0)
@@ -405,12 +397,19 @@ async function _parse(onProgress = () => {}) {
   return result;
 }
 
-function normalize(name) {
-  return name.toUpperCase().replace(/\s+/g, ' ').replace(/[^A-Z0-9\s()\/\-]/g, '').trim();
+// ─────────────────────────────────────────────────────────────────────────────
+// Name-matching helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+function normalizeName(name) {
+  return name.toUpperCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[^A-Z0-9\s()\/\-]/g, '')
+    .trim();
 }
 
-function score(a, b) {
-  const na = normalize(a), nb = normalize(b);
+function nameSimilarity(a, b) {
+  const na = normalizeName(a), nb = normalizeName(b);
   if (na === nb) return 1.0;
   const aw = new Set(na.split(' ').filter(w => w.length > 2));
   const bw = new Set(nb.split(' ').filter(w => w.length > 2));
@@ -421,39 +420,72 @@ function score(a, b) {
   return Math.min(1.0, jaccard + sub);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Public API
+// ─────────────────────────────────────────────────────────────────────────────
+
 export async function ensureParsed(onProgress) {
-  if (_cache) return _cache;
+  if (_cache)   return _cache;
   if (_promise) return _promise;
   _promise = _parse(onProgress).then(r => { _cache = r; _promise = null; return r; });
   return _promise;
 }
 
-export async function findCompetencyByName(name, threshold = 0.30) {
+/**
+ * Find ALL competencies whose name matches well enough.
+ *
+ * Returns an array (may contain 1 or more entries).
+ * When multiple competencies share the same name but have different codes
+ * (e.g. RO2 and PCO2), ALL of them are returned so the UI can show every
+ * variation with a warning banner.
+ *
+ * @param {string} name       - Competency name as stored in the database
+ * @param {number} threshold  - Minimum similarity score (0–1) to include
+ * @returns {Array}           - Array of matched competency objects (may be empty)
+ */
+export async function findCompetenciesByName(name, threshold = 0.30) {
   const comps = await ensureParsed();
 
+  // Strip UI level-prefix decoration, e.g. "(ADV) - Teamwork" → "Teamwork"
   const cleanName = name.replace(/^\([A-Z]+\)\s*-\s*/i, '').trim();
 
-  let best = null, bestScore = 0;
-  for (const c of comps) {
-    const s = score(cleanName, c.name);
-    if (s > bestScore) { bestScore = s; best = c; }
-  }
+  const collectMatches = (searchName) => {
+    return comps
+      .map(c => ({ comp: c, score: nameSimilarity(searchName, c.name) }))
+      .filter(({ score }) => score >= threshold)
+      .sort((a, b) => b.score - a.score)
+      .map(({ comp }) => comp);
+  };
 
-  if (bestScore >= threshold) return best;
+  let matches = collectMatches(cleanName);
 
-  const fallbackName = cleanName.split('(')[0].trim();
-
-  if (fallbackName !== cleanName && fallbackName.length > 10) {
-    best = null;
-    bestScore = 0;
-    for (const c of comps) {
-      const s = score(fallbackName, c.name);
-      if (s > bestScore) { bestScore = s; best = c; }
+  // Fallback: strip parenthetical suffix and retry
+  if (matches.length === 0) {
+    const fallbackName = cleanName.split('(')[0].trim();
+    if (fallbackName !== cleanName && fallbackName.length > 10) {
+      matches = collectMatches(fallbackName);
     }
-    if (bestScore >= threshold) return best;
   }
 
-  return null;
+  return matches;
+}
+
+/**
+ * Legacy single-result wrapper — kept for any callers that expect one result.
+ * Returns the highest-scoring match or null.
+ */
+export async function findCompetencyByName(name, threshold = 0.30) {
+  const results = await findCompetenciesByName(name, threshold);
+  return results[0] ?? null;
+}
+
+/**
+ * Find a competency by its exact CBS code (e.g. "RO2", "PCO2").
+ */
+export async function findCompetencyByCode(code) {
+  const comps = await ensureParsed();
+  const upper = code.trim().toUpperCase();
+  return comps.find(c => c.code.toUpperCase() === upper) ?? null;
 }
 
 export async function isPDFAvailable() {
