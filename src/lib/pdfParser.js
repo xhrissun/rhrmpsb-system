@@ -484,6 +484,20 @@ function meaningfulWords(normalized) {
   );
 }
 
+// Character trigram similarity — handles misspellings and single-word names
+function trigramSimilarity(a, b) {
+  const getTrigrams = str => {
+    const s = str.toLowerCase().replace(/\s+/g, '');
+    const trigrams = new Set();
+    for (let i = 0; i < s.length - 2; i++) trigrams.add(s.slice(i, i + 3));
+    return trigrams;
+  };
+  const ta = getTrigrams(a), tb = getTrigrams(b);
+  if (ta.size === 0 || tb.size === 0) return 0;
+  const inter = [...ta].filter(t => tb.has(t)).length;
+  return inter / Math.max(ta.size, tb.size);
+}
+
 function nameSimilarity(a, b) {
   const na = normalizeName(a), nb = normalizeName(b);
   if (na === nb) return 1.0;
@@ -491,18 +505,27 @@ function nameSimilarity(a, b) {
   const aw = meaningfulWords(na);
   const bw = meaningfulWords(nb);
 
-  if (aw.size === 0 || bw.size === 0) return 0;
+  let jaccard = 0;
+  if (aw.size > 0 && bw.size > 0) {
+    const inter = [...aw].filter(w => bw.has(w)).length;
+    const union = new Set([...aw, ...bw]).size;
+    jaccard = inter / union;
 
-  const inter = [...aw].filter(w => bw.has(w)).length;
-  const union = new Set([...aw, ...bw]).size;
-  const jaccard = inter / union;
+    const shorter = aw.size <= bw.size ? aw : bw;
+    const longer  = aw.size <= bw.size ? bw : aw;
+    const allContained = shorter.size >= 4 && [...shorter].every(w => longer.has(w));
+    if (allContained) jaccard = Math.min(1.0, jaccard + 0.25);
+  }
 
-  const shorter = aw.size <= bw.size ? aw : bw;
-  const longer  = aw.size <= bw.size ? bw : aw;
-  const allContained = shorter.size >= 4 && [...shorter].every(w => longer.has(w));
-  const containmentBonus = allContained ? 0.25 : 0;
+  // Trigram similarity catches misspellings and short single-word names
+  const tg = trigramSimilarity(a, b);
 
-  return Math.min(1.0, jaccard + containmentBonus);
+  // For short/single-word names, weight trigrams more heavily
+  const wordCount = Math.min(aw.size, bw.size);
+  const trigramWeight = wordCount <= 1 ? 0.85 : 0.35;
+  const jaccardWeight = 1 - trigramWeight;
+
+  return Math.min(1.0, jaccard * jaccardWeight + tg * trigramWeight);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -565,7 +588,7 @@ export async function findCompetenciesByName(name) {
   if (scored.length === 0) {
     const tocMatches = TOC_INDEX
       .map(e => ({ entry: e, score: nameSimilarity(cleanName, e.name) }))
-      .filter(({ score }) => score >= SINGLE_THRESHOLD)
+      .filter(({ score }) => score >= 0.40)
       .sort((a, b) => b.score - a.score);
     
     // Return TOC metadata even without PDF content (graceful degradation)
