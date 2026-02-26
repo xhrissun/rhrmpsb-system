@@ -132,7 +132,7 @@ function VariantTabs({ variants, activeIdx, onChange }) {
     <div className="flex flex-wrap gap-2 px-6 pt-4">
       {variants.map((v, i) => (
         <button
-          key={v.code}
+          key={`${v.code}-${i}`}
           onClick={() => onChange(i)}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
             i === activeIdx
@@ -183,7 +183,19 @@ function BrowserMode({ onSelectCompetency, onClose }) {
     return matchesSearch && matchesCategory;
   });
 
-  const groupedByCategory = filtered.reduce((acc, comp) => {
+  // Deduplicate for display: group by code+name, show unique entries
+  // but keep all variants accessible via the comp object
+  const dedupedFiltered = [];
+  const seenKeys = new Set();
+  for (const comp of filtered) {
+    const key = `${comp.code}::${comp.name}::${comp.category}`;
+    if (!seenKeys.has(key)) {
+      seenKeys.add(key);
+      dedupedFiltered.push(comp);
+    }
+  }
+
+  const groupedByCategory = dedupedFiltered.reduce((acc, comp) => {
     if (!acc[comp.category]) acc[comp.category] = [];
     acc[comp.category].push(comp);
     return acc;
@@ -220,7 +232,7 @@ function BrowserMode({ onSelectCompetency, onClose }) {
             onChange={(e) => setFilterCategory(e.target.value)}
             className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
           >
-            <option value="">All Categories ({allCompetencies.length})</option>
+            <option value="">All Categories ({allCompetencies.length} total)</option>
             {categories.map(cat => (
               <option key={cat} value={cat}>
                 {cat} ({allCompetencies.filter(c => c.category === cat).length})
@@ -235,13 +247,13 @@ function BrowserMode({ onSelectCompetency, onClose }) {
           </button>
         </div>
         <p className="text-xs text-gray-500">
-          Showing {filtered.length} of {allCompetencies.length} competencies
+          Showing {dedupedFiltered.length} of {allCompetencies.length} competencies
         </p>
       </div>
 
       {/* Results */}
       <div className="flex-1 overflow-y-auto px-6 py-4">
-        {filtered.length === 0 ? (
+        {dedupedFiltered.length === 0 ? (
           <div className="text-center py-12 text-gray-500">
             <div className="text-5xl mb-3">🔍</div>
             <p className="font-medium">No competencies found</p>
@@ -255,9 +267,9 @@ function BrowserMode({ onSelectCompetency, onClose }) {
                   {category} ({comps.length})
                 </h3>
                 <div className="space-y-2">
-                  {comps.map(comp => (
+                  {comps.map((comp, idx) => (
                     <button
-                      key={comp.code}
+                      key={`${comp.code}-${idx}`}
                       onClick={() => onSelectCompetency(comp)}
                       className="w-full text-left p-3 bg-white border border-gray-200 rounded-lg hover:shadow-md hover:border-blue-300 transition-all"
                     >
@@ -301,6 +313,8 @@ export default function CompetencyDetailModal({
   suggestedLevel,
   onClose,
   browseMode = false,
+  // NEW: pass a pre-resolved comp object to skip the search entirely
+  directComp = null,
 }) {
   const [status,       setStatus]       = useState('loading');
   const [progress,     setProgress]     = useState(0);
@@ -313,6 +327,20 @@ export default function CompetencyDetailModal({
 
   const data = variants[variantIdx] ?? null;
 
+  // ── Resolve which level to show first given a comp ────────────────────────
+  const resolveActiveLevel = useCallback((comp, preferred) => {
+    if (
+      preferred &&
+      (comp.levels[preferred]?.behavioralIndicator ||
+       comp.levels[preferred]?.items.length > 0)
+    ) {
+      return preferred;
+    }
+    return LEVELS.find(l =>
+      comp.levels[l]?.behavioralIndicator || comp.levels[l]?.items.length > 0
+    ) ?? 'BASIC';
+  }, []);
+
   // Initial load
   useEffect(() => {
     if (isBrowsing) {
@@ -320,6 +348,16 @@ export default function CompetencyDetailModal({
       return;
     }
 
+    // ── FAST PATH: comp object was passed directly (from browser click) ──
+    if (directComp) {
+      setVariants([directComp]);
+      setVariantIdx(0);
+      setActiveLevel(resolveActiveLevel(directComp, suggestedLevel));
+      setStatus('found');
+      return;
+    }
+
+    // ── NORMAL PATH: look up by name ──────────────────────────────────────
     let cancelled = false;
     (async () => {
       const ok = await isPDFAvailable();
@@ -332,20 +370,7 @@ export default function CompetencyDetailModal({
         if (results.length > 0) {
           setVariants(results);
           setVariantIdx(0);
-
-          const firstData = results[0];
-          if (
-            suggestedLevel &&
-            (firstData.levels[suggestedLevel]?.behavioralIndicator ||
-             firstData.levels[suggestedLevel]?.items.length > 0)
-          ) {
-            setActiveLevel(suggestedLevel);
-          } else {
-            const first = LEVELS.find(l =>
-              firstData.levels[l]?.behavioralIndicator || firstData.levels[l]?.items.length > 0
-            );
-            setActiveLevel(first ?? 'BASIC');
-          }
+          setActiveLevel(resolveActiveLevel(results[0], suggestedLevel));
           setStatus('found');
         } else {
           setStatus('not_found');
@@ -353,23 +378,38 @@ export default function CompetencyDetailModal({
       } catch { if (!cancelled) setStatus('not_found'); }
     })();
     return () => { cancelled = true; };
-  }, [competencyName, suggestedLevel, isBrowsing]);
+  }, [competencyName, suggestedLevel, isBrowsing, directComp, resolveActiveLevel]);
 
   const handleVariantChange = useCallback((idx) => {
     setVariantIdx(idx);
-    const v = variants[idx];
-    const first = LEVELS.find(l => v.levels[l]?.behavioralIndicator || v.levels[l]?.items.length > 0);
-    setActiveLevel(first ?? 'BASIC');
-  }, [variants]);
+    setActiveLevel(resolveActiveLevel(variants[idx], null));
+  }, [variants, resolveActiveLevel]);
 
-  const handleSelectCompetency = useCallback((comp) => {
-    setVariants([comp]);
-    setVariantIdx(0);
-    const first = LEVELS.find(l => comp.levels[l]?.behavioralIndicator || comp.levels[l]?.items.length > 0);
-    setActiveLevel(first ?? 'BASIC');
-    setStatus('found');
+  // ── When user clicks a comp in the browser ────────────────────────────────
+  // We now need to find ALL variants for that code so VariantTabs works.
+  const handleSelectCompetency = useCallback(async (comp) => {
+    setStatus('loading');
+    setMsg('Loading competency…');
     setIsBrowsing(false);
-  }, []);
+
+    try {
+      // Fetch all CBS entries with the same code to support variant tabs
+      const allParsed = await ensureParsed();
+      const sameCode  = allParsed.filter(c => c.code.toUpperCase() === comp.code.toUpperCase());
+      const resolved  = sameCode.length > 0 ? sameCode : [comp];
+
+      setVariants(resolved);
+      setVariantIdx(0);
+      setActiveLevel(resolveActiveLevel(resolved[0], null));
+      setStatus('found');
+    } catch {
+      // Fallback: just show the clicked comp directly
+      setVariants([comp]);
+      setVariantIdx(0);
+      setActiveLevel(resolveActiveLevel(comp, null));
+      setStatus('found');
+    }
+  }, [resolveActiveLevel]);
 
   useEffect(() => {
     const h = e => { if (e.key === 'Escape') onClose(); };
@@ -378,6 +418,10 @@ export default function CompetencyDetailModal({
   }, [onClose]);
 
   const isMultiVariant = variants.length > 1;
+
+  // Derive display name: prefer the current variant's name, else prop
+  const displayName = data?.name
+    ?? (competencyName?.replace(/^\([A-Z]+\)\s*-\s*/i, '') || 'CBS Manual Browser');
 
   return (
     <>
@@ -416,7 +460,7 @@ export default function CompetencyDetailModal({
                     )}
                   </div>
                   <h2 className="text-xl font-bold text-gray-900 leading-snug">
-                    {competencyName?.replace(/^\([A-Z]+\)\s*-\s*/i, '') || 'CBS Manual Browser'}
+                    {displayName}
                   </h2>
                 </>
               )}
@@ -446,11 +490,11 @@ export default function CompetencyDetailModal({
           {/* ── Body ───────────────────────────────────────────────────── */}
           <div className="flex-1 overflow-y-auto">
             {/* Browse Mode */}
-            {status === 'browsing' && isBrowsing && (
+            {isBrowsing && (
               <BrowserMode
                 onSelectCompetency={handleSelectCompetency}
                 onClose={() => {
-                  if (variants.length > 0) {
+                  if (variants.length > 0 && status === 'found') {
                     setIsBrowsing(false);
                   } else {
                     onClose();
@@ -524,12 +568,12 @@ export default function CompetencyDetailModal({
                     <span className="text-xl flex-shrink-0">⚠️</span>
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-amber-800">
-                        Multiple CBS entries found for this competency name
+                        Multiple CBS entries found for this competency code
                       </p>
                       <p className="text-xs text-amber-700 mt-0.5 leading-relaxed">
                         The CBS manual contains <strong>{variants.length} different versions</strong> of{' '}
-                        <em>"{competencyName?.replace(/^\([A-Z]+\)\s*-\s*/i, '')}"</em> under different codes
-                        ({variants.map(v => v.code).join(', ')}). Each version may have different
+                        <em>"{displayName}"</em> under different office contexts
+                        ({variants.map(v => v.category).join(', ')}). Each version may have different
                         behavioral indicators and KSAs. Use the tabs below to review all variants.
                       </p>
                     </div>
@@ -587,7 +631,7 @@ export default function CompetencyDetailModal({
                   Source: CBS Manual · {data.code}
                   {isMultiVariant && (
                     <span className="ml-2 text-amber-600 font-medium">
-                      · Showing variant {variantIdx + 1} of {variants.length}
+                      · Showing variant {variantIdx + 1} of {variants.length} ({data.category})
                     </span>
                   )}
                 </p>
