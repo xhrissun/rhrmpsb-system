@@ -163,33 +163,48 @@ async function getPageItems(page) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Detect office from a page using a two-pass approach:
- * 1. Look for explicit "CBS MANUAL FOR X" headings (most reliable)
- * 2. Look for large standalone bureau name rows
- * 3. Fall back to full-page text scan only if score is high enough
+ * Detect office from a page by reading the page HEADER (top-right area, y < 60).
+ * Every TOC page has the office name printed as a running header at y ≈ 48.8.
+ * This is the authoritative source — far more reliable than scanning content rows.
  */
-function detectOfficeFromPage(items, rows) {
-  // Pass 1: look for explicit CBS MANUAL FOR heading
-  for (const [, rowItems] of rows) {
-    const rowText = rowItems.map(i => i.str).join(' ').trim();
-    for (const { re, office } of OFFICE_HEADING_PATTERNS) {
-      if (re.test(rowText)) return office;
-    }
-  }
+function detectOfficeFromPage(items) {
+  // Header words: x > 130 (skip sidebar), y < 60 (page header band)
+  const headerItems = items.filter(i => i.x > 130 && i.y < 60);
+  if (!headerItems.length) return null;
 
-  // Pass 2: check for isolated bureau name text blocks
-  // These appear as vertical decorative text on section divider pages,
-  // reconstructed by pdf.js as individual characters or short strings.
-  // We look for rows where the ONLY content (after joining) matches a bureau name.
-  for (const [, rowItems] of rows) {
-    const rowText = rowItems.map(i => i.str).join('').trim();
-    for (const { re, office } of OFFICE_HEADING_PATTERNS) {
-      if (re.test(rowText)) return office;
-    }
-  }
+  const headerText = headerItems.map(i => i.str).join(' ').trim().toUpperCase();
 
+  // Match longest key first (most specific)
+  const HEADER_OFFICE_MAP = [
+    ['MINES AND GEOSCIENCES',                      'Mines and Geosciences Bureau'],
+    ['ENVIRONMENTAL MANAGEMENT BUREAU',            'Environmental Management Bureau'],
+    ['LAND MANAGEMENT BUREAU',                     'Land Management Bureau'],
+    ['FOREST MANAGEMENT BUREAU',                   'Forest Management Bureau'],
+    ['ECOSYSTEMS RESEARCH AND DEVELOPMENT BUREAU', 'Ecosystems Research and Development Bureau'],
+    ['BIODIVERSITY MANAGEMENT BUREAU',             'Biodiversity Management Bureau'],
+    ['PROVINCIAL/COMMUNITY',                       'P/CENRO'],
+    ['REGIONAL OFFICE',                            'Regional Office'],
+    ['CENTRAL OFFICE',                             'Central Office'],
+  ];
+
+  for (const [key, office] of HEADER_OFFICE_MAP) {
+    if (headerText.includes(key)) return office;
+  }
   return null;
 }
+
+// Category section keywords and their labels
+const TOC_CATEGORY_MAP = [
+  [/\bLEADERSHIP\s+COMPETEN/i,     'Leadership'],
+  [/\bORGANIZATIONAL\s+COMPETEN/i, 'Organizational'],
+  [/\bCORE\s+COMPETEN/i,           'Core'],
+  [/\bCOMMON\s+COMPETEN/i,         'Common'],
+  [/\bFUNCTIONAL\s+COMPETEN/i,     'Functional'],
+];
+
+// Category state is tracked per-column across pages via a simple module-level map.
+// Each call to extractTOCEntriesFromSide updates it for the given side.
+const _catState = { left: 'Functional', right: 'Functional' };
 
 function extractTOCEntriesFromSide(rows, side, currentOffice) {
   const xMin = side === 'left' ? 0   : TOC_COL_SPLIT;
@@ -198,9 +213,27 @@ function extractTOCEntriesFromSide(rows, side, currentOffice) {
   const anchors = [];
   const sortedYs = [...rows.keys()];
 
+  // Current category for this column (persists across calls via _catState)
+  let currentCategory = _catState[side];
+
   for (const y of sortedYs) {
+    // Skip header band (y < 60) — that's the office header, not content
+    if (y < 60) continue;
+
     const sideItems = rows.get(y).filter(i => i.x >= xMin && i.x < xMax);
     if (!sideItems.length) continue;
+
+    // Detect category section headings (no code, just Roman numeral + category)
+    const rowText = sideItems.map(i => i.str).join(' ');
+    let detectedCat = null;
+    for (const [re, cat] of TOC_CATEGORY_MAP) {
+      if (re.test(rowText)) { detectedCat = cat; break; }
+    }
+    if (detectedCat) {
+      currentCategory = detectedCat;
+      _catState[side] = currentCategory;
+      continue; // section heading row — no competency entry here
+    }
 
     const codeItem = sideItems.find(i => BARE_CODE_RE.test(i.str));
     if (!codeItem) continue;
@@ -220,7 +253,7 @@ function extractTOCEntriesFromSide(rows, side, currentOffice) {
           && !isTOCNoise(t);
     }).map(i => i.str);
 
-    anchors.push({ y, code: codeItem.str, page: pageNum, nameFrags });
+    anchors.push({ y, code: codeItem.str, page: pageNum, nameFrags, category: currentCategory });
   }
 
   if (!anchors.length) return [];
@@ -258,7 +291,7 @@ function extractTOCEntriesFromSide(rows, side, currentOffice) {
 
     const name = allFrags.join(' ').replace(/\s{2,}/g, ' ').trim();
     if (name && anchor.code) {
-      entries.push({ code: anchor.code, page: anchor.page, name, office: currentOffice });
+      entries.push({ code: anchor.code, page: anchor.page, name, office: currentOffice, category: anchor.category ?? currentCategory });
     }
   }
 
@@ -287,13 +320,17 @@ async function parseTOC(onProgress = () => {}) {
   const allEntries   = [];
   let   currentOffice = 'Central Office';
 
+  // Reset per-column category state for fresh parse
+  _catState.left  = 'Functional';
+  _catState.right = 'Functional';
+
   for (let p = 1; p <= total; p++) {
     const page  = await tocPdf.getPage(p);
     const items = await getPageItems(page);
     const rows  = groupByRow(items, 4);
 
-    // Only update office if THIS page has an unambiguous section heading
-    const detectedOffice = detectOfficeFromPage(items, rows);
+    // Detect office from the page header (y < 60) — definitive per-page
+    const detectedOffice = detectOfficeFromPage(items);
     if (detectedOffice) {
       currentOffice = detectedOffice;
     }
@@ -809,6 +846,25 @@ export async function parsePDF(fileOrNull, onProgress) {
 }
 
 /** Find ALL competencies whose name matches the query. */
+/**
+ * Levenshtein edit distance — used for typo-tolerant name matching.
+ * Handles misspellings like "PARTNERSHSIP" → "PARTNERSHIP".
+ */
+function levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  const dp = Array.from({ length: m + 1 }, (_, i) =>
+    Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
+  );
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+    }
+  }
+  return dp[m][n];
+}
+
 export async function findCompetenciesByName(name) {
   if (!name) return [];
   const comps = await ensureParsed();
@@ -851,6 +907,24 @@ export async function findCompetenciesByName(name) {
     scored = validComps
       .filter(c => c.name.toUpperCase().includes(upper))
       .map(c => ({ comp: c, score: 0.6 }));
+  }
+
+  // Typo-tolerant fallback: character-level Levenshtein distance
+  // Handles misspellings like "PARTNERSHSIP" → "PARTNERSHIP"
+  if (!scored.length && cleanName.length >= 6) {
+    const upperQuery = cleanName.toUpperCase().replace(/\s+/g, '');
+    const candidates = validComps.map(c => {
+      const upperName = c.name.toUpperCase().replace(/\s+/g, '');
+      // Only compare names of similar length
+      const lenDiff = Math.abs(upperQuery.length - upperName.length);
+      if (lenDiff > Math.ceil(upperQuery.length * 0.3)) return null;
+      const dist = levenshtein(upperQuery, upperName);
+      const maxLen = Math.max(upperQuery.length, upperName.length);
+      const score = 1 - dist / maxLen;
+      return score >= 0.75 ? { comp: c, score } : null;
+    }).filter(Boolean);
+    candidates.sort((a, b) => b.score - a.score);
+    scored = candidates;
   }
 
   if (!scored.length) return [];
