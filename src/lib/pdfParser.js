@@ -326,6 +326,18 @@ async function _parse(onProgress = () => {}) {
 
   onProgress(70, `Found ${pdfLocs.length} competency headers. Extracting…`);
 
+  console.log('=== Pages 161-166 raw text ===');
+  for (let pi = 160; pi <= 165; pi++) {
+    if (pi >= allRows.length) break;
+    console.log(`\n--- pageIdx ${pi} (PDF page ${pi+1}) ---`);
+    for (const [y, items] of allRows[pi]) {
+      const line = items.map(i => i.str).join(' ').trim();
+      console.log(`  y=${y}: "${line}"`);
+    }
+  }
+  console.log('=== All pdfLocs with RSCI codes ===');
+  console.log(JSON.stringify(pdfLocs.filter(l => l.code.startsWith('RSCI'))));
+
   // Build page index: TOC page → PDF page index (0-based)
   // The TOC page numbers are the page numbers printed IN the PDF
   // We need to map these to the actual 0-based array indices
