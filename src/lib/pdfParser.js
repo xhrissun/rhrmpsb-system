@@ -10,19 +10,32 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 const CBS_PDF_PATH = '/rhrmpsb-system/2025_CBS.pdf';
 const TOC_PDF_PATH = '/rhrmpsb-system/TABLE_CONTENTS.pdf';
 
-const COLUMN_BOUNDARIES  = [192, 384, 589];
-const LEVEL_NAMES        = ['BASIC', 'INTERMEDIATE', 'ADVANCED', 'SUPERIOR'];
-const COLUMN_MARGIN      = 6;
+// CBS content extraction — column boundaries for the 4-level grid
+const COLUMN_BOUNDARIES = [192, 384, 589];
+const COLUMN_MARGIN     = 6;
+const LEVEL_NAMES       = ['BASIC', 'INTERMEDIATE', 'ADVANCED', 'SUPERIOR'];
 
-// Matches e.g. "RSCI6 - Photojournalism" or "RO2 – Identification..."
-const ENTRY_HEADER_RE    = /^([A-Z]{1,6}\d+[A-Z]?)\s*[-–]\s*(.+)/;
-// Matches a bare code token like "RSCI6", "BFM1", "LC1"
-const BARE_CODE_RE       = /^[A-Z]{1,6}\d+[A-Z]?$/;
+// TOC layout — the split between left and right columns on each TOC page
+// Left column codes appear around x=143-207, right column codes around x=483-538.
+// Page numbers for left column are around x=428-450, right around x=759-791.
+const TOC_COL_SPLIT = 465;  // x-boundary separating left and right TOC columns
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Office / section detection patterns (used while parsing TOC pages)
-// ─────────────────────────────────────────────────────────────────────────────
+// Competency codes: EO1, RSCI6, BFM1, PCO2, CC1, OC3, LC4, WQWM7, FASP2, etc.
+const BARE_CODE_RE    = /^[A-Z]{1,6}\d+[A-Z]?$/;
+// Competency entry header in the CBS body: "EO1 – Policy Research..." or "CC1 - Discipline"
+const ENTRY_HEADER_RE = /^([A-Z]{1,6}\d+[A-Z]?)\s*[-–]\s*(.+)/;
 
+// Section headers that signal a break between competencies in the CBS content
+const CBS_SECTION_BREAKS = [
+  'ORGANIZATIONAL COMPETENCIES',
+  'CORE COMPETENCIES',
+  'LEADERSHIP COMPETENCIES',
+  'MINIMUM COMPETENCIES',
+  'BASIC COMPETENCIES',
+  'TECHNICAL COMPETENCIES',
+];
+
+// Office/section detection patterns for TOC pages
 const OFFICE_PATTERNS = [
   { re: /MINES\s+AND\s+GEOSCIENCES/i,            office: 'Mines and Geosciences Bureau'              },
   { re: /ENVIRONMENTAL\s+MANAGEMENT\s+BUREAU/i,  office: 'Environmental Management Bureau'           },
@@ -35,49 +48,63 @@ const OFFICE_PATTERNS = [
   { re: /CENTRAL\s+OFFICE/i,                     office: 'Central Office'                            },
 ];
 
-// Category labels – richer than the raw office name
 const OFFICE_CATEGORY_MAP = {
-  'Central Office'                               : 'Central Office',
-  'Regional Offices'                             : 'Regional Offices',
-  'P/CENRO'                                      : 'Provincial/Community ENR Offices',
-  'Biodiversity Management Bureau'               : 'Biodiversity Management Bureau',
-  'Ecosystems Research and Development Bureau'   : 'Ecosystems Research and Development Bureau',
-  'Forest Management Bureau'                     : 'Forest Management Bureau',
-  'Land Management Bureau'                       : 'Land Management Bureau',
-  'Environmental Management Bureau'              : 'Environmental Management Bureau',
-  'Mines and Geosciences Bureau'                 : 'Mines and Geosciences Bureau',
+  'Central Office'                             : 'Central Office',
+  'Regional Offices'                           : 'Regional Offices',
+  'P/CENRO'                                    : 'Provincial/Community ENR Offices',
+  'Biodiversity Management Bureau'             : 'Biodiversity Management Bureau',
+  'Ecosystems Research and Development Bureau' : 'Ecosystems Research and Development Bureau',
+  'Forest Management Bureau'                   : 'Forest Management Bureau',
+  'Land Management Bureau'                     : 'Land Management Bureau',
+  'Environmental Management Bureau'            : 'Environmental Management Bureau',
+  'Mines and Geosciences Bureau'               : 'Mines and Geosciences Bureau',
 };
 
-// Section headers that signal a break between competencies in the CBS PDF
-const CBS_SECTION_BREAKS = [
-  'ORGANIZATIONAL COMPETENCIES',
-  'CORE COMPETENCIES',
-  'LEADERSHIP COMPETENCIES',
-  'MINIMUM COMPETENCIES',
-  'BASIC COMPETENCIES',
-  'TECHNICAL COMPETENCIES',
-];
-
-// Text snippets to skip while building name groups from the TOC
+// Noise patterns to filter out while reading TOC name fragments
 const TOC_NOISE_RE = new RegExp(
-  [
-    '^(TABLE\\s+OF\\s+CONTENTS|CBS\\s+MANUAL|DENR|2\\d{3})$',
-    '^[IVX]+\\.?$',                      // Roman numerals alone
-    '^(FUNCTIONAL|LEADERSHIP|ORGANIZATIONAL|CORE|MINIMUM)\\s+COMPETENCIES',
-    '^(FOR\\s+)?(SUPPORT|TECHNICAL|DIRECTOR|DIRECTORS)',
-    '^(AND|THE|OF|IN|TO|AT|FOR|BY)$',   // stop words that leak from headers
-    '^(I\\.|II\\.|III\\.|IV\\.|V\\.)$',  // e.g. "I.", "II."
-    '^(CBS)$',
-  ].join('|'),
-  'i'
+  "^(" + [
+    "TABLE\\s+OF\\s+CONTENTS",
+    "CBS\\s+MANUAL",
+    "DENR",
+    "2\\d{3}",                  // year like 2025
+    "[IVX]+\\.\\s+.*",          // section headers like "IV. CORE COMPETENCIES"
+    "[IVX]+\\.?$",              // bare roman numeral
+    "AND|THE|OF|IN|TO|AT|FOR|BY|OR|WITH",
+    "[A-Z]",                    // single decorative letter
+    "2\\s*0\\s*2\\s*5.*DENR.*CBS" // footer
+  ].join("|") + ")$",
+  "i"
 );
+
+// Simplified: rewrite without verbose regex flag (not supported in all engines)
+function isTOCNoise(t) {
+  if (!t || t.length === 0) return true;
+  if (t.length === 1) return true;           // single decorative letter
+  if (/^2\d{3}$/.test(t)) return true;       // year
+  if (/^[IVX]+\.?\s*(.*)$/.test(t)) {        // Roman numeral sections
+    const m = t.match(/^[IVX]+\.?\s*(.*)/);
+    if (!m || !m[1].trim()) return true;     // bare roman numeral
+    // "IV. CORE COMPETENCIES" style section header — filter
+    return true;
+  }
+  if (/^(AND|THE|OF|IN|TO|AT|FOR|BY|OR|WITH)$/i.test(t)) return true;
+  if (/CBS\s+MANUAL/i.test(t)) return true;
+  if (/TABLE\s+OF\s+CONTENTS/i.test(t)) return true;
+  if (/^2\s*0\s*2\s*5\s+D\s*E\s*N\s*R/i.test(t)) return true; // spaced footer
+  if (/C\s*E\s*N\s*T\s*R\s*A\s*L/i.test(t)) return true;       // spaced "CENTRAL OFFICE"
+  if (/R\s*E\s*G\s*I\s*O\s*N\s*A\s*L/i.test(t)) return true;
+  if (/M\s*I\s*N\s*E\s*S/i.test(t)) return true;
+  if (/B\s*U\s*R\s*E\s*A\s*U/i.test(t)) return true;
+  if (/^C\s*B\s*S\s/.test(t)) return true;
+  return false;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Module-level cache
 // ─────────────────────────────────────────────────────────────────────────────
 
-let _cache   = null;   // parsed competency array
-let _promise = null;   // in-flight promise
+let _cache   = null;
+let _promise = null;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Low-level PDF helpers
@@ -90,7 +117,11 @@ function getColumn(x) {
   return 3;
 }
 
-function groupByRow(items, tol = 5) {
+/**
+ * Group text items by row (similar y-coordinate within `tol` points).
+ * Returns a Map: y → [items], sorted top-to-bottom (ascending JS y).
+ */
+function groupByRow(items, tol = 4) {
   const rows = new Map();
   for (const item of items) {
     let key = null;
@@ -106,80 +137,132 @@ function groupByRow(items, tol = 5) {
   return sorted;
 }
 
-async function getPageItems(page) {
-  const vp = page.getViewport({ scale: 1.0 });
+async function getPageItemsRaw(page) {
+  const vp      = page.getViewport({ scale: 1.0 });
   const content = await page.getTextContent();
-  return content.items
+  const items   = content.items
     .filter(i => i.str && i.str.trim())
     .map(i => ({
-      str: i.str,
+      str: i.str.trim(),
       x  : Math.round(i.transform[4] * 10) / 10,
       y  : Math.round((vp.height - i.transform[5]) * 10) / 10,
     }));
+  return { items, width: vp.width, height: vp.height };
+}
+
+async function getPageItems(page) {
+  const { items } = await getPageItemsRaw(page);
+  return items;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TOC PARSING  –  builds the authoritative competency index
+// TOC PARSING
+//
+// The TABLE_CONTENTS.pdf is landscape (~842×596 pt) with TWO columns of
+// entries per page.  Each row typically looks like:
+//
+//   CODE1   Name of Competency 1    page1    CODE2   Name 2    page2
+//
+// Key observations from layout inspection:
+//   • Left column codes:  x ≈ 143–207   Left page nums:  x ≈ 428–450
+//   • Right column codes: x ≈ 483–538   Right page nums: x ≈ 759–791
+//   • COL_SPLIT = 465 separates left from right column items
+//   • Code + name + page num all appear on the SAME row (same y)
+//   • Multi-line names have a CONTINUATION ROW below with no code/page num
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Detect which office section the TOC page belongs to.
- * Returns null if no pattern matches (office unchanged).
- */
-function detectOfficeFromItems(items) {
-  const combined = items.map(i => i.str).join(' ');
-  for (const { re, office } of OFFICE_PATTERNS) {
-    if (re.test(combined)) return office;
-  }
-  return null;
-}
-
-/**
- * Group raw name-fragment items into strings matching one entry each.
- * Uses the largest y-gaps to infer boundaries between entries.
+ * Extract competency entries from one side (left or right) of a TOC page,
+ * using a row-oriented approach.
  *
- * @param {Array}  nameItems     – text items after codes & page numbers are removed
- * @param {number} expectedCount – number of entries expected on this page (= codes.length)
+ * @param {Map}    rows         – page rows (y → items)
+ * @param {string} side         – 'left' | 'right'
+ * @param {string} currentOffice
+ * @returns {Array<{code, page, name, office}>}
  */
-function buildNameGroups(nameItems, expectedCount) {
-  if (!nameItems.length)  return [];
-  if (expectedCount <= 0) return [];
+function extractTOCEntriesFromSide(rows, side, currentOffice) {
+  const xMin = side === 'left' ? 0   : TOC_COL_SPLIT;
+  const xMax = side === 'left' ? TOC_COL_SPLIT : Infinity;
 
-  // Calculate vertical gaps between consecutive items
-  const gaps = [];
-  for (let i = 1; i < nameItems.length; i++) {
-    gaps.push({ idx: i, gap: nameItems[i].y - nameItems[i - 1].y });
+  // ── Step 1: identify anchor rows (rows that contain a code) ──────────────
+  const anchors = [];
+  const sortedYs = [...rows.keys()];  // already sorted ascending (top → bottom)
+
+  for (const y of sortedYs) {
+    const sideItems = rows.get(y).filter(i => i.x >= xMin && i.x < xMax);
+    if (!sideItems.length) continue;
+
+    const codeItem = sideItems.find(i => BARE_CODE_RE.test(i.str));
+    if (!codeItem) continue;
+
+    // Page number: digits-only, value 1–999, pick rightmost (highest x)
+    const pageCandidates = sideItems
+      .filter(i => /^\d+$/.test(i.str))
+      .filter(i => { const n = parseInt(i.str, 10); return n >= 1 && n <= 999; });
+
+    if (!pageCandidates.length) continue;
+    const pageItem = pageCandidates.sort((a, b) => b.x - a.x)[0];
+    const pageNum  = parseInt(pageItem.str, 10);
+
+    // Name fragments on THIS row (not code, not page num, not noise)
+    const nameFrags = sideItems.filter(i => {
+      const t = i.str;
+      return !BARE_CODE_RE.test(t)
+          && !/^\d+$/.test(t)
+          && !isTOCNoise(t);
+    }).map(i => i.str);
+
+    anchors.push({ y, code: codeItem.str, page: pageNum, nameFrags });
   }
 
-  // The (expectedCount - 1) largest gaps are the entry boundaries
-  gaps.sort((a, b) => b.gap - a.gap);
-  const breakIndices = new Set(
-    gaps.slice(0, Math.max(0, expectedCount - 1)).map(g => g.idx)
-  );
+  if (!anchors.length) return [];
 
-  const groups  = [];
-  let current   = [];
+  // ── Step 2: collect continuation rows for each anchor ────────────────────
+  const entries = [];
 
-  for (let i = 0; i < nameItems.length; i++) {
-    if (i > 0 && breakIndices.has(i)) {
-      const joined = current.map(it => it.str.trim()).join(' ').replace(/\s{2,}/g, ' ').trim();
-      if (joined) groups.push(joined);
-      current = [];
+  for (let ai = 0; ai < anchors.length; ai++) {
+    const anchor     = anchors[ai];
+    const nextAnchorY = anchors[ai + 1]?.y ?? Infinity;
+
+    let allFrags = [...anchor.nameFrags];
+
+    // Look at rows BELOW the anchor (higher JS y) until next anchor or gap
+    const anchorIdx = sortedYs.indexOf(anchor.y);
+    for (let ri = anchorIdx + 1; ri < sortedYs.length; ri++) {
+      const ry         = sortedYs[ri];
+      if (ry >= nextAnchorY)      break;  // hit next anchor's y
+      if (ry - anchor.y > 60)    break;  // too far below (handles up to 3-line names)
+
+      const sideItems = rows.get(ry).filter(i => i.x >= xMin && i.x < xMax);
+      if (!sideItems.length) continue;
+
+      // Continuation rows must NOT contain a code or a page number
+      const hasCode    = sideItems.some(i => BARE_CODE_RE.test(i.str));
+      const hasPageNum = sideItems.some(i => /^\d+$/.test(i.str) &&
+                           parseInt(i.str, 10) >= 1 && parseInt(i.str, 10) <= 999 &&
+                           i.x > xMin + 200);   // page num is far right
+
+      if (hasCode || hasPageNum) break;
+
+      const contFrags = sideItems
+        .filter(i => !isTOCNoise(i.str) && !/^\d+$/.test(i.str))
+        .map(i => i.str);
+
+      if (contFrags.length) allFrags = [...allFrags, ...contFrags];
     }
-    current.push(nameItems[i]);
+
+    const name = allFrags.join(' ').replace(/\s{2,}/g, ' ').trim();
+    if (name && anchor.code) {
+      entries.push({ code: anchor.code, page: anchor.page, name, office: currentOffice });
+    }
   }
 
-  if (current.length) {
-    const joined = current.map(it => it.str.trim()).join(' ').replace(/\s{2,}/g, ' ').trim();
-    if (joined) groups.push(joined);
-  }
-
-  return groups;
+  return entries;
 }
 
 /**
- * Parse TABLE_CONTENTS.pdf → array of { code, name, page, office }.
- * Returns [] on failure (fallback mode will be used).
+ * Parse TABLE_CONTENTS.pdf → flat array of { code, name, page, office }.
+ * Returns [] on failure so caller can fall back to scan mode.
  */
 async function parseTOC(onProgress = () => {}) {
   let tocPdf;
@@ -188,80 +271,70 @@ async function parseTOC(onProgress = () => {}) {
     if (!probe.ok) throw new Error('not found');
     tocPdf = await pdfjsLib.getDocument({ url: TOC_PDF_PATH }).promise;
   } catch (e) {
-    console.warn('[TOC] Cannot load TABLE_CONTENTS.pdf –', e.message);
+    console.warn('[TOC] Cannot load TABLE_CONTENTS.pdf —', e.message);
     return [];
   }
 
-  const numPages    = tocPdf.numPages;
-  const allEntries  = [];
+  const total        = tocPdf.numPages;
+  const allEntries   = [];
   let   currentOffice = 'Central Office';
 
-  for (let p = 1; p <= numPages; p++) {
+  for (let p = 1; p <= total; p++) {
     const page  = await tocPdf.getPage(p);
     const items = await getPageItems(page);
 
-    // Update office context from page header text
-    const detected = detectOfficeFromItems(items);
-    if (detected) currentOffice = detected;
-
-    // ── Classify each text item ──────────────────────────────────────────────
-    const codes    = [];   // RSCI6, BFM1, PCO2 …
-    const pageNums = [];   // 1 … 999
-    const nameRaw  = [];   // everything else (name fragments)
-
-    for (const item of items) {
-      const t = item.str.trim();
-      if (!t || t.length < 2) continue;
-
-      if (BARE_CODE_RE.test(t)) {
-        codes.push(item);
-        continue;
-      }
-
-      if (/^\d+$/.test(t)) {
-        const n = parseInt(t, 10);
-        if (n >= 1 && n <= 999) { pageNums.push(item); continue; }
-        // year / large number – skip
-        continue;
-      }
-
-      if (!TOC_NOISE_RE.test(t)) {
-        nameRaw.push(item);
-      }
+    // Detect office context from full page text
+    const fullText = items.map(i => i.str).join(' ');
+    for (const { re, office } of OFFICE_PATTERNS) {
+      if (re.test(fullText)) { currentOffice = office; break; }
     }
 
-    // Sort each bucket by y (reading order, top→bottom)
-    codes   .sort((a, b) => a.y - b.y || a.x - b.x);
-    pageNums.sort((a, b) => a.y - b.y || a.x - b.x);
-    nameRaw .sort((a, b) => a.y - b.y || a.x - b.x);
+    const rows = groupByRow(items, 4);
 
-    // ── Align codes ↔ page numbers ↔ name groups ────────────────────────────
-    // Sometimes page-number column includes duplicates or stray numbers;
-    // filter to keep only as many as we have codes.
-    const pairedPageNums = pageNums.slice(0, codes.length);
+    const leftEntries  = extractTOCEntriesFromSide(rows, 'left',  currentOffice);
+    const rightEntries = extractTOCEntriesFromSide(rows, 'right', currentOffice);
 
-    const nameGroups = buildNameGroups(nameRaw, codes.length);
-    const count      = Math.min(codes.length, pairedPageNums.length, nameGroups.length);
-
-    for (let i = 0; i < count; i++) {
-      const code    = codes[i].str.trim();
-      const pg      = parseInt(pairedPageNums[i].str, 10);
-      const name    = nameGroups[i];
-
-      if (code && pg && name) {
-        allEntries.push({ code, name, page: pg, office: currentOffice });
-      }
-    }
-
-    onProgress(Math.round((p / numPages) * 25), `TOC ${p}/${numPages}…`);
+    allEntries.push(...leftEntries, ...rightEntries);
+    onProgress(Math.round((p / total) * 25), `TOC page ${p}/${total}…`);
   }
 
-  console.log(`[TOC] Indexed ${allEntries.length} competencies across ${numPages} pages`);
+  console.log(`[TOC] Indexed ${allEntries.length} competencies`);
   return allEntries;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CBS PDF helpers – content extraction
+// Page-offset detection
+// ─────────────────────────────────────────────────────────────────────────────
+
+function detectPageOffset(allRows, tocEntries) {
+  const probes = tocEntries.filter((_, i) => i % 4 === 0).slice(0, 30);
+  let bestOffset = 0;
+  let bestHits   = 0;
+
+  for (let offset = -5; offset <= 20; offset++) {
+    let hits = 0;
+    for (const entry of probes) {
+      const pIdx = entry.page - 1 + offset;
+      if (pIdx < 0 || pIdx >= allRows.length) continue;
+      for (let delta = -2; delta <= 2; delta++) {
+        const ci = pIdx + delta;
+        if (ci < 0 || ci >= allRows.length) break;
+        let found = false;
+        for (const [, rowItems] of allRows[ci]) {
+          if (rowItems.some(i => i.str.trim() === entry.code)) { found = true; break; }
+        }
+        if (found) { hits++; break; }
+      }
+    }
+    if (hits > bestHits) { bestHits = hits; bestOffset = offset; }
+  }
+
+  console.log(`[CBS] Page offset: ${bestOffset} (${bestHits}/${probes.length} hits)`);
+  return bestOffset;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CBS content extraction helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
 function findHeaderRow(rows) {
@@ -272,26 +345,20 @@ function findHeaderRow(rows) {
   return null;
 }
 
-function isSectionBreak(text) {
+function isSectionBreak(text, currentCode = '') {
   const norm = text.trim().toUpperCase();
-  return CBS_SECTION_BREAKS.some(h => norm.includes(h));
+  if (CBS_SECTION_BREAKS.some(h => norm.includes(h))) return true;
+  const m = ENTRY_HEADER_RE.exec(text.trim());
+  if (m && m[1].toUpperCase() !== currentCode.toUpperCase()) return true;
+  return false;
 }
 
-// ── Text-cleanup helpers ─────────────────────────────────────────────────────
-
-function stripLeadingOrphan(text) {
-  return text.replace(/^[a-z] /, '');
-}
-
-function stripTrailingCode(text) {
-  return text.replace(/\s+[A-Z]{1,5}\d+[A-Z]?\s*$/, '').trim();
-}
+function stripLeadingOrphan(t)  { return t.replace(/^[a-z] /, ''); }
+function stripTrailingCode(t)   { return t.replace(/\s+[A-Z]{1,6}\d+[A-Z]?\s*$/, '').trim(); }
 
 function fixSpacing(text) {
   if (!text) return text;
-
   text = text.replace(/(\w+)\s+-\s+(\w+)/g, '$1-$2');
-
   const fixes = {
     'Deve lops':'Develops','deve lops':'develops',
     'st rategies':'strategies','St rategies':'Strategies',
@@ -312,26 +379,18 @@ function fixSpacing(text) {
     'sus tainable':'sustainable','Sus tainable':'Sustainable',
     're silient':'resilient','Re silient':'Resilient',
     'bio diversity':'biodiversity','Bio diversity':'Biodiversity',
-    'eco logy':'ecology','Eco logy':'Ecology',
-    'con struction':'construction','Con struction':'Construction',
     'de velopment':'development','De velopment':'Development',
     'cur rent':'current','Cur rent':'Current',
     'curren t':'current','Curren t':'Current',
   };
-
   for (const [broken, fixed] of Object.entries(fixes)) {
     text = text.replace(
       new RegExp('\\b' + broken.replace(/\s/g, '\\s') + '\\b', 'g'),
       fixed
     );
   }
-
   return text;
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Column parser  –  behavioral indicator + KSA items
-// ─────────────────────────────────────────────────────────────────────────────
 
 function parseColumn(lines) {
   const processed = [];
@@ -341,42 +400,35 @@ function parseColumn(lines) {
     t = stripLeadingOrphan(t);
     if (!t) continue;
     if (BARE_CODE_RE.test(t)) continue;
-    if (/^\d+$/.test(t))       continue;
+    if (/^\d+$/.test(t)) continue;
     if (LEVEL_NAMES.includes(t.toUpperCase())) continue;
     processed.push(t);
   }
 
   const segments = [];
-
   for (const line of processed) {
-    const embeddedMatch = line.match(/^(.+?)\s+(\d+)\.\s+(.+)$/);
-    if (embeddedMatch) {
-      const before     = embeddedMatch[1].trim();
-      const num        = parseInt(embeddedMatch[2], 10);
-      const after      = embeddedMatch[3].trim();
-      const startsNum  = /^\d+\./.test(before);
-      if (!startsNum && before.length > 5) {
+    const embedded = line.match(/^(.+?)\s+(\d+)\.\s+(.+)$/);
+    if (embedded) {
+      const before = embedded[1].trim();
+      const num    = parseInt(embedded[2], 10);
+      const after  = embedded[3].trim();
+      if (!/^\d+\./.test(before) && before.length > 5) {
         if (before) segments.push({ type: 'bi',   num: null, parts: [before] });
         segments.push(              { type: 'item', num,       parts: [after]  });
         continue;
       }
     }
-
-    const numMatch = line.match(/^(\d+)\.\s*(.*)/);
-    if (numMatch) {
-      const num  = parseInt(numMatch[1], 10);
-      const rest = numMatch[2].trim();
-      segments.push({ type: 'item', num, parts: rest ? [rest] : [] });
+    const numM = line.match(/^(\d+)\.\s*(.*)/);
+    if (numM) {
+      segments.push({ type: 'item', num: parseInt(numM[1], 10), parts: numM[2].trim() ? [numM[2].trim()] : [] });
       continue;
     }
-
-    if (segments.length > 0 && segments[segments.length - 1].type === 'item') {
+    if (segments.length && segments[segments.length - 1].type === 'item') {
       segments[segments.length - 1].parts.push(line);
       continue;
     }
-
-    if (segments.length === 0 || segments[segments.length - 1].type === 'bi') {
-      if (segments.length === 0) segments.push({ type: 'bi', num: null, parts: [] });
+    if (!segments.length || segments[segments.length - 1].type === 'bi') {
+      if (!segments.length) segments.push({ type: 'bi', num: null, parts: [] });
       segments[segments.length - 1].parts.push(line);
     } else {
       segments[segments.length - 1].parts.push(line);
@@ -385,7 +437,6 @@ function parseColumn(lines) {
 
   const biParts = [];
   const items   = [];
-
   for (const seg of segments) {
     if (seg.type === 'bi') {
       biParts.push(seg.parts.join(' '));
@@ -395,17 +446,13 @@ function parseColumn(lines) {
     }
   }
 
-  const behavioralIndicator = fixSpacing(biParts.join(' ').trim());
-  const fixedItems = items
-    .map(item => fixSpacing(item))
-    .filter(item => item.replace(/^\d+\.\s*/, '').trim().length > 3);
-
-  return { behavioralIndicator, items: fixedItems };
+  return {
+    behavioralIndicator: fixSpacing(biParts.join(' ').trim()),
+    items: items
+      .map(fixSpacing)
+      .filter(item => item.replace(/^\d+\.\s*/, '').trim().length > 3),
+  };
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Level extraction from a stitched section Map
-// ─────────────────────────────────────────────────────────────────────────────
 
 function extractLevels(rows, headerY, code) {
   const cols = [[], [], [], []];
@@ -419,116 +466,95 @@ function extractLevels(rows, headerY, code) {
     if (y === headerY) continue;
 
     const rowText = items.map(i => i.str).join(' ').trim();
-    if (isSectionBreak(rowText)) break;
-    if (/^\d+$/.test(rowText))   continue;
+    if (isSectionBreak(rowText, code)) break;
+    if (/^\d+$/.test(rowText)) continue;
 
     const rowByCol = [[], [], [], []];
-    for (const item of items) {
-      const colIdx = getColumn(item.x);
-      rowByCol[colIdx].push(item.str);
-    }
-
-    rowByCol.forEach((colItems, colIdx) => {
-      if (colItems.length) {
-        const line = colItems.join(' ').trim();
-        if (line) cols[colIdx].push(line);
-      }
+    for (const item of items) rowByCol[getColumn(item.x)].push(item.str);
+    rowByCol.forEach((colItems, ci) => {
+      const line = colItems.join(' ').trim();
+      if (line) cols[ci].push(line);
     });
   }
 
   const levels = {};
-  LEVEL_NAMES.forEach((name, i) => {
-    levels[name] = parseColumn(cols[i]);
-  });
-
+  LEVEL_NAMES.forEach((name, i) => { levels[name] = parseColumn(cols[i]); });
   return levels;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Page-offset detection
+// Seek: find the actual PDF page index where a competency starts
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * The TOC lists printed page numbers.  The CBS PDF may have front-matter pages
- * that shift the PDF page index.  This function detects that offset by scanning
- * a few early TOC entries against the CBS PDF rows.
- *
- * Returns the delta such that:   pdfPageIndex = tocPage - 1 + offset
- */
-function detectPageOffset(allRows, tocEntries) {
-  // Try the first 5 TOC entries to get a stable reading
-  const candidates = tocEntries.slice(0, 5);
-
-  for (let offset = -5; offset <= 15; offset++) {
-    let hits = 0;
-    for (const entry of candidates) {
-      const pIdx = entry.page - 1 + offset;
-      if (pIdx < 0 || pIdx >= allRows.length) continue;
-      for (const [, items] of allRows[pIdx]) {
-        const lineText = items.map(i => i.str).join(' ');
-        // Look for the code itself OR "CODE – name" pattern
-        if (lineText.includes(entry.code)) { hits++; break; }
+function seekPageIdx(allRows, calcIdx, code, radius = 6) {
+  // Prefer exact ENTRY_HEADER_RE match (CODE – Name)
+  for (let d = 0; d <= radius; d++) {
+    for (const sign of [0, 1, -1]) {
+      const ci = calcIdx + sign * d;
+      if (ci < 0 || ci >= allRows.length) continue;
+      for (const [, rowItems] of allRows[ci]) {
+        const line = rowItems.map(r => r.str).join(' ').trim();
+        const m    = ENTRY_HEADER_RE.exec(line);
+        if (m && m[1].toUpperCase() === code.toUpperCase()) return ci;
       }
     }
-    if (hits >= Math.min(3, candidates.length)) {
-      console.log(`[CBS] Detected page offset: ${offset} (${hits}/${candidates.length} hits)`);
-      return offset;
+  }
+  // Fallback: bare code token
+  for (let d = 0; d <= radius; d++) {
+    for (const sign of [0, 1, -1]) {
+      const ci = calcIdx + sign * d;
+      if (ci < 0 || ci >= allRows.length) continue;
+      for (const [, rowItems] of allRows[ci]) {
+        if (rowItems.some(r => r.str.trim().toUpperCase() === code.toUpperCase())) return ci;
+      }
     }
   }
-
-  console.warn('[CBS] Could not reliably detect page offset, using 0');
-  return 0;
+  return calcIdx;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Main parse pipeline  –  TOC-driven
+// TOC-driven extraction pipeline
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function _parseTOCDriven(tocEntries, allRows, totalPDFPages, onProgress) {
+async function _parseTOCDriven(tocEntries, allRows, onProgress) {
   const pageOffset = detectPageOffset(allRows, tocEntries);
-
-  // Build a code→[entries] map so same-code entries across bureaus are all accessible
-  const byCode = new Map();
-  for (const entry of tocEntries) {
-    const k = entry.code.toUpperCase();
-    if (!byCode.has(k)) byCode.set(k, []);
-    byCode.get(k).push(entry);
-  }
-
-  const result = [];
+  const result     = [];
 
   for (let i = 0; i < tocEntries.length; i++) {
     const entry     = tocEntries[i];
     const nextEntry = tocEntries[i + 1] ?? null;
 
-    const startIdx = entry.page - 1 + pageOffset;
-    const endIdx   = nextEntry
-      ? Math.min(nextEntry.page - 1 + pageOffset, allRows.length - 1)
-      : allRows.length - 1;
+    const calcStart = entry.page - 1 + pageOffset;
+    const calcEnd   = nextEntry ? nextEntry.page - 1 + pageOffset : allRows.length - 1;
+
+    const startIdx = seekPageIdx(allRows, calcStart, entry.code, 6);
+    const endIdx   = Math.min(
+      nextEntry ? seekPageIdx(allRows, calcEnd, nextEntry.code, 3) : allRows.length - 1,
+      startIdx + 8
+    );
 
     if (startIdx < 0 || startIdx >= allRows.length) continue;
 
-    // ── Stitch section rows across pages ────────────────────────────────────
+    // Stitch section rows across pages
     const section = new Map();
-    let yOffset   = 0;
+    let   yOffset = 0;
 
     for (let pi = startIdx; pi <= endIdx; pi++) {
       let maxY = 0;
       let stop = false;
 
-      for (const [y, items] of allRows[pi]) {
-        const rowText = items.map(i => i.str).join(' ').trim();
+      for (const [y, rowItems] of allRows[pi]) {
+        const rowText = rowItems.map(r => r.str).join(' ').trim();
 
-        // If we're past the start page and we see a NEW competency header, stop
-        if (pi > startIdx && ENTRY_HEADER_RE.test(rowText)) {
+        if (pi > startIdx) {
           const m = ENTRY_HEADER_RE.exec(rowText);
           if (m && m[1].toUpperCase() !== entry.code.toUpperCase()) { stop = true; break; }
         }
 
-        if (isSectionBreak(rowText)) { stop = true; break; }
-        if (/^\d+$/.test(rowText))   continue;  // bare page number
+        if (isSectionBreak(rowText, entry.code)) { stop = true; break; }
+        if (/^\d+$/.test(rowText)) continue;
 
-        section.set(y + yOffset, items);
+        section.set(y + yOffset, rowItems);
         maxY = Math.max(maxY, y);
       }
 
@@ -536,23 +562,18 @@ async function _parseTOCDriven(tocEntries, allRows, totalPDFPages, onProgress) {
       yOffset += maxY + 50;
     }
 
-    // ── Find level header row & extract content ──────────────────────────────
     const headerY = findHeaderRow(section);
-    if (headerY == null) {
-      console.warn(`[CBS] No level-header found for ${entry.code} (TOC page ${entry.page})`);
-      continue;
-    }
+    if (headerY == null) continue;
 
-    const levels = extractLevels(section, headerY, entry.code);
+    const levels     = extractLevels(section, headerY, entry.code);
     const hasContent = LEVEL_NAMES.some(l =>
       levels[l].behavioralIndicator || levels[l].items.length > 0
     );
-
     if (!hasContent) continue;
 
     result.push({
       code    : entry.code,
-      name    : entry.name,   // always use authoritative TOC name
+      name    : entry.name,
       category: OFFICE_CATEGORY_MAP[entry.office] ?? entry.office,
       office  : entry.office,
       levels,
@@ -561,7 +582,7 @@ async function _parseTOCDriven(tocEntries, allRows, totalPDFPages, onProgress) {
     if (i % 20 === 0) {
       onProgress(
         70 + Math.round((i / tocEntries.length) * 28),
-        `Extracted ${result.length} of ~${tocEntries.length}…`
+        `Extracted ${result.length}/${tocEntries.length}…`
       );
     }
   }
@@ -570,30 +591,26 @@ async function _parseTOCDriven(tocEntries, allRows, totalPDFPages, onProgress) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Fallback pipeline  –  scan-based (original approach)
+// Fallback pipeline — scan-based
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CATEGORY_MAP_FALLBACK = {
-  RSCI: 'Regional Offices',  RP:   'Regional Offices',
-  RADM: 'Regional Offices',  RFM:  'Regional Offices',
-  RHR:  'Regional Offices',  RO:   'Regional Offices',
-  PCO:  'P/CENRO',           PCP:  'P/CENRO',
-  PCIS: 'P/CENRO',           PCFM: 'P/CENRO',
-  PCAS: 'P/CENRO',           PCHR: 'P/CENRO',
-  LC:   'Leadership',        OC:   'Organizational',
-  CC:   'Core Competencies',
+const FALLBACK_CATEGORY_MAP = {
+  RSCI:'Regional Offices', RP:'Regional Offices', RADM:'Regional Offices',
+  RFM:'Regional Offices',  RHR:'Regional Offices', RO:'Regional Offices',
+  PCO:'P/CENRO',  PCP:'P/CENRO', PCIS:'P/CENRO', PCFM:'P/CENRO',
+  PCAS:'P/CENRO', PCHR:'P/CENRO',
+  LC:'Leadership Competencies', OC:'Organizational Competencies',
+  CC:'Core Competencies',
 };
-
 function getFallbackCategory(code) {
-  for (const [k, v] of Object.entries(CATEGORY_MAP_FALLBACK)) {
+  for (const [k, v] of Object.entries(FALLBACK_CATEGORY_MAP)) {
     if (code.startsWith(k)) return v;
   }
   return 'General Competencies';
 }
 
 async function _parseFallback(allRows, onProgress) {
-  onProgress(65, 'Indexing competency headers (fallback mode)…');
-
+  onProgress(65, 'Fallback: scanning for competency headers…');
   const locs = [];
   for (let pi = 0; pi < allRows.length; pi++) {
     for (const [y, items] of allRows[pi]) {
@@ -603,7 +620,7 @@ async function _parseFallback(allRows, onProgress) {
     }
   }
 
-  onProgress(70, `Fallback: found ${locs.length} headers. Extracting…`);
+  onProgress(70, `Fallback: found ${locs.length} headers…`);
   const result = [];
 
   for (let ci = 0; ci < locs.length; ci++) {
@@ -611,7 +628,7 @@ async function _parseFallback(allRows, onProgress) {
     const next = locs[ci + 1] ?? null;
 
     const section = new Map();
-    let yOff = 0;
+    let   yOff    = 0;
 
     for (let pi = loc.pi; pi < allRows.length; pi++) {
       if (next && pi > next.pi) break;
@@ -619,12 +636,10 @@ async function _parseFallback(allRows, onProgress) {
       let stop = false;
 
       for (const [y, items] of allRows[pi]) {
-        if (pi === loc.pi   && y < loc.y)   continue;
-        if (pi === next?.pi && y >= next.y)  continue;
-
-        const rowText = items.map(i => i.str).join(' ').trim();
-        if (isSectionBreak(rowText)) { stop = true; break; }
-
+        if (pi === loc.pi    && y < loc.y)   continue;
+        if (pi === next?.pi  && y >= next.y)  continue;
+        const rowText = items.map(r => r.str).join(' ').trim();
+        if (isSectionBreak(rowText, loc.code)) { stop = true; break; }
         section.set(y + yOff, items);
         maxY = Math.max(maxY, y);
       }
@@ -632,7 +647,7 @@ async function _parseFallback(allRows, onProgress) {
       if (stop) break;
       yOff += maxY + 50;
       if (!next || pi < next.pi - 1) continue;
-      if (next && pi === next.pi - 1) break;
+      if (pi === next.pi - 1) break;
     }
 
     const headerY = findHeaderRow(section);
@@ -661,53 +676,50 @@ async function _parseFallback(allRows, onProgress) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Master orchestrator
+// Master parse orchestrator
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function _parse(onProgress = () => {}) {
-  // ── Step 1: parse the TOC ─────────────────────────────────────────────────
   onProgress(0, 'Reading Table of Contents…');
   const tocEntries = await parseTOC(onProgress);
 
-  // ── Step 2: load CBS PDF pages ────────────────────────────────────────────
   const startMsg = tocEntries.length
     ? `TOC: ${tocEntries.length} entries. Loading CBS PDF…`
-    : 'TOC unavailable. Loading CBS PDF (fallback mode)…';
-
+    : 'No TOC found. Loading CBS PDF (fallback mode)…';
   onProgress(27, startMsg);
 
   let pdf;
   try {
     pdf = await pdfjsLib.getDocument({ url: CBS_PDF_PATH }).promise;
   } catch (e) {
-    throw new Error('Cannot load 2025_CBS.pdf: ' + e.message);
+    throw new Error('Cannot open 2025_CBS.pdf: ' + e.message);
   }
 
   const total = pdf.numPages;
-  onProgress(30, `Loading ${total} pages…`);
+  onProgress(30, `Scanning ${total} pages…`);
 
   const allRows = [];
   for (let p = 1; p <= total; p++) {
-    const page = await pdf.getPage(p);
-    allRows.push(groupByRow(await getPageItems(page)));
-    if (p % 30 === 0 || p === total) {
+    const page  = await pdf.getPage(p);
+    const items = await getPageItems(page);
+    allRows.push(groupByRow(items));
+    if (p % 40 === 0 || p === total) {
       onProgress(30 + Math.round((p / total) * 38), `Page ${p}/${total}…`);
     }
   }
 
   onProgress(70, 'Extracting competency data…');
 
-  // ── Step 3: extract content ───────────────────────────────────────────────
   let result;
-  if (tocEntries.length > 0) {
-    result = await _parseTOCDriven(tocEntries, allRows, total, onProgress);
+  if (tocEntries.length > 10) {
+    result = await _parseTOCDriven(tocEntries, allRows, onProgress);
 
-    // If TOC-driven misses too many entries, supplement with fallback scan
-    if (result.length < tocEntries.length * 0.5) {
-      console.warn('[CBS] TOC-driven extraction yield is low, supplementing with scan…');
-      const fallback   = await _parseFallback(allRows, () => {});
+    // If yield is too low, supplement with fallback scan
+    if (result.length < tocEntries.length * 0.4) {
+      console.warn('[CBS] Low TOC yield — supplementing with fallback scan');
+      const fbResult   = await _parseFallback(allRows, () => {});
       const existCodes = new Set(result.map(r => r.code.toUpperCase()));
-      for (const fb of fallback) {
+      for (const fb of fbResult) {
         if (!existCodes.has(fb.code.toUpperCase())) result.push(fb);
       }
     }
@@ -715,7 +727,7 @@ async function _parse(onProgress = () => {}) {
     result = await _parseFallback(allRows, onProgress);
   }
 
-  onProgress(100, `Done – ${result.length} competencies loaded`);
+  onProgress(100, `Done — ${result.length} competencies loaded`);
   return result;
 }
 
@@ -748,7 +760,7 @@ function nameSimilarity(a, b) {
   const na = normalizeName(a);
   const nb = normalizeName(b);
   if (!na || !nb) return 0;
-  if (na === nb) return 1.0;
+  if (na === nb)  return 1.0;
 
   const aw = meaningfulWords(na);
   const bw = meaningfulWords(nb);
@@ -760,7 +772,6 @@ function nameSimilarity(a, b) {
 
   const shorter  = aw.size <= bw.size ? aw : bw;
   const longer   = aw.size <= bw.size ? bw : aw;
-  // Lower threshold to 2 so single-word/short queries get containment boost
   const contained = shorter.size >= 2 && [...shorter].every(w => longer.has(w));
 
   return Math.min(1.0, jaccard + (contained ? 0.25 : 0));
@@ -773,22 +784,39 @@ function nameSimilarity(a, b) {
 export async function ensureParsed(onProgress) {
   if (_cache)   return _cache;
   if (_promise) return _promise;
-  _promise = _parse(onProgress).then(r => { _cache = r; _promise = null; return r; });
+  _promise = _parse(onProgress).then(r => {
+    _cache   = r;
+    _promise = null;
+    return r;
+  });
   return _promise;
 }
 
 /**
- * Find ALL competencies whose name matches the query.
+ * parsePDF — compatible with the original App.jsx signature.
+ * The `file` parameter is ignored; the system loads from the configured URL path.
  */
+export async function parsePDF(fileOrNull, onProgress) {
+  const comps = await ensureParsed(onProgress);
+  const categories = [...new Set(comps.filter(c => c.category).map(c => c.category))];
+  return {
+    competencies: comps,
+    stats: {
+      totalCompetencies : comps.length,
+      categories,
+      totalPages        : comps.length,  // approximate placeholder
+    },
+  };
+}
+
+/** Find ALL competencies whose name matches the query. */
 export async function findCompetenciesByName(name) {
   if (!name) return [];
   const comps = await ensureParsed();
-
-  // Strip UI level prefix decoration, e.g. "(ADV) - Teamwork" → "Teamwork"
   const cleanName = name.replace(/^\([A-Z]+\)\s*-\s*/i, '').trim();
   if (!cleanName) return [];
 
-  // If it looks like a bare code, try code match first
+  // Code lookup first
   if (BARE_CODE_RE.test(cleanName.toUpperCase())) {
     const byCode = comps.filter(c => c.code.toUpperCase() === cleanName.toUpperCase());
     if (byCode.length) return byCode;
@@ -796,11 +824,9 @@ export async function findCompetenciesByName(name) {
 
   const SINGLE_THRESHOLD  = 0.50;
   const VARIANT_THRESHOLD = 0.85;
-
-  // Only consider competencies with valid names
   const validComps = comps.filter(c => c.name && typeof c.name === 'string');
 
-  const collect = (searchName) =>
+  const collect = searchName =>
     validComps
       .map(c => ({ comp: c, score: nameSimilarity(searchName, c.name) }))
       .filter(({ score }) => score >= SINGLE_THRESHOLD)
@@ -810,10 +836,9 @@ export async function findCompetenciesByName(name) {
 
   // Fallback 1: strip parenthetical suffix
   if (!scored.length) {
-    const fallback = cleanName.split('(')[0].trim();
-    if (fallback !== cleanName && fallback.length > 8) scored = collect(fallback);
+    const shorter = cleanName.split('(')[0].trim();
+    if (shorter !== cleanName && shorter.length > 8) scored = collect(shorter);
   }
-
   // Fallback 2: substring containment
   if (!scored.length) {
     const norm = normalizeName(cleanName);
@@ -824,8 +849,7 @@ export async function findCompetenciesByName(name) {
       })
       .map(c => ({ comp: c, score: 0.55 }));
   }
-
-  // Fallback 3: single-word exact-substring (handles "RESPONSIBILITY", "DISCIPLINE" etc.)
+  // Fallback 3: single-word includes match
   if (!scored.length) {
     const upper = cleanName.toUpperCase().trim();
     scored = validComps
@@ -839,10 +863,10 @@ export async function findCompetenciesByName(name) {
   const results = [best.comp];
 
   for (let i = 1; i < scored.length; i++) {
-    const candidate = scored[i];
-    if (candidate.score < VARIANT_THRESHOLD) break;
-    if (nameSimilarity(best.comp.name, candidate.comp.name) >= VARIANT_THRESHOLD) {
-      results.push(candidate.comp);
+    const cand = scored[i];
+    if (cand.score < VARIANT_THRESHOLD) break;
+    if (nameSimilarity(best.comp.name, cand.comp.name) >= VARIANT_THRESHOLD) {
+      results.push(cand.comp);
     }
   }
 
@@ -855,29 +879,25 @@ export async function findCompetencyByName(name) {
   return r[0] ?? null;
 }
 
-/**
- * Find a competency by its CBS code.
- * Returns the best match (first occurrence); all occurrences via getAllByCode().
- */
+/** Find a competency by its exact CBS code. */
 export async function findCompetencyByCode(code) {
+  if (!code) return null;
   const comps = await ensureParsed();
   const upper = code.trim().toUpperCase();
   return comps.find(c => c.code.toUpperCase() === upper) ?? null;
 }
 
-/**
- * Find ALL competencies matching a given code (same code, different bureaus).
- */
+/** Find ALL competencies sharing a code (same code across different bureau sections). */
 export async function findAllByCode(code) {
+  if (!code) return [];
   const comps = await ensureParsed();
   const upper = code.trim().toUpperCase();
   return comps.filter(c => c.code.toUpperCase() === upper);
 }
 
-/** Return every parsed competency (for the manual browser). */
+/** Return all parsed competencies (for the Browse Manual view). */
 export async function getAllCompetencies() {
   const comps = await ensureParsed();
-  // Filter out any malformed entries that would crash the browser
   return comps.filter(c => c && c.code && c.name && typeof c.name === 'string');
 }
 
@@ -885,8 +905,7 @@ export async function isPDFAvailable() {
   try {
     const r = await fetch(CBS_PDF_PATH, { method: 'HEAD' });
     return r.ok;
-  } catch (e) {
-    console.error('PDF fetch error:', e);
+  } catch {
     return false;
   }
 }
