@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { findCompetencyByName, ensureParsed, isPDFAvailable } from '../lib/pdfParser';
+import { findCompetenciesByName, ensureParsed, isPDFAvailable } from '../lib/pdfParser';
 
 const LEVELS = ['BASIC', 'INTERMEDIATE', 'ADVANCED', 'SUPERIOR'];
 
@@ -60,6 +60,10 @@ const TYPE_LABEL = {
   minimum:        'Minimum',
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// LevelPanel — renders one proficiency level's content
+// ─────────────────────────────────────────────────────────────────────────────
+
 function LevelPanel({ level, data }) {
   const cfg = LEVEL_CFG[level];
   if (!data) return null;
@@ -74,7 +78,6 @@ function LevelPanel({ level, data }) {
 
   return (
     <div style={{ animation: 'cdmSlide .2s ease-out' }}>
-      {/* Behavioral Indicator Section */}
       {data.behavioralIndicator && (
         <div className={`rounded-xl p-6 mb-6 ${cfg.card}`}>
           <div className="flex items-center gap-2 mb-3">
@@ -85,14 +88,13 @@ function LevelPanel({ level, data }) {
             </div>
           </div>
           <div className="pl-9">
-            <p className={`text-base leading-relaxed ${cfg.title.replace('text-', 'text-gray-')}800`}>
+            <p className="text-base leading-relaxed text-gray-700">
               {data.behavioralIndicator}
             </p>
           </div>
         </div>
       )}
 
-      {/* KSAs Section */}
       {data.items.length > 0 && (
         <div>
           <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
@@ -102,7 +104,7 @@ function LevelPanel({ level, data }) {
           <div className="space-y-2.5">
             {data.items.map((item, idx) => {
               const m = item.match(/^(\d+)\.\s*/);
-              const num = m ? m[1] : String(idx + 1);
+              const num  = m ? m[1] : String(idx + 1);
               const text = m ? item.slice(m[0].length) : item;
               return (
                 <div key={idx} className="flex gap-3 p-4 rounded-xl bg-white border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
@@ -120,13 +122,54 @@ function LevelPanel({ level, data }) {
   );
 }
 
-export default function CompetencyDetailModal({ competencyName, competencyType, suggestedLevel, onClose }) {
-  const [status, setStatus] = useState('loading');
-  const [progress, setProgress] = useState(0);
-  const [msg, setMsg] = useState('Checking…');
-  const [data, setData] = useState(null);
-  const [activeLevel, setActiveLevel] = useState(suggestedLevel || 'BASIC');
+// ─────────────────────────────────────────────────────────────────────────────
+// VariantTabs — when multiple CBS variants exist, lets the user switch between
+// them above the level tabs.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function VariantTabs({ variants, activeIdx, onChange }) {
+  if (variants.length <= 1) return null;
+  return (
+    <div className="flex flex-wrap gap-2 px-6 pt-4">
+      {variants.map((v, i) => (
+        <button
+          key={v.code}
+          onClick={() => onChange(i)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+            i === activeIdx
+              ? 'bg-amber-500 text-white border-amber-500 shadow'
+              : 'bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100'
+          }`}
+        >
+          <span className="font-mono">{v.code}</span>
+          <span className="opacity-75">·</span>
+          <span>{v.category}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main modal
+// ─────────────────────────────────────────────────────────────────────────────
+
+export default function CompetencyDetailModal({
+  competencyName,
+  competencyType,
+  suggestedLevel,
+  onClose,
+}) {
+  const [status,       setStatus]       = useState('loading'); // 'loading' | 'found' | 'not_found' | 'no_pdf'
+  const [progress,     setProgress]     = useState(0);
+  const [msg,          setMsg]          = useState('Checking…');
+  const [variants,     setVariants]     = useState([]); // all matched CBS entries
+  const [variantIdx,   setVariantIdx]   = useState(0); // which variant is shown
+  const [activeLevel,  setActiveLevel]  = useState(suggestedLevel || 'BASIC');
   const overlayRef = useRef(null);
+
+  // Current displayed data
+  const data = variants[variantIdx] ?? null;
 
   useEffect(() => {
     let cancelled = false;
@@ -135,15 +178,25 @@ export default function CompetencyDetailModal({ competencyName, competencyType, 
       if (!ok) { if (!cancelled) setStatus('no_pdf'); return; }
       try {
         await ensureParsed((pct, m) => { if (!cancelled) { setProgress(pct); setMsg(m); } });
-        const result = await findCompetencyByName(competencyName);
+        const results = await findCompetenciesByName(competencyName);
         if (cancelled) return;
-        if (result) {
-          setData(result);
-          // Use suggested level if available and has content, otherwise find first available
-          if (suggestedLevel && (result.levels[suggestedLevel]?.behavioralIndicator || result.levels[suggestedLevel]?.items.length > 0)) {
+
+        if (results.length > 0) {
+          setVariants(results);
+          setVariantIdx(0);
+
+          // Set initial level tab
+          const firstData = results[0];
+          if (
+            suggestedLevel &&
+            (firstData.levels[suggestedLevel]?.behavioralIndicator ||
+             firstData.levels[suggestedLevel]?.items.length > 0)
+          ) {
             setActiveLevel(suggestedLevel);
           } else {
-            const first = LEVELS.find(l => result.levels[l]?.behavioralIndicator || result.levels[l]?.items.length > 0);
+            const first = LEVELS.find(l =>
+              firstData.levels[l]?.behavioralIndicator || firstData.levels[l]?.items.length > 0
+            );
             setActiveLevel(first ?? 'BASIC');
           }
           setStatus('found');
@@ -155,11 +208,21 @@ export default function CompetencyDetailModal({ competencyName, competencyType, 
     return () => { cancelled = true; };
   }, [competencyName, suggestedLevel]);
 
+  // When the user switches variant, reset level tab to first available
+  const handleVariantChange = useCallback((idx) => {
+    setVariantIdx(idx);
+    const v = variants[idx];
+    const first = LEVELS.find(l => v.levels[l]?.behavioralIndicator || v.levels[l]?.items.length > 0);
+    setActiveLevel(first ?? 'BASIC');
+  }, [variants]);
+
   useEffect(() => {
     const h = e => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
   }, [onClose]);
+
+  const isMultiVariant = variants.length > 1;
 
   return (
     <>
@@ -179,7 +242,7 @@ export default function CompetencyDetailModal({ competencyName, competencyType, 
           className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl flex flex-col max-h-[90vh] overflow-hidden"
           style={{ animation: 'cdmIn .2s ease-out' }}
         >
-          {/* Header */}
+          {/* ── Header ─────────────────────────────────────────────────── */}
           <div className="flex items-start justify-between px-6 pt-5 pb-4 border-b border-gray-100 flex-shrink-0">
             <div className="flex-1 min-w-0 mr-4">
               <div className="flex flex-wrap gap-2 mb-2">
@@ -205,9 +268,10 @@ export default function CompetencyDetailModal({ competencyName, competencyType, 
             >✕</button>
           </div>
 
-          {/* Body */}
+          {/* ── Body ───────────────────────────────────────────────────── */}
           <div className="flex-1 overflow-y-auto">
 
+            {/* Loading */}
             {status === 'loading' && (
               <div className="p-6">
                 <div className="flex items-center gap-3 mb-3">
@@ -233,6 +297,7 @@ export default function CompetencyDetailModal({ competencyName, competencyType, 
               </div>
             )}
 
+            {/* Not found */}
             {status === 'not_found' && (
               <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
                 <div className="text-5xl mb-4">🔍</div>
@@ -244,26 +309,55 @@ export default function CompetencyDetailModal({ competencyName, competencyType, 
               </div>
             )}
 
+            {/* No PDF */}
             {status === 'no_pdf' && (
               <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
                 <div className="text-5xl mb-4">📄</div>
                 <h3 className="text-base font-semibold text-gray-700 mb-2">PDF Not Found</h3>
                 <p className="text-sm text-gray-400 max-w-xs leading-relaxed">
-                  Place <code className="bg-gray-100 px-1 rounded text-xs">CBS_REGION_PENRO_CENRO.pdf</code> in the{' '}
-                  <code className="bg-gray-100 px-1 rounded text-xs">/public</code> folder and redeploy.
+                  Place <code className="bg-gray-100 px-1 rounded text-xs">2025_CBS.pdf</code> in the{' '}
+                  <code className="bg-gray-100 px-1 rounded text-xs">/public/rhrmpsb-system</code> folder and redeploy.
                 </p>
                 <button onClick={onClose} className="mt-6 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm">Close</button>
               </div>
             )}
 
+            {/* Found */}
             {status === 'found' && data && (
               <>
-                {/* Level Tabs */}
+                {/* ── Multiple-variant warning banner ───────────────── */}
+                {isMultiVariant && (
+                  <div className="mx-6 mt-4 flex items-start gap-3 px-4 py-3 rounded-xl bg-amber-50 border border-amber-300">
+                    <span className="text-xl flex-shrink-0">⚠️</span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-amber-800">
+                        Multiple CBS entries found for this competency name
+                      </p>
+                      <p className="text-xs text-amber-700 mt-0.5 leading-relaxed">
+                        The CBS manual contains <strong>{variants.length} different versions</strong> of{' '}
+                        <em>"{competencyName.replace(/^\([A-Z]+\)\s*-\s*/i, '')}"</em> under different codes
+                        ({variants.map(v => v.code).join(', ')}). Each version may have different
+                        behavioral indicators and KSAs. Use the tabs below to review all variants.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Variant selector tabs (only when > 1) ─────────── */}
+                {isMultiVariant && (
+                  <VariantTabs
+                    variants={variants}
+                    activeIdx={variantIdx}
+                    onChange={handleVariantChange}
+                  />
+                )}
+
+                {/* ── Level tabs ────────────────────────────────────── */}
                 <div className="sticky top-0 bg-white border-b border-gray-100 px-6 pt-4 pb-3 z-10">
                   <div className="flex flex-wrap gap-2">
                     {LEVELS.map(level => {
                       const cfg = LEVEL_CFG[level];
-                      const ld = data.levels[level];
+                      const ld  = data.levels[level];
                       const has = ld?.behavioralIndicator || ld?.items.length > 0;
                       return (
                         <button
@@ -287,7 +381,7 @@ export default function CompetencyDetailModal({ competencyName, competencyType, 
                   </div>
                 </div>
 
-                {/* Content Area */}
+                {/* ── Content area ──────────────────────────────────── */}
                 <div className="p-6">
                   <LevelPanel level={activeLevel} data={data.levels[activeLevel]} />
                 </div>
@@ -295,11 +389,18 @@ export default function CompetencyDetailModal({ competencyName, competencyType, 
             )}
           </div>
 
-          {/* Footer */}
+          {/* ── Footer ─────────────────────────────────────────────────── */}
           {status === 'found' && data && (
             <div className="flex-shrink-0 border-t border-gray-100 px-6 py-3 bg-gray-50/50">
               <div className="flex items-center justify-between">
-                <p className="text-xs text-gray-400">Source: CBS Manual · {data.code}</p>
+                <p className="text-xs text-gray-400">
+                  Source: CBS Manual · {data.code}
+                  {isMultiVariant && (
+                    <span className="ml-2 text-amber-600 font-medium">
+                      · Showing variant {variantIdx + 1} of {variants.length}
+                    </span>
+                  )}
+                </p>
                 <button onClick={onClose} className="px-4 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg text-sm transition-colors">
                   Close
                 </button>
