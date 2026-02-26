@@ -1802,6 +1802,15 @@ const loadDataForCurrentTab = useCallback(async () => {
           <h2 className="text-xl font-bold text-gray-900">Competencies Management</h2>
           <div className="flex flex-wrap gap-2">
             <button
+              onClick={() => {
+                setShowCompetencyDetail(true);
+                setSelectedCompetencyForDetail({ browseMode: true });
+              }}
+              className="px-3 py-1 rounded text-xs bg-purple-500 text-white hover:bg-purple-600 flex items-center gap-1"
+            >
+              📚 Browse CBS Manual
+            </button>
+            <button
               onClick={() => setShowCompetencySummary(true)}
               className="px-3 py-1 rounded text-xs bg-purple-500 text-white hover:bg-purple-600 flex items-center gap-1"
             >
@@ -2696,6 +2705,7 @@ const loadDataForCurrentTab = useCallback(async () => {
             competencyName={selectedCompetencyForDetail.name}
             competencyType={selectedCompetencyForDetail.type}
             suggestedLevel={selectedCompetencyForDetail.suggestedLevel}
+            browseMode={selectedCompetencyForDetail.browseMode || false}
             onClose={() => {
               setShowCompetencyDetail(false);
               setSelectedCompetencyForDetail(null);
