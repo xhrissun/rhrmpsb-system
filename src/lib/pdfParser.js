@@ -231,9 +231,22 @@ async function scanCBSForContent(tocMetadata, onProgress = () => {}) {
 
   // Step 1: Build full content index
   const allRows = [];
+  let currentOffice = 'Central Office'; // NEW: Track current office from CBS PDF headers
+
   for (let p = 1; p <= total; p++) {
     const page = await cbsPdf.getPage(p);
     const items = await getPageItems(page);
+
+    // NEW: Detect office section header in CBS PDF (similar to TOC)
+    const fullText = items.map(i => i.str).join(' ').toUpperCase();
+    for (const { re, office } of OFFICE_SECTION_HEADERS) {
+      if (re.test(fullText)) {
+        currentOffice = office;
+        console.log(`[CBS] Page ${p}: → ${office}`);
+        break;
+      }
+    }
+
     allRows.push(groupByRow(items));
     
     if (p % 50 === 0 || p === total) {
@@ -319,43 +332,23 @@ async function scanCBSForContent(tocMetadata, onProgress = () => {}) {
     const levels = extractLevels(section, headerY, loc.code);
     
     // Check if has actual content
-    const hasContent = LEVELS.some(l =>
+    const hasContent = LEVEL_NAMES.some(l =>
       levels[l]?.behavioralIndicator || levels[l]?.items?.length > 0
     );
     
     if (!hasContent) continue;
 
     // 🎯 Enrich with TOC metadata
-    // Try to find metadata for this code
-    let metadata = null;
-    
-    // Strategy 1: Look for exact code match in current office context
-    // We infer office from nearby codes that we do have metadata for
-    let inferredOffice = 'Central Office';
-    
-    // Look at nearby successfully parsed competencies
-    for (let j = Math.max(0, competencies.length - 10); j < competencies.length; j++) {
-      if (competencies[j].office) {
-        inferredOffice = competencies[j].office;
-        break;
-      }
-    }
-    
-    // Try all possible offices for this code
-    for (const office of Object.keys(OFFICE_CATEGORY_MAP)) {
-      const key = `${loc.code}|${office}`;
-      if (tocMetadata.has(key)) {
-        metadata = tocMetadata.get(key);
-        break;
-      }
-    }
-    
-    // Fallback: use inferred office
+    // NEW: Use detected currentOffice for key and fallback
+    const key = `${loc.code}|${currentOffice}`;
+    let metadata = tocMetadata.get(key);
+
+    // Fallback if no exact match
     if (!metadata) {
       metadata = {
         code: loc.code,
         name: loc.name,
-        office: inferredOffice,
+        office: currentOffice,
         category: 'Functional'
       };
     }
@@ -363,7 +356,7 @@ async function scanCBSForContent(tocMetadata, onProgress = () => {}) {
     competencies.push({
       code: loc.code,
       name: metadata.name || loc.name,
-      office: metadata.office,
+      office: metadata.office || currentOffice, // Ensure office is set
       category: OFFICE_CATEGORY_MAP[metadata.office] || metadata.office,
       levels
     });
@@ -647,7 +640,7 @@ export async function findCompetenciesByName(name) {
   // Code lookup first
   if (BARE_CODE_RE.test(cleanName.toUpperCase())) {
     const byCode = comps.filter(c => c.code.toUpperCase() === cleanName.toUpperCase());
-    if (byCode.length) return byCode;
+    if (byCode.length) return byCode; // Note: Merging happens below, but code lookup returns raw
   }
 
   const SINGLE_THRESHOLD = 0.50;
@@ -701,7 +694,7 @@ export async function findCompetenciesByName(name) {
   if (!scored.length) return [];
 
   const best = scored[0];
-  const results = [best.comp];
+  let results = [best.comp];
 
   for (let i = 1; i < scored.length; i++) {
     const cand = scored[i];
@@ -711,7 +704,22 @@ export async function findCompetenciesByName(name) {
     }
   }
 
-  return results;
+  // NEW: Group and merge duplicates with identical levels content
+  const groups = {};
+  for (const comp of results) {
+    const contentKey = JSON.stringify(comp.levels); // Hash based on levels content
+    if (!groups[contentKey]) {
+      groups[contentKey] = { ...comp, office: [comp.office] };
+    } else {
+      groups[contentKey].office.push(comp.office);
+    }
+  }
+
+  // Convert back to array, joining offices if multiple
+  return Object.values(groups).map(g => ({
+    ...g,
+    office: [...new Set(g.office)].sort().join('/') // Unique, sorted, joined as "Office1/Office2"
+  }));
 }
 
 export async function findCompetencyByName(name) {
