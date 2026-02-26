@@ -33,48 +33,8 @@ const CBS_SECTION_BREAKS = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Office detection — ordered from most-specific to least-specific.
-// We look for these in the section HEADING rows of the TOC (large/bold text
-// that identifies the bureau), NOT in the competency name rows.
+// Office detection
 // ─────────────────────────────────────────────────────────────────────────────
-
-const OFFICE_PATTERNS = [
-  { re: /MINES\s+AND\s+GEOSCIENCES/i,                     office: 'Mines and Geosciences Bureau'              },
-  { re: /ENVIRONMENTAL\s+MANAGEMENT\s+BUREAU/i,           office: 'Environmental Management Bureau'           },
-  { re: /LAND\s+MANAGEMENT\s+BUREAU/i,                    office: 'Land Management Bureau'                    },
-  { re: /FOREST\s+MANAGEMENT\s+BUREAU/i,                  office: 'Forest Management Bureau'                  },
-  { re: /ECOSYSTEMS\s+RESEARCH/i,                         office: 'Ecosystems Research and Development Bureau'},
-  { re: /BIODIVERSITY\s+MANAGEMENT\s+BUREAU/i,            office: 'Biodiversity Management Bureau'            },
-  { re: /PROVINCIAL.*COMMUNITY|P\s*\/\s*CENRO/i,          office: 'P/CENRO'                                   },
-  { re: /REGIONAL\s+OFFICE/i,                             office: 'Regional Offices'                          },
-  { re: /CENTRAL\s+OFFICE/i,                              office: 'Central Office'                            },
-];
-
-// These are the HEADING strings that appear on section-separator pages of
-// the TOC.  They are large, prominent, and contain the office name.
-// We detect office changes ONLY when one of these patterns dominates a row
-// (i.e. the row text IS essentially the office name, not buried in a comp name).
-const OFFICE_HEADING_PATTERNS = [
-  { re: /^CBS\s+MANUAL\s+FOR\s+MINES\s+AND\s+GEOSCIENCES/i,                  office: 'Mines and Geosciences Bureau'              },
-  { re: /^CBS\s+MANUAL\s+FOR\s+.*ENVIRONMENTAL\s+MANAGEMENT/i,               office: 'Environmental Management Bureau'           },
-  { re: /^CBS\s+MANUAL\s+FOR\s+.*LAND\s+MANAGEMENT/i,                        office: 'Land Management Bureau'                    },
-  { re: /^CBS\s+MANUAL\s+FOR\s+.*FOREST\s+MANAGEMENT/i,                      office: 'Forest Management Bureau'                  },
-  { re: /^CBS\s+MANUAL\s+FOR\s+ECOSYSTEMS/i,                                 office: 'Ecosystems Research and Development Bureau'},
-  { re: /^CBS\s+MANUAL\s+FOR\s+BIODIVERSITY/i,                               office: 'Biodiversity Management Bureau'            },
-  { re: /^CBS\s+MANUAL\s+FOR\s+P\s*\/?\s*CENRO|PROVINCIAL.*COMMUNITY.*ENR/i, office: 'P/CENRO'                                   },
-  { re: /^CBS\s+MANUAL\s+FOR\s+REGIONAL/i,                                   office: 'Regional Offices'                          },
-  { re: /^CBS\s+MANUAL\s+FOR\s+CENTRAL/i,                                    office: 'Central Office'                            },
-  // Also catch the standalone heading rows (the decorative vertical text reconstructed):
-  { re: /^MINES\s+AND\s+GEOSCIENCES\s+BUREAU$/i,                             office: 'Mines and Geosciences Bureau'              },
-  { re: /^ENVIRONMENTAL\s+MANAGEMENT\s+BUREAU$/i,                            office: 'Environmental Management Bureau'           },
-  { re: /^LAND\s+MANAGEMENT\s+BUREAU$/i,                                     office: 'Land Management Bureau'                    },
-  { re: /^FOREST\s+MANAGEMENT\s+BUREAU$/i,                                   office: 'Forest Management Bureau'                  },
-  { re: /^ECOSYSTEMS\s+RESEARCH\s+AND\s+DEVELOPMENT\s+BUREAU$/i,             office: 'Ecosystems Research and Development Bureau'},
-  { re: /^BIODIVERSITY\s+MANAGEMENT\s+BUREAU$/i,                             office: 'Biodiversity Management Bureau'            },
-  { re: /PROVINCIAL\s*\/\s*COMMUNITY\s+ENVIRONMENT/i,                        office: 'P/CENRO'                                   },
-  { re: /^REGIONAL\s+OFFICES$/i,                                              office: 'Regional Offices'                          },
-  { re: /^CENTRAL\s+OFFICE$/i,                                                office: 'Central Office'                            },
-];
 
 const OFFICE_CATEGORY_MAP = {
   'Central Office'                             : 'Central Office',
@@ -88,12 +48,26 @@ const OFFICE_CATEGORY_MAP = {
   'Mines and Geosciences Bureau'               : 'Mines and Geosciences Bureau',
 };
 
+// 🔥 FIX: Only detect office changes from section divider pages
+// These patterns match the large "CBS MANUAL FOR [BUREAU]" headings
+const OFFICE_SECTION_HEADERS = [
+  { re: /CBS\s+MANUAL\s+FOR\s+CENTRAL\s+OFFICE/i,                              office: 'Central Office' },
+  { re: /CBS\s+MANUAL\s+FOR\s+REGIONAL\s+OFFICE/i,                             office: 'Regional Offices' },
+  { re: /CBS\s+MANUAL\s+FOR\s+P\s*\/\s*CENRO/i,                                office: 'P/CENRO' },
+  { re: /CBS\s+MANUAL\s+FOR\s+BIODIVERSITY\s+MANAGEMENT\s+BUREAU/i,            office: 'Biodiversity Management Bureau' },
+  { re: /CBS\s+MANUAL\s+FOR\s+ECOSYSTEMS\s+RESEARCH\s+AND\s+DEVELOPMENT/i,     office: 'Ecosystems Research and Development Bureau' },
+  { re: /CBS\s+MANUAL\s+FOR\s+FOREST\s+MANAGEMENT\s+BUREAU/i,                  office: 'Forest Management Bureau' },
+  { re: /CBS\s+MANUAL\s+FOR\s+LAND\s+MANAGEMENT\s+BUREAU/i,                    office: 'Land Management Bureau' },
+  { re: /CBS\s+MANUAL\s+FOR\s+ENVIRONMENTAL\s+MANAGEMENT\s+BUREAU/i,           office: 'Environmental Management Bureau' },
+  { re: /CBS\s+MANUAL\s+FOR\s+MINES\s+AND\s+GEOSCIENCES\s+BUREAU/i,            office: 'Mines and Geosciences Bureau' },
+];
+
 // Noise patterns to filter out while reading TOC name fragments
 function isTOCNoise(t) {
   if (!t || t.length === 0) return true;
   if (t.length === 1) return true;
   if (/^2\d{3}$/.test(t)) return true;
-  if (/^[IVX]+\.?\s*(.*)$/.test(t)) return true;   // Roman numeral section headers
+  if (/^[IVX]+\.?\s*(.*)$/.test(t)) return true;
   if (/^(AND|THE|OF|IN|TO|AT|FOR|BY|OR|WITH)$/i.test(t)) return true;
   if (/CBS\s+MANUAL/i.test(t)) return true;
   if (/TABLE\s+OF\s+CONTENTS/i.test(t)) return true;
@@ -163,32 +137,18 @@ async function getPageItems(page) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Detect office from a page by reading the page HEADER (top-right area, y < 60).
- * Every TOC page has the office name printed as a running header at y ≈ 48.8.
- * This is the authoritative source — far more reliable than scanning content rows.
+ * 🔥 FIX: Detect office ONLY from section divider pages with "CBS MANUAL FOR [BUREAU]"
+ * Returns the office name if this page is a section divider, null otherwise.
  */
-function detectOfficeFromPage(items) {
-  // Header words: x > 130 (skip sidebar), y < 60 (page header band)
-  const headerItems = items.filter(i => i.x > 130 && i.y < 60);
-  if (!headerItems.length) return null;
-
-  const headerText = headerItems.map(i => i.str).join(' ').trim().toUpperCase();
-
-  // Match longest key first (most specific)
-  const HEADER_OFFICE_MAP = [
-    ['MINES AND GEOSCIENCES',                      'Mines and Geosciences Bureau'],
-    ['ENVIRONMENTAL MANAGEMENT BUREAU',            'Environmental Management Bureau'],
-    ['LAND MANAGEMENT BUREAU',                     'Land Management Bureau'],
-    ['FOREST MANAGEMENT BUREAU',                   'Forest Management Bureau'],
-    ['ECOSYSTEMS RESEARCH AND DEVELOPMENT BUREAU', 'Ecosystems Research and Development Bureau'],
-    ['BIODIVERSITY MANAGEMENT BUREAU',             'Biodiversity Management Bureau'],
-    ['PROVINCIAL/COMMUNITY',                       'P/CENRO'],
-    ['REGIONAL OFFICE',                            'Regional Office'],
-    ['CENTRAL OFFICE',                             'Central Office'],
-  ];
-
-  for (const [key, office] of HEADER_OFFICE_MAP) {
-    if (headerText.includes(key)) return office;
+function detectOfficeSectionHeader(items) {
+  // Look for the large section header text (typically y < 200, prominent)
+  const headerItems = items.filter(i => i.y < 200);
+  const fullText = items.map(i => i.str).join(' ').toUpperCase();
+  
+  for (const { re, office } of OFFICE_SECTION_HEADERS) {
+    if (re.test(fullText)) {
+      return office;
+    }
   }
   return null;
 }
@@ -203,7 +163,6 @@ const TOC_CATEGORY_MAP = [
 ];
 
 // Category state is tracked per-column across pages via a simple module-level map.
-// Each call to extractTOCEntriesFromSide updates it for the given side.
 const _catState = { left: 'Functional', right: 'Functional' };
 
 function extractTOCEntriesFromSide(rows, side, currentOffice) {
@@ -213,17 +172,16 @@ function extractTOCEntriesFromSide(rows, side, currentOffice) {
   const anchors = [];
   const sortedYs = [...rows.keys()];
 
-  // Current category for this column (persists across calls via _catState)
   let currentCategory = _catState[side];
 
   for (const y of sortedYs) {
-    // Skip header band (y < 60) — that's the office header, not content
+    // Skip header band (y < 60)
     if (y < 60) continue;
 
     const sideItems = rows.get(y).filter(i => i.x >= xMin && i.x < xMax);
     if (!sideItems.length) continue;
 
-    // Detect category section headings (no code, just Roman numeral + category)
+    // Detect category section headings
     const rowText = sideItems.map(i => i.str).join(' ');
     let detectedCat = null;
     for (const [re, cat] of TOC_CATEGORY_MAP) {
@@ -232,7 +190,7 @@ function extractTOCEntriesFromSide(rows, side, currentOffice) {
     if (detectedCat) {
       currentCategory = detectedCat;
       _catState[side] = currentCategory;
-      continue; // section heading row — no competency entry here
+      continue;
     }
 
     const codeItem = sideItems.find(i => BARE_CODE_RE.test(i.str));
@@ -291,7 +249,13 @@ function extractTOCEntriesFromSide(rows, side, currentOffice) {
 
     const name = allFrags.join(' ').replace(/\s{2,}/g, ' ').trim();
     if (name && anchor.code) {
-      entries.push({ code: anchor.code, page: anchor.page, name, office: currentOffice, category: anchor.category ?? currentCategory });
+      entries.push({ 
+        code: anchor.code, 
+        page: anchor.page, 
+        name, 
+        office: currentOffice, 
+        category: anchor.category ?? currentCategory 
+      });
     }
   }
 
@@ -301,9 +265,7 @@ function extractTOCEntriesFromSide(rows, side, currentOffice) {
 /**
  * Parse TABLE_CONTENTS.pdf → flat array of { code, name, page, office }.
  *
- * KEY FIX: Office is only updated when a clear section-divider heading is found.
- * We no longer update office from every page's full text, which was causing
- * shared codes (BHR3, BFM1 etc.) to all get assigned to the same office.
+ * 🔥 KEY FIX: Office is only updated when a section divider page is found.
  */
 async function parseTOC(onProgress = () => {}) {
   let tocPdf;
@@ -320,7 +282,7 @@ async function parseTOC(onProgress = () => {}) {
   const allEntries   = [];
   let   currentOffice = 'Central Office';
 
-  // Reset per-column category state for fresh parse
+  // Reset per-column category state
   _catState.left  = 'Functional';
   _catState.right = 'Functional';
 
@@ -329,10 +291,11 @@ async function parseTOC(onProgress = () => {}) {
     const items = await getPageItems(page);
     const rows  = groupByRow(items, 4);
 
-    // Detect office from the page header (y < 60) — definitive per-page
-    const detectedOffice = detectOfficeFromPage(items);
-    if (detectedOffice) {
-      currentOffice = detectedOffice;
+    // 🔥 FIX: Only update office on section divider pages
+    const sectionOffice = detectOfficeSectionHeader(items);
+    if (sectionOffice) {
+      currentOffice = sectionOffice;
+      console.log(`[TOC] Page ${p}: Section change → ${currentOffice}`);
     }
 
     const leftEntries  = extractTOCEntriesFromSide(rows, 'left',  currentOffice);
@@ -910,12 +873,10 @@ export async function findCompetenciesByName(name) {
   }
 
   // Typo-tolerant fallback: character-level Levenshtein distance
-  // Handles misspellings like "PARTNERSHSIP" → "PARTNERSHIP"
   if (!scored.length && cleanName.length >= 6) {
     const upperQuery = cleanName.toUpperCase().replace(/\s+/g, '');
     const candidates = validComps.map(c => {
       const upperName = c.name.toUpperCase().replace(/\s+/g, '');
-      // Only compare names of similar length
       const lenDiff = Math.abs(upperQuery.length - upperName.length);
       if (lenDiff > Math.ceil(upperQuery.length * 0.3)) return null;
       const dist = levenshtein(upperQuery, upperName);
@@ -967,10 +928,6 @@ export async function findAllByCode(code) {
 
 /**
  * Return all parsed competencies (for the Browse Manual view).
- * Shared codes (BHR3, BFM1 etc. that appear in multiple bureaus) are kept
- * as separate entries since each bureau's version has distinct content —
- * but we tag them clearly with their office/category so the browser can
- * group them properly.
  */
 export async function getAllCompetencies() {
   const comps = await ensureParsed();
