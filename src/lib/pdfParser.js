@@ -724,7 +724,8 @@ async function _parse(onProgress = () => {}) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function normalizeName(name) {
-  return name.toUpperCase()
+  if (!name) return '';
+  return String(name).toUpperCase()
     .replace(/[()]/g, ' ')
     .replace(/\s+/g, ' ')
     .replace(/[^A-Z0-9\s\/\-]/g, '')
@@ -746,6 +747,7 @@ function meaningfulWords(normalized) {
 function nameSimilarity(a, b) {
   const na = normalizeName(a);
   const nb = normalizeName(b);
+  if (!na || !nb) return 0;
   if (na === nb) return 1.0;
 
   const aw = meaningfulWords(na);
@@ -758,7 +760,8 @@ function nameSimilarity(a, b) {
 
   const shorter  = aw.size <= bw.size ? aw : bw;
   const longer   = aw.size <= bw.size ? bw : aw;
-  const contained = shorter.size >= 4 && [...shorter].every(w => longer.has(w));
+  // Lower threshold to 2 so single-word/short queries get containment boost
+  const contained = shorter.size >= 2 && [...shorter].every(w => longer.has(w));
 
   return Math.min(1.0, jaccard + (contained ? 0.25 : 0));
 }
@@ -778,16 +781,27 @@ export async function ensureParsed(onProgress) {
  * Find ALL competencies whose name matches the query.
  */
 export async function findCompetenciesByName(name) {
+  if (!name) return [];
   const comps = await ensureParsed();
 
   // Strip UI level prefix decoration, e.g. "(ADV) - Teamwork" → "Teamwork"
   const cleanName = name.replace(/^\([A-Z]+\)\s*-\s*/i, '').trim();
+  if (!cleanName) return [];
+
+  // If it looks like a bare code, try code match first
+  if (BARE_CODE_RE.test(cleanName.toUpperCase())) {
+    const byCode = comps.filter(c => c.code.toUpperCase() === cleanName.toUpperCase());
+    if (byCode.length) return byCode;
+  }
 
   const SINGLE_THRESHOLD  = 0.50;
   const VARIANT_THRESHOLD = 0.85;
 
+  // Only consider competencies with valid names
+  const validComps = comps.filter(c => c.name && typeof c.name === 'string');
+
   const collect = (searchName) =>
-    comps
+    validComps
       .map(c => ({ comp: c, score: nameSimilarity(searchName, c.name) }))
       .filter(({ score }) => score >= SINGLE_THRESHOLD)
       .sort((a, b) => b.score - a.score);
@@ -797,18 +811,26 @@ export async function findCompetenciesByName(name) {
   // Fallback 1: strip parenthetical suffix
   if (!scored.length) {
     const fallback = cleanName.split('(')[0].trim();
-    if (fallback !== cleanName && fallback.length > 10) scored = collect(fallback);
+    if (fallback !== cleanName && fallback.length > 8) scored = collect(fallback);
   }
 
   // Fallback 2: substring containment
   if (!scored.length) {
     const norm = normalizeName(cleanName);
-    scored = comps
+    scored = validComps
       .filter(c => {
         const cn = normalizeName(c.name);
         return cn.includes(norm) || norm.includes(cn);
       })
       .map(c => ({ comp: c, score: 0.55 }));
+  }
+
+  // Fallback 3: single-word exact-substring (handles "RESPONSIBILITY", "DISCIPLINE" etc.)
+  if (!scored.length) {
+    const upper = cleanName.toUpperCase().trim();
+    scored = validComps
+      .filter(c => c.name.toUpperCase().includes(upper))
+      .map(c => ({ comp: c, score: 0.6 }));
   }
 
   if (!scored.length) return [];
@@ -854,7 +876,9 @@ export async function findAllByCode(code) {
 
 /** Return every parsed competency (for the manual browser). */
 export async function getAllCompetencies() {
-  return ensureParsed();
+  const comps = await ensureParsed();
+  // Filter out any malformed entries that would crash the browser
+  return comps.filter(c => c && c.code && c.name && typeof c.name === 'string');
 }
 
 export async function isPDFAvailable() {
