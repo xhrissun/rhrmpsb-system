@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { findCompetenciesByName, getAllCompetencies, ensureParsed, isPDFAvailable } from '../lib/pdfParser';
+import { findCompetenciesByName, getAllCompetencies, ensureParsed, isPDFAvailable } from '../lib/pdfParserCache';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
