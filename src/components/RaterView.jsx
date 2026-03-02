@@ -4,7 +4,276 @@ import { vacanciesAPI, candidatesAPI, ratingsAPI, competenciesAPI, authAPI } fro
 import { calculateRatingScores, formatDate } from '../utils/helpers';
 import { RATING_SCALE, COMPETENCY_TYPES, CANDIDATE_STATUS } from '../utils/constants';
 import { useToast } from '../utils/ToastContext';
-import CompetencyDetailModal from './CompetencyDetailModal'; // adjust path as needed
+import CompetencyDetailModal from './CompetencyDetailModal';
+// ✅ Pre-load PDF parser on mount
+import { ensureParsed, isPDFAvailable } from '../lib/pdfParser';
+
+// ─── Skeleton / Loading Components ───────────────────────────────────────────
+
+const shimmerKeyframes = `
+  @keyframes rater-shimmer {
+    0%   { background-position: -600px 0; }
+    100% { background-position:  600px 0; }
+  }
+  @keyframes rater-fade-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0);   }
+  }
+  @keyframes rater-spin {
+    to { transform: rotate(360deg); }
+  }
+  @keyframes rater-pulse-ring {
+    0%   { transform: scale(0.85); opacity: 0.7; }
+    50%  { transform: scale(1.05); opacity: 0.3; }
+    100% { transform: scale(0.85); opacity: 0.7; }
+  }
+  @keyframes rater-progress {
+    0%   { width: 0%; }
+    100% { width: 100%; }
+  }
+  @keyframes rater-bounce {
+    0%, 80%, 100% { transform: translateY(0);   }
+    40%           { transform: translateY(-8px); }
+  }
+`;
+
+const shimmerStyle = {
+  background: 'linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%)',
+  backgroundSize: '600px 100%',
+  animation: 'rater-shimmer 1.4s ease-in-out infinite',
+};
+
+function SkeletonBlock({ width = '100%', height = 16, radius = 8, style = {} }) {
+  return (
+    <div style={{
+      ...shimmerStyle,
+      width, height, borderRadius: radius,
+      ...style,
+    }} />
+  );
+}
+
+function RaterLoadingScreen({ pdfStatus }) {
+  const steps = [
+    { id: 'vacancies', label: 'Loading vacancies',      icon: '📋' },
+    { id: 'pdf',       label: 'Parsing CBS Manual',     icon: '📖' },
+    { id: 'ready',     label: 'Preparing interface',    icon: '✨' },
+  ];
+
+  // Derive step completion from pdfStatus
+  const vacanciesDone = pdfStatus !== 'idle';
+  const pdfDone       = pdfStatus === 'done' || pdfStatus === 'error' || pdfStatus === 'unavailable';
+  const readyDone     = false;
+
+  const statuses = [vacanciesDone, pdfDone, readyDone];
+
+  return (
+    <>
+      <style>{shimmerKeyframes}</style>
+      <div style={{
+        minHeight: '100vh',
+        background: 'linear-gradient(145deg, #f8fafc 0%, #eef2f7 100%)',
+        display: 'flex',
+        flexDirection: 'column',
+        fontFamily: "'Segoe UI', system-ui, sans-serif",
+      }}>
+        {/* Top header skeleton */}
+        <div style={{
+          background: '#fff',
+          borderBottom: '1px solid #e5e7eb',
+          padding: '18px 24px',
+          textAlign: 'center',
+          animation: 'rater-fade-in 0.4s ease both',
+        }}>
+          <SkeletonBlock width={320} height={14} radius={7} style={{ margin: '0 auto 10px' }} />
+          <SkeletonBlock width={440} height={22} radius={8} style={{ margin: '0 auto 8px' }} />
+          <SkeletonBlock width={200} height={13} radius={6} style={{ margin: '0 auto' }} />
+        </div>
+
+        <div style={{
+          maxWidth: 720,
+          width: '100%',
+          margin: '40px auto',
+          padding: '0 20px',
+        }}>
+          {/* Central loading card */}
+          <div style={{
+            background: '#fff',
+            borderRadius: 20,
+            boxShadow: '0 4px 32px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04)',
+            overflow: 'hidden',
+            animation: 'rater-fade-in 0.5s ease 0.1s both',
+          }}>
+            {/* Card header with logo area */}
+            <div style={{
+              background: 'linear-gradient(135deg, #1e3a5f 0%, #2d5a8e 60%, #1a4a7a 100%)',
+              padding: '32px 40px',
+              textAlign: 'center',
+              position: 'relative',
+              overflow: 'hidden',
+            }}>
+              {/* Decorative rings */}
+              <div style={{
+                position: 'absolute', top: -40, right: -40,
+                width: 160, height: 160, borderRadius: '50%',
+                background: 'rgba(255,255,255,0.04)',
+                animation: 'rater-pulse-ring 3s ease-in-out infinite',
+              }} />
+              <div style={{
+                position: 'absolute', bottom: -30, left: -30,
+                width: 120, height: 120, borderRadius: '50%',
+                background: 'rgba(255,255,255,0.03)',
+                animation: 'rater-pulse-ring 3.5s ease-in-out 0.5s infinite',
+              }} />
+
+              {/* Spinner */}
+              <div style={{ position: 'relative', display: 'inline-block', marginBottom: 16 }}>
+                <div style={{
+                  width: 56, height: 56,
+                  borderRadius: '50%',
+                  background: 'rgba(255,255,255,0.12)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 26,
+                }}>
+                  🏛️
+                </div>
+                <svg
+                  width={72} height={72}
+                  viewBox="0 0 72 72"
+                  style={{
+                    position: 'absolute',
+                    top: -8, left: -8,
+                    animation: 'rater-spin 1.2s linear infinite',
+                  }}
+                >
+                  <circle cx="36" cy="36" r="32"
+                    fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="3"/>
+                  <path
+                    d="M 36 4 A 32 32 0 0 1 68 36"
+                    fill="none" stroke="rgba(255,255,255,0.8)" strokeWidth="3" strokeLinecap="round"/>
+                </svg>
+              </div>
+
+              <h2 style={{ margin: '0 0 6px', color: '#fff', fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em' }}>
+                RHRMPSB Rating System
+              </h2>
+              <p style={{ margin: 0, color: 'rgba(255,255,255,0.65)', fontSize: 13 }}>
+                Initializing your workspace…
+              </p>
+            </div>
+
+            {/* Steps */}
+            <div style={{ padding: '28px 40px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 32 }}>
+                {steps.map((step, idx) => {
+                  const done    = statuses[idx];
+                  const active  = !done && (idx === 0 || statuses[idx - 1]);
+                  return (
+                    <div
+                      key={step.id}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 14,
+                        padding: '12px 16px', borderRadius: 12,
+                        background: done ? '#f0fdf4' : active ? '#eff6ff' : '#fafafa',
+                        border: `1.5px solid ${done ? '#bbf7d0' : active ? '#bfdbfe' : '#f0f0f0'}`,
+                        transition: 'all 0.4s cubic-bezier(0.4,0,0.2,1)',
+                        animation: `rater-fade-in 0.4s ease ${idx * 120}ms both`,
+                      }}
+                    >
+                      {/* Status icon */}
+                      <div style={{
+                        width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        background: done ? '#22c55e' : active ? '#3b82f6' : '#e5e7eb',
+                        transition: 'background 0.3s',
+                        fontSize: done ? 16 : 17,
+                      }}>
+                        {done ? (
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="20 6 9 17 4 12"/>
+                          </svg>
+                        ) : active ? (
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ animation: 'rater-spin 0.8s linear infinite' }}>
+                            <circle cx="12" cy="12" r="9" stroke="rgba(255,255,255,0.3)" strokeWidth="2.5"/>
+                            <path d="M12 3a9 9 0 0 1 9 9" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"/>
+                          </svg>
+                        ) : (
+                          <span style={{ fontSize: 16 }}>{step.icon}</span>
+                        )}
+                      </div>
+
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{
+                          margin: 0, fontSize: 14, fontWeight: 600,
+                          color: done ? '#15803d' : active ? '#1d4ed8' : '#9ca3af',
+                          transition: 'color 0.3s',
+                        }}>
+                          {step.label}
+                        </p>
+                        {active && step.id === 'pdf' && (
+                          <p style={{ margin: '2px 0 0', fontSize: 11.5, color: '#60a5fa' }}>
+                            First-time parse — will be instant next time
+                          </p>
+                        )}
+                      </div>
+
+                      {done && (
+                        <span style={{ fontSize: 11.5, fontWeight: 700, color: '#16a34a', flexShrink: 0 }}>
+                          Done
+                        </span>
+                      )}
+                      {active && (
+                        <div style={{ flexShrink: 0, display: 'flex', gap: 4 }}>
+                          {[0, 1, 2].map(i => (
+                            <div key={i} style={{
+                              width: 6, height: 6, borderRadius: '50%',
+                              background: '#3b82f6',
+                              animation: `rater-bounce 1.2s ease-in-out ${i * 0.2}s infinite`,
+                            }} />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Skeleton preview of the form */}
+              <div style={{ borderTop: '1.5px solid #f3f4f6', paddingTop: 24 }}>
+                <p style={{ margin: '0 0 16px', fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#d1d5db' }}>
+                  Preview
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  {['Assignment', 'Position', 'Item Number', 'Candidate'].map((label, i) => (
+                    <div key={label} style={{ animation: `rater-fade-in 0.4s ease ${0.3 + i * 0.1}s both`, opacity: 0 }}>
+                      <SkeletonBlock width={100} height={12} radius={6} style={{ marginBottom: 8 }} />
+                      <div style={{
+                        height: 52, borderRadius: 10,
+                        border: '1.5px solid #f0f0f0',
+                        ...shimmerStyle,
+                      }} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Bottom hint */}
+          <p style={{
+            textAlign: 'center', marginTop: 20,
+            fontSize: 12, color: '#9ca3af',
+            animation: 'rater-fade-in 0.5s ease 0.6s both', opacity: 0,
+          }}>
+            DENR CALABARZON · RHRMPSB Competency-Based Rating System
+          </p>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── Main RaterView ───────────────────────────────────────────────────────────
 
 const RaterView = ({ user }) => {
   const [vacancies, setVacancies] = useState([]);
@@ -27,6 +296,8 @@ const RaterView = ({ user }) => {
   });
   const [ratings, setRatings] = useState({});
   const [loading, setLoading] = useState(true);
+  // ✅ Track PDF pre-parse progress for the loading screen
+  const [pdfStatus, setPdfStatus] = useState('idle'); // idle | parsing | done | error | unavailable
   const [submitting, setSubmitting] = useState(false);
   const [isModalMinimized, setIsModalMinimized] = useState(true);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
@@ -35,10 +306,10 @@ const RaterView = ({ user }) => {
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [isDeleteConfirmModalOpen, setIsDeleteConfirmModalOpen] = useState(false);
   const [isClearConfirmModalOpen, setIsClearConfirmModalOpen] = useState(false);
-  const [isExitConfirmModalOpen, setIsExitConfirmModalOpen] = useState(false); // NEW: Exit warning modal
+  const [isExitConfirmModalOpen, setIsExitConfirmModalOpen] = useState(false);
   const [password, setPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
-  const [isUpdateSubmission, setIsUpdateSubmission] = useState(false); // NEW: Track if submission is an update
+  const [isUpdateSubmission, setIsUpdateSubmission] = useState(false);
   const [isRaterTypeConflictModalOpen, setIsRaterTypeConflictModalOpen] = useState(false);
   const [conflictingRater, setConflictingRater] = useState(null);
   const [isCheckingRaterType, setIsCheckingRaterType] = useState(false);
@@ -57,15 +328,11 @@ const RaterView = ({ user }) => {
       if (Object.keys(ratings).length > 0) {
         event.preventDefault();
         setIsExitConfirmModalOpen(true);
-        event.returnValue = ''; // Required for some browsers
+        event.returnValue = '';
       }
     };
-
     window.addEventListener('beforeunload', handleBeforeUnload);
-
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [ratings]);
 
   useEffect(() => {
@@ -147,12 +414,11 @@ const RaterView = ({ user }) => {
         setRatings({});
       } else {
         loadCandidateDetails();
-        checkRaterTypeConflict(); // NEW: Check for rater type conflict first
+        checkRaterTypeConflict();
       }
     }
   }, [candidates, selectedCandidate]);
 
-  // Track unsaved ratings in sessionStorage
   useEffect(() => {
     if (Object.keys(ratings).length > 0) {
       sessionStorage.setItem(`rater_${user._id}_hasUnsavedRatings`, 'true');
@@ -164,7 +430,7 @@ const RaterView = ({ user }) => {
   const filterVacanciesByAssignment = (allVacancies, user) => {
     switch (user.assignedVacancies) {
       case 'none':
-        return []; // No access to any vacancies
+        return [];
       case 'all':
         return allVacancies;
       case 'assignment':
@@ -174,20 +440,50 @@ const RaterView = ({ user }) => {
         if (!user.assignedItemNumbers || user.assignedItemNumbers.length === 0) return [];
         return allVacancies.filter(vacancy => user.assignedItemNumbers.includes(vacancy.itemNumber));
       default:
-        return []; // Changed from allVacancies to [] for safety
+        return [];
     }
   };
 
+  // ✅ CHANGED: loadInitialData now pre-parses the CBS PDF in parallel
   const loadInitialData = async () => {
     try {
       setLoading(true);
-      const vacanciesRes = await vacanciesAPI.getAll();
-      
-      // ✅ Ensure we filter archived vacancies (already done but being explicit)
+      setPdfStatus('idle');
+
+      // ── Fire both tasks simultaneously ──────────────────────────────
+      const vacanciesPromise = vacanciesAPI.getAll();
+
+      // PDF pre-parse runs in background — we don't block the UI on it,
+      // but we track its state so the loading screen can show progress.
+      const pdfPreloadPromise = (async () => {
+        try {
+          const available = await isPDFAvailable();
+          if (!available) { setPdfStatus('unavailable'); return; }
+          setPdfStatus('parsing');
+          await ensureParsed(); // warm up the parse cache
+          setPdfStatus('done');
+        } catch (err) {
+          console.warn('[RaterView] PDF pre-parse failed (non-critical):', err);
+          setPdfStatus('error');
+        }
+      })();
+
+      // ── Wait for vacancies (critical path) ──────────────────────────
+      const vacanciesRes = await vacanciesPromise;
       const activeVacancies = vacanciesRes.filter(v => !v.isArchived);
       const filteredVacancies = filterVacanciesByAssignment(activeVacancies, user);
-      
       setVacancies(filteredVacancies);
+
+      // ── Optionally wait a brief moment so the loading screen feels polished
+      // (not blocking beyond vacancies — PDF continues in background)
+      // If PDF is already done by now, great. If not, the modal will show
+      // its own incremental progress bar on first open — but it won't need
+      // to re-parse because ensureParsed() is idempotent.
+      // ────────────────────────────────────────────────────────────────
+
+      // Suppress unhandled rejection warning
+      pdfPreloadPromise.catch(() => {});
+
     } catch (error) {
       console.error('Failed to load initial data:', error);
     } finally {
@@ -198,13 +494,10 @@ const RaterView = ({ user }) => {
   const loadCandidatesByItemNumber = async () => {
     try {
       const candidatesRes = await candidatesAPI.getByItemNumber(selectedItemNumber);
-      
-      // ✅ Filter for BOTH long-list status AND non-archived
       const longListCandidates = candidatesRes.filter(candidate =>
         candidate.status === CANDIDATE_STATUS.LONG_LIST &&
-        !candidate.isArchived  // ← ADD THIS
+        !candidate.isArchived
       );
-      
       setCandidates(longListCandidates);
     } catch (error) {
       console.error('Failed to load candidates:', error);
@@ -229,12 +522,7 @@ const RaterView = ({ user }) => {
     } catch (error) {
       console.error('Failed to load competencies:', error);
       setCompetencies([]);
-      setGroupedCompetencies({
-        basic: [],
-        organizational: [],
-        leadership: [],
-        minimum: []
-      });
+      setGroupedCompetencies({ basic: [], organizational: [], leadership: [], minimum: [] });
     }
   };
 
@@ -256,14 +544,11 @@ const RaterView = ({ user }) => {
   const loadExistingRatings = async () => {
     try {
       const existingRatings = await ratingsAPI.getByCandidate(selectedCandidate);
-      
-      // CRITICAL: Filter by both rater AND item number
       const raterRatings = existingRatings.filter(rating =>
-        rating.raterId && 
+        rating.raterId &&
         rating.raterId._id === user._id &&
-        rating.itemNumber === selectedItemNumber  // Only load ratings for THIS item number
+        rating.itemNumber === selectedItemNumber
       );
-      
       const ratingsMap = {};
       raterRatings.forEach(rating => {
         if (rating.competencyId && rating.competencyId._id) {
@@ -279,26 +564,17 @@ const RaterView = ({ user }) => {
   };
 
   const checkRaterTypeConflict = async () => {
-    if (!selectedCandidate || !selectedItemNumber || !user.raterType) {
-      return;
-    }
-    
+    if (!selectedCandidate || !selectedItemNumber || !user.raterType) return;
     setIsCheckingRaterType(true);
-    
     try {
       const result = await ratingsAPI.checkExistingByRaterType(
-        selectedCandidate,
-        selectedItemNumber,
-        user.raterType
+        selectedCandidate, selectedItemNumber, user.raterType
       );
-      
       if (result.hasExisting && result.existingRater.id !== user._id) {
-        // Another rater of the same type has already rated this candidate
         setConflictingRater(result.existingRater);
         setIsRaterTypeConflictModalOpen(true);
-        setRatings({}); // Clear any ratings
+        setRatings({});
       } else {
-        // Safe to proceed - load existing ratings
         loadExistingRatings();
       }
     } catch (error) {
@@ -311,16 +587,9 @@ const RaterView = ({ user }) => {
 
   const handleRatingChange = (competencyType, competencyId, score) => {
     scrollPositionRef.current = window.scrollY;
-    
     const key = `${competencyType}_${competencyId}`;
-    setRatings(prev => ({
-      ...prev,
-      [key]: parseInt(score)
-    }));
-    
-    requestAnimationFrame(() => {
-      window.scrollTo(0, scrollPositionRef.current);
-    });
+    setRatings(prev => ({ ...prev, [key]: parseInt(score) }));
+    requestAnimationFrame(() => { window.scrollTo(0, scrollPositionRef.current); });
   };
 
   const areAllCompetenciesRated = () => {
@@ -330,7 +599,6 @@ const RaterView = ({ user }) => {
       ...(vacancyDetails?.salaryGrade >= 18 ? groupedCompetencies.leadership : []),
       ...groupedCompetencies.minimum
     ];
-
     return allCompetencies.every(competency => {
       const key = `${competency.type}_${competency._id}`;
       return ratings[key] !== undefined;
@@ -343,19 +611,15 @@ const RaterView = ({ user }) => {
       return;
     }
     try {
-      // Check if ratings exist for THIS specific candidate + item number combination
       const existingRatings = await ratingsAPI.checkExistingRatings(
-        selectedCandidate, 
-        user._id,
-        selectedItemNumber  // Pass item number to check
+        selectedCandidate, user._id, selectedItemNumber
       );
-      
       if (existingRatings.hasExisting) {
         setIsUpdateSubmission(true);
-        setIsPasswordModalOpen(true); // Prompt for password if updating
+        setIsPasswordModalOpen(true);
       } else {
         setIsUpdateSubmission(false);
-        setIsConfirmModalOpen(true); // Direct to confirmation for new ratings
+        setIsConfirmModalOpen(true);
       }
     } catch (error) {
       console.error('Failed to check existing ratings:', error);
@@ -370,7 +634,7 @@ const RaterView = ({ user }) => {
         setIsPasswordModalOpen(false);
         setPassword('');
         setPasswordError('');
-        setIsConfirmModalOpen(true); // Proceed to confirmation after password verification
+        setIsConfirmModalOpen(true);
       } else {
         setPasswordError('Incorrect password. Please try again.');
       }
@@ -391,10 +655,9 @@ const RaterView = ({ user }) => {
           competencyId,
           competencyType,
           score: parseInt(score),
-          itemNumber: selectedItemNumber  // CRITICAL: Include itemNumber with each rating
+          itemNumber: selectedItemNumber
         };
       });
-
       await ratingsAPI.submitRatings({ ratings: ratingsData }, isUpdateSubmission);
       setIsConfirmModalOpen(false);
       setSuccessModalType(isUpdateSubmission ? 'update' : 'submit');
@@ -408,7 +671,7 @@ const RaterView = ({ user }) => {
   };
 
   const handleDeleteRatings = () => {
-    setIsUpdateSubmission(false); // Explicitly set to false for deletion
+    setIsUpdateSubmission(false);
     setIsDeleteConfirmModalOpen(true);
   };
 
@@ -417,12 +680,7 @@ const RaterView = ({ user }) => {
       const isValid = await authAPI.verifyPassword(user._id, password);
       if (isValid) {
         try {
-          // Delete ratings for THIS specific candidate + rater + item number
-          await ratingsAPI.resetRatings(
-            selectedCandidate, 
-            user._id,
-            selectedItemNumber  // CRITICAL: Pass item number to delete only those ratings
-          );
+          await ratingsAPI.resetRatings(selectedCandidate, user._id, selectedItemNumber);
           setRatings({});
           setIsPasswordModalOpen(false);
           setPassword('');
@@ -442,9 +700,7 @@ const RaterView = ({ user }) => {
     }
   };
 
-  const handleClearRatings = () => {
-    setIsClearConfirmModalOpen(true);
-  };
+  const handleClearRatings = () => setIsClearConfirmModalOpen(true);
 
   const confirmClearRatings = () => {
     setRatings({});
@@ -459,38 +715,23 @@ const RaterView = ({ user }) => {
   };
 
   const calculateCurrentScores = () => {
-    if (Object.keys(ratings).length === 0) {
-      return { psychoSocial: 0, potential: 0, breakdown: {} };
-    }
-
+    if (Object.keys(ratings).length === 0) return { psychoSocial: 0, potential: 0, breakdown: {} };
     const mockRatings = Object.entries(ratings).map(([key, score]) => {
       const [competencyType, competencyId] = key.split('_');
-      return {
-        raterId: user._id,
-        competencyId,
-        competencyType,
-        score: parseInt(score)
-      };
+      return { raterId: user._id, competencyId, competencyType, score: parseInt(score) };
     });
-
     return calculateRatingScores(mockRatings, groupedCompetencies, vacancyDetails?.salaryGrade || 1);
   };
 
   const getCompetencyAverage = (competencyType) => {
     const competencyList = groupedCompetencies[competencyType] || [];
     if (competencyList.length === 0) return '0.000';
-
     let totalScore = 0;
     let ratedCount = 0;
-
     competencyList.forEach(competency => {
       const key = `${competencyType}_${competency._id}`;
-      if (ratings[key]) {
-        totalScore += ratings[key];
-        ratedCount++;
-      }
+      if (ratings[key]) { totalScore += ratings[key]; ratedCount++; }
     });
-
     if (competencyType === 'minimum') {
       return competencyList.length > 0 ? (totalScore / competencyList.length).toFixed(3) : '0.000';
     } else {
@@ -498,24 +739,19 @@ const RaterView = ({ user }) => {
     }
   };
 
-  const openDocumentLink = (url) => {
-    if (url) {
-      window.open(url, '_blank');
-    }
-  };
+  const openDocumentLink = (url) => { if (url) window.open(url, '_blank'); };
 
-  const shouldShowLeadership = () => {
-    return vacancyDetails?.salaryGrade >= 18 && groupedCompetencies.leadership.length > 0;
-  };
+  const shouldShowLeadership = () =>
+    vacancyDetails?.salaryGrade >= 18 && groupedCompetencies.leadership.length > 0;
 
   const handleOpenCompetencyModal = (competency, competencyType) => {
     setSelectedCompetencyForModal({ ...competency, competencyType });
     setIsCompetencyModalOpen(true);
   };
 
-  const totalCompetencies = groupedCompetencies.basic.length + 
-    groupedCompetencies.organizational.length + 
-    (shouldShowLeadership() ? groupedCompetencies.leadership.length : 0) + 
+  const totalCompetencies = groupedCompetencies.basic.length +
+    groupedCompetencies.organizational.length +
+    (shouldShowLeadership() ? groupedCompetencies.leadership.length : 0) +
     groupedCompetencies.minimum.length;
 
   const RadioRating = ({ competency, competencyType, currentRating, onChange, onInfoClick }) => {
@@ -536,33 +772,20 @@ const RaterView = ({ user }) => {
               </svg>
             </button>
           </div>
-          <div
-            className={`flex justify-center items-center px-4 py-2 md:px-6 md:py-3 text-sm md:text-base lg:text-lg font-medium rounded-full text-center w-full max-w-xs mx-auto ${
-              currentRating
-                ? 'bg-green-100 text-green-800 border border-green-200'
-                : 'bg-gray-100 text-gray-600 border border-gray-200'
-            }`}
-          >
+          <div className={`flex justify-center items-center px-4 py-2 md:px-6 md:py-3 text-sm md:text-base lg:text-lg font-medium rounded-full text-center w-full max-w-xs mx-auto ${
+            currentRating ? 'bg-green-100 text-green-800 border border-green-200' : 'bg-gray-100 text-gray-600 border border-gray-200'
+          }`}>
             {currentRating ? (
               <>
                 <svg className="w-5 h-5 md:w-6 md:h-6 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                  <path
-                    fillRule="evenodd"
-                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                    clipRule="evenodd"
-                  />
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/>
                 </svg>
                 Rated: {currentRating}/5
               </>
             ) : (
               <>
                 <svg className="w-5 h-5 md:w-6 md:h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
                 </svg>
                 Not Rated
               </>
@@ -573,17 +796,12 @@ const RaterView = ({ user }) => {
         <div className="flex justify-center">
           <div className="flex space-x-4 md:space-x-8">
             {RATING_SCALE.map(({ value, label }) => (
-              <label
-                key={value}
-                className="flex flex-col items-center cursor-pointer group"
-              >
-                <div
-                  className={`relative w-16 h-16 md:w-24 md:h-24 lg:w-28 lg:h-28 rounded-full border-2 transition-all duration-200 ${
-                    currentRating === value
-                      ? 'border-blue-600 bg-blue-600 shadow-lg scale-105'
-                      : 'border-gray-300 bg-white hover:border-blue-400 hover:bg-blue-50 hover:scale-102'
-                  }`}
-                >
+              <label key={value} className="flex flex-col items-center cursor-pointer group">
+                <div className={`relative w-16 h-16 md:w-24 md:h-24 lg:w-28 lg:h-28 rounded-full border-2 transition-all duration-200 ${
+                  currentRating === value
+                    ? 'border-blue-600 bg-blue-600 shadow-lg scale-105'
+                    : 'border-gray-300 bg-white hover:border-blue-400 hover:bg-blue-50 hover:scale-102'
+                }`}>
                   <input
                     type="radio"
                     name={`rating_${competencyType}_${competency._id}`}
@@ -592,21 +810,15 @@ const RaterView = ({ user }) => {
                     onChange={() => onChange(competencyType, competency._id, value)}
                     className="sr-only"
                   />
-                  <div
-                    className={`absolute inset-0 flex items-center justify-center text-xl md:text-3xl lg:text-4xl font-bold ${
-                      currentRating === value ? 'text-white' : 'text-gray-700'
-                    }`}
-                  >
+                  <div className={`absolute inset-0 flex items-center justify-center text-xl md:text-3xl lg:text-4xl font-bold ${
+                    currentRating === value ? 'text-white' : 'text-gray-700'
+                  }`}>
                     {value}
                   </div>
                 </div>
-                <span
-                  className={`text-sm md:text-lg lg:text-xl font-medium mt-3 text-center w-16 md:w-24 lg:w-28 ${
-                    currentRating === value
-                      ? 'text-blue-600'
-                      : 'text-gray-500 hover:text-gray-700'
-                  }`}
-                >
+                <span className={`text-sm md:text-lg lg:text-xl font-medium mt-3 text-center w-16 md:w-24 lg:w-28 ${
+                  currentRating === value ? 'text-blue-600' : 'text-gray-500 hover:text-gray-700'
+                }`}>
                   {label}
                 </span>
               </label>
@@ -617,15 +829,9 @@ const RaterView = ({ user }) => {
     );
   };
 
+  // ✅ CHANGED: Show the rich loading screen while loading
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex flex-col items-center space-y-4">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-          <p className="text-gray-600">Loading rating interface...</p>
-        </div>
-      </div>
-    );
+    return <RaterLoadingScreen pdfStatus={pdfStatus} />;
   }
 
   const currentScores = calculateCurrentScores();
@@ -633,6 +839,8 @@ const RaterView = ({ user }) => {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <style>{shimmerKeyframes}</style>
+
       <div className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="text-center">
@@ -744,12 +952,10 @@ const RaterView = ({ user }) => {
                     </p>
                   )}
                 </div>
-
                 <button
                   onClick={() => setIsModalMinimized(!isModalMinimized)}
                   className="text-white hover:text-green-200 focus:outline-none relative"
                 >
-                  {/* Pulsing indicator ring */}
                   {isModalMinimized && (
                     <>
                       <span className="absolute -top-1 -right-1 flex h-3 w-3">
@@ -758,7 +964,6 @@ const RaterView = ({ user }) => {
                       </span>
                     </>
                   )}
-                  
                   {isModalMinimized ? (
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
@@ -769,21 +974,18 @@ const RaterView = ({ user }) => {
                     </svg>
                   )}
                 </button>
-
               </div>
 
               {isModalMinimized && (
-              <div className="p-4 bg-blue-50 border-t border-blue-100">
-                <div className="flex items-center justify-center space-x-2 text-blue-700">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <span className="text-sm font-medium">Click the arrow above to view candidate details and documents</span>
+                <div className="p-4 bg-blue-50 border-t border-blue-100">
+                  <div className="flex items-center justify-center space-x-2 text-blue-700">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span className="text-sm font-medium">Click the arrow above to view candidate details and documents</span>
+                  </div>
                 </div>
-              </div>
-            )}
-
-
+              )}
 
               <div className="p-6 space-y-6">
                 <div className="grid grid-cols-2 gap-4">
@@ -866,8 +1068,8 @@ const RaterView = ({ user }) => {
                             disabled={!candidateDetails[doc.key]}
                             title={doc.label}
                             className={`px-2 py-1 rounded text-sm md:text-base font-medium text-center transition-all ${
-                              candidateDetails[doc.key] 
-                                ? `${doc.color} cursor-pointer hover:scale-105` 
+                              candidateDetails[doc.key]
+                                ? `${doc.color} cursor-pointer hover:scale-105`
                                 : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                             }`}
                           >
@@ -879,9 +1081,7 @@ const RaterView = ({ user }) => {
 
                     <div className="text-center">
                       <div className={`inline-flex items-center px-4 py-2 rounded-full text-sm md:text-base font-medium ${
-                        allRated 
-                          ? 'bg-green-100 text-green-800' 
-                          : 'bg-yellow-100 text-yellow-800'
+                        allRated ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
                       }`}>
                         {allRated ? (
                           <>
@@ -906,6 +1106,8 @@ const RaterView = ({ user }) => {
             </div>
           )}
 
+          {/* ── Modals (unchanged) ─────────────────────────────────── */}
+
           {isConfirmModalOpen && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
               <div className="bg-white rounded-xl p-8 max-w-3xl w-full mx-4">
@@ -915,14 +1117,12 @@ const RaterView = ({ user }) => {
                     ? `Are you sure you want to update the existing ratings for ${candidateDetails?.fullName}? This will overwrite all previous ratings.`
                     : `Are you sure you want to submit the following ratings for ${candidateDetails?.fullName}?`}
                 </p>
-                
                 <div className="bg-gray-50 rounded-lg p-6 mb-6">
                   <div className="text-center mb-4">
                     <h4 className="text-xl font-semibold text-gray-800">{candidateDetails.fullName}</h4>
                     <p className="text-lg text-gray-600">{vacancyDetails.position}</p>
                     <p className="text-base text-gray-500">{vacancyDetails.assignment} • Item # {vacancyDetails.itemNumber} • Salary Grade {vacancyDetails.salaryGrade}</p>
                   </div>
-
                   <div className="grid grid-cols-2 gap-4 mb-4">
                     <div className="text-center p-4 bg-gradient-to-br from-green-500 to-emerald-600 rounded-lg text-white">
                       <p className="text-lg font-medium opacity-90">Psycho-Social</p>
@@ -932,12 +1132,9 @@ const RaterView = ({ user }) => {
                     <div className="text-center p-4 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg text-white">
                       <p className="text-lg font-medium opacity-90">Potential</p>
                       <p className="text-3xl font-bold">{currentScores.potential.toFixed(3)}</p>
-                      <p className="text-sm opacity-80 mt-2">
-                        Org + {shouldShowLeadership() ? 'Lead + ' : ''}Min
-                      </p>
+                      <p className="text-sm opacity-80 mt-2">Org + {shouldShowLeadership() ? 'Lead + ' : ''}Min</p>
                     </div>
                   </div>
-
                   <div className={`grid gap-3 ${shouldShowLeadership() ? 'grid-cols-4' : 'grid-cols-3'} mb-4`}>
                     <div className="text-center p-3 bg-blue-50 rounded">
                       <p className="text-base font-medium text-blue-600">Basic</p>
@@ -958,7 +1155,6 @@ const RaterView = ({ user }) => {
                       <p className="text-lg font-bold text-orange-900">{getCompetencyAverage('minimum')}</p>
                     </div>
                   </div>
-
                   <div className="text-center">
                     <div className="inline-flex items-center px-4 py-2 rounded-full text-base font-medium bg-green-100 text-green-800">
                       <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
@@ -968,35 +1164,13 @@ const RaterView = ({ user }) => {
                     </div>
                   </div>
                 </div>
-
                 <div className="flex justify-end gap-4">
-                  <button
-                    onClick={() => setIsConfirmModalOpen(false)}
-                    className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 text-lg font-semibold"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={confirmSubmitRatings}
-                    disabled={submitting}
-                    className={`px-6 py-3 rounded-lg font-semibold flex items-center justify-center space-x-2 text-lg ${
-                      submitting
-                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                        : 'bg-gradient-to-r from-green-600 to-emerald-600 text-white hover:from-green-700 hover:to-emerald-700 focus:ring-2 focus:ring-green-500'
-                    }`}
-                  >
+                  <button onClick={() => setIsConfirmModalOpen(false)} className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 text-lg font-semibold">Cancel</button>
+                  <button onClick={confirmSubmitRatings} disabled={submitting} className={`px-6 py-3 rounded-lg font-semibold flex items-center justify-center space-x-2 text-lg ${submitting ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-gradient-to-r from-green-600 to-emerald-600 text-white hover:from-green-700 hover:to-emerald-700 focus:ring-2 focus:ring-green-500'}`}>
                     {submitting ? (
-                      <>
-                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                        <span>{isUpdateSubmission ? 'Updating...' : 'Submitting...'}</span>
-                      </>
+                      <><div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div><span>{isUpdateSubmission ? 'Updating...' : 'Submitting...'}</span></>
                     ) : (
-                      <>
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
-                        <span>{isUpdateSubmission ? 'Update Ratings' : 'Submit Ratings'}</span>
-                      </>
+                      <><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg><span>{isUpdateSubmission ? 'Update Ratings' : 'Submit Ratings'}</span></>
                     )}
                   </button>
                 </div>
@@ -1008,28 +1182,10 @@ const RaterView = ({ user }) => {
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
               <div className="bg-white rounded-xl p-8 max-w-3xl w-full mx-4">
                 <h3 className="text-2xl font-bold text-gray-800 mb-6">Confirm Delete Ratings</h3>
-                <p className="text-lg text-gray-600 mb-6 font-medium">
-                  Are you sure you want to delete all ratings for {candidateDetails?.fullName}? This action requires password confirmation.
-                </p>
+                <p className="text-lg text-gray-600 mb-6 font-medium">Are you sure you want to delete all ratings for {candidateDetails?.fullName}? This action requires password confirmation.</p>
                 <div className="flex justify-end gap-4">
-                  <button
-                    onClick={() => setIsDeleteConfirmModalOpen(false)}
-                    className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 text-lg font-semibold"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={() => {
-                      setIsDeleteConfirmModalOpen(false);
-                      setIsUpdateSubmission(false); // Add this line
-                      setIsPasswordModalOpen(true);
-                      setPassword('');
-                      setPasswordError('');
-                    }}
-                    className="px-6 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-lg hover:from-red-700 hover:to-red-800 focus:outline-none focus:ring-2 focus:ring-red-500 text-lg font-semibold"
-                  >
-                    Proceed to Password
-                  </button>
+                  <button onClick={() => setIsDeleteConfirmModalOpen(false)} className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 text-lg font-semibold">Cancel</button>
+                  <button onClick={() => { setIsDeleteConfirmModalOpen(false); setIsUpdateSubmission(false); setIsPasswordModalOpen(true); setPassword(''); setPasswordError(''); }} className="px-6 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-lg hover:from-red-700 hover:to-red-800 focus:outline-none focus:ring-2 focus:ring-red-500 text-lg font-semibold">Proceed to Password</button>
                 </div>
               </div>
             </div>
@@ -1039,22 +1195,10 @@ const RaterView = ({ user }) => {
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
               <div className="bg-white rounded-xl p-8 max-w-3xl w-full mx-4">
                 <h3 className="text-2xl font-bold text-gray-800 mb-6">Confirm Clear Ratings</h3>
-                <p className="text-lg text-gray-600 mb-6 font-medium">
-                  Are you sure you want to clear all ratings for {candidateDetails?.fullName}? This will reset the ratings on this page without affecting the database.
-                </p>
+                <p className="text-lg text-gray-600 mb-6 font-medium">Are you sure you want to clear all ratings for {candidateDetails?.fullName}? This will reset the ratings on this page without affecting the database.</p>
                 <div className="flex justify-end gap-4">
-                  <button
-                    onClick={() => setIsClearConfirmModalOpen(false)}
-                    className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 text-lg font-semibold"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={confirmClearRatings}
-                    className="px-6 py-3 bg-gradient-to-r from-gray-600 to-gray-700 text-white rounded-lg hover:from-gray-700 hover:to-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-500 text-lg font-semibold"
-                  >
-                    Clear Ratings
-                  </button>
+                  <button onClick={() => setIsClearConfirmModalOpen(false)} className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 text-lg font-semibold">Cancel</button>
+                  <button onClick={confirmClearRatings} className="px-6 py-3 bg-gradient-to-r from-gray-600 to-gray-700 text-white rounded-lg hover:from-gray-700 hover:to-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-500 text-lg font-semibold">Clear Ratings</button>
                 </div>
               </div>
             </div>
@@ -1067,40 +1211,13 @@ const RaterView = ({ user }) => {
                 <p className="text-gray-600 mb-4">Please enter your password to confirm {isUpdateSubmission ? 'updating' : 'deletion of'} all ratings for {candidateDetails?.fullName} {isUpdateSubmission ? '' : 'from the database'}.</p>
                 <div className="mb-4">
                   <label className="block text-sm font-medium text-gray-700 mb-2">Password</label>
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Enter your password"
-                  />
-                  {passwordError && (
-                    <p className="mt-2 text-sm text-red-600">{passwordError}</p>
-                  )}
+                  <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Enter your password" />
+                  {passwordError && <p className="mt-2 text-sm text-red-600">{passwordError}</p>}
                 </div>
                 <div className="flex justify-end gap-4">
-                  <button
-                    onClick={() => {
-                      setIsPasswordModalOpen(false);
-                      setPassword('');
-                      setPasswordError('');
-                    }}
-                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={isUpdateSubmission ? handlePasswordSubmitForUpdate : handlePasswordSubmit}
-                    disabled={!password}
-                    className={`px-4 py-2 rounded-lg font-medium flex items-center justify-center space-x-2 ${
-                      password
-                        ? 'bg-gradient-to-r from-red-600 to-red-700 text-white hover:from-red-700 hover:to-red-800 focus:ring-2 focus:ring-red-500'
-                        : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                    }`}
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
+                  <button onClick={() => { setIsPasswordModalOpen(false); setPassword(''); setPasswordError(''); }} className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500">Cancel</button>
+                  <button onClick={isUpdateSubmission ? handlePasswordSubmitForUpdate : handlePasswordSubmit} disabled={!password} className={`px-4 py-2 rounded-lg font-medium flex items-center justify-center space-x-2 ${password ? 'bg-gradient-to-r from-red-600 to-red-700 text-white hover:from-red-700 hover:to-red-800 focus:ring-2 focus:ring-red-500' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                     <span>{isUpdateSubmission ? 'Verify and Update' : 'Delete Ratings'}</span>
                   </button>
                 </div>
@@ -1118,34 +1235,12 @@ const RaterView = ({ user }) => {
                     </svg>
                   </div>
                   <h3 className="text-2xl font-bold text-gray-800 mb-4">
-                    {successModalType === 'submit' ? 'Ratings Submitted Successfully!' : 
-                     successModalType === 'update' ? 'Ratings Updated Successfully!' : 
-                     successModalType === 'delete' ? 'Ratings Deleted Successfully!' : 
-                     'Ratings Cleared Successfully!'}
+                    {successModalType === 'submit' ? 'Ratings Submitted Successfully!' : successModalType === 'update' ? 'Ratings Updated Successfully!' : successModalType === 'delete' ? 'Ratings Deleted Successfully!' : 'Ratings Cleared Successfully!'}
                   </h3>
                   <p className="text-lg text-gray-600 mb-6 font-medium">
-                    {successModalType === 'submit'
-                      ? `The ratings for ${candidateDetails?.fullName} have been submitted.`
-                      : successModalType === 'update'
-                      ? `The ratings for ${candidateDetails?.fullName} have been updated.`
-                      : successModalType === 'delete'
-                      ? `All ratings for ${candidateDetails?.fullName} have been deleted from the database.`
-                      : `All ratings for ${candidateDetails?.fullName} have been cleared on this page.`}
+                    {successModalType === 'submit' ? `The ratings for ${candidateDetails?.fullName} have been submitted.` : successModalType === 'update' ? `The ratings for ${candidateDetails?.fullName} have been updated.` : successModalType === 'delete' ? `All ratings for ${candidateDetails?.fullName} have been deleted from the database.` : `All ratings for ${candidateDetails?.fullName} have been cleared on this page.`}
                   </p>
-                  <button
-                    onClick={() => {
-                      setIsSuccessModalOpen(false);
-                      setSuccessModalType('submit');
-                      if (successModalType === 'submit' || successModalType === 'update' || successModalType === 'delete') {
-                        setSelectedCandidate('');
-                        setCandidateDetails(null);
-                        setRatings({});
-                      }
-                    }}
-                    className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg font-semibold"
-                  >
-                    Close
-                  </button>
+                  <button onClick={() => { setIsSuccessModalOpen(false); setSuccessModalType('submit'); if (successModalType === 'submit' || successModalType === 'update' || successModalType === 'delete') { setSelectedCandidate(''); setCandidateDetails(null); setRatings({}); } }} className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg font-semibold">Close</button>
                 </div>
               </div>
             </div>
@@ -1155,22 +1250,10 @@ const RaterView = ({ user }) => {
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
               <div className="bg-white rounded-xl p-8 max-w-3xl w-full mx-4">
                 <h3 className="text-2xl font-bold text-gray-800 mb-6">Warning: Unsubmitted Ratings</h3>
-                <p className="text-lg text-gray-600 mb-6 font-medium">
-                  You have unsubmitted ratings for {candidateDetails?.fullName}. If you refresh or leave the page, these ratings will be lost. Do you want to proceed?
-                </p>
+                <p className="text-lg text-gray-600 mb-6 font-medium">You have unsubmitted ratings for {candidateDetails?.fullName}. If you refresh or leave the page, these ratings will be lost. Do you want to proceed?</p>
                 <div className="flex justify-end gap-4">
-                  <button
-                    onClick={() => setIsExitConfirmModalOpen(false)}
-                    className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 text-lg font-semibold"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleExitConfirm}
-                    className="px-6 py-3 bg-gradient-to-r from-orange-600 to-orange-700 text-white rounded-lg hover:from-orange-700 hover:to-orange-800 focus:outline-none focus:ring-2 focus:ring-orange-500 text-lg font-semibold"
-                  >
-                    Refresh
-                  </button>
+                  <button onClick={() => setIsExitConfirmModalOpen(false)} className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 text-lg font-semibold">Cancel</button>
+                  <button onClick={handleExitConfirm} className="px-6 py-3 bg-gradient-to-r from-orange-600 to-orange-700 text-white rounded-lg hover:from-orange-700 hover:to-orange-800 focus:outline-none focus:ring-2 focus:ring-orange-500 text-lg font-semibold">Refresh</button>
                 </div>
               </div>
             </div>
@@ -1186,44 +1269,18 @@ const RaterView = ({ user }) => {
                     </svg>
                   </div>
                   <h3 className="text-2xl font-bold text-gray-800 mb-4">Rating Already Submitted</h3>
-                  <p className="text-lg text-gray-700 mb-4 font-medium">
-                    This candidate has already been rated for this position by another <span className="font-bold text-red-600">{user.raterType}</span> rater.
-                  </p>
+                  <p className="text-lg text-gray-700 mb-4 font-medium">This candidate has already been rated for this position by another <span className="font-bold text-red-600">{user.raterType}</span> rater.</p>
                   <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-                    <p className="text-gray-800">
-                      <span className="font-semibold">Existing Rater:</span> {conflictingRater?.name}
-                    </p>
-                    <p className="text-gray-800">
-                      <span className="font-semibold">Rater Type:</span> {conflictingRater?.raterType}
-                    </p>
-                    <p className="text-gray-800">
-                      <span className="font-semibold">Candidate:</span> {candidateDetails?.fullName}
-                    </p>
-                    <p className="text-gray-800">
-                      <span className="font-semibold">Position:</span> {vacancyDetails?.position}
-                    </p>
-                    <p className="text-gray-800">
-                      <span className="font-semibold">Item Number:</span> {selectedItemNumber}
-                    </p>
+                    <p className="text-gray-800"><span className="font-semibold">Existing Rater:</span> {conflictingRater?.name}</p>
+                    <p className="text-gray-800"><span className="font-semibold">Rater Type:</span> {conflictingRater?.raterType}</p>
+                    <p className="text-gray-800"><span className="font-semibold">Candidate:</span> {candidateDetails?.fullName}</p>
+                    <p className="text-gray-800"><span className="font-semibold">Position:</span> {vacancyDetails?.position}</p>
+                    <p className="text-gray-800"><span className="font-semibold">Item Number:</span> {selectedItemNumber}</p>
                   </div>
-                  <p className="text-sm text-gray-600 mb-6">
-                    Only one rater per rater type can submit ratings for each candidate-position combination. 
-                    Please select a different candidate or contact the administrator if this is an error.
-                  </p>
+                  <p className="text-sm text-gray-600 mb-6">Only one rater per rater type can submit ratings for each candidate-position combination. Please select a different candidate or contact the administrator if this is an error.</p>
                 </div>
                 <div className="flex justify-center">
-                  <button
-                    onClick={() => {
-                      setIsRaterTypeConflictModalOpen(false);
-                      setConflictingRater(null);
-                      setSelectedCandidate('');
-                      setCandidateDetails(null);
-                      setRatings({});
-                    }}
-                    className="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg font-semibold"
-                  >
-                    Select Different Candidate
-                  </button>
+                  <button onClick={() => { setIsRaterTypeConflictModalOpen(false); setConflictingRater(null); setSelectedCandidate(''); setCandidateDetails(null); setRatings({}); }} className="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg font-semibold">Select Different Candidate</button>
                 </div>
               </div>
             </div>
@@ -1231,8 +1288,7 @@ const RaterView = ({ user }) => {
 
           {isPositionRequirementsModalOpen && vacancyDetails && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" style={{ backdropFilter: 'blur(6px)' }}>
-              <div className="bg-white rounded-2xl w-full max-w-lg mx-auto shadow-2xl overflow-hidden" style={{ animation: 'modalIn 0.22s cubic-bezier(0.34,1.15,0.64,1)' }}>
-                {/* Header */}
+              <div className="bg-white rounded-2xl w-full max-w-lg mx-auto shadow-2xl overflow-hidden">
                 <div className="bg-gradient-to-r from-blue-700 to-blue-500 px-6 py-5 flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-white bg-opacity-20 flex items-center justify-center flex-shrink-0">
@@ -1245,47 +1301,16 @@ const RaterView = ({ user }) => {
                       <p className="text-blue-100 text-sm mt-0.5">{vacancyDetails.position} · SG {vacancyDetails.salaryGrade}</p>
                     </div>
                   </div>
-                  <button
-                    onClick={() => setIsPositionRequirementsModalOpen(false)}
-                    className="w-8 h-8 rounded-lg bg-white bg-opacity-20 hover:bg-opacity-30 flex items-center justify-center transition-all"
-                  >
-                    <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
+                  <button onClick={() => setIsPositionRequirementsModalOpen(false)} className="w-8 h-8 rounded-lg bg-white bg-opacity-20 hover:bg-opacity-30 flex items-center justify-center transition-all">
+                    <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                   </button>
                 </div>
-
-                {/* Body */}
                 <div className="p-6 space-y-4">
                   {[
-                    {
-                      label: 'Education',
-                      value: vacancyDetails.qualifications?.education,
-                      icon: '🎓',
-                      color: 'bg-purple-50 border-purple-200',
-                      labelColor: 'text-purple-700',
-                    },
-                    {
-                      label: 'Training',
-                      value: vacancyDetails.qualifications?.training,
-                      icon: '📋',
-                      color: 'bg-blue-50 border-blue-200',
-                      labelColor: 'text-blue-700',
-                    },
-                    {
-                      label: 'Experience',
-                      value: vacancyDetails.qualifications?.experience,
-                      icon: '💼',
-                      color: 'bg-green-50 border-green-200',
-                      labelColor: 'text-green-700',
-                    },
-                    {
-                      label: 'Eligibility',
-                      value: vacancyDetails.qualifications?.eligibility,
-                      icon: '✅',
-                      color: 'bg-orange-50 border-orange-200',
-                      labelColor: 'text-orange-700',
-                    },
+                    { label: 'Education',   value: vacancyDetails.qualifications?.education,   icon: '🎓', color: 'bg-purple-50 border-purple-200', labelColor: 'text-purple-700' },
+                    { label: 'Training',    value: vacancyDetails.qualifications?.training,    icon: '📋', color: 'bg-blue-50 border-blue-200',   labelColor: 'text-blue-700'   },
+                    { label: 'Experience',  value: vacancyDetails.qualifications?.experience,  icon: '💼', color: 'bg-green-50 border-green-200', labelColor: 'text-green-700' },
+                    { label: 'Eligibility', value: vacancyDetails.qualifications?.eligibility, icon: '✅', color: 'bg-orange-50 border-orange-200',labelColor: 'text-orange-700'},
                   ].map(({ label, value, icon, color, labelColor }) => (
                     <div key={label} className={`rounded-xl border p-4 ${color}`}>
                       <div className="flex items-center gap-2 mb-2">
@@ -1298,15 +1323,8 @@ const RaterView = ({ user }) => {
                     </div>
                   ))}
                 </div>
-
-                {/* Footer */}
                 <div className="px-6 pb-6">
-                  <button
-                    onClick={() => setIsPositionRequirementsModalOpen(false)}
-                    className="w-full py-3 bg-gradient-to-r from-blue-600 to-blue-500 text-white rounded-xl font-semibold text-base hover:from-blue-700 hover:to-blue-600 transition-all shadow-md"
-                  >
-                    Close
-                  </button>
+                  <button onClick={() => setIsPositionRequirementsModalOpen(false)} className="w-full py-3 bg-gradient-to-r from-blue-600 to-blue-500 text-white rounded-xl font-semibold text-base hover:from-blue-700 hover:to-blue-600 transition-all shadow-md">Close</button>
                 </div>
               </div>
             </div>
@@ -1317,13 +1335,9 @@ const RaterView = ({ user }) => {
               competencyName={selectedCompetencyForModal.name}
               competencyType={selectedCompetencyForModal.competencyType}
               suggestedLevel="BASIC"
-              onClose={() => {
-                setIsCompetencyModalOpen(false);
-                setSelectedCompetencyForModal(null);
-              }}
+              onClose={() => { setIsCompetencyModalOpen(false); setSelectedCompetencyForModal(null); }}
             />
           )}
-
 
           {selectedCandidate && !isRaterTypeConflictModalOpen && (
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6 shadow-sm">
@@ -1334,25 +1348,11 @@ const RaterView = ({ user }) => {
                     Tap the ⓘ icon on any competency to view CBS proficiency levels
                   </p>
                   <div className="flex justify-center items-center space-x-4 mt-4">
-                    <div className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-medium ${
-                      allRated 
-                        ? 'bg-green-100 text-green-800 border border-green-200' 
-                        : 'bg-yellow-100 text-yellow-800 border border-yellow-200'
-                    }`}>
+                    <div className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-medium ${allRated ? 'bg-green-100 text-green-800 border border-green-200' : 'bg-yellow-100 text-yellow-800 border border-yellow-200'}`}>
                       {allRated ? (
-                        <>
-                          <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                          </svg>
-                          All Competencies Rated
-                        </>
+                        <><svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>All Competencies Rated</>
                       ) : (
-                        <>
-                          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                          Progress: {Object.keys(ratings).length} / {totalCompetencies}
-                        </>
+                        <><svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>Progress: {Object.keys(ratings).length} / {totalCompetencies}</>
                       )}
                     </div>
                   </div>
@@ -1365,20 +1365,11 @@ const RaterView = ({ user }) => {
                     <div className="text-center mb-0">
                       <h3 className="text-2xl font-bold mb-2 text-gray-900">PSYCHO-SOCIAL ATTRIBUTES AND PERSONALITY TRAITS</h3>
                       <h3 className="text-2xl font-bold mb-2 text-gray-900">Core Competencies</h3>
-                      <span className="text-sm text-gray-500 bg-blue-50 px-4 py-0 rounded-full border border-blue-200">
-                        Average Score: {getCompetencyAverage('basic')}
-                      </span>
+                      <span className="text-sm text-gray-500 bg-blue-50 px-4 py-0 rounded-full border border-blue-200">Average Score: {getCompetencyAverage('basic')}</span>
                     </div>
                     <div className="space-y-4 mt-4">
                       {groupedCompetencies.basic.map(competency => (
-                        <RadioRating
-                          key={competency._id}
-                          competency={competency}
-                          competencyType="basic"
-                          currentRating={ratings[`basic_${competency._id}`]}
-                          onChange={handleRatingChange}
-                          onInfoClick={handleOpenCompetencyModal}
-                        />
+                        <RadioRating key={competency._id} competency={competency} competencyType="basic" currentRating={ratings[`basic_${competency._id}`]} onChange={handleRatingChange} onInfoClick={handleOpenCompetencyModal} />
                       ))}
                     </div>
                   </div>
@@ -1389,20 +1380,11 @@ const RaterView = ({ user }) => {
                     <div className="text-center mb-0">
                       <h3 className="text-2xl font-bold mb-2 text-gray-900">POTENTIAL</h3>
                       <h3 className="text-2xl font-bold mb-2 text-gray-900">Organizational Competencies</h3>
-                      <span className="text-sm text-gray-500 bg-purple-50 px-4 py-0 rounded-full border border-purple-200">
-                        Average Score: {getCompetencyAverage('organizational')}
-                      </span>
+                      <span className="text-sm text-gray-500 bg-purple-50 px-4 py-0 rounded-full border border-purple-200">Average Score: {getCompetencyAverage('organizational')}</span>
                     </div>
                     <div className="space-y-4 mt-4">
                       {groupedCompetencies.organizational.map(competency => (
-                        <RadioRating
-                          key={competency._id}
-                          competency={competency}
-                          competencyType="organizational"
-                          currentRating={ratings[`organizational_${competency._id}`]}
-                          onChange={handleRatingChange}
-                          onInfoClick={handleOpenCompetencyModal}
-                        />
+                        <RadioRating key={competency._id} competency={competency} competencyType="organizational" currentRating={ratings[`organizational_${competency._id}`]} onChange={handleRatingChange} onInfoClick={handleOpenCompetencyModal} />
                       ))}
                     </div>
                   </div>
@@ -1412,21 +1394,12 @@ const RaterView = ({ user }) => {
                   <div className="mb-10">
                     <div className="text-center mb-0">
                       <h3 className="text-2xl font-bold mb-2 text-gray-900">Leadership Competencies</h3>
-                      <span className="text-sm text-gray-500 bg-indigo-50 px-4 py-0 rounded-full border border-indigo-200">
-                        Average Score: {getCompetencyAverage('leadership')}
-                      </span>
+                      <span className="text-sm text-gray-500 bg-indigo-50 px-4 py-0 rounded-full border border-indigo-200">Average Score: {getCompetencyAverage('leadership')}</span>
                       <p className="text-xs text-gray-600 mt-2">Required for Salary Grade {vacancyDetails.salaryGrade}</p>
                     </div>
                     <div className="space-y-4 mt-4">
                       {groupedCompetencies.leadership.map(competency => (
-                        <RadioRating
-                          key={competency._id}
-                          competency={competency}
-                          competencyType="leadership"
-                          currentRating={ratings[`leadership_${competency._id}`]}
-                          onChange={handleRatingChange}
-                          onInfoClick={handleOpenCompetencyModal}
-                        />
+                        <RadioRating key={competency._id} competency={competency} competencyType="leadership" currentRating={ratings[`leadership_${competency._id}`]} onChange={handleRatingChange} onInfoClick={handleOpenCompetencyModal} />
                       ))}
                     </div>
                   </div>
@@ -1436,12 +1409,8 @@ const RaterView = ({ user }) => {
                   <div className="mb-8 text-center">
                     <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 inline-block">
                       <div className="flex items-center justify-center space-x-2 text-yellow-800">
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <span className="text-sm font-medium">
-                          Leadership competencies not required for Salary Grade {vacancyDetails.salaryGrade}
-                        </span>
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        <span className="text-sm font-medium">Leadership competencies not required for Salary Grade {vacancyDetails.salaryGrade}</span>
                       </div>
                     </div>
                   </div>
@@ -1451,20 +1420,11 @@ const RaterView = ({ user }) => {
                   <div className="mb-10">
                     <div className="text-center mb-0">
                       <h3 className="text-2xl font-bold mb-2 text-gray-900">Minimum Competencies</h3>
-                      <span className="text-sm text-gray-500 bg-orange-50 px-4 py-0 rounded-full border border-orange-200">
-                        Average Score: {getCompetencyAverage('minimum')}
-                      </span>
+                      <span className="text-sm text-gray-500 bg-orange-50 px-4 py-0 rounded-full border border-orange-200">Average Score: {getCompetencyAverage('minimum')}</span>
                     </div>
                     <div className="space-y-4 mt-4">
                       {groupedCompetencies.minimum.map(competency => (
-                        <RadioRating
-                          key={competency._id}
-                          competency={competency}
-                          competencyType="minimum"
-                          currentRating={ratings[`minimum_${competency._id}`]}
-                          onChange={handleRatingChange}
-                          onInfoClick={handleOpenCompetencyModal}
-                        />
+                        <RadioRating key={competency._id} competency={competency} competencyType="minimum" currentRating={ratings[`minimum_${competency._id}`]} onChange={handleRatingChange} onInfoClick={handleOpenCompetencyModal} />
                       ))}
                     </div>
                   </div>
@@ -1472,54 +1432,21 @@ const RaterView = ({ user }) => {
 
                 <div className="border-t pt-6">
                   <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                    <button
-                      onClick={handleClearRatings}
-                      className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-all font-medium flex items-center justify-center space-x-2"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                      </svg>
+                    <button onClick={handleClearRatings} className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-all font-medium flex items-center justify-center space-x-2">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                       <span>Clear Ratings</span>
                     </button>
-
-                    <button
-                      onClick={handleDeleteRatings}
-                      className="px-6 py-3 border border-red-300 text-red-700 rounded-lg hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500 transition-all font-medium flex items-center justify-center space-x-2"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
+                    <button onClick={handleDeleteRatings} className="px-6 py-3 border border-red-300 text-red-700 rounded-lg hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500 transition-all font-medium flex items-center justify-center space-x-2">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                       <span>Delete Ratings</span>
                     </button>
-                    
-                    <button
-                      onClick={handleSubmitRatings}
-                      disabled={!allRated || submitting || isCheckingRaterType}
-                      className={`px-8 py-3 rounded-lg font-medium focus:outline-none focus:ring-2 focus:ring-offset-2 transition-all flex items-center justify-center space-x-2 ${
-                        allRated && !submitting
-                          ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white hover:from-green-700 hover:to-emerald-700 focus:ring-green-500 shadow-lg'
-                          : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                      }`}
-                    >
+                    <button onClick={handleSubmitRatings} disabled={!allRated || submitting || isCheckingRaterType} className={`px-8 py-3 rounded-lg font-medium focus:outline-none focus:ring-2 focus:ring-offset-2 transition-all flex items-center justify-center space-x-2 ${allRated && !submitting ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white hover:from-green-700 hover:to-emerald-700 focus:ring-green-500 shadow-lg' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}>
                       {submitting ? (
-                        <>
-                          <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                          <span>Submitting...</span>
-                        </>
+                        <><div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div><span>Submitting...</span></>
                       ) : allRated ? (
-                        <>
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                          </svg>
-                          <span>Submit All Ratings</span>
-                        </>
+                        <><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg><span>Submit All Ratings</span></>
                       ) : (
-                        <>
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                          <span>Complete All Ratings First</span>
-                        </>
+                        <><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg><span>Complete All Ratings First</span></>
                       )}
                     </button>
                   </div>
@@ -1536,13 +1463,9 @@ const RaterView = ({ user }) => {
                 </svg>
               </div>
               <h3 className="text-xl font-semibold text-gray-900 mb-3">Ready to Begin Rating</h3>
-              <p className="text-gray-600 max-w-md mx-auto">
-                Select an assignment, position, item number, and candidate from the dropdowns above to start the rating process.
-              </p>
+              <p className="text-gray-600 max-w-md mx-auto">Select an assignment, position, item number, and candidate from the dropdowns above to start the rating process.</p>
               <div className="mt-6 text-sm text-gray-500 bg-gray-50 rounded-lg p-4 inline-block">
-                <svg className="w-5 h-5 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
+                <svg className="w-5 h-5 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                 Only candidates who have been long-listed are available for rating
               </div>
             </div>
