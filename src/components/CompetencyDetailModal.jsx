@@ -361,6 +361,8 @@ export default function CompetencyDetailModal({
     }
 
     // ── NORMAL PATH: look up by name ──────────────────────────────────────
+    if (resolvedRef.current) return;  // ← ADD THIS LINE
+
     let cancelled = false;
     (async () => {
       const ok = await isPDFAvailable();
@@ -392,6 +394,7 @@ export default function CompetencyDetailModal({
   // ── When user clicks a comp in the browser ────────────────────────────────
   // 🔥 FIX: Pass the CBS competency object DIRECTLY so we bypass fuzzy name search
   const handleSelectCompetency = useCallback(async (comp) => {
+    resolvedRef.current = false; 
     setIsBrowsing(false);
     
     try {
@@ -400,12 +403,14 @@ export default function CompetencyDetailModal({
       const sameCode  = allParsed.filter(c => c.code.toUpperCase() === comp.code.toUpperCase());
       const resolved  = sameCode.length > 0 ? sameCode : [comp];
 
+      resolvedRef.current = true; 
       setVariants(resolved);
       setVariantIdx(0);
       setActiveLevel(resolveActiveLevel(resolved[0], null));
       setStatus('found');
     } catch {
       // Fallback: just show the clicked comp directly
+      resolvedRef.current = true;
       setVariants([comp]);
       setVariantIdx(0);
       setActiveLevel(resolveActiveLevel(comp, null));
