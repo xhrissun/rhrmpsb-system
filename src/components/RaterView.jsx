@@ -5,8 +5,8 @@ import { calculateRatingScores, formatDate } from '../utils/helpers';
 import { RATING_SCALE, COMPETENCY_TYPES, CANDIDATE_STATUS } from '../utils/constants';
 import { useToast } from '../utils/ToastContext';
 import CompetencyDetailModal from './CompetencyDetailModal';
-// ✅ Pre-load PDF parser on mount
-import { ensureParsed, isPDFAvailable } from '../lib/pdfParser';
+// ✅ Caching layer: parse once → IndexedDB → instant on every refresh
+import { ensureParsed, isPDFAvailable } from '../lib/pdfParserCache';
 
 // ─── Skeleton / Loading Components ───────────────────────────────────────────
 
