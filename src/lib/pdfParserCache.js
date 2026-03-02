@@ -1,3 +1,24 @@
+/**
+ * pdfParserCache.js
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Drop-in caching layer over pdfParser.
+ *
+ * HOW IT WORKS
+ * ┌─────────────────────────────────────────────────────────────────────┐
+ * │  First visit   → parse PDF (slow) → store result in IndexedDB      │
+ * │  Every refresh → load from IndexedDB (< 50 ms, no parsing at all)  │
+ * │  PDF changes   → HEAD fingerprint mismatch → re-parse automatically│
+ * └─────────────────────────────────────────────────────────────────────┘
+ *
+ * USAGE — replace all imports of '../lib/pdfParser' with this file:
+ *
+ *   import { ensureParsed, getAllCompetencies,
+ *            findCompetenciesByName, isPDFAvailable }
+ *     from '../lib/pdfParserCache';
+ *
+ * No other changes needed anywhere.
+ */
+
 import * as pdfParser from './pdfParser';
 
 // ─── Config ──────────────────────────────────────────────────────────────────
