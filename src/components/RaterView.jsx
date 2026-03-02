@@ -4,6 +4,7 @@ import { vacanciesAPI, candidatesAPI, ratingsAPI, competenciesAPI, authAPI } fro
 import { calculateRatingScores, formatDate } from '../utils/helpers';
 import { RATING_SCALE, COMPETENCY_TYPES, CANDIDATE_STATUS } from '../utils/constants';
 import { useToast } from '../utils/ToastContext';
+import CompetencyDetailModal from './CompetencyDetailModal'; // adjust path as needed
 
 const RaterView = ({ user }) => {
   const [vacancies, setVacancies] = useState([]);
@@ -42,6 +43,8 @@ const RaterView = ({ user }) => {
   const [conflictingRater, setConflictingRater] = useState(null);
   const [isCheckingRaterType, setIsCheckingRaterType] = useState(false);
   const [isPositionRequirementsModalOpen, setIsPositionRequirementsModalOpen] = useState(false);
+  const [isCompetencyModalOpen, setIsCompetencyModalOpen] = useState(false);
+  const [selectedCompetencyForModal, setSelectedCompetencyForModal] = useState(null);
 
   const activeRatingRef = useRef(null);
   const scrollPositionRef = useRef(0);
@@ -505,18 +508,34 @@ const RaterView = ({ user }) => {
     return vacancyDetails?.salaryGrade >= 18 && groupedCompetencies.leadership.length > 0;
   };
 
+  const handleOpenCompetencyModal = (competency, competencyType) => {
+    setSelectedCompetencyForModal({ ...competency, competencyType });
+    setIsCompetencyModalOpen(true);
+  };
+
   const totalCompetencies = groupedCompetencies.basic.length + 
     groupedCompetencies.organizational.length + 
     (shouldShowLeadership() ? groupedCompetencies.leadership.length : 0) + 
     groupedCompetencies.minimum.length;
 
-  const RadioRating = ({ competency, competencyType, currentRating, onChange }) => {
+  const RadioRating = ({ competency, competencyType, currentRating, onChange, onInfoClick }) => {
     return (
       <div className="bg-white rounded-xl border border-gray-200 p-6 md:p-8 mb-4 shadow-sm hover:shadow-md transition-shadow">
         <div className="text-center mb-6">
-          <h4 className="text-lg md:text-xl lg:text-2xl font-semibold text-gray-900 mb-3">
-            {competency.name}
-          </h4>
+          <div className="flex items-center justify-center gap-2 mb-3">
+            <h4 className="text-lg md:text-xl lg:text-2xl font-semibold text-gray-900">
+              {competency.name}
+            </h4>
+            <button
+              onClick={() => onInfoClick(competency, competencyType)}
+              title="View CBS proficiency levels"
+              className="flex-shrink-0 w-7 h-7 md:w-8 md:h-8 rounded-full bg-blue-100 hover:bg-blue-200 text-blue-600 hover:text-blue-800 flex items-center justify-center transition-all hover:scale-110 focus:outline-none focus:ring-2 focus:ring-blue-400"
+            >
+              <svg className="w-4 h-4 md:w-5 md:h-5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+              </svg>
+            </button>
+          </div>
           <div
             className={`flex justify-center items-center px-4 py-2 md:px-6 md:py-3 text-sm md:text-base lg:text-lg font-medium rounded-full text-center w-full max-w-xs mx-auto ${
               currentRating
@@ -1293,6 +1312,18 @@ const RaterView = ({ user }) => {
             </div>
           )}
 
+          {isCompetencyModalOpen && selectedCompetencyForModal && (
+            <CompetencyDetailModal
+              competencyName={selectedCompetencyForModal.name}
+              competencyType={selectedCompetencyForModal.competencyType}
+              suggestedLevel="BASIC"
+              onClose={() => {
+                setIsCompetencyModalOpen(false);
+                setSelectedCompetencyForModal(null);
+              }}
+            />
+          )}
+
 
           {selectedCandidate && !isRaterTypeConflictModalOpen && (
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6 shadow-sm">
@@ -1346,6 +1377,7 @@ const RaterView = ({ user }) => {
                           competencyType="basic"
                           currentRating={ratings[`basic_${competency._id}`]}
                           onChange={handleRatingChange}
+                          onInfoClick={handleOpenCompetencyModal}
                         />
                       ))}
                     </div>
@@ -1369,6 +1401,7 @@ const RaterView = ({ user }) => {
                           competencyType="organizational"
                           currentRating={ratings[`organizational_${competency._id}`]}
                           onChange={handleRatingChange}
+                          onInfoClick={handleOpenCompetencyModal}
                         />
                       ))}
                     </div>
@@ -1392,6 +1425,7 @@ const RaterView = ({ user }) => {
                           competencyType="leadership"
                           currentRating={ratings[`leadership_${competency._id}`]}
                           onChange={handleRatingChange}
+                          onInfoClick={handleOpenCompetencyModal}
                         />
                       ))}
                     </div>
@@ -1429,6 +1463,7 @@ const RaterView = ({ user }) => {
                           competencyType="minimum"
                           currentRating={ratings[`minimum_${competency._id}`]}
                           onChange={handleRatingChange}
+                          onInfoClick={handleOpenCompetencyModal}
                         />
                       ))}
                     </div>
