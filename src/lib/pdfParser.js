@@ -685,7 +685,7 @@ const TOC_INDEX = [
 const COLUMN_BOUNDARIES = [192, 384, 589];
 const LEVEL_NAMES = ['BASIC', 'INTERMEDIATE', 'ADVANCED', 'SUPERIOR'];
 const PDF_PATH = '/rhrmpsb-system/2025_CBS.pdf';
-const CODE_RE = /^([A-Z]+\d+[A-Z]?)\s*[-–]\s*(.+)/;
+const CODE_RE = /^([A-Z]+\s*\d+[A-Z]?)\s*[-–]\s*(.+)/;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Module-level cache
@@ -988,7 +988,7 @@ async function _parse(onProgress = () => {}) {
     for (const [y, items] of allRows[pi]) {
       const line = items.map(i => i.str).join(' ').trim();
       const m = CODE_RE.exec(line);
-      if (m) pdfLocs.push({ pi, y, code: m[1].trim(), name: m[2].trim() });
+      if (m) pdfLocs.push({ pi, y, code: m[1].replace(/\s+/g, '').trim(), name: m[2].trim() });
     }
   }
 
@@ -1040,9 +1040,8 @@ async function _parse(onProgress = () => {}) {
         for (const [y, items] of allRows[checkPi]) {
           const line = items.map(i => i.str).join(' ').trim();
           const m = CODE_RE.exec(line);
-          if (m && m[1].trim().toUpperCase() === tocEntry.code.toUpperCase()) {
-            // Verify it's the right entry by checking name similarity if possible
-            foundLoc = { pi: checkPi, y, code: m[1].trim(), name: m[2].trim() };
+          if (m && m[1].replace(/\s+/g, '').trim().toUpperCase() === tocEntry.code.toUpperCase()) {
+            foundLoc = { pi: checkPi, y, code: m[1].replace(/\s+/g, '').trim(), name: m[2].trim() };
             break;
           }
         }
