@@ -1,28 +1,31 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-
   base: '/rhrmpsb-system/',
-
   build: {
     outDir: 'dist',
-    sourcemap: true,          // ← very important right now
-    minify: false,            // ← disables minification → often bypasses the crash
+    sourcemap: true,
+    minify: false,
     assetsDir: 'assets',
     rollupOptions: {
+      external: [],
       output: {
-        // Optional: more granular chunks can sometimes break bad init order
-        manualChunks: {
-          vendor: ['react', 'react-dom', 'react-router-dom'],
-          utils: ['./src/utils/api', './src/utils/constants', './src/utils/helpers'],
+        manualChunks(id) {
+          if (id.includes('node_modules/react') || id.includes('node_modules/react-dom') || id.includes('node_modules/react-router-dom')) {
+            return 'vendor';
+          }
+          if (id.includes('pdfjs-dist')) {
+            return 'pdfjs';
+          }
         },
       },
     },
   },
-
+  optimizeDeps: {
+    include: ['pdfjs-dist'],
+  },
   server: {
     port: 5173,
     host: true,
