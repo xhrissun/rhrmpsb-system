@@ -53,11 +53,11 @@ function SkeletonBlock({ width = '100%', height = 16, radius = 8, style = {} }) 
   );
 }
 
-function RaterLoadingScreen({ pdfStatus }) {
+function RaterLoadingScreen({ pdfStatus, pdfProgress = 0, pdfMsg = '' }) {
   const steps = [
-    { id: 'vacancies', label: 'Loading vacancies',      icon: '📋' },
-    { id: 'pdf',       label: 'Parsing CBS Manual',     icon: '📖' },
-    { id: 'ready',     label: 'Preparing interface',    icon: '✨' },
+    { id: 'vacancies', label: 'Loading vacancies',   icon: '📋' },
+    { id: 'pdf',       label: 'Parsing CBS Manual',  icon: '📖' },
+    { id: 'ready',     label: 'Preparing interface', icon: '✨' },
   ];
 
   // Derive step completion from pdfStatus
@@ -66,6 +66,7 @@ function RaterLoadingScreen({ pdfStatus }) {
   const readyDone     = false;
 
   const statuses = [vacanciesDone, pdfDone, readyDone];
+  const showPdfProgress = pdfStatus === 'parsing' && pdfProgress > 0;
 
   return (
     <>
@@ -209,11 +210,40 @@ function RaterLoadingScreen({ pdfStatus }) {
                           transition: 'color 0.3s',
                         }}>
                           {step.label}
+                          {active && step.id === 'pdf' && showPdfProgress && (
+                            <span style={{ marginLeft: 8, fontSize: 13, fontWeight: 800, color: '#2563eb', fontFamily: 'monospace' }}>
+                              {pdfProgress}%
+                            </span>
+                          )}
                         </p>
                         {active && step.id === 'pdf' && (
-                          <p style={{ margin: '2px 0 0', fontSize: 11.5, color: '#60a5fa' }}>
-                            First-time parse — will be instant next time
-                          </p>
+                          <>
+                            {showPdfProgress ? (
+                              <>
+                                {/* Real progress bar */}
+                                <div style={{
+                                  marginTop: 7, height: 5, background: '#dbeafe',
+                                  borderRadius: 99, overflow: 'hidden',
+                                }}>
+                                  <div style={{
+                                    height: '100%', borderRadius: 99,
+                                    width: `${pdfProgress}%`,
+                                    background: 'linear-gradient(90deg, #3b82f6, #6366f1)',
+                                    transition: 'width 0.35s cubic-bezier(0.4,0,0.2,1)',
+                                  }} />
+                                </div>
+                                {pdfMsg && (
+                                  <p style={{ margin: '4px 0 0', fontSize: 10.5, color: '#60a5fa', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {pdfMsg}
+                                  </p>
+                                )}
+                              </>
+                            ) : (
+                              <p style={{ margin: '2px 0 0', fontSize: 11.5, color: '#60a5fa' }}>
+                                First-time parse — will be instant next time
+                              </p>
+                            )}
+                          </>
                         )}
                       </div>
 
@@ -298,6 +328,8 @@ const RaterView = ({ user }) => {
   const [loading, setLoading] = useState(true);
   // ✅ Track PDF pre-parse progress for the loading screen
   const [pdfStatus, setPdfStatus] = useState('idle'); // idle | parsing | done | error | unavailable
+  const [pdfProgress, setPdfProgress] = useState(0);
+  const [pdfMsg, setPdfMsg] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [isModalMinimized, setIsModalMinimized] = useState(true);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
@@ -444,45 +476,50 @@ const RaterView = ({ user }) => {
     }
   };
 
-  // ✅ CHANGED: loadInitialData now pre-parses the CBS PDF in parallel
+  // ✅ CHANGED: loadInitialData now pre-parses the CBS PDF and WAITS for it to finish
+  // before releasing the loading screen. This guarantees the modal opens instantly
+  // on all devices, including tablets where background parsing was racing the UI.
   const loadInitialData = async () => {
     try {
       setLoading(true);
       setPdfStatus('idle');
+      setPdfProgress(0);
+      setPdfMsg('');
 
-      // ── Fire both tasks simultaneously ──────────────────────────────
+      // ── Fire vacancies fetch immediately (critical path) ────────────────
       const vacanciesPromise = vacanciesAPI.getAll();
 
-      // PDF pre-parse runs in background — we don't block the UI on it,
-      // but we track its state so the loading screen can show progress.
-      const pdfPreloadPromise = (async () => {
-        try {
-          const available = await isPDFAvailable();
-          if (!available) { setPdfStatus('unavailable'); return; }
-          setPdfStatus('parsing');
-          await ensureParsed(); // warm up the parse cache
-          setPdfStatus('done');
-        } catch (err) {
-          console.warn('[RaterView] PDF pre-parse failed (non-critical):', err);
-          setPdfStatus('error');
-        }
-      })();
+      // ── Start PDF preload and build a awaitable promise ─────────────────
+      let pdfPreloadPromise = Promise.resolve();
 
-      // ── Wait for vacancies (critical path) ──────────────────────────
-      const vacanciesRes = await vacanciesPromise;
+      const available = await isPDFAvailable();
+      if (!available) {
+        setPdfStatus('unavailable');
+      } else {
+        setPdfStatus('parsing');
+        pdfPreloadPromise = ensureParsed((pct, msg) => {
+          // Real progress callback — drives the loading screen bar
+          setPdfProgress(pct);
+          if (msg) setPdfMsg(msg);
+        })
+          .then(() => { setPdfStatus('done'); setPdfProgress(100); })
+          .catch((err) => {
+            console.warn('[RaterView] PDF pre-parse failed (non-critical):', err);
+            setPdfStatus('error');
+          });
+      }
+
+      // ── Wait for BOTH: vacancies (required) + PDF (required for instant modal) ──
+      // We race them in parallel — vacancies typically finish first.
+      // The loading screen stays up until the slower one (PDF) completes.
+      const [vacanciesRes] = await Promise.all([
+        vacanciesPromise,
+        pdfPreloadPromise,
+      ]);
+
       const activeVacancies = vacanciesRes.filter(v => !v.isArchived);
       const filteredVacancies = filterVacanciesByAssignment(activeVacancies, user);
       setVacancies(filteredVacancies);
-
-      // ── Optionally wait a brief moment so the loading screen feels polished
-      // (not blocking beyond vacancies — PDF continues in background)
-      // If PDF is already done by now, great. If not, the modal will show
-      // its own incremental progress bar on first open — but it won't need
-      // to re-parse because ensureParsed() is idempotent.
-      // ────────────────────────────────────────────────────────────────
-
-      // Suppress unhandled rejection warning
-      pdfPreloadPromise.catch(() => {});
 
     } catch (error) {
       console.error('Failed to load initial data:', error);
@@ -831,7 +868,7 @@ const RaterView = ({ user }) => {
 
   // ✅ CHANGED: Show the rich loading screen while loading
   if (loading) {
-    return <RaterLoadingScreen pdfStatus={pdfStatus} />;
+    return <RaterLoadingScreen pdfStatus={pdfStatus} pdfProgress={pdfProgress} pdfMsg={pdfMsg} />;
   }
 
   const currentScores = calculateCurrentScores();
