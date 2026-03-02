@@ -2706,11 +2706,7 @@ const loadDataForCurrentTab = useCallback(async () => {
             browseMode={selectedCompetencyForDetail.browseMode || false}
             // Pass directComp only when we have a CBS comp with levels data
             // (i.e., clicked from the browser). This bypasses fuzzy name search.
-            directComp={
-              selectedCompetencyForDetail.levels
-                ? selectedCompetencyForDetail
-                : null
-            }
+            directComp={null}
             onClose={() => {
               setShowCompetencyDetail(false);
               setSelectedCompetencyForDetail(null);
