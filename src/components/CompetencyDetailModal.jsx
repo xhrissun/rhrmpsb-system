@@ -317,14 +317,15 @@ export default function CompetencyDetailModal({
   directComp = null,
 }) {
   const [status,       setStatus]       = useState('loading');
-  const resolvedRef = useRef(false);
+  const resolvedRef                     = useRef(false);
+  const fromBrowserRef                  = useRef(false);  // ← add this with the other refs
   const [progress,     setProgress]     = useState(0);
   const [msg,          setMsg]          = useState('Checking…');
   const [variants,     setVariants]     = useState([]);
   const [variantIdx,   setVariantIdx]   = useState(0);
   const [activeLevel,  setActiveLevel]  = useState(suggestedLevel || 'BASIC');
   const [isBrowsing,   setIsBrowsing]   = useState(browseMode);
-  const overlayRef = useRef(null);
+  const overlayRef                      = useRef(null);
 
   const data = variants[variantIdx] ?? null;
 
@@ -349,7 +350,6 @@ export default function CompetencyDetailModal({
       return;
     }
 
-    // ── FAST PATH: comp object was passed directly (from browser click) ──
     if (directComp) {
       if (resolvedRef.current) return;
       resolvedRef.current = true;
@@ -360,8 +360,10 @@ export default function CompetencyDetailModal({
       return;
     }
 
-    // ── NORMAL PATH: look up by name ──────────────────────────────────────
-    if (resolvedRef.current) return;  // ← ADD THIS LINE
+    // ← Skip if handleSelectCompetency is handling this render cycle
+    if (fromBrowserRef.current) return;
+
+    if (resolvedRef.current) return;
 
     let cancelled = false;
     (async () => {
@@ -391,25 +393,25 @@ export default function CompetencyDetailModal({
     setActiveLevel(resolveActiveLevel(variants[idx], null));
   }, [variants, resolveActiveLevel]);
 
-  // ── When user clicks a comp in the browser ────────────────────────────────
-  // 🔥 FIX: Pass the CBS competency object DIRECTLY so we bypass fuzzy name search
   const handleSelectCompetency = useCallback(async (comp) => {
-    resolvedRef.current = false; 
+    // Reset EVERYTHING first so the effect guard doesn't block re-renders
+    resolvedRef.current = false;
+    fromBrowserRef.current = true; 
+    setStatus('loading');     // ← show loading immediately, not stale not_found
+    setVariants([]);          // ← clear stale variants
     setIsBrowsing(false);
     
     try {
-      // Fetch all CBS entries with the same code to support variant tabs
       const allParsed = await ensureParsed();
       const sameCode  = allParsed.filter(c => c.code.toUpperCase() === comp.code.toUpperCase());
       const resolved  = sameCode.length > 0 ? sameCode : [comp];
 
-      resolvedRef.current = true; 
+      resolvedRef.current = true;
       setVariants(resolved);
       setVariantIdx(0);
       setActiveLevel(resolveActiveLevel(resolved[0], null));
       setStatus('found');
     } catch {
-      // Fallback: just show the clicked comp directly
       resolvedRef.current = true;
       setVariants([comp]);
       setVariantIdx(0);
