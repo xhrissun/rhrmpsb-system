@@ -1080,10 +1080,12 @@ async function _parse(onProgress = () => {}) {
 
     if (!foundLoc) continue;
 
-    const nextLocIdx = pdfLocs.findIndex(l =>
+    const tocCodeSet = new Set(TOC_INDEX.map(e => e.code.toUpperCase()));
+    const pdfLocsFiltered = pdfLocs.filter(l => tocCodeSet.has(l.code.toUpperCase()));
+    const nextLocIdx = pdfLocsFiltered.findIndex(l =>
       (l.pi > foundLoc.pi) || (l.pi === foundLoc.pi && l.y > foundLoc.y + 30)
     );
-    const nextLoc = nextLocIdx >= 0 ? pdfLocs[nextLocIdx] : null;
+    const nextLoc = nextLocIdx >= 0 ? pdfLocsFiltered[nextLocIdx] : null;
 
       if (tocEntry.code === 'RSCI6') {
       console.log('=== RSCI6 DEBUG ===');
