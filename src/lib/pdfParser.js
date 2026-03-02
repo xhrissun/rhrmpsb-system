@@ -104,7 +104,7 @@ const TOC_INDEX = [
   { code: "RSCI3",  page: 157, name: "Event Management",                                                                                                               office: "Regional Offices" },
   { code: "RSCI4",  page: 159, name: "Visual Communication (Graphic Design and Layout)",                                                                               office: "Regional Offices" },
   { code: "RSCI5",  page: 161, name: "Video Production",                                                                                                               office: "Regional Offices" },
-  { code: "RSCI6",  page: 163, name: "Photojournalism",                                                                                                                office: "Regional Offices" }, // ← was missing
+  { code: "RSCI6",  page: 163, name: "Photojournalism",                                                                                                                office: "Regional Offices" },
   { code: "RSCI7",  page: 165, name: "Library Management",                                                                                                             office: "Regional Offices" },
   { code: "RP1",    page: 167, name: "Planning and Programming",                                                                                                       office: "Regional Offices" },
   { code: "RP2",    page: 169, name: "Monitoring and Evaluation",                                                                                                      office: "Regional Offices" },
@@ -685,7 +685,15 @@ const TOC_INDEX = [
 const COLUMN_BOUNDARIES = [192, 384, 589];
 const LEVEL_NAMES = ['BASIC', 'INTERMEDIATE', 'ADVANCED', 'SUPERIOR'];
 const PDF_PATH = '/rhrmpsb-system/2025_CBS.pdf';
-const CODE_RE = /^([A-Z]+\d+[A-Z]?)\s*[-–]\s*(.+)/;
+
+// ── FIX: allow optional space between letters and digits, e.g. "RSCI 6" ──
+// Capture group 1 normalises the code by removing any internal space.
+const CODE_RE = /^([A-Z]+)\s?(\d+[A-Z]?)\s*[-–]\s*(.+)/;
+
+/** Normalise a raw PDF code string → compact form, e.g. "RSCI 6" → "RSCI6" */
+function normalizeCode(raw) {
+  return raw.replace(/\s+/g, '').toUpperCase();
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Module-level cache
@@ -821,7 +829,8 @@ function parseColumn(lines) {
     if (!t) continue;
     t = stripLeadingOrphan(t);
     if (!t) continue;
-    if (/^[A-Z]{1,5}\d+[A-Z]?$/.test(t)) continue;
+    // Skip bare code tokens (both compact "RSCI6" and spaced "RSCI 6")
+    if (/^[A-Z]{1,5}\s?\d+[A-Z]?$/.test(t)) continue;
     if (/^\d+$/.test(t)) continue;
     if (LEVEL_NAMES.includes(t.toUpperCase())) continue;
     processed.push(t);
