@@ -317,6 +317,7 @@ export default function CompetencyDetailModal({
   directComp = null,
 }) {
   const [status,       setStatus]       = useState('loading');
+  const resolvedRef = useRef(false);
   const [progress,     setProgress]     = useState(0);
   const [msg,          setMsg]          = useState('Checking…');
   const [variants,     setVariants]     = useState([]);
@@ -350,6 +351,8 @@ export default function CompetencyDetailModal({
 
     // ── FAST PATH: comp object was passed directly (from browser click) ──
     if (directComp) {
+      if (resolvedRef.current) return;
+      resolvedRef.current = true;
       setVariants([directComp]);
       setVariantIdx(0);
       setActiveLevel(resolveActiveLevel(directComp, suggestedLevel));
@@ -364,7 +367,8 @@ export default function CompetencyDetailModal({
       if (!ok) { if (!cancelled) setStatus('no_pdf'); return; }
       try {
         await ensureParsed((pct, m) => { if (!cancelled) { setProgress(pct); setMsg(m); } });
-        const results = await findCompetenciesByName(competencyName);
+        const cleanName = competencyName?.replace(/^\([A-Z]+\)\s*[-–]\s*/i, '').trim() ?? competencyName;
+        const results = await findCompetenciesByName(cleanName);
         if (cancelled) return;
 
         if (results.length > 0) {
