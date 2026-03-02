@@ -6,7 +6,7 @@ import { RATING_SCALE, COMPETENCY_TYPES, CANDIDATE_STATUS } from '../utils/const
 import { useToast } from '../utils/ToastContext';
 import CompetencyDetailModal from './CompetencyDetailModal';
 // ✅ Pre-load PDF parser on mount
-import { ensureParsed, isPDFAvailable } from '../lib/pdfParser';
+import { ensureParsed, isPDFAvailable } from '../lib/pdfParserCache.js';
 
 // ─── Skeleton / Loading Components ───────────────────────────────────────────
 
