@@ -4,6 +4,7 @@ import { vacanciesAPI, candidatesAPI, ratingsAPI, competenciesAPI, authAPI } fro
 import { calculateRatingScores, formatDate } from '../utils/helpers';
 import { RATING_SCALE, COMPETENCY_TYPES, CANDIDATE_STATUS } from '../utils/constants';
 import { useToast } from '../utils/ToastContext';
+import CompetencyDetailModal from './CompetencyDetailModal'; // ← NEW
 
 const RaterView = ({ user }) => {
   const [vacancies, setVacancies] = useState([]);
@@ -34,19 +35,35 @@ const RaterView = ({ user }) => {
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [isDeleteConfirmModalOpen, setIsDeleteConfirmModalOpen] = useState(false);
   const [isClearConfirmModalOpen, setIsClearConfirmModalOpen] = useState(false);
-  const [isExitConfirmModalOpen, setIsExitConfirmModalOpen] = useState(false); // NEW: Exit warning modal
+  const [isExitConfirmModalOpen, setIsExitConfirmModalOpen] = useState(false);
   const [password, setPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
-  const [isUpdateSubmission, setIsUpdateSubmission] = useState(false); // NEW: Track if submission is an update
+  const [isUpdateSubmission, setIsUpdateSubmission] = useState(false);
   const [isRaterTypeConflictModalOpen, setIsRaterTypeConflictModalOpen] = useState(false);
   const [conflictingRater, setConflictingRater] = useState(null);
   const [isCheckingRaterType, setIsCheckingRaterType] = useState(false);
-  
+
+  // ─── CBS Modal State (NEW) ────────────────────────────────────────────────
+  const [cbsModalOpen, setCbsModalOpen] = useState(false);
+  const [cbsCompetency, setCbsCompetency] = useState(null);
 
   const activeRatingRef = useRef(null);
   const scrollPositionRef = useRef(0);
 
   const { showToast } = useToast();
+
+  // ─── Open CBS detail modal (NEW) ─────────────────────────────────────────
+  const handleViewCBS = (competency, competencyType) => {
+    // Parse suggested level from prefix like "(ADV) - ..." or "(BAS) - ..."
+    const prefixMatch = competency.name?.match(/^\(([A-Z]+)\)/);
+    let suggestedLevel = null;
+    if (prefixMatch) {
+      const levelMap = { BAS: 'BASIC', INT: 'INTERMEDIATE', ADV: 'ADVANCED', SUP: 'SUPERIOR' };
+      suggestedLevel = levelMap[prefixMatch[1]] ?? null;
+    }
+    setCbsCompetency({ ...competency, competencyType, suggestedLevel });
+    setCbsModalOpen(true);
+  };
 
   // Handle page refresh/back warning
   useEffect(() => {
@@ -54,7 +71,7 @@ const RaterView = ({ user }) => {
       if (Object.keys(ratings).length > 0) {
         event.preventDefault();
         setIsExitConfirmModalOpen(true);
-        event.returnValue = ''; // Required for some browsers
+        event.returnValue = '';
       }
     };
 
@@ -144,7 +161,7 @@ const RaterView = ({ user }) => {
         setRatings({});
       } else {
         loadCandidateDetails();
-        checkRaterTypeConflict(); // NEW: Check for rater type conflict first
+        checkRaterTypeConflict();
       }
     }
   }, [candidates, selectedCandidate]);
@@ -161,7 +178,7 @@ const RaterView = ({ user }) => {
   const filterVacanciesByAssignment = (allVacancies, user) => {
     switch (user.assignedVacancies) {
       case 'none':
-        return []; // No access to any vacancies
+        return [];
       case 'all':
         return allVacancies;
       case 'assignment':
@@ -171,7 +188,7 @@ const RaterView = ({ user }) => {
         if (!user.assignedItemNumbers || user.assignedItemNumbers.length === 0) return [];
         return allVacancies.filter(vacancy => user.assignedItemNumbers.includes(vacancy.itemNumber));
       default:
-        return []; // Changed from allVacancies to [] for safety
+        return [];
     }
   };
 
@@ -179,11 +196,8 @@ const RaterView = ({ user }) => {
     try {
       setLoading(true);
       const vacanciesRes = await vacanciesAPI.getAll();
-      
-      // ✅ Ensure we filter archived vacancies (already done but being explicit)
       const activeVacancies = vacanciesRes.filter(v => !v.isArchived);
       const filteredVacancies = filterVacanciesByAssignment(activeVacancies, user);
-      
       setVacancies(filteredVacancies);
     } catch (error) {
       console.error('Failed to load initial data:', error);
@@ -195,13 +209,10 @@ const RaterView = ({ user }) => {
   const loadCandidatesByItemNumber = async () => {
     try {
       const candidatesRes = await candidatesAPI.getByItemNumber(selectedItemNumber);
-      
-      // ✅ Filter for BOTH long-list status AND non-archived
       const longListCandidates = candidatesRes.filter(candidate =>
         candidate.status === CANDIDATE_STATUS.LONG_LIST &&
-        !candidate.isArchived  // ← ADD THIS
+        !candidate.isArchived
       );
-      
       setCandidates(longListCandidates);
     } catch (error) {
       console.error('Failed to load candidates:', error);
@@ -253,14 +264,11 @@ const RaterView = ({ user }) => {
   const loadExistingRatings = async () => {
     try {
       const existingRatings = await ratingsAPI.getByCandidate(selectedCandidate);
-      
-      // CRITICAL: Filter by both rater AND item number
       const raterRatings = existingRatings.filter(rating =>
-        rating.raterId && 
+        rating.raterId &&
         rating.raterId._id === user._id &&
-        rating.itemNumber === selectedItemNumber  // Only load ratings for THIS item number
+        rating.itemNumber === selectedItemNumber
       );
-      
       const ratingsMap = {};
       raterRatings.forEach(rating => {
         if (rating.competencyId && rating.competencyId._id) {
@@ -279,23 +287,21 @@ const RaterView = ({ user }) => {
     if (!selectedCandidate || !selectedItemNumber || !user.raterType) {
       return;
     }
-    
+
     setIsCheckingRaterType(true);
-    
+
     try {
       const result = await ratingsAPI.checkExistingByRaterType(
         selectedCandidate,
         selectedItemNumber,
         user.raterType
       );
-      
+
       if (result.hasExisting && result.existingRater.id !== user._id) {
-        // Another rater of the same type has already rated this candidate
         setConflictingRater(result.existingRater);
         setIsRaterTypeConflictModalOpen(true);
-        setRatings({}); // Clear any ratings
+        setRatings({});
       } else {
-        // Safe to proceed - load existing ratings
         loadExistingRatings();
       }
     } catch (error) {
@@ -308,13 +314,13 @@ const RaterView = ({ user }) => {
 
   const handleRatingChange = (competencyType, competencyId, score) => {
     scrollPositionRef.current = window.scrollY;
-    
+
     const key = `${competencyType}_${competencyId}`;
     setRatings(prev => ({
       ...prev,
       [key]: parseInt(score)
     }));
-    
+
     requestAnimationFrame(() => {
       window.scrollTo(0, scrollPositionRef.current);
     });
@@ -340,19 +346,18 @@ const RaterView = ({ user }) => {
       return;
     }
     try {
-      // Check if ratings exist for THIS specific candidate + item number combination
       const existingRatings = await ratingsAPI.checkExistingRatings(
-        selectedCandidate, 
+        selectedCandidate,
         user._id,
-        selectedItemNumber  // Pass item number to check
+        selectedItemNumber
       );
-      
+
       if (existingRatings.hasExisting) {
         setIsUpdateSubmission(true);
-        setIsPasswordModalOpen(true); // Prompt for password if updating
+        setIsPasswordModalOpen(true);
       } else {
         setIsUpdateSubmission(false);
-        setIsConfirmModalOpen(true); // Direct to confirmation for new ratings
+        setIsConfirmModalOpen(true);
       }
     } catch (error) {
       console.error('Failed to check existing ratings:', error);
@@ -367,7 +372,7 @@ const RaterView = ({ user }) => {
         setIsPasswordModalOpen(false);
         setPassword('');
         setPasswordError('');
-        setIsConfirmModalOpen(true); // Proceed to confirmation after password verification
+        setIsConfirmModalOpen(true);
       } else {
         setPasswordError('Incorrect password. Please try again.');
       }
@@ -388,7 +393,7 @@ const RaterView = ({ user }) => {
           competencyId,
           competencyType,
           score: parseInt(score),
-          itemNumber: selectedItemNumber  // CRITICAL: Include itemNumber with each rating
+          itemNumber: selectedItemNumber
         };
       });
 
@@ -405,7 +410,7 @@ const RaterView = ({ user }) => {
   };
 
   const handleDeleteRatings = () => {
-    setIsUpdateSubmission(false); // Explicitly set to false for deletion
+    setIsUpdateSubmission(false);
     setIsDeleteConfirmModalOpen(true);
   };
 
@@ -414,11 +419,10 @@ const RaterView = ({ user }) => {
       const isValid = await authAPI.verifyPassword(user._id, password);
       if (isValid) {
         try {
-          // Delete ratings for THIS specific candidate + rater + item number
           await ratingsAPI.resetRatings(
-            selectedCandidate, 
+            selectedCandidate,
             user._id,
-            selectedItemNumber  // CRITICAL: Pass item number to delete only those ratings
+            selectedItemNumber
           );
           setRatings({});
           setIsPasswordModalOpen(false);
@@ -505,18 +509,40 @@ const RaterView = ({ user }) => {
     return vacancyDetails?.salaryGrade >= 18 && groupedCompetencies.leadership.length > 0;
   };
 
-  const totalCompetencies = groupedCompetencies.basic.length + 
-    groupedCompetencies.organizational.length + 
-    (shouldShowLeadership() ? groupedCompetencies.leadership.length : 0) + 
+  const totalCompetencies = groupedCompetencies.basic.length +
+    groupedCompetencies.organizational.length +
+    (shouldShowLeadership() ? groupedCompetencies.leadership.length : 0) +
     groupedCompetencies.minimum.length;
 
-  const RadioRating = ({ competency, competencyType, currentRating, onChange }) => {
+  // ─── RadioRating ────────────────────────────────────────────────────────────
+  // CHANGED: added onViewCBS prop + small info button next to competency name
+  const RadioRating = ({ competency, competencyType, currentRating, onChange, onViewCBS }) => {
     return (
       <div className="bg-white rounded-xl border border-gray-200 p-6 md:p-8 mb-4 shadow-sm hover:shadow-md transition-shadow">
         <div className="text-center mb-6">
-          <h4 className="text-lg md:text-xl lg:text-2xl font-semibold text-gray-900 mb-3">
-            {competency.name}
-          </h4>
+          {/* ── Competency name + CBS lookup button ── */}
+          <div className="flex items-center justify-center gap-2 mb-3">
+            <h4 className="text-lg md:text-xl lg:text-2xl font-semibold text-gray-900">
+              {competency.name}
+            </h4>
+            {/* CBS info button — touch-friendly 44×44 tap target on tablet */}
+            {onViewCBS && (
+              <button
+                type="button"
+                onClick={() => onViewCBS(competency, competencyType)}
+                title="View CBS proficiency levels for this competency"
+                aria-label={`View CBS definition for ${competency.name}`}
+                className="flex-shrink-0 flex items-center justify-center w-10 h-10 rounded-xl border border-gray-200 bg-gray-50 text-gray-400 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-600 active:scale-95 transition-all duration-150 touch-manipulation"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10"/>
+                  <path d="M12 16v-4M12 8h.01"/>
+                </svg>
+              </button>
+            )}
+          </div>
+
+          {/* Rating status badge — unchanged */}
           <div
             className={`flex justify-center items-center px-4 py-2 md:px-6 md:py-3 text-sm md:text-base lg:text-lg font-medium rounded-full text-center w-full max-w-xs mx-auto ${
               currentRating
@@ -551,6 +577,7 @@ const RaterView = ({ user }) => {
           </div>
         </div>
 
+        {/* Radio buttons — unchanged */}
         <div className="flex justify-center">
           <div className="flex space-x-4 md:space-x-8">
             {RATING_SCALE.map(({ value, label }) => (
@@ -614,6 +641,7 @@ const RaterView = ({ user }) => {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Page header — unchanged */}
       <div className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="text-center">
@@ -627,9 +655,10 @@ const RaterView = ({ user }) => {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
         <div className="w-full">
+          {/* Selection panel — unchanged */}
           <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6 shadow-sm">
             <h2 className="text-xl font-semibold text-gray-900 mb-4 text-center">PLEASE SELECT A POSITION AND CANDIDATE</h2>
-            
+
             <div className="grid grid-cols-1 gap-6">
               <div>
                 <label className="block text-lg font-semibold text-gray-700 mb-2">Assignment</label>
@@ -703,6 +732,7 @@ const RaterView = ({ user }) => {
             )}
           </div>
 
+          {/* Checking rater type — unchanged */}
           {isCheckingRaterType && selectedCandidate && (
             <div className="bg-white rounded-xl border border-gray-200 p-8 mb-6 shadow-sm">
               <div className="flex items-center justify-center space-y-4 flex-col">
@@ -712,6 +742,7 @@ const RaterView = ({ user }) => {
             </div>
           )}
 
+          {/* Sticky candidate card — unchanged */}
           {!isCheckingRaterType && candidateDetails && vacancyDetails && (
             <div className={`sticky top-12 z-30 bg-gray-100 rounded-xl border border-green-200 overflow-hidden mb-6 shadow-lg transition-all duration-300 ${isModalMinimized ? 'max-h-84' : 'max-h-full'}`}>
               <div className="bg-gradient-to-r from-green-800 to-green-600 px-4 py-3 flex justify-between items-center">
@@ -730,7 +761,6 @@ const RaterView = ({ user }) => {
                   onClick={() => setIsModalMinimized(!isModalMinimized)}
                   className="text-white hover:text-green-200 focus:outline-none relative"
                 >
-                  {/* Pulsing indicator ring */}
                   {isModalMinimized && (
                     <>
                       <span className="absolute -top-1 -right-1 flex h-3 w-3">
@@ -739,7 +769,7 @@ const RaterView = ({ user }) => {
                       </span>
                     </>
                   )}
-                  
+
                   {isModalMinimized ? (
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
@@ -750,21 +780,18 @@ const RaterView = ({ user }) => {
                     </svg>
                   )}
                 </button>
-
               </div>
 
               {isModalMinimized && (
-              <div className="p-4 bg-blue-50 border-t border-blue-100">
-                <div className="flex items-center justify-center space-x-2 text-blue-700">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <span className="text-sm font-medium">Click the arrow above to view candidate details and documents</span>
+                <div className="p-4 bg-blue-50 border-t border-blue-100">
+                  <div className="flex items-center justify-center space-x-2 text-blue-700">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span className="text-sm font-medium">Click the arrow above to view candidate details and documents</span>
+                  </div>
                 </div>
-              </div>
-            )}
-
-
+              )}
 
               <div className="p-6 space-y-6">
                 <div className="grid grid-cols-2 gap-4">
@@ -854,8 +881,8 @@ const RaterView = ({ user }) => {
                             disabled={!candidateDetails[doc.key]}
                             title={doc.label}
                             className={`px-2 py-1 rounded text-sm md:text-base font-medium text-center transition-all ${
-                              candidateDetails[doc.key] 
-                                ? `${doc.color} cursor-pointer hover:scale-105` 
+                              candidateDetails[doc.key]
+                                ? `${doc.color} cursor-pointer hover:scale-105`
                                 : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                             }`}
                           >
@@ -867,8 +894,8 @@ const RaterView = ({ user }) => {
 
                     <div className="text-center">
                       <div className={`inline-flex items-center px-4 py-2 rounded-full text-sm md:text-base font-medium ${
-                        allRated 
-                          ? 'bg-green-100 text-green-800' 
+                        allRated
+                          ? 'bg-green-100 text-green-800'
                           : 'bg-yellow-100 text-yellow-800'
                       }`}>
                         {allRated ? (
@@ -894,6 +921,7 @@ const RaterView = ({ user }) => {
             </div>
           )}
 
+          {/* All existing modals — unchanged */}
           {isConfirmModalOpen && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
               <div className="bg-white rounded-xl p-8 max-w-3xl w-full mx-4">
@@ -903,7 +931,7 @@ const RaterView = ({ user }) => {
                     ? `Are you sure you want to update the existing ratings for ${candidateDetails?.fullName}? This will overwrite all previous ratings.`
                     : `Are you sure you want to submit the following ratings for ${candidateDetails?.fullName}?`}
                 </p>
-                
+
                 <div className="bg-gray-50 rounded-lg p-6 mb-6">
                   <div className="text-center mb-4">
                     <h4 className="text-xl font-semibold text-gray-800">{candidateDetails.fullName}</h4>
@@ -958,33 +986,12 @@ const RaterView = ({ user }) => {
                 </div>
 
                 <div className="flex justify-end gap-4">
-                  <button
-                    onClick={() => setIsConfirmModalOpen(false)}
-                    className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 text-lg font-semibold"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={confirmSubmitRatings}
-                    disabled={submitting}
-                    className={`px-6 py-3 rounded-lg font-semibold flex items-center justify-center space-x-2 text-lg ${
-                      submitting
-                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                        : 'bg-gradient-to-r from-green-600 to-emerald-600 text-white hover:from-green-700 hover:to-emerald-700 focus:ring-2 focus:ring-green-500'
-                    }`}
-                  >
+                  <button onClick={() => setIsConfirmModalOpen(false)} className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 text-lg font-semibold">Cancel</button>
+                  <button onClick={confirmSubmitRatings} disabled={submitting} className={`px-6 py-3 rounded-lg font-semibold flex items-center justify-center space-x-2 text-lg ${submitting ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-gradient-to-r from-green-600 to-emerald-600 text-white hover:from-green-700 hover:to-emerald-700 focus:ring-2 focus:ring-green-500'}`}>
                     {submitting ? (
-                      <>
-                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                        <span>{isUpdateSubmission ? 'Updating...' : 'Submitting...'}</span>
-                      </>
+                      <><div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div><span>{isUpdateSubmission ? 'Updating...' : 'Submitting...'}</span></>
                     ) : (
-                      <>
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
-                        <span>{isUpdateSubmission ? 'Update Ratings' : 'Submit Ratings'}</span>
-                      </>
+                      <><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg><span>{isUpdateSubmission ? 'Update Ratings' : 'Submit Ratings'}</span></>
                     )}
                   </button>
                 </div>
@@ -996,28 +1003,10 @@ const RaterView = ({ user }) => {
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
               <div className="bg-white rounded-xl p-8 max-w-3xl w-full mx-4">
                 <h3 className="text-2xl font-bold text-gray-800 mb-6">Confirm Delete Ratings</h3>
-                <p className="text-lg text-gray-600 mb-6 font-medium">
-                  Are you sure you want to delete all ratings for {candidateDetails?.fullName}? This action requires password confirmation.
-                </p>
+                <p className="text-lg text-gray-600 mb-6 font-medium">Are you sure you want to delete all ratings for {candidateDetails?.fullName}? This action requires password confirmation.</p>
                 <div className="flex justify-end gap-4">
-                  <button
-                    onClick={() => setIsDeleteConfirmModalOpen(false)}
-                    className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 text-lg font-semibold"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={() => {
-                      setIsDeleteConfirmModalOpen(false);
-                      setIsUpdateSubmission(false); // Add this line
-                      setIsPasswordModalOpen(true);
-                      setPassword('');
-                      setPasswordError('');
-                    }}
-                    className="px-6 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-lg hover:from-red-700 hover:to-red-800 focus:outline-none focus:ring-2 focus:ring-red-500 text-lg font-semibold"
-                  >
-                    Proceed to Password
-                  </button>
+                  <button onClick={() => setIsDeleteConfirmModalOpen(false)} className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 text-lg font-semibold">Cancel</button>
+                  <button onClick={() => { setIsDeleteConfirmModalOpen(false); setIsUpdateSubmission(false); setIsPasswordModalOpen(true); setPassword(''); setPasswordError(''); }} className="px-6 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-lg hover:from-red-700 hover:to-red-800 focus:outline-none focus:ring-2 focus:ring-red-500 text-lg font-semibold">Proceed to Password</button>
                 </div>
               </div>
             </div>
@@ -1027,22 +1016,10 @@ const RaterView = ({ user }) => {
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
               <div className="bg-white rounded-xl p-8 max-w-3xl w-full mx-4">
                 <h3 className="text-2xl font-bold text-gray-800 mb-6">Confirm Clear Ratings</h3>
-                <p className="text-lg text-gray-600 mb-6 font-medium">
-                  Are you sure you want to clear all ratings for {candidateDetails?.fullName}? This will reset the ratings on this page without affecting the database.
-                </p>
+                <p className="text-lg text-gray-600 mb-6 font-medium">Are you sure you want to clear all ratings for {candidateDetails?.fullName}? This will reset the ratings on this page without affecting the database.</p>
                 <div className="flex justify-end gap-4">
-                  <button
-                    onClick={() => setIsClearConfirmModalOpen(false)}
-                    className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 text-lg font-semibold"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={confirmClearRatings}
-                    className="px-6 py-3 bg-gradient-to-r from-gray-600 to-gray-700 text-white rounded-lg hover:from-gray-700 hover:to-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-500 text-lg font-semibold"
-                  >
-                    Clear Ratings
-                  </button>
+                  <button onClick={() => setIsClearConfirmModalOpen(false)} className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 text-lg font-semibold">Cancel</button>
+                  <button onClick={confirmClearRatings} className="px-6 py-3 bg-gradient-to-r from-gray-600 to-gray-700 text-white rounded-lg hover:from-gray-700 hover:to-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-500 text-lg font-semibold">Clear Ratings</button>
                 </div>
               </div>
             </div>
@@ -1055,40 +1032,13 @@ const RaterView = ({ user }) => {
                 <p className="text-gray-600 mb-4">Please enter your password to confirm {isUpdateSubmission ? 'updating' : 'deletion of'} all ratings for {candidateDetails?.fullName} {isUpdateSubmission ? '' : 'from the database'}.</p>
                 <div className="mb-4">
                   <label className="block text-sm font-medium text-gray-700 mb-2">Password</label>
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Enter your password"
-                  />
-                  {passwordError && (
-                    <p className="mt-2 text-sm text-red-600">{passwordError}</p>
-                  )}
+                  <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Enter your password" />
+                  {passwordError && <p className="mt-2 text-sm text-red-600">{passwordError}</p>}
                 </div>
                 <div className="flex justify-end gap-4">
-                  <button
-                    onClick={() => {
-                      setIsPasswordModalOpen(false);
-                      setPassword('');
-                      setPasswordError('');
-                    }}
-                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={isUpdateSubmission ? handlePasswordSubmitForUpdate : handlePasswordSubmit}
-                    disabled={!password}
-                    className={`px-4 py-2 rounded-lg font-medium flex items-center justify-center space-x-2 ${
-                      password
-                        ? 'bg-gradient-to-r from-red-600 to-red-700 text-white hover:from-red-700 hover:to-red-800 focus:ring-2 focus:ring-red-500'
-                        : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                    }`}
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
+                  <button onClick={() => { setIsPasswordModalOpen(false); setPassword(''); setPasswordError(''); }} className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500">Cancel</button>
+                  <button onClick={isUpdateSubmission ? handlePasswordSubmitForUpdate : handlePasswordSubmit} disabled={!password} className={`px-4 py-2 rounded-lg font-medium flex items-center justify-center space-x-2 ${password ? 'bg-gradient-to-r from-red-600 to-red-700 text-white hover:from-red-700 hover:to-red-800 focus:ring-2 focus:ring-red-500' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                     <span>{isUpdateSubmission ? 'Verify and Update' : 'Delete Ratings'}</span>
                   </button>
                 </div>
@@ -1106,19 +1056,16 @@ const RaterView = ({ user }) => {
                     </svg>
                   </div>
                   <h3 className="text-2xl font-bold text-gray-800 mb-4">
-                    {successModalType === 'submit' ? 'Ratings Submitted Successfully!' : 
-                     successModalType === 'update' ? 'Ratings Updated Successfully!' : 
-                     successModalType === 'delete' ? 'Ratings Deleted Successfully!' : 
+                    {successModalType === 'submit' ? 'Ratings Submitted Successfully!' :
+                     successModalType === 'update' ? 'Ratings Updated Successfully!' :
+                     successModalType === 'delete' ? 'Ratings Deleted Successfully!' :
                      'Ratings Cleared Successfully!'}
                   </h3>
                   <p className="text-lg text-gray-600 mb-6 font-medium">
-                    {successModalType === 'submit'
-                      ? `The ratings for ${candidateDetails?.fullName} have been submitted.`
-                      : successModalType === 'update'
-                      ? `The ratings for ${candidateDetails?.fullName} have been updated.`
-                      : successModalType === 'delete'
-                      ? `All ratings for ${candidateDetails?.fullName} have been deleted from the database.`
-                      : `All ratings for ${candidateDetails?.fullName} have been cleared on this page.`}
+                    {successModalType === 'submit' ? `The ratings for ${candidateDetails?.fullName} have been submitted.` :
+                     successModalType === 'update' ? `The ratings for ${candidateDetails?.fullName} have been updated.` :
+                     successModalType === 'delete' ? `All ratings for ${candidateDetails?.fullName} have been deleted from the database.` :
+                     `All ratings for ${candidateDetails?.fullName} have been cleared on this page.`}
                   </p>
                   <button
                     onClick={() => {
@@ -1143,22 +1090,10 @@ const RaterView = ({ user }) => {
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
               <div className="bg-white rounded-xl p-8 max-w-3xl w-full mx-4">
                 <h3 className="text-2xl font-bold text-gray-800 mb-6">Warning: Unsubmitted Ratings</h3>
-                <p className="text-lg text-gray-600 mb-6 font-medium">
-                  You have unsubmitted ratings for {candidateDetails?.fullName}. If you refresh or leave the page, these ratings will be lost. Do you want to proceed?
-                </p>
+                <p className="text-lg text-gray-600 mb-6 font-medium">You have unsubmitted ratings for {candidateDetails?.fullName}. If you refresh or leave the page, these ratings will be lost. Do you want to proceed?</p>
                 <div className="flex justify-end gap-4">
-                  <button
-                    onClick={() => setIsExitConfirmModalOpen(false)}
-                    className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 text-lg font-semibold"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleExitConfirm}
-                    className="px-6 py-3 bg-gradient-to-r from-orange-600 to-orange-700 text-white rounded-lg hover:from-orange-700 hover:to-orange-800 focus:outline-none focus:ring-2 focus:ring-orange-500 text-lg font-semibold"
-                  >
-                    Refresh
-                  </button>
+                  <button onClick={() => setIsExitConfirmModalOpen(false)} className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 text-lg font-semibold">Cancel</button>
+                  <button onClick={handleExitConfirm} className="px-6 py-3 bg-gradient-to-r from-orange-600 to-orange-700 text-white rounded-lg hover:from-orange-700 hover:to-orange-800 focus:outline-none focus:ring-2 focus:ring-orange-500 text-lg font-semibold">Refresh</button>
                 </div>
               </div>
             </div>
@@ -1177,25 +1112,15 @@ const RaterView = ({ user }) => {
                   <p className="text-lg text-gray-700 mb-4 font-medium">
                     This candidate has already been rated for this position by another <span className="font-bold text-red-600">{user.raterType}</span> rater.
                   </p>
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-                    <p className="text-gray-800">
-                      <span className="font-semibold">Existing Rater:</span> {conflictingRater?.name}
-                    </p>
-                    <p className="text-gray-800">
-                      <span className="font-semibold">Rater Type:</span> {conflictingRater?.raterType}
-                    </p>
-                    <p className="text-gray-800">
-                      <span className="font-semibold">Candidate:</span> {candidateDetails?.fullName}
-                    </p>
-                    <p className="text-gray-800">
-                      <span className="font-semibold">Position:</span> {vacancyDetails?.position}
-                    </p>
-                    <p className="text-gray-800">
-                      <span className="font-semibold">Item Number:</span> {selectedItemNumber}
-                    </p>
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 text-left">
+                    <p className="text-gray-800"><span className="font-semibold">Existing Rater:</span> {conflictingRater?.name}</p>
+                    <p className="text-gray-800"><span className="font-semibold">Rater Type:</span> {conflictingRater?.raterType}</p>
+                    <p className="text-gray-800"><span className="font-semibold">Candidate:</span> {candidateDetails?.fullName}</p>
+                    <p className="text-gray-800"><span className="font-semibold">Position:</span> {vacancyDetails?.position}</p>
+                    <p className="text-gray-800"><span className="font-semibold">Item Number:</span> {selectedItemNumber}</p>
                   </div>
                   <p className="text-sm text-gray-600 mb-6">
-                    Only one rater per rater type can submit ratings for each candidate-position combination. 
+                    Only one rater per rater type can submit ratings for each candidate-position combination.
                     Please select a different candidate or contact the administrator if this is an error.
                   </p>
                 </div>
@@ -1217,7 +1142,7 @@ const RaterView = ({ user }) => {
             </div>
           )}
 
-
+          {/* Competency rating section — unchanged except onViewCBS prop passed through */}
           {selectedCandidate && !isRaterTypeConflictModalOpen && (
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6 shadow-sm">
               <div className="bg-gray-800 px-6 py-6">
@@ -1226,26 +1151,25 @@ const RaterView = ({ user }) => {
                   <p className="text-gray-300 mt-1">
                     Rating {candidateDetails?.fullName} for {vacancyDetails?.position}
                   </p>
+
+                  {/* ── CBS feature hint (NEW) ── */}
+                  <div className="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-white/10 rounded-full text-sm text-gray-300">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>
+                    </svg>
+                    Tap the <span className="inline-flex items-center justify-center w-5 h-5 rounded-md bg-white/20 text-white mx-1">ⓘ</span> icon on any competency to view CBS proficiency levels
+                  </div>
+
                   <div className="flex justify-center items-center space-x-4 mt-4">
                     <div className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-medium ${
-                      allRated 
-                        ? 'bg-green-100 text-green-800 border border-green-200' 
+                      allRated
+                        ? 'bg-green-100 text-green-800 border border-green-200'
                         : 'bg-yellow-100 text-yellow-800 border border-yellow-200'
                     }`}>
                       {allRated ? (
-                        <>
-                          <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                          </svg>
-                          All Competencies Rated
-                        </>
+                        <><svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>All Competencies Rated</>
                       ) : (
-                        <>
-                          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                          Progress: {Object.keys(ratings).length} / {totalCompetencies}
-                        </>
+                        <><svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>Progress: {Object.keys(ratings).length} / {totalCompetencies}</>
                       )}
                     </div>
                   </div>
@@ -1253,6 +1177,7 @@ const RaterView = ({ user }) => {
               </div>
 
               <div className="p-6">
+                {/* Core competencies */}
                 {groupedCompetencies.basic.length > 0 && (
                   <div className="mb-10">
                     <div className="text-center mb-0">
@@ -1270,12 +1195,14 @@ const RaterView = ({ user }) => {
                           competencyType="basic"
                           currentRating={ratings[`basic_${competency._id}`]}
                           onChange={handleRatingChange}
+                          onViewCBS={handleViewCBS}
                         />
                       ))}
                     </div>
                   </div>
                 )}
 
+                {/* Organizational */}
                 {groupedCompetencies.organizational.length > 0 && (
                   <div className="mb-10">
                     <div className="text-center mb-0">
@@ -1293,12 +1220,14 @@ const RaterView = ({ user }) => {
                           competencyType="organizational"
                           currentRating={ratings[`organizational_${competency._id}`]}
                           onChange={handleRatingChange}
+                          onViewCBS={handleViewCBS}
                         />
                       ))}
                     </div>
                   </div>
                 )}
 
+                {/* Leadership */}
                 {shouldShowLeadership() && (
                   <div className="mb-10">
                     <div className="text-center mb-0">
@@ -1316,6 +1245,7 @@ const RaterView = ({ user }) => {
                           competencyType="leadership"
                           currentRating={ratings[`leadership_${competency._id}`]}
                           onChange={handleRatingChange}
+                          onViewCBS={handleViewCBS}
                         />
                       ))}
                     </div>
@@ -1337,6 +1267,7 @@ const RaterView = ({ user }) => {
                   </div>
                 )}
 
+                {/* Minimum */}
                 {groupedCompetencies.minimum.length > 0 && (
                   <div className="mb-10">
                     <div className="text-center mb-0">
@@ -1353,34 +1284,26 @@ const RaterView = ({ user }) => {
                           competencyType="minimum"
                           currentRating={ratings[`minimum_${competency._id}`]}
                           onChange={handleRatingChange}
+                          onViewCBS={handleViewCBS}
                         />
                       ))}
                     </div>
                   </div>
                 )}
 
+                {/* Action buttons — unchanged */}
                 <div className="border-t pt-6">
                   <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                    <button
-                      onClick={handleClearRatings}
-                      className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-all font-medium flex items-center justify-center space-x-2"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                      </svg>
+                    <button onClick={handleClearRatings} className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-all font-medium flex items-center justify-center space-x-2">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                       <span>Clear Ratings</span>
                     </button>
 
-                    <button
-                      onClick={handleDeleteRatings}
-                      className="px-6 py-3 border border-red-300 text-red-700 rounded-lg hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500 transition-all font-medium flex items-center justify-center space-x-2"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
+                    <button onClick={handleDeleteRatings} className="px-6 py-3 border border-red-300 text-red-700 rounded-lg hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500 transition-all font-medium flex items-center justify-center space-x-2">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                       <span>Delete Ratings</span>
                     </button>
-                    
+
                     <button
                       onClick={handleSubmitRatings}
                       disabled={!allRated || submitting || isCheckingRaterType}
@@ -1391,24 +1314,11 @@ const RaterView = ({ user }) => {
                       }`}
                     >
                       {submitting ? (
-                        <>
-                          <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                          <span>Submitting...</span>
-                        </>
+                        <><div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div><span>Submitting...</span></>
                       ) : allRated ? (
-                        <>
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                          </svg>
-                          <span>Submit All Ratings</span>
-                        </>
+                        <><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg><span>Submit All Ratings</span></>
                       ) : (
-                        <>
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                          <span>Complete All Ratings First</span>
-                        </>
+                        <><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg><span>Complete All Ratings First</span></>
                       )}
                     </button>
                   </div>
@@ -1417,6 +1327,7 @@ const RaterView = ({ user }) => {
             </div>
           )}
 
+          {/* Empty state — unchanged */}
           {!selectedCandidate && (
             <div className="text-center py-16 bg-white rounded-xl border border-gray-200 shadow-sm">
               <div className="w-32 h-32 mx-auto mb-6 bg-gradient-to-br from-blue-100 to-purple-100 rounded-full flex items-center justify-center">
@@ -1438,6 +1349,21 @@ const RaterView = ({ user }) => {
           )}
         </div>
       </div>
+
+      {/* ── CBS Detail Modal (NEW) ─────────────────────────────────────────── */}
+      {cbsModalOpen && cbsCompetency && (
+        <CompetencyDetailModal
+          competencyName={cbsCompetency.name}
+          competencyType={cbsCompetency.competencyType}
+          suggestedLevel={cbsCompetency.suggestedLevel}
+          browseMode={false}
+          directComp={null}
+          onClose={() => {
+            setCbsModalOpen(false);
+            setCbsCompetency(null);
+          }}
+        />
+      )}
     </div>
   );
 };
