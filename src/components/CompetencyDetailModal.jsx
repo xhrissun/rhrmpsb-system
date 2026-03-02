@@ -1,146 +1,215 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { findCompetenciesByName, findCompetencyByCode, getAllCompetencies, ensureParsed, isPDFAvailable } from '../lib/pdfParser';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { findCompetenciesByName, getAllCompetencies, ensureParsed, isPDFAvailable } from '../lib/pdfParser';
+
+// ─── Constants ────────────────────────────────────────────────────────────────
 
 const LEVELS = ['BASIC', 'INTERMEDIATE', 'ADVANCED', 'SUPERIOR'];
 
 const LEVEL_CFG = {
   BASIC: {
-    icon: '🌱', label: 'Basic',
+    icon: '🌱', label: 'Basic', short: 'BAS',
     sub: 'Entry-level understanding and application',
-    tab:    'bg-emerald-600 text-white shadow-sm shadow-emerald-200',
-    tabOff: 'text-emerald-700 hover:bg-emerald-50 border border-emerald-200',
-    card:   'border-l-4 border-emerald-500 bg-gradient-to-r from-emerald-50 to-white',
-    badge:  'bg-emerald-100 text-emerald-700',
-    num:    'bg-emerald-100 text-emerald-700',
-    title:  'text-emerald-800',
-    dot:    'bg-emerald-500',
+    accent: '#10b981', accentLight: '#d1fae5', accentDark: '#065f46',
+    gradient: 'linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 100%)',
+    border: '#a7f3d0',
   },
   INTERMEDIATE: {
-    icon: '🌿', label: 'Intermediate',
-    sub: 'Applies concepts independently',
-    tab:    'bg-teal-600 text-white shadow-sm shadow-teal-200',
-    tabOff: 'text-teal-700 hover:bg-teal-50 border border-teal-200',
-    card:   'border-l-4 border-teal-500 bg-gradient-to-r from-teal-50 to-white',
-    badge:  'bg-teal-100 text-teal-700',
-    num:    'bg-teal-100 text-teal-700',
-    title:  'text-teal-800',
-    dot:    'bg-teal-500',
+    icon: '⚡', label: 'Intermediate', short: 'INT',
+    sub: 'Applies concepts independently with minimal guidance',
+    accent: '#0ea5e9', accentLight: '#e0f2fe', accentDark: '#0c4a6e',
+    gradient: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
+    border: '#7dd3fc',
   },
   ADVANCED: {
-    icon: '🌳', label: 'Advanced',
-    sub: 'Leads implementation and coaches others',
-    tab:    'bg-blue-600 text-white shadow-sm shadow-blue-200',
-    tabOff: 'text-blue-700 hover:bg-blue-50 border border-blue-200',
-    card:   'border-l-4 border-blue-500 bg-gradient-to-r from-blue-50 to-white',
-    badge:  'bg-blue-100 text-blue-700',
-    num:    'bg-blue-100 text-blue-700',
-    title:  'text-blue-800',
-    dot:    'bg-blue-500',
+    icon: '🔥', label: 'Advanced', short: 'ADV',
+    sub: 'Leads implementation, mentors and coaches others',
+    accent: '#f59e0b', accentLight: '#fef3c7', accentDark: '#78350f',
+    gradient: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)',
+    border: '#fcd34d',
   },
   SUPERIOR: {
-    icon: '🏔️', label: 'Superior',
-    sub: 'Formulates policy and drives strategic direction',
-    tab:    'bg-violet-600 text-white shadow-sm shadow-violet-200',
-    tabOff: 'text-violet-700 hover:bg-violet-50 border border-violet-200',
-    card:   'border-l-4 border-violet-500 bg-gradient-to-r from-violet-50 to-white',
-    badge:  'bg-violet-100 text-violet-700',
-    num:    'bg-violet-100 text-violet-700',
-    title:  'text-violet-800',
-    dot:    'bg-violet-500',
+    icon: '🏆', label: 'Superior', short: 'SUP',
+    sub: 'Formulates policy, drives organization-wide strategy',
+    accent: '#8b5cf6', accentLight: '#ede9fe', accentDark: '#3b0764',
+    gradient: 'linear-gradient(135deg, #faf5ff 0%, #ede9fe 100%)',
+    border: '#c4b5fd',
   },
 };
 
-const TYPE_COLOR = {
-  basic:          'bg-blue-100 text-blue-800',
-  organizational: 'bg-purple-100 text-purple-800',
-  leadership:     'bg-indigo-100 text-indigo-800',
-  minimum:        'bg-orange-100 text-orange-800',
+const TYPE_STYLES = {
+  basic:          { bg: '#eff6ff', color: '#1d4ed8', label: 'Core · Psycho-Social' },
+  organizational: { bg: '#faf5ff', color: '#7c3aed', label: 'Organizational' },
+  leadership:     { bg: '#eef2ff', color: '#4338ca', label: 'Leadership' },
+  minimum:        { bg: '#fff7ed', color: '#c2410c', label: 'Minimum' },
 };
 
-const TYPE_LABEL = {
-  basic:          'Core (Psycho-Social)',
-  organizational: 'Organizational',
-  leadership:     'Leadership',
-  minimum:        'Minimum',
-};
-
-// Category color mapping for visual distinction
-const CATEGORY_COLORS = [
-  { bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-700', dot: 'bg-blue-400', badge: 'bg-blue-100 text-blue-700' },
-  { bg: 'bg-violet-50', border: 'border-violet-200', text: 'text-violet-700', dot: 'bg-violet-400', badge: 'bg-violet-100 text-violet-700' },
-  { bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-700', dot: 'bg-emerald-400', badge: 'bg-emerald-100 text-emerald-700' },
-  { bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-700', dot: 'bg-amber-400', badge: 'bg-amber-100 text-amber-700' },
-  { bg: 'bg-rose-50', border: 'border-rose-200', text: 'text-rose-700', dot: 'bg-rose-400', badge: 'bg-rose-100 text-rose-700' },
-  { bg: 'bg-teal-50', border: 'border-teal-200', text: 'text-teal-700', dot: 'bg-teal-400', badge: 'bg-teal-100 text-teal-700' },
-  { bg: 'bg-indigo-50', border: 'border-indigo-200', text: 'text-indigo-700', dot: 'bg-indigo-400', badge: 'bg-indigo-100 text-indigo-700' },
-  { bg: 'bg-orange-50', border: 'border-orange-200', text: 'text-orange-700', dot: 'bg-orange-400', badge: 'bg-orange-100 text-orange-700' },
+const CAT_PALETTES = [
+  { accent: '#3b82f6', bg: '#eff6ff', muted: '#bfdbfe', text: '#1e40af' },
+  { accent: '#8b5cf6', bg: '#f5f3ff', muted: '#ddd6fe', text: '#5b21b6' },
+  { accent: '#10b981', bg: '#ecfdf5', muted: '#a7f3d0', text: '#065f46' },
+  { accent: '#f59e0b', bg: '#fffbeb', muted: '#fde68a', text: '#78350f' },
+  { accent: '#ef4444', bg: '#fef2f2', muted: '#fecaca', text: '#991b1b' },
+  { accent: '#06b6d4', bg: '#ecfeff', muted: '#a5f3fc', text: '#0e7490' },
+  { accent: '#f97316', bg: '#fff7ed', muted: '#fed7aa', text: '#9a3412' },
+  { accent: '#84cc16', bg: '#f7fee7', muted: '#d9f99d', text: '#3f6212' },
 ];
 
-// ─────────────────────────────────────────────────────────────────────────────
-// LevelPanel — renders one proficiency level's content
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Utility ─────────────────────────────────────────────────────────────────
+
+function useCategoryPalette(categories) {
+  return useMemo(() => {
+    const map = {};
+    categories.forEach((c, i) => { map[c] = CAT_PALETTES[i % CAT_PALETTES.length]; });
+    return map;
+  }, [categories.join('|')]);
+}
+
+// ─── Spinner ─────────────────────────────────────────────────────────────────
+
+function Spinner({ size = 20, color = '#3b82f6' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      style={{ animation: 'cdm-spin 0.75s linear infinite', flexShrink: 0 }}>
+      <circle cx="12" cy="12" r="10" stroke={color} strokeWidth="2.5" strokeOpacity="0.15"/>
+      <path d="M12 2a10 10 0 0 1 10 10" stroke={color} strokeWidth="2.5" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
+// ─── LevelBadge ──────────────────────────────────────────────────────────────
+
+function LevelBadge({ level, active, hasContent, count, onClick }) {
+  const cfg = LEVEL_CFG[level];
+  const [hovered, setHovered] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      disabled={!hasContent}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 7,
+        padding: '8px 16px', borderRadius: 12, border: 'none',
+        fontSize: 13.5, fontWeight: 700, cursor: hasContent ? 'pointer' : 'not-allowed',
+        transition: 'all 0.15s cubic-bezier(0.4,0,0.2,1)', outline: 'none',
+        ...(active ? {
+          background: cfg.accent, color: '#fff',
+          boxShadow: `0 4px 14px ${cfg.accent}45`,
+          transform: 'translateY(-1px)',
+        } : hovered && hasContent ? {
+          background: cfg.accentLight, color: cfg.accentDark,
+          boxShadow: `0 2px 8px ${cfg.accent}20`,
+        } : {
+          background: hasContent ? '#f9fafb' : '#f3f4f6',
+          color: hasContent ? '#6b7280' : '#d1d5db',
+          boxShadow: 'none',
+        }),
+      }}
+    >
+      <span style={{ fontSize: 15 }}>{cfg.icon}</span>
+      <span>{cfg.label}</span>
+      {hasContent && count > 0 && (
+        <span style={{
+          fontSize: 10.5, fontWeight: 800, padding: '2px 7px', borderRadius: 20,
+          fontFamily: "'Fira Code', monospace",
+          background: active ? 'rgba(255,255,255,0.28)' : cfg.accentLight,
+          color: active ? '#fff' : cfg.accentDark,
+        }}>
+          {count}
+        </span>
+      )}
+    </button>
+  );
+}
+
+// ─── LevelPanel ──────────────────────────────────────────────────────────────
 
 function LevelPanel({ level, data }) {
   const cfg = LEVEL_CFG[level];
   if (!data) return null;
-  const empty = !data.behavioralIndicator && !data.items.length;
+  const empty = !data.behavioralIndicator && !data.items?.length;
 
   if (empty) return (
-    <div className={`rounded-xl p-10 text-center border border-dashed border-gray-200`}>
-      <p className="text-4xl mb-3">{cfg.icon}</p>
-      <p className="text-sm font-medium text-gray-400">No content defined for this level.</p>
+    <div style={{ textAlign: 'center', padding: '64px 32px' }}>
+      <div style={{ fontSize: 40, marginBottom: 14 }}>{cfg.icon}</div>
+      <p style={{ color: '#9ca3af', fontSize: 14, margin: 0 }}>
+        No content defined for the <strong style={{ color: '#6b7280' }}>{cfg.label}</strong> level.
+      </p>
     </div>
   );
 
   return (
-    <div style={{ animation: 'cdmSlide .22s cubic-bezier(.4,0,.2,1)' }}>
+    <div style={{ animation: 'cdm-slide-up 0.22s cubic-bezier(0.4,0,0.2,1)' }}>
+      {/* Behavioral Indicator card */}
       {data.behavioralIndicator && (
-        <div className={`rounded-2xl p-6 mb-6 ${cfg.card}`}>
-          <div className="flex items-start gap-4">
-            <div className="flex-shrink-0 w-11 h-11 rounded-xl bg-white shadow-sm flex items-center justify-center text-2xl border border-gray-100">
-              {cfg.icon}
-            </div>
-            <div className="flex-1">
-              <div className="flex items-center gap-2 mb-2">
-                <h3 className={`text-base font-bold ${cfg.title}`}>{cfg.label} Proficiency</h3>
-                <span className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full ${cfg.badge}`}>
-                  {cfg.sub}
-                </span>
+        <div style={{
+          background: cfg.gradient,
+          border: `1.5px solid ${cfg.border}`,
+          borderRadius: 16, padding: '20px 22px',
+          marginBottom: 24, position: 'relative', overflow: 'hidden',
+        }}>
+          {/* Accent bar */}
+          <div style={{
+            position: 'absolute', left: 0, top: 0, bottom: 0, width: 4,
+            background: cfg.accent, borderRadius: '16px 0 0 16px',
+          }}/>
+          <div style={{ paddingLeft: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <div style={{
+                width: 38, height: 38, borderRadius: 11,
+                background: '#fff', border: `1.5px solid ${cfg.border}`,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 20, flexShrink: 0,
+                boxShadow: `0 2px 10px ${cfg.accent}20`,
+              }}>
+                {cfg.icon}
               </div>
-              <p className="text-sm leading-relaxed text-gray-600">
-                {data.behavioralIndicator}
-              </p>
+              <div>
+                <div style={{ fontWeight: 800, color: cfg.accentDark, fontSize: 14, letterSpacing: '-0.02em' }}>
+                  {cfg.label} Proficiency Level
+                </div>
+                <div style={{ fontSize: 11.5, color: cfg.accent, fontWeight: 500, marginTop: 2 }}>
+                  {cfg.sub}
+                </div>
+              </div>
             </div>
+            <p style={{
+              color: '#374151', fontSize: 14, lineHeight: 1.72, margin: 0,
+              letterSpacing: '-0.01em',
+            }}>
+              {data.behavioralIndicator}
+            </p>
           </div>
         </div>
       )}
 
-      {data.items.length > 0 && (
+      {/* KSA Items */}
+      {data.items?.length > 0 && (
         <div>
-          <div className="flex items-center gap-3 mb-4">
-            <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+            <span style={{
+              fontSize: 10.5, fontWeight: 700, letterSpacing: '0.1em',
+              textTransform: 'uppercase', color: '#9ca3af',
+            }}>
               Knowledge, Skills &amp; Abilities
-            </h4>
-            <div className="flex-1 h-px bg-gray-100"/>
-            <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${cfg.badge}`}>
+            </span>
+            <div style={{ flex: 1, height: 1, background: '#f0f0f0' }}/>
+            <span style={{
+              fontSize: 11, fontWeight: 700,
+              background: cfg.accentLight, color: cfg.accentDark,
+              padding: '3px 10px', borderRadius: 99,
+            }}>
               {data.items.length} {data.items.length === 1 ? 'item' : 'items'}
             </span>
           </div>
-          <div className="space-y-2">
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
             {data.items.map((item, idx) => {
               const m = item.match(/^(\d+)\.\s*/);
               const num  = m ? m[1] : String(idx + 1);
               const text = m ? item.slice(m[0].length) : item;
               return (
-                <div
-                  key={idx}
-                  className="group flex gap-3 p-4 rounded-xl bg-white border border-gray-100 hover:border-gray-200 hover:shadow-md transition-all duration-150"
-                >
-                  <div className={`flex-shrink-0 w-6 h-6 rounded-md flex items-center justify-center text-[11px] font-bold font-mono mt-0.5 ${cfg.num}`}>
-                    {num}
-                  </div>
-                  <p className="text-gray-700 text-sm leading-relaxed">{text}</p>
-                </div>
+                <KSARow key={idx} num={num} text={text} idx={idx} cfg={cfg}/>
               );
             })}
           </div>
@@ -150,26 +219,453 @@ function LevelPanel({ level, data }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// VariantTabs — when multiple CBS variants exist
-// ─────────────────────────────────────────────────────────────────────────────
+function KSARow({ num, text, idx, cfg }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        display: 'flex', gap: 12, padding: '13px 16px',
+        background: hovered ? cfg.accentLight + '60' : '#fff',
+        border: `1.5px solid ${hovered ? cfg.border : '#f0f0f0'}`,
+        borderRadius: 12, transition: 'all 0.15s',
+        animation: `cdm-slide-up 0.2s cubic-bezier(0.4,0,0.2,1) ${Math.min(idx * 25, 300)}ms both`,
+        boxShadow: hovered ? `0 2px 10px ${cfg.accent}12` : 'none',
+      }}
+    >
+      <div style={{
+        flexShrink: 0, width: 26, height: 26, borderRadius: 8,
+        background: cfg.accentLight, color: cfg.accentDark,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: 11, fontWeight: 800, fontFamily: "'Fira Code', monospace",
+        marginTop: 1,
+      }}>
+        {num}
+      </div>
+      <p style={{
+        margin: 0, color: '#374151', fontSize: 13.5,
+        lineHeight: 1.68, letterSpacing: '-0.01em',
+      }}>
+        {text}
+      </p>
+    </div>
+  );
+}
+
+// ─── BrowserSidebar ───────────────────────────────────────────────────────────
+
+function BrowserSidebar({ categories, palette, activeCategory, onCategoryChange, counts }) {
+  return (
+    <div style={{
+      width: 210, flexShrink: 0,
+      borderRight: '1.5px solid #f3f4f6',
+      overflowY: 'auto', padding: '10px 8px',
+      background: '#fafafa',
+    }}>
+      <p style={{
+        margin: '0 0 8px', padding: '0 8px',
+        fontSize: 9.5, fontWeight: 700, letterSpacing: '0.12em',
+        textTransform: 'uppercase', color: '#9ca3af',
+      }}>
+        Categories
+      </p>
+      {categories.map(cat => {
+        const p = palette[cat];
+        const isActive = activeCategory === cat;
+        return (
+          <SidebarCatBtn
+            key={cat} label={cat} count={counts[cat] ?? 0}
+            palette={p} active={isActive}
+            onClick={() => onCategoryChange(cat)}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function SidebarCatBtn({ label, count, palette: p, active, onClick }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        width: '100%', textAlign: 'left',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+        padding: '7px 10px', borderRadius: 9, border: 'none',
+        marginBottom: 2, cursor: 'pointer', transition: 'all 0.12s',
+        background: active ? p.bg : hovered ? '#f3f4f6' : 'transparent',
+        color: active ? p.text : hovered ? '#374151' : '#6b7280',
+        fontWeight: active ? 700 : 500, fontSize: 12.5,
+        fontFamily: 'inherit',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
+        <div style={{
+          width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+          background: active ? p.accent : '#d1d5db',
+          transition: 'background 0.12s',
+        }}/>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {label}
+        </span>
+      </div>
+      <span style={{
+        fontSize: 10.5, fontWeight: 700, flexShrink: 0,
+        background: active ? p.muted : '#efefef',
+        color: active ? p.text : '#9ca3af',
+        padding: '1px 6px', borderRadius: 99, transition: 'all 0.12s',
+      }}>
+        {count}
+      </span>
+    </button>
+  );
+}
+
+// ─── BrowserCompCard ─────────────────────────────────────────────────────────
+
+function BrowserCompCard({ comp, palette: p, isFocused, onClick, animDelay }) {
+  const [hovered, setHovered] = useState(false);
+  const show = hovered || isFocused;
+
+  const ksas = comp.levels
+    ? Object.values(comp.levels).reduce((s, l) => s + (l?.items?.length || 0), 0)
+    : 0;
+  const hasLevels = comp.levels
+    ? LEVELS.filter(l => comp.levels[l]?.behavioralIndicator || comp.levels[l]?.items?.length)
+    : [];
+
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        display: 'flex', alignItems: 'flex-start', gap: 12,
+        padding: '12px 14px', borderRadius: 12, width: '100%',
+        border: `1.5px solid ${show ? p.accent : '#f0f0f0'}`,
+        background: show ? p.bg : '#fff',
+        cursor: 'pointer', textAlign: 'left',
+        transition: 'all 0.15s cubic-bezier(0.4,0,0.2,1)',
+        boxShadow: show ? `0 4px 16px ${p.accent}20` : 'none',
+        transform: show ? 'translateY(-1px)' : 'none',
+        animation: `cdm-slide-up 0.18s ease both`,
+        animationDelay: `${animDelay}ms`,
+        fontFamily: 'inherit',
+      }}
+    >
+      {/* Code */}
+      <div style={{
+        flexShrink: 0, padding: '3px 9px', borderRadius: 8,
+        background: show ? p.muted : '#f3f4f6',
+        color: show ? p.text : '#6b7280',
+        fontSize: 11, fontWeight: 800, marginTop: 2,
+        fontFamily: "'Fira Code', monospace",
+        letterSpacing: '0.04em', transition: 'all 0.15s',
+      }}>
+        {comp.code}
+      </div>
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{
+          margin: 0, fontWeight: 700, fontSize: 13.5,
+          color: show ? p.text : '#111827',
+          lineHeight: 1.35, letterSpacing: '-0.02em',
+          transition: 'color 0.15s',
+        }}>
+          {comp.name}
+        </p>
+        {(hasLevels.length > 0 || ksas > 0) && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+            {hasLevels.map(l => (
+              <span key={l} style={{
+                fontSize: 9, fontWeight: 800, padding: '2px 5px',
+                borderRadius: 5, letterSpacing: '0.06em',
+                background: LEVEL_CFG[l].accentLight,
+                color: LEVEL_CFG[l].accentDark,
+              }}>
+                {LEVEL_CFG[l].short}
+              </span>
+            ))}
+            {ksas > 0 && (
+              <span style={{ fontSize: 11, color: '#9ca3af', fontWeight: 500 }}>
+                {ksas} KSAs
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div style={{
+        flexShrink: 0, marginTop: 3, color: show ? p.accent : '#d1d5db',
+        transition: 'all 0.15s',
+        transform: show ? 'translateX(2px)' : 'none',
+      }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="m9 18 6-6-6-6"/>
+        </svg>
+      </div>
+    </button>
+  );
+}
+
+// ─── BrowserMode ─────────────────────────────────────────────────────────────
+
+function BrowserMode({ onSelectCompetency, onBack }) {
+  const [allComps, setAllComps]         = useState([]);
+  const [search, setSearch]             = useState('');
+  const [activeCategory, setActiveCategory] = useState('');
+  const [loading, setLoading]           = useState(true);
+  const [focusedIdx, setFocusedIdx]     = useState(-1);
+  const searchRef                       = useRef(null);
+  const listRef                         = useRef(null);
+
+  useEffect(() => {
+    getAllCompetencies()
+      .then(c => {
+        setAllComps(c);
+        if (c.length) setActiveCategory(c[0].category);
+      })
+      .catch(console.error)
+      .finally(() => {
+        setLoading(false);
+        setTimeout(() => searchRef.current?.focus(), 80);
+      });
+  }, []);
+
+  const categories = useMemo(() => [...new Set(allComps.map(c => c.category))].sort(), [allComps]);
+  const palette = useCategoryPalette(categories);
+  const categoryCounts = useMemo(() => {
+    const m = {};
+    allComps.forEach(c => { m[c.category] = (m[c.category] || 0) + 1; });
+    return m;
+  }, [allComps]);
+
+  const deduped = useMemo(() => {
+    const seen = new Set(); const out = [];
+    for (const c of allComps) {
+      const k = `${c.code}::${c.name}::${c.category}`;
+      if (!seen.has(k)) { seen.add(k); out.push(c); }
+    }
+    return out;
+  }, [allComps]);
+
+  const q = search.trim().toLowerCase();
+  const isSearching = q.length > 0;
+
+  const filtered = useMemo(() => deduped.filter(c => {
+    const matchQ = !q || c.name.toLowerCase().includes(q) || c.code.toLowerCase().includes(q);
+    const matchCat = isSearching || !activeCategory || c.category === activeCategory;
+    return matchQ && matchCat;
+  }), [deduped, q, activeCategory, isSearching]);
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handler = e => {
+      if (!['ArrowDown', 'ArrowUp', 'Enter'].includes(e.key)) return;
+      e.preventDefault();
+      if (e.key === 'ArrowDown') setFocusedIdx(i => Math.min(i + 1, filtered.length - 1));
+      if (e.key === 'ArrowUp')   setFocusedIdx(i => Math.max(i - 1, 0));
+      if (e.key === 'Enter' && focusedIdx >= 0) onSelectCompetency(filtered[focusedIdx]);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [filtered, focusedIdx, onSelectCompetency]);
+
+  useEffect(() => { setFocusedIdx(-1); }, [search, activeCategory]);
+
+  if (loading) return (
+    <div style={{
+      display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center',
+      height: 320, gap: 14,
+    }}>
+      <Spinner size={36} color="#3b82f6"/>
+      <div style={{ textAlign: 'center' }}>
+        <p style={{ margin: 0, fontWeight: 700, color: '#374151', fontSize: 14 }}>Loading CBS Manual</p>
+        <p style={{ margin: '4px 0 0', color: '#9ca3af', fontSize: 12 }}>Parsing competency data…</p>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+      {/* Search bar */}
+      <div style={{ padding: '14px 18px 12px', borderBottom: '1.5px solid #f3f4f6', flexShrink: 0 }}>
+        <SearchInput
+          ref={searchRef}
+          value={search}
+          onChange={setSearch}
+          placeholder="Search name or code…   ↑↓ navigate · ↵ open"
+        />
+        {isSearching && filtered.length > 0 && (
+          <p style={{ margin: '8px 2px 0', fontSize: 12, color: '#9ca3af' }}>
+            <strong style={{ color: '#374151' }}>{filtered.length}</strong> result{filtered.length !== 1 ? 's' : ''} across all categories
+          </p>
+        )}
+      </div>
+
+      {/* Two-panel */}
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        {!isSearching && (
+          <BrowserSidebar
+            categories={categories}
+            palette={palette}
+            activeCategory={activeCategory}
+            onCategoryChange={cat => { setActiveCategory(cat); listRef.current?.scrollTo(0, 0); setFocusedIdx(-1); }}
+            counts={categoryCounts}
+          />
+        )}
+
+        <div ref={listRef} style={{ flex: 1, overflowY: 'auto', padding: '12px 14px' }}>
+          {filtered.length === 0 ? (
+            <EmptyState onClear={() => setSearch('')}/>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              {filtered.map((comp, idx) => (
+                <BrowserCompCard
+                  key={`${comp.code}-${idx}`}
+                  comp={comp}
+                  palette={palette[comp.category] ?? CAT_PALETTES[0]}
+                  isFocused={idx === focusedIdx}
+                  onClick={() => onSelectCompetency(comp)}
+                  animDelay={Math.min(idx * 12, 180)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div style={{
+        flexShrink: 0, padding: '10px 18px',
+        borderTop: '1.5px solid #f3f4f6', background: '#fafafa',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      }}>
+        <span style={{ fontSize: 11.5, color: '#9ca3af' }}>
+          {deduped.length} competencies · CBS Manual 2025
+        </span>
+        <button
+          onClick={onBack}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 5,
+            padding: '6px 14px', borderRadius: 8,
+            border: '1.5px solid #e5e7eb', background: '#fff',
+            fontSize: 12, fontWeight: 700, color: '#374151',
+            cursor: 'pointer', fontFamily: 'inherit',
+          }}
+        >
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m15 18-6-6 6-6"/>
+          </svg>
+          Back to Competency
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── SearchInput ─────────────────────────────────────────────────────────────
+
+const SearchInput = React.forwardRef(({ value, onChange, placeholder }, ref) => {
+  const [focused, setFocused] = useState(false);
+  return (
+    <div style={{ position: 'relative' }}>
+      <svg style={{
+        position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)',
+        color: focused ? '#3b82f6' : '#9ca3af', transition: 'color 0.15s', pointerEvents: 'none',
+      }} width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+      </svg>
+      <input
+        ref={ref}
+        type="text"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        placeholder={placeholder}
+        style={{
+          width: '100%', paddingLeft: 40, paddingRight: value ? 38 : 14,
+          paddingTop: 10, paddingBottom: 10, boxSizing: 'border-box',
+          border: `1.5px solid ${focused ? '#3b82f6' : '#e5e7eb'}`,
+          borderRadius: 11, fontSize: 13.5, color: '#111827', outline: 'none',
+          background: '#fff', fontFamily: 'inherit', letterSpacing: '-0.01em',
+          boxShadow: focused ? '0 0 0 3px #3b82f620' : 'none',
+          transition: 'all 0.15s',
+        }}
+      />
+      {value && (
+        <button
+          onClick={() => onChange('')}
+          style={{
+            position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+            width: 20, height: 20, borderRadius: '50%', border: 'none',
+            background: '#e5e7eb', color: '#6b7280', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
+          }}
+        >
+          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
+            <path d="M18 6 6 18M6 6l12 12"/>
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+});
+
+// ─── EmptyState ───────────────────────────────────────────────────────────────
+
+function EmptyState({ onClear }) {
+  return (
+    <div style={{ textAlign: 'center', padding: '60px 24px' }}>
+      <div style={{
+        width: 56, height: 56, borderRadius: 16,
+        background: '#f9fafb', border: '2px dashed #e5e7eb',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: 28, margin: '0 auto 16px',
+      }}>
+        🔍
+      </div>
+      <p style={{ margin: '0 0 6px', fontWeight: 700, fontSize: 14.5, color: '#374151' }}>No results found</p>
+      <p style={{ margin: '0 0 20px', fontSize: 13, color: '#9ca3af' }}>Try a different keyword or code</p>
+      <button
+        onClick={onClear}
+        style={{
+          padding: '8px 18px', borderRadius: 9,
+          border: '1.5px solid #e5e7eb', background: '#fff',
+          fontSize: 13, fontWeight: 700, color: '#374151',
+          cursor: 'pointer', fontFamily: 'inherit',
+        }}
+      >
+        Clear search
+      </button>
+    </div>
+  );
+}
+
+// ─── VariantTabs ─────────────────────────────────────────────────────────────
 
 function VariantTabs({ variants, activeIdx, onChange }) {
   if (variants.length <= 1) return null;
   return (
-    <div className="flex flex-wrap gap-2 px-6 pt-4">
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, padding: '14px 20px 0' }}>
       {variants.map((v, i) => (
-        <button
-          key={`${v.code}-${i}`}
-          onClick={() => onChange(i)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-            i === activeIdx
-              ? 'bg-amber-500 text-white shadow-sm'
-              : 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100'
-          }`}
-        >
-          <span className="font-mono">{v.code}</span>
-          <span className="opacity-60">·</span>
+        <button key={`${v.code}-${i}`} onClick={() => onChange(i)} style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          padding: '5px 13px', borderRadius: 8, border: 'none', cursor: 'pointer',
+          background: i === activeIdx ? '#f59e0b' : '#fef3c7',
+          color: i === activeIdx ? '#fff' : '#92400e',
+          fontWeight: 700, fontSize: 12, transition: 'all 0.15s',
+          boxShadow: i === activeIdx ? '0 2px 8px #f59e0b35' : 'none',
+          fontFamily: 'inherit',
+        }}>
+          <span style={{ fontFamily: "'Fira Code', monospace" }}>{v.code}</span>
+          <span style={{ opacity: 0.55 }}>·</span>
           <span>{v.category}</span>
         </button>
       ))}
@@ -177,315 +673,103 @@ function VariantTabs({ variants, activeIdx, onChange }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CompetencyCard — individual card in the browser list
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── LoadingState ─────────────────────────────────────────────────────────────
 
-function CompetencyCard({ comp, categoryColor, onClick }) {
-  const ksaCount = comp.levels
-    ? Object.values(comp.levels).reduce((sum, l) => sum + (l?.items?.length || 0), 0)
-    : 0;
-
-  const levelsWithContent = comp.levels
-    ? LEVELS.filter(l => comp.levels[l]?.behavioralIndicator || comp.levels[l]?.items?.length > 0)
-    : [];
-
+function LoadingState({ progress, msg }) {
   return (
-    <button
-      onClick={onClick}
-      className="w-full text-left group"
-    >
-      <div className="p-4 bg-white border border-gray-100 rounded-xl hover:border-blue-200 hover:shadow-lg transition-all duration-200 relative overflow-hidden">
-        {/* Subtle left accent */}
-        <div className={`absolute left-0 top-0 bottom-0 w-0.5 ${categoryColor.dot} opacity-0 group-hover:opacity-100 transition-opacity`}/>
-
-        <div className="flex items-start gap-3">
-          <div className={`flex-shrink-0 px-2 py-1 rounded-md text-xs font-mono font-bold ${categoryColor.badge} mt-0.5`}>
-            {comp.code}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-gray-800 leading-snug group-hover:text-blue-700 transition-colors">
-              {comp.name}
-            </p>
-            {levelsWithContent.length > 0 && (
-              <div className="flex items-center gap-2 mt-2">
-                <div className="flex gap-1">
-                  {levelsWithContent.map(l => (
-                    <span
-                      key={l}
-                      className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${LEVEL_CFG[l].badge}`}
-                    >
-                      {LEVEL_CFG[l].label.slice(0, 3)}
-                    </span>
-                  ))}
-                </div>
-                {ksaCount > 0 && (
-                  <span className="text-[11px] text-gray-400">{ksaCount} KSAs</span>
-                )}
-              </div>
-            )}
-          </div>
-          <svg
-            className="w-4 h-4 text-gray-300 group-hover:text-blue-500 group-hover:translate-x-0.5 transition-all flex-shrink-0 mt-0.5"
-            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7"/>
-          </svg>
+    <div style={{ padding: '24px 24px 28px' }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 14,
+        background: '#eff6ff', border: '1.5px solid #bfdbfe',
+        borderRadius: 14, padding: '16px 18px', marginBottom: 18,
+      }}>
+        <Spinner size={22} color="#3b82f6"/>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 800, color: '#1e40af', fontSize: 13.5, marginBottom: 3 }}>Parsing CBS Manual</div>
+          <div style={{ fontSize: 11.5, color: '#60a5fa', fontFamily: 'monospace' }}>{msg}</div>
+        </div>
+        <div style={{ fontSize: 22, fontWeight: 900, color: '#1d4ed8', fontFamily: "'Fira Code', monospace" }}>
+          {progress}%
         </div>
       </div>
-    </button>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// BrowserMode - Redesigned CBS Manual Browser
-// ─────────────────────────────────────────────────────────────────────────────
-
-function BrowserMode({ onSelectCompetency, onClose }) {
-  const [allCompetencies, setAllCompetencies] = useState([]);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterCategory, setFilterCategory] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [expandedCategories, setExpandedCategories] = useState(new Set());
-  const searchRef = useRef(null);
-
-  useEffect(() => {
-    const loadAll = async () => {
-      try {
-        const comps = await getAllCompetencies();
-        setAllCompetencies(comps);
-        // Expand first category by default
-        if (comps.length > 0) {
-          const firstCat = comps[0].category;
-          setExpandedCategories(new Set([firstCat]));
-        }
-      } catch (error) {
-        console.error('Failed to load all competencies:', error);
-      } finally {
-        setLoading(false);
-        setTimeout(() => searchRef.current?.focus(), 100);
-      }
-    };
-    loadAll();
-  }, []);
-
-  const categories = [...new Set(allCompetencies.map(c => c.category))].sort();
-
-  // Build category→color map
-  const categoryColorMap = {};
-  categories.forEach((cat, i) => {
-    categoryColorMap[cat] = CATEGORY_COLORS[i % CATEGORY_COLORS.length];
-  });
-
-  // Deduplicate
-  const deduped = [];
-  const seenKeys = new Set();
-  for (const comp of allCompetencies) {
-    const key = `${comp.code}::${comp.name}::${comp.category}`;
-    if (!seenKeys.has(key)) {
-      seenKeys.add(key);
-      deduped.push(comp);
-    }
-  }
-
-  const isSearching = searchTerm.trim().length > 0 || filterCategory !== '';
-
-  const filtered = deduped.filter(comp => {
-    const q = searchTerm.toLowerCase();
-    const matchesSearch = !q ||
-      comp.name.toLowerCase().includes(q) ||
-      comp.code.toLowerCase().includes(q);
-    const matchesCategory = !filterCategory || comp.category === filterCategory;
-    return matchesSearch && matchesCategory;
-  });
-
-  const groupedByCategory = filtered.reduce((acc, comp) => {
-    if (!acc[comp.category]) acc[comp.category] = [];
-    acc[comp.category].push(comp);
-    return acc;
-  }, {});
-
-  const toggleCategory = (cat) => {
-    setExpandedCategories(prev => {
-      const next = new Set(prev);
-      if (next.has(cat)) next.delete(cat);
-      else next.add(cat);
-      return next;
-    });
-  };
-
-  // Auto-expand all when searching
-  useEffect(() => {
-    if (isSearching) {
-      setExpandedCategories(new Set(categories));
-    }
-  }, [isSearching]);
-
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center py-20 px-6">
-        <div className="relative w-16 h-16 mb-5">
-          <div className="absolute inset-0 rounded-full border-4 border-blue-100"/>
-          <div className="absolute inset-0 rounded-full border-4 border-blue-500 border-t-transparent animate-spin"/>
-          <div className="absolute inset-0 flex items-center justify-center text-2xl">📚</div>
-        </div>
-        <p className="text-base font-semibold text-gray-700">Loading CBS Manual</p>
-        <p className="text-sm text-gray-400 mt-1">Parsing competency data…</p>
+      <div style={{ height: 5, background: '#f0f0f0', borderRadius: 99, overflow: 'hidden', marginBottom: 10 }}>
+        <div style={{
+          height: '100%', width: `${progress}%`,
+          background: 'linear-gradient(90deg, #3b82f6, #6366f1 60%, #8b5cf6)',
+          borderRadius: 99, transition: 'width 0.4s cubic-bezier(0.4,0,0.2,1)',
+        }}/>
       </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col h-full">
-      {/* ── Search & Filter Bar ──────────────────────────────────────── */}
-      <div className="px-5 py-4 border-b border-gray-100 bg-gray-50/60 flex-shrink-0">
-        {/* Search input */}
-        <div className="relative mb-3">
-          <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
-            <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 15.803a7.5 7.5 0 0010.607 10.607z"/>
-            </svg>
-          </div>
-          <input
-            ref={searchRef}
-            type="text"
-            placeholder="Search by competency name or code…"
-            value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-10 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent text-sm placeholder-gray-400 shadow-sm"
-          />
-          {searchTerm && (
-            <button
-              onClick={() => setSearchTerm('')}
-              className="absolute inset-y-0 right-3 flex items-center text-gray-400 hover:text-gray-600"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/>
-              </svg>
-            </button>
-          )}
+      <p style={{ textAlign: 'center', fontSize: 12, color: '#9ca3af', marginBottom: 24 }}>
+        First-time parse only — subsequent lookups are instant.
+      </p>
+      {/* Skeleton */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {[96, 130, 112, 108].map((w, i) => (
+            <div key={i} style={{ height: 38, width: w, background: '#f3f4f6', borderRadius: 12, animation: `cdm-pulse 1.6s ease-in-out ${i * 100}ms infinite` }}/>
+          ))}
         </div>
-
-        {/* Category pills */}
-        <div className="flex gap-1.5 flex-wrap">
-          <button
-            onClick={() => setFilterCategory('')}
-            className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${
-              filterCategory === ''
-                ? 'bg-gray-800 text-white'
-                : 'bg-white text-gray-500 border border-gray-200 hover:border-gray-300'
-            }`}
-          >
-            All ({deduped.length})
-          </button>
-          {categories.map((cat, i) => {
-            const cc = CATEGORY_COLORS[i % CATEGORY_COLORS.length];
-            const count = deduped.filter(c => c.category === cat).length;
-            return (
-              <button
-                key={cat}
-                onClick={() => setFilterCategory(filterCategory === cat ? '' : cat)}
-                className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${
-                  filterCategory === cat
-                    ? `${cc.bg} ${cc.text} border ${cc.border} shadow-sm`
-                    : 'bg-white text-gray-500 border border-gray-200 hover:border-gray-300'
-                }`}
-              >
-                {cat} ({count})
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* ── Results ──────────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto px-5 py-4">
-        {filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center text-3xl mb-4">🔍</div>
-            <p className="font-semibold text-gray-700 mb-1">No competencies found</p>
-            <p className="text-sm text-gray-400">Try a different search term or category</p>
-            <button
-              onClick={() => { setSearchTerm(''); setFilterCategory(''); }}
-              className="mt-4 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium transition-colors"
-            >
-              Clear filters
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {Object.entries(groupedByCategory).map(([category, comps]) => {
-              const cc = categoryColorMap[category];
-              const isExpanded = isSearching || expandedCategories.has(category);
-
-              return (
-                <div key={category} className="rounded-xl overflow-hidden border border-gray-100">
-                  {/* Category Header */}
-                  <button
-                    onClick={() => !isSearching && toggleCategory(category)}
-                    className={`w-full flex items-center justify-between px-4 py-3 ${cc.bg} ${!isSearching ? 'hover:opacity-90 transition-opacity' : ''} cursor-${isSearching ? 'default' : 'pointer'}`}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <div className={`w-2 h-2 rounded-full ${cc.dot}`}/>
-                      <span className={`text-sm font-bold ${cc.text}`}>{category}</span>
-                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${cc.badge}`}>
-                        {comps.length}
-                      </span>
-                    </div>
-                    {!isSearching && (
-                      <svg
-                        className={`w-4 h-4 ${cc.text} transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
-                        fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7"/>
-                      </svg>
-                    )}
-                  </button>
-
-                  {/* Competency List */}
-                  {isExpanded && (
-                    <div className="divide-y divide-gray-50 bg-white">
-                      {comps.map((comp, idx) => (
-                        <div key={`${comp.code}-${idx}`} className="px-3 py-2">
-                          <CompetencyCard
-                            comp={comp}
-                            categoryColor={cc}
-                            onClick={() => onSelectCompetency(comp)}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* ── Browser Footer ───────────────────────────────────────────── */}
-      <div className="flex-shrink-0 px-5 py-3 border-t border-gray-100 bg-gray-50/50 flex items-center justify-between">
-        <p className="text-xs text-gray-400">
-          {filtered.length} of {deduped.length} competencies
-          {searchTerm && <span className="ml-1">matching "<span className="text-gray-600 font-medium">{searchTerm}</span>"</span>}
-        </p>
-        <button
-          onClick={onClose}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 text-gray-600 hover:bg-gray-100 rounded-lg text-xs font-medium transition-colors"
-        >
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/>
-          </svg>
-          Back to competency
-        </button>
+        <div style={{ height: 78, background: '#f9fafb', borderRadius: 14, border: '1.5px solid #f3f4f6', animation: 'cdm-pulse 1.6s ease-in-out 200ms infinite' }}/>
+        {[1, 0.85, 0.7].map((o, i) => (
+          <div key={i} style={{ height: 54, background: '#f9fafb', borderRadius: 12, opacity: o, border: '1.5px solid #f3f4f6', animation: `cdm-pulse 1.6s ease-in-out ${i * 150 + 350}ms infinite` }}/>
+        ))}
       </div>
     </div>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Main modal
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── IconBtn ─────────────────────────────────────────────────────────────────
+
+function IconBtn({ onClick, children, label, danger = false }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      aria-label={label}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        width: 32, height: 32, borderRadius: 9, border: '1.5px solid',
+        cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        transition: 'all 0.14s', padding: 0,
+        borderColor: hovered && danger ? '#fca5a5' : hovered ? '#d1d5db' : '#e5e7eb',
+        background: hovered && danger ? '#fef2f2' : hovered ? '#f9fafb' : '#fff',
+        color: hovered && danger ? '#ef4444' : '#9ca3af',
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function TextBtn({ onClick, children, primary = false }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 5,
+        padding: '6px 14px', borderRadius: 9, border: '1.5px solid',
+        cursor: 'pointer', fontSize: 12.5, fontWeight: 700, transition: 'all 0.14s',
+        fontFamily: 'inherit',
+        ...(primary ? {
+          background: hovered ? '#1d4ed8' : '#2563eb',
+          color: '#fff', borderColor: 'transparent',
+          boxShadow: hovered ? '0 4px 14px #2563eb50' : '0 2px 8px #2563eb30',
+        } : {
+          background: hovered ? '#f3f4f6' : '#fff',
+          color: '#374151', borderColor: hovered ? '#d1d5db' : '#e5e7eb',
+        }),
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+// ─── Main Modal ──────────────────────────────────────────────────────────────
 
 export default function CompetencyDetailModal({
   competencyName,
@@ -495,30 +779,23 @@ export default function CompetencyDetailModal({
   browseMode = false,
   directComp = null,
 }) {
-  const [status,       setStatus]       = useState('loading');
-  const resolvedRef                     = useRef(false);
-  const fromBrowserRef                  = useRef(false);
-  const [progress,     setProgress]     = useState(0);
-  const [msg,          setMsg]          = useState('Checking…');
-  const [variants,     setVariants]     = useState([]);
-  const [variantIdx,   setVariantIdx]   = useState(0);
-  const [activeLevel,  setActiveLevel]  = useState(suggestedLevel || 'BASIC');
-  const [isBrowsing,   setIsBrowsing]   = useState(browseMode);
-  const overlayRef                      = useRef(null);
+  const [status,      setStatus]      = useState('loading');
+  const [progress,    setProgress]    = useState(0);
+  const [msg,         setMsg]         = useState('Checking…');
+  const [variants,    setVariants]    = useState([]);
+  const [variantIdx,  setVariantIdx]  = useState(0);
+  const [activeLevel, setActiveLevel] = useState(suggestedLevel || 'BASIC');
+  const [isBrowsing,  setIsBrowsing]  = useState(browseMode);
+  const resolvedRef                   = useRef(false);
+  const fromBrowserRef                = useRef(false);
+  const overlayRef                    = useRef(null);
 
   const data = variants[variantIdx] ?? null;
 
   const resolveActiveLevel = useCallback((comp, preferred) => {
-    if (
-      preferred &&
-      (comp.levels[preferred]?.behavioralIndicator ||
-       comp.levels[preferred]?.items.length > 0)
-    ) {
+    if (preferred && (comp.levels?.[preferred]?.behavioralIndicator || comp.levels?.[preferred]?.items?.length > 0))
       return preferred;
-    }
-    return LEVELS.find(l =>
-      comp.levels[l]?.behavioralIndicator || comp.levels[l]?.items.length > 0
-    ) ?? 'BASIC';
+    return LEVELS.find(l => comp.levels?.[l]?.behavioralIndicator || comp.levels?.[l]?.items?.length > 0) ?? 'BASIC';
   }, []);
 
   useEffect(() => {
@@ -527,60 +804,44 @@ export default function CompetencyDetailModal({
       if (resolvedRef.current) return;
       resolvedRef.current = true;
       setVariants([directComp]);
-      setVariantIdx(0);
       setActiveLevel(resolveActiveLevel(directComp, suggestedLevel));
-      setStatus('found');
-      return;
+      setStatus('found'); return;
     }
-    if (fromBrowserRef.current) return;
-    if (resolvedRef.current) return;
-
+    if (fromBrowserRef.current || resolvedRef.current) return;
     let cancelled = false;
     (async () => {
       const ok = await isPDFAvailable();
       if (!ok) { if (!cancelled) setStatus('no_pdf'); return; }
       try {
         await ensureParsed((pct, m) => { if (!cancelled) { setProgress(pct); setMsg(m); } });
-        const cleanName = competencyName?.replace(/^\([A-Z]+\)\s*[-–]\s*/i, '').trim() ?? competencyName;
+        const cleanName = competencyName?.replace(/^\([A-Z]+\)\s*[-–]\s*/i, '').trim();
         const results = await findCompetenciesByName(cleanName);
         if (cancelled) return;
         if (results.length > 0) {
-          setVariants(results);
-          setVariantIdx(0);
+          setVariants(results); setVariantIdx(0);
           setActiveLevel(resolveActiveLevel(results[0], suggestedLevel));
           setStatus('found');
-        } else {
-          setStatus('not_found');
-        }
+        } else { setStatus('not_found'); }
       } catch { if (!cancelled) setStatus('not_found'); }
     })();
     return () => { cancelled = true; };
   }, [competencyName, suggestedLevel, isBrowsing, directComp, resolveActiveLevel]);
 
-  const handleVariantChange = useCallback((idx) => {
-    setVariantIdx(idx);
-    setActiveLevel(resolveActiveLevel(variants[idx], null));
-  }, [variants, resolveActiveLevel]);
-
   const handleSelectCompetency = useCallback(async (comp) => {
     resolvedRef.current = false;
     fromBrowserRef.current = true;
-    setStatus('loading');
-    setVariants([]);
-    setIsBrowsing(false);
+    setStatus('loading'); setVariants([]); setIsBrowsing(false);
     try {
       const allParsed = await ensureParsed();
-      const sameCode  = allParsed.filter(c => c.code.toUpperCase() === comp.code.toUpperCase());
-      const resolved  = sameCode.length > 0 ? sameCode : [comp];
+      const same = allParsed.filter(c => c.code.toUpperCase() === comp.code.toUpperCase());
+      const resolved = same.length > 0 ? same : [comp];
       resolvedRef.current = true;
-      setVariants(resolved);
-      setVariantIdx(0);
+      setVariants(resolved); setVariantIdx(0);
       setActiveLevel(resolveActiveLevel(resolved[0], null));
       setStatus('found');
     } catch {
       resolvedRef.current = true;
-      setVariants([comp]);
-      setVariantIdx(0);
+      setVariants([comp]); setVariantIdx(0);
       setActiveLevel(resolveActiveLevel(comp, null));
       setStatus('found');
     }
@@ -593,270 +854,315 @@ export default function CompetencyDetailModal({
   }, [onClose]);
 
   const isMultiVariant = variants.length > 1;
-  const displayName = data?.name
-    ?? (competencyName?.replace(/^\([A-Z]+\)\s*-\s*/i, '') || 'CBS Manual Browser');
+  const displayName = data?.name ?? competencyName?.replace(/^\([A-Z]+\)\s*-\s*/i, '') ?? 'CBS Manual';
+  const typeStyle = TYPE_STYLES[competencyType];
 
   return (
     <>
       <style>{`
-        @keyframes cdmSlide  { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
-        @keyframes cdmIn     { from{opacity:0;transform:scale(.96) translateY(12px)} to{opacity:1;transform:scale(1) translateY(0)} }
-        @keyframes cdmFadeIn { from{opacity:0} to{opacity:1} }
-        @keyframes shimmer   { from{background-position:-200% 0} to{background-position:200% 0} }
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&family=Fira+Code:wght@500;700&display=swap');
+        @keyframes cdm-fade-in  { from{opacity:0} to{opacity:1} }
+        @keyframes cdm-modal-in { from{opacity:0;transform:scale(.95) translateY(20px)} to{opacity:1;transform:scale(1) translateY(0)} }
+        @keyframes cdm-slide-up { from{opacity:0;transform:translateY(9px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes cdm-spin      { to { transform: rotate(360deg) } }
+        @keyframes cdm-pulse     { 0%,100%{opacity:.45} 50%{opacity:1} }
+        .cdm * { font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif; box-sizing: border-box; }
+        .cdm ::-webkit-scrollbar { width: 4px; }
+        .cdm ::-webkit-scrollbar-track { background: transparent; }
+        .cdm ::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 99px; }
+        .cdm ::-webkit-scrollbar-thumb:hover { background: #d1d5db; }
       `}</style>
 
+      {/* Overlay */}
       <div
         ref={overlayRef}
         onClick={e => { if (e.target === overlayRef.current) onClose(); }}
-        className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[60] p-4"
-        style={{ animation: 'cdmFadeIn .15s ease-out' }}
+        style={{
+          position: 'fixed', inset: 0, zIndex: 60,
+          background: 'rgba(10, 18, 36, 0.55)',
+          backdropFilter: 'blur(8px) saturate(180%)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: 16, animation: 'cdm-fade-in 0.16s ease',
+        }}
       >
+        {/* Modal shell */}
         <div
-          className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl flex flex-col max-h-[90vh] overflow-hidden"
-          style={{ animation: 'cdmIn .22s cubic-bezier(.4,0,.2,1)' }}
+          className="cdm"
+          style={{
+            background: '#fff',
+            borderRadius: 22,
+            boxShadow: '0 40px 100px rgba(0,0,0,0.22), 0 0 0 1px rgba(0,0,0,0.05), inset 0 1px 0 rgba(255,255,255,0.8)',
+            width: '100%', maxWidth: 780,
+            display: 'flex', flexDirection: 'column',
+            maxHeight: '90vh', overflow: 'hidden',
+            animation: 'cdm-modal-in 0.26s cubic-bezier(0.34, 1.15, 0.64, 1)',
+          }}
         >
-          {/* ── Header ──────────────────────────────────────────────── */}
-          <div className="flex items-start justify-between px-6 pt-5 pb-4 border-b border-gray-100 flex-shrink-0">
-            <div className="flex-1 min-w-0 mr-3">
+          {/* ── Header ─────────────────────────────────────────────── */}
+          <div style={{
+            display: 'flex', alignItems: 'flex-start',
+            justifyContent: 'space-between',
+            padding: '20px 22px 16px',
+            borderBottom: '1.5px solid #f3f4f6',
+            flexShrink: 0,
+          }}>
+            <div style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
               {isBrowsing ? (
-                <div>
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <span className="text-lg">📚</span>
-                    <h2 className="text-lg font-bold text-gray-900">CBS Manual Browser</h2>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{
+                      width: 34, height: 34, borderRadius: 10,
+                      background: 'linear-gradient(135deg, #eff6ff, #dbeafe)',
+                      border: '1.5px solid #bfdbfe',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17,
+                    }}>📚</div>
+                    <div>
+                      <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: '#111827', letterSpacing: '-0.03em' }}>
+                        Browse CBS Manual
+                      </h2>
+                      <p style={{ margin: 0, fontSize: 11.5, color: '#9ca3af', marginTop: 1 }}>
+                        All competencies · ↑↓ navigate · ↵ open
+                      </p>
+                    </div>
                   </div>
-                  <p className="text-xs text-gray-400 ml-7">Browse and search all competencies in the manual</p>
                 </div>
               ) : (
                 <div>
-                  <div className="flex flex-wrap items-center gap-1.5 mb-2">
-                    {competencyType && (
-                      <span className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full ${TYPE_COLOR[competencyType] ?? 'bg-gray-100 text-gray-700'}`}>
-                        {TYPE_LABEL[competencyType] ?? competencyType}
-                      </span>
-                    )}
-                    {data?.code && (
-                      <span className="text-[11px] font-mono font-bold px-2.5 py-0.5 rounded-full bg-gray-100 text-gray-600">
-                        {data.code}
-                      </span>
-                    )}
-                    {data?.category && (
-                      <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 font-medium">
-                        {data.category}
-                      </span>
-                    )}
-                  </div>
-                  <h2 className="text-xl font-bold text-gray-900 leading-snug">
-                    {displayName}
-                  </h2>
+                  {(status === 'found' || status === 'not_found') && (
+                    <>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                        {typeStyle && (
+                          <span style={{
+                            fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 99,
+                            background: typeStyle.bg, color: typeStyle.color, letterSpacing: '0.01em',
+                          }}>
+                            {typeStyle.label}
+                          </span>
+                        )}
+                        {data?.code && (
+                          <span style={{
+                            fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 99,
+                            background: '#f3f4f6', color: '#374151',
+                            fontFamily: "'Fira Code', monospace", letterSpacing: '0.04em',
+                          }}>
+                            {data.code}
+                          </span>
+                        )}
+                        {data?.category && (
+                          <span style={{
+                            fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 99,
+                            background: '#fffbeb', color: '#92400e',
+                          }}>
+                            {data.category}
+                          </span>
+                        )}
+                      </div>
+                      <h2 style={{
+                        margin: 0, fontSize: 20, fontWeight: 800,
+                        color: '#111827', letterSpacing: '-0.035em', lineHeight: 1.24,
+                      }}>
+                        {displayName}
+                      </h2>
+                    </>
+                  )}
+                  {status === 'loading' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div style={{ height: 16, width: 80, background: '#f3f4f6', borderRadius: 99, animation: 'cdm-pulse 1.6s ease infinite' }}/>
+                      <div style={{ height: 24, width: 260, background: '#f3f4f6', borderRadius: 8, animation: 'cdm-pulse 1.6s ease 150ms infinite' }}/>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
 
-            <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Actions */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexShrink: 0 }}>
               {!isBrowsing && status === 'found' && (
-                <button
-                  onClick={() => setIsBrowsing(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 border border-gray-200 text-gray-600 hover:bg-gray-100 rounded-lg text-xs font-medium transition-colors"
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 10h16M4 14h8"/>
+                <TextBtn onClick={() => setIsBrowsing(true)}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                    <path d="M3 6h18M3 12h18M3 18h12"/>
                   </svg>
                   Browse Manual
-                </button>
+                </TextBtn>
               )}
-              <button
-                onClick={onClose}
-                className="w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-                aria-label="Close"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/>
+              <IconBtn onClick={onClose} label="Close" danger>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                  <path d="M18 6 6 18M6 6l12 12"/>
                 </svg>
-              </button>
+              </IconBtn>
             </div>
           </div>
 
-          {/* ── Body ────────────────────────────────────────────────── */}
-          <div className="flex-1 overflow-y-auto min-h-0">
+          {/* ── Body ───────────────────────────────────────────────── */}
+          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
 
-            {/* Browse Mode */}
             {isBrowsing && (
               <BrowserMode
                 onSelectCompetency={handleSelectCompetency}
-                onClose={() => {
+                onBack={() => {
                   if (variants.length > 0 && status === 'found') setIsBrowsing(false);
                   else onClose();
                 }}
               />
             )}
 
-            {/* Loading */}
             {status === 'loading' && !isBrowsing && (
-              <div className="p-6">
-                <div className="flex items-center gap-4 mb-5 p-4 bg-blue-50 rounded-xl border border-blue-100">
-                  <div className="relative w-10 h-10 flex-shrink-0">
-                    <div className="absolute inset-0 rounded-full border-3 border-blue-200"/>
-                    <div className="absolute inset-0 rounded-full border-3 border-blue-500 border-t-transparent animate-spin" style={{ borderWidth: 3 }}/>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-blue-800">Parsing CBS Manual</p>
-                    <p className="text-xs text-blue-500 truncate">{msg}</p>
-                  </div>
-                  <span className="text-sm font-bold font-mono text-blue-600">{progress}%</span>
-                </div>
-                <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden mb-2">
-                  <div
-                    className="h-full bg-gradient-to-r from-blue-500 to-blue-400 rounded-full transition-all duration-500"
-                    style={{ width: `${progress}%` }}
-                  />
-                </div>
-                <p className="text-xs text-gray-400 text-center mb-6">
-                  First load parses all pages once — subsequent lookups are instant.
-                </p>
-                <div className="space-y-3 animate-pulse">
-                  <div className="flex gap-2">
-                    {[1,2,3,4].map(i => <div key={i} className="h-9 bg-gray-100 rounded-lg flex-1"/>)}
-                  </div>
-                  <div className="h-20 bg-gray-50 rounded-xl border border-gray-100"/>
-                  {[1,2,3].map(i => <div key={i} className="h-14 bg-gray-50 rounded-xl border border-gray-100"/>)}
-                </div>
+              <div style={{ overflowY: 'auto', flex: 1 }}>
+                <LoadingState progress={progress} msg={msg}/>
               </div>
             )}
 
-            {/* Not found */}
             {status === 'not_found' && !isBrowsing && (
-              <div className="flex flex-col items-center justify-center py-16 px-8 text-center">
-                <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center text-3xl mb-4">🔍</div>
-                <h3 className="text-base font-bold text-gray-800 mb-2">Competency Not Found</h3>
-                <p className="text-sm text-gray-500 max-w-sm leading-relaxed mb-6">
-                  Could not match{' '}
-                  <strong className="text-gray-700">
+              <div style={{
+                display: 'flex', flexDirection: 'column',
+                alignItems: 'center', justifyContent: 'center',
+                padding: '64px 40px', textAlign: 'center',
+              }}>
+                <div style={{
+                  width: 68, height: 68, borderRadius: 20,
+                  background: '#f9fafb', border: '2px dashed #e5e7eb',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 32, marginBottom: 22,
+                }}>🔍</div>
+                <h3 style={{ margin: '0 0 10px', fontSize: 17, fontWeight: 800, color: '#111827', letterSpacing: '-0.025em' }}>
+                  Not Found in CBS Manual
+                </h3>
+                <p style={{ margin: '0 0 28px', fontSize: 14, color: '#6b7280', maxWidth: 360, lineHeight: 1.65 }}>
+                  Could not match <strong style={{ color: '#374151' }}>
                     "{competencyName?.replace(/^\([A-Z]+\)\s*-\s*/i, '')}"
-                  </strong>{' '}
-                  in the CBS Manual. The database name may differ slightly from the manual's wording.
+                  </strong> in the PDF. The database name may differ from the manual's wording.
                 </p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setIsBrowsing(true)}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold transition-colors shadow-sm"
-                  >
-                    Browse Full Manual
-                  </button>
-                  <button
-                    onClick={onClose}
-                    className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-sm font-medium transition-colors"
-                  >
-                    Close
-                  </button>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <TextBtn onClick={() => setIsBrowsing(true)} primary>Browse Full Manual</TextBtn>
+                  <TextBtn onClick={onClose}>Close</TextBtn>
                 </div>
               </div>
             )}
 
-            {/* No PDF */}
             {status === 'no_pdf' && !isBrowsing && (
-              <div className="flex flex-col items-center justify-center py-16 px-8 text-center">
-                <div className="w-16 h-16 rounded-2xl bg-red-50 border border-red-100 flex items-center justify-center text-3xl mb-4">📄</div>
-                <h3 className="text-base font-bold text-gray-800 mb-2">PDF Not Loaded</h3>
-                <p className="text-sm text-gray-500 max-w-xs leading-relaxed mb-2">
-                  Place <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs font-mono">2025_CBS.pdf</code> in the{' '}
-                  <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs font-mono">/public/rhrmpsb-system</code>{' '}
-                  folder and redeploy.
+              <div style={{
+                display: 'flex', flexDirection: 'column',
+                alignItems: 'center', justifyContent: 'center',
+                padding: '64px 40px', textAlign: 'center',
+              }}>
+                <div style={{
+                  width: 68, height: 68, borderRadius: 20,
+                  background: '#fef2f2', border: '1.5px solid #fecaca',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 32, marginBottom: 22,
+                }}>📄</div>
+                <h3 style={{ margin: '0 0 10px', fontSize: 17, fontWeight: 800, color: '#111827' }}>PDF Not Loaded</h3>
+                <p style={{ margin: '0 0 8px', fontSize: 14, color: '#6b7280', maxWidth: 340, lineHeight: 1.65 }}>
+                  Place{' '}
+                  <code style={{ background: '#f3f4f6', padding: '2px 7px', borderRadius: 6, fontSize: 12.5, fontFamily: "'Fira Code', monospace" }}>
+                    2025_CBS.pdf
+                  </code>{' '}
+                  in{' '}
+                  <code style={{ background: '#f3f4f6', padding: '2px 7px', borderRadius: 6, fontSize: 12.5, fontFamily: "'Fira Code', monospace" }}>
+                    /public/rhrmpsb-system
+                  </code>{' '}
+                  and redeploy.
                 </p>
-                <button onClick={onClose} className="mt-5 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-sm font-medium transition-colors">
-                  Close
-                </button>
+                <div style={{ marginTop: 24 }}>
+                  <TextBtn onClick={onClose}>Close</TextBtn>
+                </div>
               </div>
             )}
 
-            {/* Found */}
             {status === 'found' && !isBrowsing && data && (
-              <>
+              <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
                 {/* Multi-variant warning */}
                 {isMultiVariant && (
-                  <div className="mx-5 mt-4 flex items-start gap-3 p-4 rounded-xl bg-amber-50 border border-amber-200">
-                    <span className="text-xl flex-shrink-0">⚠️</span>
+                  <div style={{
+                    margin: '16px 20px 0',
+                    display: 'flex', alignItems: 'flex-start', gap: 12,
+                    padding: '12px 16px', borderRadius: 13,
+                    background: '#fffbeb', border: '1.5px solid #fde68a',
+                  }}>
+                    <span style={{ fontSize: 18, flexShrink: 0, lineHeight: 1 }}>⚠️</span>
                     <div>
-                      <p className="text-sm font-bold text-amber-800 mb-0.5">
-                        {variants.length} variants found in the CBS Manual
+                      <p style={{ margin: '0 0 3px', fontWeight: 800, fontSize: 13, color: '#92400e' }}>
+                        {variants.length} variants found in CBS Manual
                       </p>
-                      <p className="text-xs text-amber-700 leading-relaxed">
-                        The manual contains multiple versions of <em>"{displayName}"</em> under different office
-                        contexts ({variants.map(v => v.category).join(', ')}). Each variant may have different
-                        behavioral indicators and KSAs.
+                      <p style={{ margin: 0, fontSize: 12.5, color: '#a16207', lineHeight: 1.58 }}>
+                        Multiple versions of <em>"{displayName}"</em> exist under different office contexts
+                        ({variants.map(v => v.category).join(', ')}). Review all variants below.
                       </p>
                     </div>
                   </div>
                 )}
 
-                {isMultiVariant && (
-                  <VariantTabs variants={variants} activeIdx={variantIdx} onChange={handleVariantChange} />
-                )}
+                <VariantTabs variants={variants} activeIdx={variantIdx} onChange={idx => {
+                  setVariantIdx(idx);
+                  setActiveLevel(resolveActiveLevel(variants[idx], null));
+                }}/>
 
-                {/* Level tabs */}
-                <div className="sticky top-0 z-10 bg-white/95 backdrop-blur-sm border-b border-gray-100 px-5 pt-4 pb-3">
-                  <div className="flex flex-wrap gap-2">
+                {/* Sticky level tabs */}
+                <div style={{
+                  flexShrink: 0, padding: '14px 20px 12px',
+                  borderBottom: '1.5px solid #f3f4f6',
+                  background: 'rgba(255,255,255,0.97)',
+                  backdropFilter: 'blur(10px)',
+                  position: 'sticky', top: 0, zIndex: 10,
+                }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
                     {LEVELS.map(level => {
-                      const cfg = LEVEL_CFG[level];
-                      const ld  = data.levels[level];
-                      const has = ld?.behavioralIndicator || ld?.items?.length > 0;
-                      const isActive = activeLevel === level;
+                      const ld = data.levels?.[level];
+                      const has = !!(ld?.behavioralIndicator || ld?.items?.length > 0);
                       return (
-                        <button
-                          key={level}
-                          onClick={() => setActiveLevel(level)}
-                          disabled={!has}
-                          className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-150
-                            ${isActive ? cfg.tab : cfg.tabOff}
-                            ${!has ? 'opacity-25 cursor-not-allowed' : 'cursor-pointer'}`}
-                        >
-                          <span className="text-base">{cfg.icon}</span>
-                          <span>{cfg.label}</span>
-                          {has && ld.items?.length > 0 && (
-                            <span className={`text-xs font-bold px-1.5 py-0.5 rounded-md ${isActive ? 'bg-white/25 text-white' : cfg.badge}`}>
-                              {ld.items.length}
-                            </span>
-                          )}
-                        </button>
+                        <LevelBadge
+                          key={level} level={level}
+                          active={activeLevel === level}
+                          hasContent={has}
+                          count={ld?.items?.length ?? 0}
+                          onClick={() => has && setActiveLevel(level)}
+                        />
                       );
                     })}
                   </div>
                 </div>
 
-                <div className="p-5">
-                  <LevelPanel level={activeLevel} data={data.levels[activeLevel]} />
+                {/* Scrollable content */}
+                <div style={{ flex: 1, overflowY: 'auto', padding: '22px 22px 28px' }}>
+                  <LevelPanel level={activeLevel} data={data.levels?.[activeLevel]}/>
                 </div>
-              </>
+              </div>
             )}
           </div>
 
-          {/* ── Footer ──────────────────────────────────────────────── */}
+          {/* ── Footer ─────────────────────────────────────────────── */}
           {status === 'found' && !isBrowsing && data && (
-            <div className="flex-shrink-0 border-t border-gray-100 px-5 py-3 bg-gray-50/60 flex items-center justify-between">
-              <p className="text-xs text-gray-400">
-                Source: CBS Manual
-                {data.code && <span className="ml-1 font-mono font-semibold text-gray-500">{data.code}</span>}
-                {isMultiVariant && (
-                  <span className="ml-2 text-amber-600 font-medium">
-                    · Variant {variantIdx + 1}/{variants.length} — {data.category}
+            <div style={{
+              flexShrink: 0, padding: '10px 20px',
+              borderTop: '1.5px solid #f3f4f6',
+              background: '#fafafa',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 11.5, color: '#9ca3af', fontWeight: 500 }}>CBS Manual 2025</span>
+                {data.code && (
+                  <span style={{
+                    fontSize: 11, fontWeight: 700, fontFamily: "'Fira Code', monospace",
+                    background: '#f3f4f6', color: '#374151',
+                    padding: '2px 8px', borderRadius: 6,
+                  }}>
+                    {data.code}
                   </span>
                 )}
-              </p>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setIsBrowsing(true)}
-                  className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-                >
-                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 10h16M4 14h8"/>
+                {isMultiVariant && (
+                  <span style={{ fontSize: 11.5, color: '#d97706', fontWeight: 700 }}>
+                    Variant {variantIdx + 1}/{variants.length} · {data.category}
+                  </span>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 7 }}>
+                <TextBtn onClick={() => setIsBrowsing(true)}>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                    <path d="M3 6h18M3 12h18M3 18h12"/>
                   </svg>
-                  Browse Manual
-                </button>
-                <button
-                  onClick={onClose}
-                  className="px-4 py-1.5 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-lg text-sm font-medium transition-colors shadow-sm"
-                >
-                  Close
-                </button>
+                  Browse
+                </TextBtn>
+                <TextBtn onClick={onClose}>Close</TextBtn>
               </div>
             </div>
           )}
