@@ -719,7 +719,7 @@ function VariantTabs({ variants, activeIdx, onChange, onExpand }) {
       border: `1.5px solid ${expanded ? '#f59e0b' : '#fde68a'}`,
       borderRadius: 14,
       background: expanded ? '#fffbeb' : '#fffef5',
-      overflow: 'hidden',
+      // NO overflow:hidden here — that was clipping wrapped rows
       transition: 'border-color 0.2s, background 0.2s',
     }}>
       {/* Always-visible header — click to toggle */}
@@ -729,7 +729,7 @@ function VariantTabs({ variants, activeIdx, onChange, onExpand }) {
           width: '100%', display: 'flex', alignItems: 'center',
           justifyContent: 'space-between', padding: '9px 14px',
           background: 'transparent', border: 'none', cursor: 'pointer',
-          fontFamily: 'inherit',
+          fontFamily: 'inherit', borderRadius: expanded ? '14px 14px 0 0' : 14,
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -761,23 +761,32 @@ function VariantTabs({ variants, activeIdx, onChange, onExpand }) {
       {expanded && (
         <div style={{
           display: 'flex', flexWrap: 'wrap', gap: 6,
-          padding: '4px 14px 12px',
+          padding: '8px 12px 12px',
           borderTop: '1px solid #fde68a',
+          // Allow natural height — no clipping
+          overflowY: 'visible',
         }}>
           {variants.map((v, i) => (
-            <button key={`${v.code}-${i}`} onClick={() => onChange(i)} style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '5px 13px', borderRadius: 8, cursor: 'pointer',
-              background: i === activeIdx ? '#f59e0b' : '#fff',
-              color: i === activeIdx ? '#fff' : '#92400e',
-              fontWeight: 700, fontSize: 12, transition: 'all 0.15s',
-              boxShadow: i === activeIdx ? '0 2px 8px #f59e0b35' : '0 1px 3px rgba(0,0,0,0.08)',
-              fontFamily: 'inherit',
-              border: `1px solid ${i === activeIdx ? 'transparent' : '#fcd34d'}`,
-            }}>
-              <span style={{ fontFamily: "'Fira Code', monospace" }}>{v.code}</span>
-              <span style={{ opacity: 0.55 }}>·</span>
-              <span>{v.category}</span>
+            <button
+              key={`${v.code}-${i}`}
+              onClick={() => onChange(i)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 5,
+                // flex-shrink allowed, but don't grow beyond content
+                flexShrink: 0,
+                padding: '5px 10px', borderRadius: 8, cursor: 'pointer',
+                background: i === activeIdx ? '#f59e0b' : '#fff',
+                color: i === activeIdx ? '#fff' : '#92400e',
+                fontWeight: 700, fontSize: 11.5, transition: 'all 0.15s',
+                boxShadow: i === activeIdx ? '0 2px 8px #f59e0b35' : '0 1px 3px rgba(0,0,0,0.08)',
+                fontFamily: 'inherit',
+                border: `1px solid ${i === activeIdx ? 'transparent' : '#fcd34d'}`,
+                whiteSpace: 'nowrap',  // keep each button on one line
+              }}
+            >
+              <span style={{ fontFamily: "'Fira Code', monospace", fontSize: 11 }}>{v.code}</span>
+              <span style={{ opacity: 0.4, fontSize: 10 }}>·</span>
+              <span style={{ fontSize: 11 }}>{v.category}</span>
             </button>
           ))}
         </div>
@@ -1196,7 +1205,7 @@ export default function CompetencyDetailModal({
             )}
 
             {status === 'found' && !isBrowsing && data && (
-              <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
 
                 {/* ── Collapsible variant warning + tabs ─────────────── */}
                 <VariantTabs
