@@ -7,7 +7,6 @@
   to   { opacity: 1; transform: scale(1) translateY(0); }
 }
 
-/* Add to your main CSS file (e.g., App.css or index.css) */
 @keyframes slide-in-right {
   from {
     transform: translateX(100%);
@@ -33,100 +32,195 @@
   .btn-primary {
     @apply bg-gray-800 text-white px-4 py-2 rounded-md hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors;
   }
-  
+
   .btn-secondary {
     @apply bg-gray-200 text-gray-800 px-2 py-1 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-xs sm:px-3 sm:py-1.5 sm:text-sm;
   }
-  
+
   .btn-danger {
     @apply bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors;
   }
-  
+
   .input-field {
     @apply w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-transparent;
   }
-  
+
   .select-field {
     @apply w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-transparent bg-white;
   }
-  
+
   .card {
     @apply bg-white shadow-md rounded-lg p-6 border border-gray-200;
   }
-  
+
   .table-header {
     @apply bg-gray-100 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider;
   }
-  
+
   .table-cell {
     @apply px-4 py-3 whitespace-nowrap text-sm text-gray-900;
   }
-  
+
   .modal-overlay {
     @apply fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50;
   }
-  
+
   .modal-content {
     @apply bg-white rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto;
   }
-  
+
   .sidebar {
     @apply bg-gray-800 text-white w-64 min-h-screen p-4;
   }
-  
+
   .sidebar-item {
     @apply block w-full text-left px-4 py-2 rounded-md hover:bg-gray-700 transition-colors mb-2;
   }
-  
+
+  /* ─── Navbar base (mobile-first) ──────────────────────────────────────────── */
+
   .navbar {
-    @apply bg-white shadow-sm border-b border-gray-200 px-3 py-2 flex items-center justify-between w-full box-border;
+    @apply bg-white shadow-sm border-b border-gray-200 w-full box-border;
+    display: flex;
+    align-items: center;
+    padding: 6px 10px;
+    gap: 6px;
+    overflow: hidden;
   }
 
+  /* LEFT side: takes all leftover space, clips its own content.
+     min-width:0 is CRITICAL — without it, flex ignores overflow:hidden on children */
   .navbar-title-container {
-    @apply flex items-center flex-1 min-w-0 mr-2;
+    display: flex;
+    align-items: center;
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+    gap: 4px;
   }
 
+  .navbar-title-container img {
+    flex-shrink: 0;
+  }
+
+  /* Title truncates with "…" instead of pushing the buttons off screen */
   .navbar-title {
-    @apply font-bold text-gray-900 whitespace-nowrap;
-    font-size: clamp(8px, 2.8vw, 10px);
-    line-height: 1.2;
+    @apply font-bold text-gray-900;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: clamp(9px, 2.2vw, 13px);
+    line-height: 1.25;
+    min-width: 0;
   }
 
   .navbar-user-type {
-    @apply ml-1 px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded-full whitespace-nowrap text-[8px] sm:text-xs;
+    @apply bg-gray-100 text-gray-600 rounded-full;
+    flex-shrink: 0;
+    white-space: nowrap;
+    font-size: clamp(8px, 1.3vw, 11px);
+    padding: 2px 5px;
   }
 
+  /* RIGHT side: flex: 0 0 auto means it NEVER yields space to the title side */
   .navbar-buttons {
-    @apply flex items-center space-x-1 sm:space-x-2;
-  }
-
-  .navbar-button {
-    @apply px-2 py-1 rounded-lg text-[10px] transition-colors min-w-[44px] text-center whitespace-nowrap sm:px-2.5 sm:py-1 sm:text-xs;
+    display: flex;
+    align-items: center;
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+    gap: 4px;
   }
 
   .navbar-welcome {
-    @apply hidden sm:inline text-[10px] sm:text-xs text-gray-600;
+    @apply text-gray-600;
+    display: none;
+    white-space: nowrap;
+    font-size: 11px;
   }
 
+  .navbar-button {
+    @apply rounded-lg transition-colors text-center;
+    flex-shrink: 0;
+    white-space: nowrap;
+    font-size: clamp(9px, 1.4vw, 11px);
+    padding: 4px 8px;
+    line-height: 1.35;
+  }
+
+  /* ─── Tablet (768px – 1023px) ─────────────────────────────────────────────── */
   @media (min-width: 768px) {
     .navbar {
-      @apply px-4 py-3;
+      padding: 8px 14px;
+      gap: 8px;
+    }
+
+    .navbar-title-container {
+      gap: 6px;
     }
 
     .navbar-title {
-      font-size: clamp(12px, 3.5vw, 14px);
+      font-size: clamp(10px, 1.9vw, 14px);
     }
 
     .navbar-user-type {
-      @apply ml-2 px-2 py-1;
+      font-size: clamp(9px, 1.1vw, 11px);
+      padding: 2px 7px;
     }
 
     .navbar-buttons {
-      @apply space-x-2;
+      gap: 5px;
     }
 
     .navbar-button {
-      @apply px-3 py-1.5 text-sm;
+      font-size: clamp(10px, 1.3vw, 12px);
+      padding: 5px 10px;
+    }
+  }
+
+  /* ─── Desktop (1024px+) ───────────────────────────────────────────────────── */
+  @media (min-width: 1024px) {
+    .navbar {
+      padding: 10px 20px;
+      gap: 12px;
+    }
+
+    .navbar-title {
+      font-size: 14px;
+    }
+
+    .navbar-user-type {
+      font-size: 11px;
+      padding: 3px 9px;
+    }
+
+    .navbar-buttons {
+      gap: 8px;
+    }
+
+    .navbar-welcome {
+      display: inline;
+      font-size: 12px;
+    }
+
+    .navbar-button {
+      font-size: 12px;
+      padding: 6px 13px;
+    }
+  }
+
+  /* ─── Wide desktop (1280px+) ──────────────────────────────────────────────── */
+  @media (min-width: 1280px) {
+    .navbar {
+      padding: 10px 24px;
+    }
+
+    .navbar-title {
+      font-size: 15px;
+    }
+
+    .navbar-button {
+      font-size: 13px;
+      padding: 6px 14px;
     }
   }
 }
