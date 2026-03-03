@@ -345,6 +345,792 @@ const UserSelectionModal = ({ isOpen, onClose, users, onSelectUser }) => {
   );
 };
 
+// ─── STAR Method Guide Modal (Raters only) ────────────────────────────────────
+
+const STAR_SECTIONS = [
+  {
+    letter: 'S',
+    word: 'Situation',
+    color: '#1d4ed8',
+    lightColor: '#eff6ff',
+    borderColor: '#bfdbfe',
+    icon: '🔍',
+    tagline: 'Set the scene',
+    description: 'Describe the context and background of the specific situation or challenge the candidate faced.',
+    interviewerTips: [
+      'Ask about a specific past event, not a hypothetical',
+      'Probe for details: When did this happen? What was the environment?',
+      'Clarify the candidate\'s role in the situation',
+      'Look for situations that are relevant to the competency being assessed',
+    ],
+    probeQuestions: [
+      '"When exactly did this happen?"',
+      '"What was your role or position at the time?"',
+      '"What were the key constraints or challenges in that environment?"',
+      '"What was the broader context — why did this matter to the organization?"',
+    ],
+    redFlags: [
+      'Vague or generic descriptions ("I always do this…")',
+      'Hypothetical responses ("If that happened, I would…")',
+      'Cannot recall specific details',
+    ],
+  },
+  {
+    letter: 'T',
+    word: 'Task',
+    color: '#065f46',
+    lightColor: '#ecfdf5',
+    borderColor: '#a7f3d0',
+    icon: '🎯',
+    tagline: 'Define the responsibility',
+    description: 'Clarify what the candidate was specifically responsible for — their goal, obligation, or challenge.',
+    interviewerTips: [
+      'Distinguish between what the team did and what the candidate personally did',
+      'Identify the specific objective they were trying to achieve',
+      'Determine if the task was assigned or self-initiated',
+      'Assess the scope and complexity of the responsibility',
+    ],
+    probeQuestions: [
+      '"What specifically were YOU responsible for?"',
+      '"Was this task assigned to you, or did you take it on yourself?"',
+      '"What was the expected outcome or deliverable?"',
+      '"What would have happened if this task was not completed?"',
+    ],
+    redFlags: [
+      'Overuse of "we" without clarifying personal contribution',
+      'Unclear ownership of the task',
+      'Task seems too simple for the competency level being assessed',
+    ],
+  },
+  {
+    letter: 'A',
+    word: 'Action',
+    color: '#92400e',
+    lightColor: '#fffbeb',
+    borderColor: '#fcd34d',
+    icon: '⚡',
+    tagline: 'Unpack what they did',
+    description: 'The heart of STAR — what specific steps did the candidate personally take to address the situation?',
+    interviewerTips: [
+      'This is the most important component — dig deep here',
+      'Ask for step-by-step breakdown of what they did',
+      'Distinguish their actions from those of teammates or supervisors',
+      'Look for initiative, judgment calls, and competency indicators',
+      'Follow up on each action: "Why did you choose that approach?"',
+    ],
+    probeQuestions: [
+      '"Walk me through exactly what YOU did, step by step."',
+      '"Why did you choose that particular approach?"',
+      '"What alternatives did you consider?"',
+      '"How did you handle any obstacles or resistance?"',
+      '"What decisions did you personally make?"',
+      '"Did you involve others? What was your role versus theirs?"',
+    ],
+    redFlags: [
+      'Actions are vague ("I managed the situation")',
+      'Cannot explain their reasoning or decision-making',
+      'Actions seem inconsistent with the outcome described',
+      'Difficulty separating their actions from the team\'s',
+    ],
+  },
+  {
+    letter: 'R',
+    word: 'Result',
+    color: '#581c87',
+    lightColor: '#faf5ff',
+    borderColor: '#d8b4fe',
+    icon: '🏆',
+    tagline: 'Measure the impact',
+    description: 'What was the outcome? Look for concrete, measurable results and evidence of reflection.',
+    interviewerTips: [
+      'Push for quantifiable outcomes (%, numbers, timelines)',
+      'Ask about both immediate and long-term results',
+      'Explore what the candidate learned from the experience',
+      'Verify that the result was actually caused by their actions',
+      'Look for self-awareness — can they reflect on what went well or poorly?',
+    ],
+    probeQuestions: [
+      '"What was the specific outcome of your actions?"',
+      '"Can you quantify the result? (numbers, percentages, timelines)"',
+      '"How did others — your supervisor, team, or stakeholders — respond?"',
+      '"What did you learn from this experience?"',
+      '"If you could do it again, what would you do differently?"',
+      '"Was the overall outcome positive, and why or why not?"',
+    ],
+    redFlags: [
+      'Results are vague or unmeasured ("it went well")',
+      'Cannot connect their actions to the outcome',
+      'No reflection or learning from the experience',
+      'Results seem implausible or exaggerated',
+    ],
+  },
+];
+
+const SCORING_GUIDE = [
+  {
+    score: 5,
+    label: 'Outstanding',
+    color: '#065f46',
+    bg: '#ecfdf5',
+    border: '#6ee7b7',
+    description: 'All STAR components are fully present, specific, and verifiable. Actions demonstrate mastery of the competency at the expected level. Results are measurable and clearly attributed to the candidate\'s actions. Candidate shows strong self-awareness and reflection.',
+  },
+  {
+    score: 4,
+    label: 'Very Satisfactory',
+    color: '#1d4ed8',
+    bg: '#eff6ff',
+    border: '#93c5fd',
+    description: 'Most STAR components are clear and complete. Actions show solid competency demonstration with minor gaps. Results are present but may lack full quantification. Candidate can reflect on the experience with minimal prompting.',
+  },
+  {
+    score: 3,
+    label: 'Satisfactory',
+    color: '#92400e',
+    bg: '#fffbeb',
+    border: '#fcd34d',
+    description: 'STAR components are partially present. Some prompting was required. Actions show basic competency but limited depth. Results are mentioned but not well-quantified. Candidate demonstrates some awareness of impact.',
+  },
+  {
+    score: 2,
+    label: 'Unsatisfactory',
+    color: '#b45309',
+    bg: '#fff7ed',
+    border: '#fdba74',
+    description: 'STAR components are incomplete or unclear. Significant prompting was required. Actions are vague or lack personal ownership. Results are unclear or not connected to actions. Competency demonstration is weak.',
+  },
+  {
+    score: 1,
+    label: 'Poor',
+    color: '#991b1b',
+    bg: '#fef2f2',
+    border: '#fca5a5',
+    description: 'Response lacks meaningful STAR components even with heavy prompting. Cannot provide specific examples. Actions and results are absent or implausible. No evidence of the competency being assessed.',
+  },
+];
+
+const DO_DONTS = {
+  dos: [
+    'Use past-tense follow-up questions ("Tell me about a time when…")',
+    'Allow silence — give the candidate time to think',
+    'Take brief notes on each STAR component as they speak',
+    'Probe with neutral follow-ups ("Tell me more about that")',
+    'Ask about ONE specific situation per competency',
+    'Listen for "I" statements that show personal ownership',
+    'Redirect politely if the candidate gives a hypothetical response',
+    'Clarify ambiguous pronouns: "When you say \'we,\' what did YOU specifically do?"',
+  ],
+  donts: [
+    'Do NOT ask leading questions ("Didn\'t you feel that…?")',
+    'Do NOT accept hypothetical answers ("If that happened, I would…")',
+    'Do NOT ask multiple questions at once',
+    'Do NOT interrupt before a complete STAR response is given',
+    'Do NOT share your own opinions or experiences',
+    'Do NOT let the candidate change to a different, easier story midway',
+    'Do NOT rush — behavioral interviews require adequate time per competency',
+    'Do NOT make assumptions about missing components without probing first',
+  ],
+};
+
+const STARGuideModal = ({ isOpen, onClose }) => {
+  const [activeTab, setActiveTab] = useState('overview');
+  const [expandedSection, setExpandedSection] = useState(null);
+  const scrollRef = useRef(null);
+
+  useEffect(() => {
+    if (isOpen && scrollRef.current) {
+      scrollRef.current.scrollTop = 0;
+    }
+  }, [isOpen, activeTab]);
+
+  if (!isOpen) return null;
+
+  const tabs = [
+    { id: 'overview',  label: 'STAR Overview',     icon: '⭐' },
+    { id: 'deep',      label: 'Component Deep Dive',icon: '🔬' },
+    { id: 'scoring',   label: 'Scoring Guide',      icon: '📊' },
+    { id: 'dodont',    label: 'Do\'s & Don\'ts',    icon: '✅' },
+    { id: 'samples',   label: 'Sample Questions',   icon: '💬' },
+  ];
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl flex flex-col"
+           style={{ maxHeight: '90vh' }}>
+
+        {/* ── Header ── */}
+        <div style={{
+          background: 'linear-gradient(135deg, #1e3a5f 0%, #1d4ed8 60%, #312e81 100%)',
+          borderRadius: '16px 16px 0 0',
+          padding: '20px 24px 16px',
+          flexShrink: 0,
+        }}>
+          <div className="flex justify-between items-start">
+            <div>
+              <div className="flex items-center gap-3 mb-1">
+                <span style={{ fontSize: 28 }}>⭐</span>
+                <h2 style={{
+                  fontSize: 20, fontWeight: 800, color: '#fff',
+                  letterSpacing: '-0.3px', margin: 0,
+                }}>
+                  STAR Method Interview Guide
+                </h2>
+              </div>
+              <p style={{ color: '#93c5fd', fontSize: 12.5, margin: 0, fontWeight: 500 }}>
+                Structured Behavioral Interview Framework for Raters · DENR CBS Rating System
+              </p>
+            </div>
+            <button
+              onClick={onClose}
+              style={{
+                background: 'rgba(255,255,255,0.15)', border: 'none',
+                borderRadius: 8, cursor: 'pointer', padding: '6px 8px',
+                color: '#fff', fontSize: 18, lineHeight: 1,
+                transition: 'background 0.2s',
+              }}
+              onMouseEnter={e => e.target.style.background = 'rgba(255,255,255,0.25)'}
+              onMouseLeave={e => e.target.style.background = 'rgba(255,255,255,0.15)'}
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* STAR letter pills */}
+          <div className="flex gap-2 mt-3">
+            {STAR_SECTIONS.map(s => (
+              <div key={s.letter} style={{
+                background: 'rgba(255,255,255,0.18)',
+                borderRadius: 8, padding: '4px 12px',
+                display: 'flex', alignItems: 'center', gap: 5,
+              }}>
+                <span style={{ fontWeight: 900, fontSize: 15, color: '#fff' }}>{s.letter}</span>
+                <span style={{ fontSize: 11, color: '#bfdbfe', fontWeight: 600 }}>{s.word}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Tab Bar ── */}
+        <div style={{
+          display: 'flex', gap: 2, padding: '10px 16px 0',
+          background: '#f8fafc', borderBottom: '1.5px solid #e2e8f0',
+          flexShrink: 0, overflowX: 'auto',
+        }}>
+          {tabs.map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              style={{
+                padding: '7px 13px', borderRadius: '8px 8px 0 0',
+                border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                fontSize: 12, fontWeight: activeTab === tab.id ? 700 : 500,
+                color: activeTab === tab.id ? '#1d4ed8' : '#64748b',
+                background: activeTab === tab.id ? '#fff' : 'transparent',
+                borderBottom: activeTab === tab.id ? '2px solid #1d4ed8' : '2px solid transparent',
+                whiteSpace: 'nowrap',
+                transition: 'all 0.15s',
+                display: 'flex', alignItems: 'center', gap: 5,
+              }}
+            >
+              <span>{tab.icon}</span>
+              <span>{tab.label}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* ── Scrollable Body ── */}
+        <div ref={scrollRef} style={{ overflowY: 'auto', flex: 1, padding: '20px 24px 28px' }}>
+
+          {/* ── OVERVIEW TAB ── */}
+          {activeTab === 'overview' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              <div style={{
+                background: '#eff6ff', border: '1.5px solid #bfdbfe',
+                borderRadius: 12, padding: '14px 18px',
+              }}>
+                <p style={{ fontSize: 13.5, color: '#1e40af', lineHeight: 1.65, margin: 0 }}>
+                  <strong>STAR</strong> is a structured technique for evaluating behavioral competencies. It helps raters collect consistent, evidence-based responses that reveal how a candidate actually behaved in past situations — the best predictor of future performance.
+                </p>
+              </div>
+
+              {/* Four components summary */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                {STAR_SECTIONS.map(s => (
+                  <div key={s.letter} style={{
+                    background: s.lightColor,
+                    border: `1.5px solid ${s.borderColor}`,
+                    borderRadius: 12, padding: '14px 16px',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                      <div style={{
+                        width: 32, height: 32, borderRadius: 8,
+                        background: s.color, display: 'flex',
+                        alignItems: 'center', justifyContent: 'center',
+                        fontWeight: 900, fontSize: 16, color: '#fff',
+                        flexShrink: 0,
+                      }}>
+                        {s.letter}
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: 800, fontSize: 13.5, color: s.color }}>{s.word}</div>
+                        <div style={{ fontSize: 11, color: s.color, opacity: 0.8 }}>{s.tagline}</div>
+                      </div>
+                      <span style={{ marginLeft: 'auto', fontSize: 18 }}>{s.icon}</span>
+                    </div>
+                    <p style={{ fontSize: 12, color: '#374151', lineHeight: 1.55, margin: 0 }}>
+                      {s.description}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              {/* How to use */}
+              <div style={{ background: '#f8fafc', borderRadius: 12, padding: '16px 18px' }}>
+                <h3 style={{ fontSize: 13.5, fontWeight: 800, color: '#1e293b', marginBottom: 10 }}>
+                  How to Use STAR During the Interview
+                </h3>
+                {[
+                  { step: '1', text: 'Select a competency to assess based on the position requirements.' },
+                  { step: '2', text: 'Ask an open behavioral question: "Tell me about a time when you had to [competency behavior]."' },
+                  { step: '3', text: 'Let the candidate respond. Take notes silently.' },
+                  { step: '4', text: 'Use probe questions to fill in missing STAR components (S, T, A, or R).' },
+                  { step: '5', text: 'Score the response based on completeness, specificity, and competency alignment.' },
+                  { step: '6', text: 'Repeat for the next competency with a fresh question.' },
+                ].map(item => (
+                  <div key={item.step} style={{ display: 'flex', gap: 10, marginBottom: 8, alignItems: 'flex-start' }}>
+                    <div style={{
+                      width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
+                      background: '#1d4ed8', color: '#fff',
+                      fontSize: 11, fontWeight: 800,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      {item.step}
+                    </div>
+                    <p style={{ fontSize: 12.5, color: '#374151', lineHeight: 1.55, margin: 0 }}>{item.text}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Key principle callout */}
+              <div style={{
+                background: 'linear-gradient(135deg, #fef3c7, #fde68a)',
+                border: '1.5px solid #f59e0b', borderRadius: 12, padding: '14px 18px',
+                display: 'flex', gap: 12, alignItems: 'flex-start',
+              }}>
+                <span style={{ fontSize: 22, flexShrink: 0 }}>💡</span>
+                <div>
+                  <p style={{ fontWeight: 800, fontSize: 13, color: '#78350f', marginBottom: 4 }}>
+                    The Golden Rule of STAR
+                  </p>
+                  <p style={{ fontSize: 12.5, color: '#92400e', lineHeight: 1.6, margin: 0 }}>
+                    You are evaluating <strong>what the candidate actually did</strong> — not what they would do, could do, or think should be done. Always redirect hypothetical responses back to a real past experience.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── DEEP DIVE TAB ── */}
+          {activeTab === 'deep' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <p style={{ fontSize: 12.5, color: '#64748b', margin: '0 0 4px', lineHeight: 1.55 }}>
+                Click on each component to expand detailed interviewer guidance, probe questions, and red flags to watch for.
+              </p>
+              {STAR_SECTIONS.map((s, idx) => {
+                const isOpen = expandedSection === idx;
+                return (
+                  <div key={s.letter} style={{
+                    border: `1.5px solid ${isOpen ? s.color : s.borderColor}`,
+                    borderRadius: 12, overflow: 'hidden',
+                    transition: 'border-color 0.2s',
+                  }}>
+                    {/* Accordion header */}
+                    <button
+                      onClick={() => setExpandedSection(isOpen ? null : idx)}
+                      style={{
+                        width: '100%', display: 'flex', alignItems: 'center',
+                        gap: 12, padding: '14px 16px',
+                        background: isOpen ? s.lightColor : '#fff',
+                        border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                        textAlign: 'left', transition: 'background 0.2s',
+                      }}
+                    >
+                      <div style={{
+                        width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+                        background: s.color, display: 'flex',
+                        alignItems: 'center', justifyContent: 'center',
+                        fontWeight: 900, fontSize: 18, color: '#fff',
+                      }}>
+                        {s.letter}
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 800, fontSize: 14, color: s.color }}>{s.word}</div>
+                        <div style={{ fontSize: 11.5, color: '#64748b' }}>{s.tagline}</div>
+                      </div>
+                      <span style={{ fontSize: 18 }}>{s.icon}</span>
+                      <svg
+                        width="16" height="16" viewBox="0 0 24 24" fill="none"
+                        stroke={s.color} strokeWidth="2.5" strokeLinecap="round"
+                        style={{ transition: 'transform 0.2s', transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', flexShrink: 0 }}
+                      >
+                        <path d="m6 9 6 6 6-6"/>
+                      </svg>
+                    </button>
+
+                    {isOpen && (
+                      <div style={{ padding: '0 16px 16px', background: s.lightColor }}>
+                        <p style={{ fontSize: 12.5, color: '#374151', lineHeight: 1.6, marginBottom: 14, paddingTop: 10 }}>
+                          {s.description}
+                        </p>
+
+                        {/* Interviewer Tips */}
+                        <div style={{ marginBottom: 14 }}>
+                          <div style={{ fontWeight: 700, fontSize: 12, color: s.color, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
+                            <span>🎙️</span> Interviewer Tips
+                          </div>
+                          {s.interviewerTips.map((tip, i) => (
+                            <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 5 }}>
+                              <span style={{ color: s.color, fontWeight: 800, fontSize: 13, flexShrink: 0 }}>•</span>
+                              <p style={{ fontSize: 12, color: '#374151', lineHeight: 1.5, margin: 0 }}>{tip}</p>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Probe Questions */}
+                        <div style={{ marginBottom: 14 }}>
+                          <div style={{ fontWeight: 700, fontSize: 12, color: s.color, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
+                            <span>❓</span> Probe Questions
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                            {s.probeQuestions.map((q, i) => (
+                              <div key={i} style={{
+                                background: 'rgba(255,255,255,0.7)', border: `1px solid ${s.borderColor}`,
+                                borderRadius: 8, padding: '7px 12px',
+                                fontSize: 12, color: '#1e293b', fontStyle: 'italic',
+                              }}>
+                                {q}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Red Flags */}
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 12, color: '#dc2626', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
+                            <span>🚩</span> Red Flags
+                          </div>
+                          {s.redFlags.map((flag, i) => (
+                            <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 5 }}>
+                              <span style={{ color: '#dc2626', fontWeight: 800, fontSize: 13, flexShrink: 0 }}>!</span>
+                              <p style={{ fontSize: 12, color: '#7f1d1d', lineHeight: 1.5, margin: 0 }}>{flag}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* ── SCORING GUIDE TAB ── */}
+          {activeTab === 'scoring' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{
+                background: '#f0f9ff', border: '1.5px solid #bae6fd',
+                borderRadius: 12, padding: '12px 16px',
+              }}>
+                <p style={{ fontSize: 12.5, color: '#0c4a6e', lineHeight: 1.6, margin: 0 }}>
+                  Scores are based on the <strong>quality and completeness of the STAR response</strong>, not on how impressive the story sounds. A modest situation with a fully articulated STAR response scores higher than an impressive-sounding but vague answer.
+                </p>
+              </div>
+
+              {SCORING_GUIDE.map(item => (
+                <div key={item.score} style={{
+                  background: item.bg,
+                  border: `1.5px solid ${item.border}`,
+                  borderRadius: 12, padding: '14px 16px',
+                  display: 'flex', gap: 14, alignItems: 'flex-start',
+                }}>
+                  <div style={{
+                    width: 44, height: 44, borderRadius: 12, flexShrink: 0,
+                    background: item.color, display: 'flex', flexDirection: 'column',
+                    alignItems: 'center', justifyContent: 'center',
+                    color: '#fff',
+                  }}>
+                    <span style={{ fontWeight: 900, fontSize: 18, lineHeight: 1 }}>{item.score}</span>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 800, fontSize: 13.5, color: item.color, marginBottom: 4 }}>
+                      {item.label}
+                    </div>
+                    <p style={{ fontSize: 12, color: '#374151', lineHeight: 1.6, margin: 0 }}>
+                      {item.description}
+                    </p>
+                  </div>
+                </div>
+              ))}
+
+              {/* Scoring matrix */}
+              <div style={{
+                background: '#f8fafc', border: '1.5px solid #e2e8f0',
+                borderRadius: 12, padding: '16px 18px', marginTop: 4,
+              }}>
+                <h3 style={{ fontWeight: 800, fontSize: 13, color: '#1e293b', marginBottom: 12 }}>
+                  Quick Scoring Checklist
+                </h3>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  {[
+                    { label: 'Situation is specific and real (not hypothetical)', component: 'S' },
+                    { label: 'Candidate\'s personal role is clear', component: 'T' },
+                    { label: 'Actions described in concrete steps', component: 'A' },
+                    { label: 'Results are measurable / quantifiable', component: 'R' },
+                    { label: 'Actions match the competency being assessed', component: 'A' },
+                    { label: 'Candidate shows reflection / self-awareness', component: 'R' },
+                  ].map((item, i) => (
+                    <div key={i} style={{
+                      display: 'flex', gap: 8, alignItems: 'flex-start',
+                      background: '#fff', borderRadius: 8, padding: '8px 10px',
+                      border: '1px solid #e2e8f0',
+                    }}>
+                      <div style={{
+                        width: 20, height: 20, borderRadius: 5, flexShrink: 0,
+                        background: STAR_SECTIONS.find(s => s.letter === item.component)?.color || '#64748b',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontWeight: 900, fontSize: 10, color: '#fff',
+                      }}>
+                        {item.component}
+                      </div>
+                      <p style={{ fontSize: 11.5, color: '#374151', lineHeight: 1.45, margin: 0 }}>{item.label}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── DO'S & DON'TS TAB ── */}
+          {activeTab === 'dodont' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                {/* DOs */}
+                <div>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    marginBottom: 10,
+                  }}>
+                    <div style={{
+                      width: 28, height: 28, borderRadius: 8,
+                      background: '#065f46', display: 'flex',
+                      alignItems: 'center', justifyContent: 'center',
+                      fontSize: 14,
+                    }}>✅</div>
+                    <span style={{ fontWeight: 800, fontSize: 13.5, color: '#065f46' }}>DO</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                    {DO_DONTS.dos.map((item, i) => (
+                      <div key={i} style={{
+                        background: '#ecfdf5', border: '1px solid #a7f3d0',
+                        borderRadius: 8, padding: '9px 12px',
+                        display: 'flex', gap: 8, alignItems: 'flex-start',
+                      }}>
+                        <span style={{ color: '#065f46', fontSize: 13, flexShrink: 0, fontWeight: 800, lineHeight: 1.5 }}>✓</span>
+                        <p style={{ fontSize: 12, color: '#064e3b', lineHeight: 1.5, margin: 0 }}>{item}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* DON'Ts */}
+                <div>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    marginBottom: 10,
+                  }}>
+                    <div style={{
+                      width: 28, height: 28, borderRadius: 8,
+                      background: '#991b1b', display: 'flex',
+                      alignItems: 'center', justifyContent: 'center',
+                      fontSize: 14,
+                    }}>🚫</div>
+                    <span style={{ fontWeight: 800, fontSize: 13.5, color: '#991b1b' }}>DON'T</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                    {DO_DONTS.donts.map((item, i) => (
+                      <div key={i} style={{
+                        background: '#fef2f2', border: '1px solid #fca5a5',
+                        borderRadius: 8, padding: '9px 12px',
+                        display: 'flex', gap: 8, alignItems: 'flex-start',
+                      }}>
+                        <span style={{ color: '#991b1b', fontSize: 13, flexShrink: 0, fontWeight: 800, lineHeight: 1.5 }}>✕</span>
+                        <p style={{ fontSize: 12, color: '#7f1d1d', lineHeight: 1.5, margin: 0 }}>{item}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Handling difficult responses */}
+              <div style={{
+                background: '#fffbeb', border: '1.5px solid #fcd34d',
+                borderRadius: 12, padding: '14px 18px',
+              }}>
+                <h3 style={{ fontWeight: 800, fontSize: 13, color: '#92400e', marginBottom: 10 }}>
+                  ⚡ Handling Difficult Situations
+                </h3>
+                {[
+                  { situation: 'Candidate gives a hypothetical answer', response: 'Say: "That\'s helpful context, but could you tell me about a specific time when you actually experienced this?" Then wait.' },
+                  { situation: 'Candidate goes off-topic or rambles', response: 'Gently redirect: "That\'s interesting. Let me bring you back — what did YOU specifically do in that situation?"' },
+                  { situation: 'Candidate cannot think of an example', response: 'Probe further: "Take your time. Think of any situation in your career — even a small one — where you demonstrated this."' },
+                  { situation: 'Candidate describes a group effort only', response: 'Ask: "I understand the team was involved. What was YOUR specific contribution or role in those actions?"' },
+                  { situation: 'Response is too brief', response: 'Follow up: "Can you tell me a bit more about [A or R component]? What specifically did you do/what happened after?"' },
+                ].map((item, i) => (
+                  <div key={i} style={{
+                    marginBottom: i < 4 ? 10 : 0,
+                    borderBottom: i < 4 ? '1px solid #fde68a' : 'none',
+                    paddingBottom: i < 4 ? 10 : 0,
+                  }}>
+                    <div style={{ fontWeight: 700, fontSize: 12, color: '#b45309', marginBottom: 3 }}>
+                      If: {item.situation}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#92400e', lineHeight: 1.55 }}>
+                      → {item.response}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── SAMPLE QUESTIONS TAB ── */}
+          {activeTab === 'samples' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{
+                background: '#f0f9ff', border: '1.5px solid #bae6fd',
+                borderRadius: 12, padding: '12px 16px',
+              }}>
+                <p style={{ fontSize: 12.5, color: '#0c4a6e', lineHeight: 1.6, margin: 0 }}>
+                  These are <strong>opening behavioral questions</strong> for common competency areas. After the candidate responds, use the probe questions from the <em>Component Deep Dive</em> tab to fill in missing STAR components.
+                </p>
+              </div>
+
+              {[
+                {
+                  category: 'Leadership & Management',
+                  color: '#312e81', bg: '#eef2ff', border: '#a5b4fc',
+                  icon: '👑',
+                  questions: [
+                    'Tell me about a time when you had to lead a team through a significant challenge or change.',
+                    'Describe a situation where you had to motivate a team member who was underperforming.',
+                    'Give me an example of when you had to make a difficult decision with limited information.',
+                    'Tell me about a time when you successfully built consensus among people with opposing views.',
+                  ],
+                },
+                {
+                  category: 'Planning & Organization',
+                  color: '#065f46', bg: '#ecfdf5', border: '#a7f3d0',
+                  icon: '📋',
+                  questions: [
+                    'Tell me about a time when you had to manage multiple competing priorities simultaneously.',
+                    'Describe a project where you had to create and execute a detailed work plan.',
+                    'Give me an example of when your planning helped you anticipate and prevent a problem.',
+                    'Tell me about a time when unexpected changes disrupted your plans and how you adapted.',
+                  ],
+                },
+                {
+                  category: 'Communication & Stakeholder Relations',
+                  color: '#92400e', bg: '#fffbeb', border: '#fcd34d',
+                  icon: '🗣️',
+                  questions: [
+                    'Tell me about a time when you had to communicate complex or technical information to a non-technical audience.',
+                    'Describe a situation where you had to deliver unwelcome news or feedback to someone.',
+                    'Give me an example of when you successfully managed a difficult stakeholder relationship.',
+                    'Tell me about a time when miscommunication caused a problem, and how you resolved it.',
+                  ],
+                },
+                {
+                  category: 'Problem Solving & Innovation',
+                  color: '#1d4ed8', bg: '#eff6ff', border: '#93c5fd',
+                  icon: '🔧',
+                  questions: [
+                    'Tell me about a time when you identified a problem that others had overlooked.',
+                    'Describe a situation where you had to find a creative solution with limited resources.',
+                    'Give me an example of when you implemented a significant improvement to a process or system.',
+                    'Tell me about the most complex problem you have had to solve in your career.',
+                  ],
+                },
+                {
+                  category: 'Integrity & Ethics (DENR Core Values)',
+                  color: '#581c87', bg: '#faf5ff', border: '#d8b4fe',
+                  icon: '⚖️',
+                  questions: [
+                    'Tell me about a time when you faced pressure to compromise your professional standards.',
+                    'Describe a situation where you had to report or address unethical behavior in the workplace.',
+                    'Give me an example of when you had to enforce a policy that was unpopular.',
+                    'Tell me about a time when you had to balance competing obligations or interests while maintaining integrity.',
+                  ],
+                },
+              ].map((cat, i) => (
+                <div key={i} style={{
+                  background: cat.bg, border: `1.5px solid ${cat.border}`,
+                  borderRadius: 12, padding: '14px 16px',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                    <span style={{ fontSize: 18 }}>{cat.icon}</span>
+                    <span style={{ fontWeight: 800, fontSize: 13, color: cat.color }}>{cat.category}</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                    {cat.questions.map((q, qi) => (
+                      <div key={qi} style={{
+                        background: 'rgba(255,255,255,0.75)',
+                        border: `1px solid ${cat.border}`,
+                        borderRadius: 8, padding: '9px 12px',
+                        display: 'flex', gap: 8, alignItems: 'flex-start',
+                      }}>
+                        <span style={{ color: cat.color, fontWeight: 800, fontSize: 12, flexShrink: 0, lineHeight: 1.6 }}>{qi + 1}.</span>
+                        <p style={{ fontSize: 12.5, color: '#1e293b', lineHeight: 1.55, margin: 0, fontStyle: 'italic' }}>
+                          "{q}"
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* ── Footer ── */}
+        <div style={{
+          flexShrink: 0, padding: '10px 20px',
+          borderTop: '1.5px solid #e2e8f0',
+          background: '#f8fafc',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          borderRadius: '0 0 16px 16px',
+        }}>
+          <span style={{ fontSize: 11, color: '#94a3b8' }}>
+            STAR Method Guide · For Authorized Raters Only · DENR CBS System 2025
+          </span>
+          <button
+            onClick={onClose}
+            style={{
+              padding: '6px 16px', borderRadius: 8,
+              background: '#1d4ed8', color: '#fff',
+              border: 'none', cursor: 'pointer',
+              fontSize: 12, fontWeight: 700, fontFamily: 'inherit',
+            }}
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 const Dashboard = ({ user, onLogout }) => {
   const [users, setUsers] = useState([]);
   const [userSelectionModal, setUserSelectionModal] = useState(false);
@@ -355,6 +1141,7 @@ const Dashboard = ({ user, onLogout }) => {
   const [successMessage, setSuccessMessage] = useState('');
   const [creatorModalOpen, setCreatorModalOpen] = useState(false);
   const [logoutConfirmModalOpen, setLogoutConfirmModalOpen] = useState(false);
+  const [starGuideOpen, setStarGuideOpen] = useState(false);
 
   useEffect(() => {
     if (user.userType === USER_TYPES.ADMIN) {
@@ -372,7 +1159,6 @@ const Dashboard = ({ user, onLogout }) => {
   };
 
   const handleLogout = () => {
-    // Check if there are unsaved ratings in RaterView
     const hasUnsavedRatings = user.userType === USER_TYPES.RATER && 
       sessionStorage.getItem(`rater_${user._id}_hasUnsavedRatings`) === 'true';
     
@@ -397,26 +1183,15 @@ const Dashboard = ({ user, onLogout }) => {
     onLogout();
   };
 
-  const handleOpenUserSelection = () => {
-    setUserSelectionModal(true);
-  };
-
-  const handleCloseUserSelection = () => {
-    setUserSelectionModal(false);
-  };
+  const handleOpenUserSelection = () => setUserSelectionModal(true);
+  const handleCloseUserSelection = () => setUserSelectionModal(false);
 
   const handleSelectUser = (selectedUser) => {
-    setPasswordChangeModal({
-      isOpen: true,
-      user: selectedUser
-    });
+    setPasswordChangeModal({ isOpen: true, user: selectedUser });
   };
 
   const handleClosePasswordModal = () => {
-    setPasswordChangeModal({
-      isOpen: false,
-      user: null
-    });
+    setPasswordChangeModal({ isOpen: false, user: null });
   };
 
   const handlePasswordChangeSuccess = (message) => {
@@ -473,6 +1248,17 @@ const Dashboard = ({ user, onLogout }) => {
             About
           </button>
           <GuidesDropdown />
+          {/* STAR Guide — raters only */}
+          {user.userType === USER_TYPES.RATER && (
+            <button
+              onClick={() => setStarGuideOpen(true)}
+              className="navbar-button text-white"
+              style={{ background: '#7c3aed' }}
+              title="STAR Method Interview Guide"
+            >
+              ⭐ STAR Guide
+            </button>
+          )}
           {user.userType === USER_TYPES.ADMIN && (
             <button
               onClick={handleOpenUserSelection}
@@ -541,6 +1327,14 @@ const Dashboard = ({ user, onLogout }) => {
         selectedUser={passwordChangeModal.user}
         onSuccess={handlePasswordChangeSuccess}
       />
+
+      {/* STAR Guide Modal — raters only */}
+      {user.userType === USER_TYPES.RATER && (
+        <STARGuideModal
+          isOpen={starGuideOpen}
+          onClose={() => setStarGuideOpen(false)}
+        />
+      )}
 
       {logoutConfirmModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
