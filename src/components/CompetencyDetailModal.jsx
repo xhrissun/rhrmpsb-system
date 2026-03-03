@@ -693,52 +693,72 @@ function EmptyState({ onClear }) {
   );
 }
 
-// ─── VariantTabs (collapsible) ────────────────────────────────────────────────
+// ─── VariantTabs (hidden by default, expands on click) ───────────────────────
+//
+// Props:
+//   variants   – array of competency variant objects
+//   activeIdx  – currently selected variant index
+//   onChange   – (idx) => void — called when user picks a variant
+//   onExpand   – (isExpanded: boolean) => void — tells parent to hide level tabs
+//
+function VariantTabs({ variants, activeIdx, onChange, onExpand }) {
+  // Default: collapsed (hidden). User must click to reveal variants.
+  const [expanded, setExpanded] = useState(false);
 
-function VariantTabs({ variants, activeIdx, onChange }) {
-  const [collapsed, setCollapsed] = useState(false);
   if (variants.length <= 1) return null;
+
+  const toggle = () => {
+    const next = !expanded;
+    setExpanded(next);
+    onExpand?.(next);
+  };
 
   return (
     <div style={{
       margin: '12px 20px 0',
-      border: '1.5px solid #fde68a',
+      border: `1.5px solid ${expanded ? '#f59e0b' : '#fde68a'}`,
       borderRadius: 14,
-      background: '#fffbeb',
+      background: expanded ? '#fffbeb' : '#fffef5',
       overflow: 'hidden',
+      transition: 'border-color 0.2s, background 0.2s',
     }}>
-      {/* Collapsible header */}
+      {/* Always-visible header — click to toggle */}
       <button
-        onClick={() => setCollapsed(v => !v)}
+        onClick={toggle}
         style={{
           width: '100%', display: 'flex', alignItems: 'center',
-          justifyContent: 'space-between', padding: '10px 14px',
+          justifyContent: 'space-between', padding: '9px 14px',
           background: 'transparent', border: 'none', cursor: 'pointer',
           fontFamily: 'inherit',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 14 }}>⚠️</span>
-          <span style={{ fontSize: 12.5, fontWeight: 700, color: '#92400e' }}>
-            {variants.length} office variants — viewing: <em style={{ fontStyle: 'normal', color: '#b45309' }}>{variants[activeIdx]?.category}</em>
+          <span style={{ fontSize: 13 }}>⚠️</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#92400e' }}>
+            {variants.length} office variants
+            {!expanded && (
+              <span style={{ fontWeight: 500, color: '#b45309' }}>
+                {' '}— currently: <em style={{ fontStyle: 'normal' }}>{variants[activeIdx]?.category}</em>
+              </span>
+            )}
           </span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 11, color: '#a16207', fontWeight: 600 }}>
-            {collapsed ? 'Show' : 'Hide'} variants
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <span style={{ fontSize: 10.5, color: '#a16207', fontWeight: 600 }}>
+            {expanded ? 'Hide' : 'Show'} variants
           </span>
           <svg
-            width="14" height="14" viewBox="0 0 24 24" fill="none"
+            width="13" height="13" viewBox="0 0 24 24" fill="none"
             stroke="#b45309" strokeWidth="2.5" strokeLinecap="round"
-            style={{ transition: 'transform 0.2s', transform: collapsed ? 'rotate(0deg)' : 'rotate(180deg)' }}
+            style={{ transition: 'transform 0.2s', transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)' }}
           >
-            <path d="m18 15-6-6-6 6"/>
+            <path d="m6 9 6 6 6-6"/>
           </svg>
         </div>
       </button>
 
-      {/* Variant buttons — hidden when collapsed */}
-      {!collapsed && (
+      {/* Variant buttons — only visible when expanded */}
+      {expanded && (
         <div style={{
           display: 'flex', flexWrap: 'wrap', gap: 6,
           padding: '4px 14px 12px',
@@ -747,7 +767,7 @@ function VariantTabs({ variants, activeIdx, onChange }) {
           {variants.map((v, i) => (
             <button key={`${v.code}-${i}`} onClick={() => onChange(i)} style={{
               display: 'flex', alignItems: 'center', gap: 6,
-              padding: '5px 13px', borderRadius: 8, border: 'none', cursor: 'pointer',
+              padding: '5px 13px', borderRadius: 8, cursor: 'pointer',
               background: i === activeIdx ? '#f59e0b' : '#fff',
               color: i === activeIdx ? '#fff' : '#92400e',
               fontWeight: 700, fontSize: 12, transition: 'all 0.15s',
@@ -863,9 +883,11 @@ export default function CompetencyDetailModal({
   const [status,      setStatus]      = useState('loading');
   const [progress,    setProgress]    = useState(0);
   const [msg,         setMsg]         = useState('Checking…');
-  const [variants,    setVariants]    = useState([]);
-  const [variantIdx,  setVariantIdx]  = useState(0);
-  const [activeLevel, setActiveLevel] = useState(suggestedLevel || 'BASIC');
+  const [variants,         setVariants]         = useState([]);
+  const [variantIdx,       setVariantIdx]       = useState(0);
+  const [activeLevel,      setActiveLevel]      = useState(suggestedLevel || 'BASIC');
+  // When variant picker is expanded, hide the level tabs to save space
+  const [variantsExpanded, setVariantsExpanded] = useState(false);
   const [isBrowsing,  setIsBrowsing]  = useState(browseMode);
   const resolvedRef                   = useRef(false);
   const fromBrowserRef                = useRef(false);
@@ -1184,9 +1206,11 @@ export default function CompetencyDetailModal({
                     setVariantIdx(idx);
                     setActiveLevel(resolveActiveLevel(variants[idx], null));
                   }}
+                  onExpand={isExpanded => setVariantsExpanded(isExpanded)}
                 />
 
-                {/* ── Sticky level tabs ───────────────────────────────── */}
+                {/* ── Sticky level tabs — hidden while variant picker is open ── */}
+                {!variantsExpanded && (
                 <div style={{
                   flexShrink: 0, padding: '14px 20px 12px',
                   borderBottom: '1.5px solid #f3f4f6',
@@ -1231,6 +1255,7 @@ export default function CompetencyDetailModal({
                     );
                   })()}
                 </div>
+                )}
 
                 {/* ── Scrollable KSA content ──────────────────────────── */}
                 <div style={{ flex: 1, overflowY: 'auto', padding: '22px 22px 28px' }}>
