@@ -9,30 +9,41 @@
  * │  Every refresh → load from IndexedDB (< 50 ms, no parsing at all)  │
  * │  PDF changes   → HEAD fingerprint mismatch → re-parse automatically│
  * └─────────────────────────────────────────────────────────────────────┘
- *
- * USAGE — replace all imports of '../lib/pdfParser' with this file:
- *
- *   import { ensureParsed, getAllCompetencies,
- *            findCompetenciesByName, isPDFAvailable }
- *     from '../lib/pdfParserCache';
- *
- * No other changes needed anywhere.
  */
 
 import * as pdfParser from './pdfParser';
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
-/** IndexedDB database name & version */
 const DB_NAME    = 'rhrmpsb_pdf_cache';
 const DB_VER     = 1;
 const STORE      = 'cache';
-
-/**
- * Bump this ONLY if you restructure the stored data format itself.
- * PDF content changes are detected automatically via HEAD fingerprint.
- */
 const SCHEMA_VER = 1;
+
+// ─── Known name aliases / synonyms ───────────────────────────────────────────
+// Maps "what the DB might call it" → "what the CBS Manual calls it"
+// Add entries here whenever a mismatch is discovered.
+const NAME_ALIASES = [
+  // DB name fragment               CBS Manual fragment
+  ['people development',            'creating and nurturing a high performing organization'],
+  ['competency development',        'competency development and enhancement'],
+  ['managing performance',          'people performance management'],
+  ['coaching for results',          'people performance management'],
+  ['strategic leadership',          'thinking strategically and creatively'],
+  ['leading change',                'leading change'],
+  ['partnership and networking',    'building collaborative and inclusive working relationships'],
+  ['building collaborative',        'partnership and networking'],
+  ['completed staff work',          'completed staff work'],
+  ['writing effectively',           'writing effectively'],
+  ['speaking effectively',          'speaking effectively'],
+  ['technology literacy',           'technology literacy and managing information'],
+  ['project management',            'project management'],
+  ['discipline',                    'discipline'],
+  ['excellence',                    'excellence'],
+  ['nobility',                      'nobility'],
+  ['responsibility',                'responsibility'],
+  ['caring for the environment',    'caring for the environment and natural resources'],
+];
 
 // ─── IndexedDB helpers ────────────────────────────────────────────────────────
 
@@ -68,14 +79,6 @@ async function idbSet(key, value) {
 
 // ─── PDF fingerprinting ───────────────────────────────────────────────────────
 
-/**
- * Returns a lightweight fingerprint string for the PDF by doing a HEAD request
- * and reading Content-Length + Last-Modified (or ETag).
- * Falls back to a static string if the request fails (e.g. dev server quirks).
- *
- * This fingerprint is stored alongside the parsed data. On next load, if the
- * fingerprint differs → cache is stale → re-parse.
- */
 async function getPDFFingerprint(pdfUrl) {
   try {
     const res = await fetch(pdfUrl, { method: 'HEAD', cache: 'no-cache' });
@@ -83,103 +86,155 @@ async function getPDFFingerprint(pdfUrl) {
     const length  = res.headers.get('content-length') ?? '?';
     const etag    = res.headers.get('etag')            ?? '';
     const lastMod = res.headers.get('last-modified')   ?? '';
-    // Prefer ETag (strongest), then last-modified + size, then just size
     return etag
       ? `etag:${etag}`
       : lastMod
         ? `mod:${lastMod}|size:${length}`
         : `size:${length}`;
   } catch {
-    return 'unavailable'; // dev server or offline — treat as "unknown"
+    return 'unavailable';
   }
 }
 
 // ─── Internal state ───────────────────────────────────────────────────────────
 
-/** In-memory store after first load (either from cache or fresh parse) */
-let _competencies = null; // null = not yet loaded
-let _parsePromise = null; // singleton — prevent double-parsing
+let _competencies = null;
+let _parsePromise = null;
+
+// ─── Name matching utilities ──────────────────────────────────────────────────
+
+function normalize(str) {
+  return (str ?? '')
+    .toLowerCase()
+    .replace(/[()\/\-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/[^a-z0-9\s]/g, '')
+    .trim();
+}
+
+const STOP = new Set([
+  'and', 'the', 'of', 'for', 'to', 'in', 'on', 'at', 'by', 'or',
+  'its', 'with', 'from', 'that', 'this', 'are', 'was', 'has',
+  'their', 'they', 'into', 'also', 'an', 'a',
+]);
+
+function keywords(str) {
+  return normalize(str).split(' ').filter(w => w.length > 2 && !STOP.has(w));
+}
+
+/** Character trigram similarity — handles misspellings */
+function trigramSim(a, b) {
+  const trigrams = s => {
+    const t = new Set();
+    const c = s.replace(/\s/g, '');
+    for (let i = 0; i < c.length - 2; i++) t.add(c.slice(i, i + 3));
+    return t;
+  };
+  const ta = trigrams(a), tb = trigrams(b);
+  if (!ta.size || !tb.size) return 0;
+  const inter = [...ta].filter(t => tb.has(t)).length;
+  return inter / Math.max(ta.size, tb.size);
+}
+
+/** Word-overlap Jaccard similarity */
+function jaccardSim(a, b) {
+  const wa = new Set(keywords(a));
+  const wb = new Set(keywords(b));
+  if (!wa.size || !wb.size) return 0;
+  const inter = [...wa].filter(w => wb.has(w)).length;
+  const union  = new Set([...wa, ...wb]).size;
+  let score = inter / union;
+  // Bonus: if all words of the shorter set appear in the longer set
+  const [shorter, longer] = wa.size <= wb.size ? [wa, wb] : [wb, wa];
+  if (shorter.size >= 3 && [...shorter].every(w => longer.has(w))) {
+    score = Math.min(1.0, score + 0.2);
+  }
+  return score;
+}
+
+/**
+ * Composite similarity: blend Jaccard + trigrams, weighted by name length.
+ * Short/single-word names rely more on trigrams.
+ */
+function similarity(query, candidate) {
+  const q = normalize(query);
+  const c = normalize(candidate);
+  if (q === c) return 1.0;
+
+  const jac = jaccardSim(q, c);
+  const tri = trigramSim(q, c);
+  const wordCount = Math.min(keywords(query).length, keywords(candidate).length);
+  const triW = wordCount <= 2 ? 0.7 : 0.3;
+  return Math.min(1.0, jac * (1 - triW) + tri * triW);
+}
+
+/**
+ * Expand a query name through known aliases.
+ * Returns an array of alternative search strings to try.
+ */
+function expandAliases(name) {
+  const lower = name.toLowerCase();
+  const extras = [];
+  for (const [fragment, alias] of NAME_ALIASES) {
+    if (lower.includes(fragment)) extras.push(alias);
+    if (lower.includes(alias))   extras.push(fragment);
+  }
+  return [name, ...extras];
+}
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export const isPDFAvailable = pdfParser.isPDFAvailable;
 
 /**
- * Ensures competency data is loaded, either from:
- *  1. In-memory (instant, sub-ms)
- *  2. IndexedDB (instant, ~10–50 ms)
- *  3. Full PDF parse (slow, only on very first ever visit or after PDF change)
- *
- * @param {(pct: number, msg: string) => void} [onProgress]
- *   Called with 0→100 during a real parse, or a single call at 100 if from cache.
+ * Ensures competency data is loaded (memory → IndexedDB → full parse).
  */
 export async function ensureParsed(onProgress) {
-
-  // 1. Already in memory — fastest path
   if (_competencies) {
     onProgress?.(100, 'Loaded from cache');
     return _competencies;
   }
-
-  // 2. Parsing already in flight — attach to the same promise
   if (_parsePromise) return _parsePromise;
 
   _parsePromise = (async () => {
     try {
-      // Determine the PDF URL the same way pdfParser does
-      // (adjust this path if your PDF lives somewhere else)
-      const PDF_URL = '/rhrmpsb-system/2025_CBS.pdf';
-
+      const PDF_URL   = '/rhrmpsb-system/2025_CBS.pdf';
       const fingerprint = await getPDFFingerprint(PDF_URL);
 
-      // 3. Try IndexedDB cache
       let cached = null;
-      try {
-        cached = await idbGet('competencies');
-      } catch (err) {
-        console.warn('[pdfParserCache] IndexedDB read error:', err);
-      }
+      try { cached = await idbGet('competencies'); } catch {}
 
       const cacheValid =
         cached &&
         cached.schemaVer === SCHEMA_VER &&
         Array.isArray(cached.data) &&
         cached.data.length > 0 &&
-        // Only skip fingerprint check if we couldn't get one at all
         (fingerprint === 'unavailable' || cached.fingerprint === fingerprint);
 
       if (cacheValid) {
-        // ── Cache HIT ────────────────────────────────────────────────
         onProgress?.(100, 'Loaded from cache');
         _competencies = cached.data;
         return _competencies;
       }
 
-      // ── Cache MISS — do the real parse ───────────────────────────
       if (cached && !cacheValid) {
-        console.info('[pdfParserCache] PDF has changed (fingerprint mismatch) — re-parsing.');
+        console.info('[pdfParserCache] PDF changed — re-parsing.');
       }
 
-      const result = await pdfParser.ensureParsed((pct, msg) => {
-        onProgress?.(pct, msg);
-      });
-
+      const result = await pdfParser.ensureParsed((pct, msg) => onProgress?.(pct, msg));
       _competencies = result;
 
-      // Persist to IndexedDB in the background — don't block the caller
       idbSet('competencies', {
         schemaVer: SCHEMA_VER,
         fingerprint,
         cachedAt: Date.now(),
         data: result,
-      }).catch(err => console.warn('[pdfParserCache] IndexedDB write error:', err));
+      }).catch(err => console.warn('[pdfParserCache] IDB write error:', err));
 
       return _competencies;
-
     } catch (err) {
-      // If anything fails, fall through to real parser without caching
-      console.warn('[pdfParserCache] Cache layer error, using pdfParser directly:', err);
-      _parsePromise = null; // allow retry
+      console.warn('[pdfParserCache] Cache layer error, falling back to parser:', err);
+      _parsePromise = null;
       const result = await pdfParser.ensureParsed(onProgress);
       _competencies = result;
       return _competencies;
@@ -189,60 +244,108 @@ export async function ensureParsed(onProgress) {
   return _parsePromise;
 }
 
-/**
- * Returns all parsed competencies.
- * Calls ensureParsed() internally if not yet loaded.
- */
 export async function getAllCompetencies() {
   if (!_competencies) await ensureParsed();
   return _competencies ?? [];
 }
 
 /**
- * Finds competencies whose name contains the search string (case-insensitive).
- * Operates entirely on in-memory data — no re-parse ever needed.
+ * Enhanced findCompetenciesByName:
  *
- * @param {string} name - The competency name to search for
- * @returns {Promise<Array>} Matching competency objects
+ * 1. Strip level prefixes like "(BASIC) - " or "(OC1) - "
+ * 2. Expand through known aliases (e.g. "People Development" → CBS wording)
+ * 3. Exact → startsWith → all-keywords → fuzzy similarity → partial fallback
+ * 4. Deduplicate by (code, category) pairs before returning
+ *
+ * @param {string} name
+ * @returns {Promise<Array>}
  */
 export async function findCompetenciesByName(name) {
   if (!_competencies) await ensureParsed();
   if (!_competencies?.length) return [];
 
-  const needle = name?.toLowerCase().trim();
-  if (!needle) return [];
+  // ── 1. Clean the incoming name ───────────────────────────────────────────
+  // Strip common prefixes inserted by the UI:
+  //   "(BASIC) - Discipline"  →  "Discipline"
+  //   "(OC1) - Writing Effectively"  →  "Writing Effectively"
+  //   "(LC3) - People Development (Creating...)"  →  "People Development (Creating...)"
+  let cleanName = (name ?? '').trim();
+  cleanName = cleanName.replace(/^\([A-Z]+\d*[A-Z]?\)\s*[-–]\s*/i, '');  // (CODE) - 
+  cleanName = cleanName.replace(/^\([A-Z]+\)\s*/i, '');                    // (LEVEL) prefix
+  cleanName = cleanName.trim();
 
-  // 1. Exact match (case-insensitive)
-  const exact = _competencies.filter(c =>
-    c.name?.toLowerCase().trim() === needle
-  );
-  if (exact.length > 0) return exact;
+  const needle = cleanName.toLowerCase();
 
-  // 2. Starts-with match
-  const startsWith = _competencies.filter(c =>
-    c.name?.toLowerCase().trim().startsWith(needle)
-  );
-  if (startsWith.length > 0) return startsWith;
+  // ── 2. Exact match ───────────────────────────────────────────────────────
+  const exact = _competencies.filter(c => c.name?.toLowerCase().trim() === needle);
+  if (exact.length > 0) return dedupe(exact);
 
-  // 3. Contains match (all words in needle appear in name)
-  const words = needle.split(/\s+/).filter(Boolean);
-  const contains = _competencies.filter(c => {
-    const haystack = c.name?.toLowerCase() ?? '';
-    return words.every(w => haystack.includes(w));
-  });
-  if (contains.length > 0) return contains;
+  // ── 3. Starts-with ───────────────────────────────────────────────────────
+  const startsWith = _competencies.filter(c => c.name?.toLowerCase().trim().startsWith(needle));
+  if (startsWith.length > 0) return dedupe(startsWith);
 
-  // 4. Fallback: at least one word matches
+  // ── 4. All-keywords match ─────────────────────────────────────────────────
+  const words = keywords(cleanName);
+  if (words.length > 0) {
+    const allWords = _competencies.filter(c => {
+      const h = c.name?.toLowerCase() ?? '';
+      return words.every(w => h.includes(w));
+    });
+    if (allWords.length > 0) return dedupe(allWords);
+  }
+
+  // ── 5. Alias expansion + fuzzy similarity ─────────────────────────────────
+  const queries = expandAliases(cleanName);
+  const THRESHOLD = 0.45;
+
+  const scored = new Map(); // key = `${code}:${category}` → { comp, score }
+
+  for (const q of queries) {
+    for (const c of _competencies) {
+      const s = similarity(q, c.name ?? '');
+      const key = `${c.code}:${c.category}`;
+      if (s >= THRESHOLD) {
+        const existing = scored.get(key);
+        if (!existing || s > existing.score) scored.set(key, { comp: c, score: s });
+      }
+    }
+  }
+
+  if (scored.size > 0) {
+    const ranked = [...scored.values()].sort((a, b) => b.score - a.score);
+    const best = ranked[0].score;
+
+    // Return best match + any variants within 15% of best score
+    const VARIANT_BAND = 0.15;
+    const results = ranked
+      .filter(r => r.score >= best - VARIANT_BAND)
+      .map(r => r.comp);
+
+    if (results.length > 0) return dedupe(results);
+  }
+
+  // ── 6. Partial fallback: at least one meaningful word matches ─────────────
   const partial = _competencies.filter(c => {
-    const haystack = c.name?.toLowerCase() ?? '';
-    return words.some(w => w.length > 3 && haystack.includes(w));
+    const h = c.name?.toLowerCase() ?? '';
+    return words.some(w => w.length > 4 && h.includes(w));
   });
-  return partial;
+  return dedupe(partial);
+}
+
+/** Remove duplicate (code + category) pairs, preserving order. */
+function dedupe(arr) {
+  const seen = new Set();
+  return arr.filter(c => {
+    const k = `${c.code}:${c.category}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
 }
 
 /**
  * Clears the IndexedDB cache and in-memory state.
- * Useful in admin tools if you need to force a re-parse after uploading a new PDF.
+ * Use in admin tools after uploading a new PDF.
  */
 export async function clearCache() {
   _competencies = null;
