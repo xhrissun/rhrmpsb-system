@@ -54,6 +54,59 @@ const CAT_PALETTES = [
   { accent: '#84cc16', bg: '#f7fee7', muted: '#d9f99d', text: '#3f6212' },
 ];
 
+// ─── Level detection from competency name prefix ──────────────────────────────
+
+/**
+ * Detects a suggested proficiency level from a competency name that may contain
+ * a parenthetical prefix like "(BASIC)", "(INT)", "(ADV)", "(SUP)", or a
+ * CBS code like "(OC1)", "(LC3)".
+ *
+ * Also handles explicit suffixes and description hints.
+ *
+ * Returns one of LEVELS or null if nothing detected.
+ */
+function detectLevelFromName(name, competencyType) {
+  if (!name) return null;
+
+  const upper = name.toUpperCase();
+
+  // Parenthetical level prefix: (BASIC), (INTERMEDIATE), (ADVANCED), (SUPERIOR)
+  // Abbreviations: (BAS), (INT), (ADV), (SUP)
+  const prefixMap = {
+    BASIC:        'BASIC',
+    BAS:          'BASIC',
+    INTERMEDIATE: 'INTERMEDIATE',
+    INT:          'INTERMEDIATE',
+    INTER:        'INTERMEDIATE',
+    ADVANCED:     'ADVANCED',
+    ADV:          'ADVANCED',
+    SUPERIOR:     'SUPERIOR',
+    SUP:          'SUPERIOR',
+  };
+
+  // Match: (BASIC), (ADV), (INTERMEDIATE), etc. at the start of the name
+  const prefixMatch = upper.match(/^\(([A-Z]+)\)\s*[-–]?/);
+  if (prefixMatch) {
+    const token = prefixMatch[1];
+    if (prefixMap[token]) return prefixMap[token];
+  }
+
+  // Match level words anywhere in parentheses: "Competency (Basic)" 
+  const parenMatch = upper.match(/\(([A-Z]+)\)/g);
+  if (parenMatch) {
+    for (const p of parenMatch) {
+      const inner = p.replace(/[()]/g, '');
+      if (prefixMap[inner]) return prefixMap[inner];
+    }
+  }
+
+  // Infer from competency type for core/leadership defaults
+  // Leadership competencies typically start at ADVANCED
+  if (competencyType === 'leadership') return 'ADVANCED';
+
+  return null;
+}
+
 // ─── Utility ─────────────────────────────────────────────────────────────────
 
 function useCategoryPalette(categories) {
@@ -148,7 +201,6 @@ function LevelPanel({ level, data }) {
           borderRadius: 16, padding: '20px 22px',
           marginBottom: 24, position: 'relative', overflow: 'hidden',
         }}>
-          {/* Accent bar */}
           <div style={{
             position: 'absolute', left: 0, top: 0, bottom: 0, width: 4,
             background: cfg.accent, borderRadius: '16px 0 0 16px',
@@ -208,9 +260,7 @@ function LevelPanel({ level, data }) {
               const m = item.match(/^(\d+)\.\s*/);
               const num  = m ? m[1] : String(idx + 1);
               const text = m ? item.slice(m[0].length) : item;
-              return (
-                <KSARow key={idx} num={num} text={text} idx={idx} cfg={cfg}/>
-              );
+              return <KSARow key={idx} num={num} text={text} idx={idx} cfg={cfg}/>;
             })}
           </div>
         </div>
@@ -357,7 +407,6 @@ function BrowserCompCard({ comp, palette: p, isFocused, onClick, animDelay }) {
         fontFamily: 'inherit',
       }}
     >
-      {/* Code */}
       <div style={{
         flexShrink: 0, padding: '3px 9px', borderRadius: 8,
         background: show ? p.muted : '#f3f4f6',
@@ -415,13 +464,13 @@ function BrowserCompCard({ comp, palette: p, isFocused, onClick, animDelay }) {
 // ─── BrowserMode ─────────────────────────────────────────────────────────────
 
 function BrowserMode({ onSelectCompetency, onBack }) {
-  const [allComps, setAllComps]         = useState([]);
-  const [search, setSearch]             = useState('');
+  const [allComps, setAllComps]             = useState([]);
+  const [search, setSearch]                 = useState('');
   const [activeCategory, setActiveCategory] = useState('');
-  const [loading, setLoading]           = useState(true);
-  const [focusedIdx, setFocusedIdx]     = useState(-1);
-  const searchRef                       = useRef(null);
-  const listRef                         = useRef(null);
+  const [loading, setLoading]               = useState(true);
+  const [focusedIdx, setFocusedIdx]         = useState(-1);
+  const searchRef                           = useRef(null);
+  const listRef                             = useRef(null);
 
   useEffect(() => {
     getAllCompetencies()
@@ -462,7 +511,6 @@ function BrowserMode({ onSelectCompetency, onBack }) {
     return matchQ && matchCat;
   }), [deduped, q, activeCategory, isSearching]);
 
-  // Keyboard navigation
   useEffect(() => {
     const handler = e => {
       if (!['ArrowDown', 'ArrowUp', 'Enter'].includes(e.key)) return;
@@ -493,7 +541,6 @@ function BrowserMode({ onSelectCompetency, onBack }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      {/* Search bar */}
       <div style={{ padding: '14px 18px 12px', borderBottom: '1.5px solid #f3f4f6', flexShrink: 0 }}>
         <SearchInput
           ref={searchRef}
@@ -508,7 +555,6 @@ function BrowserMode({ onSelectCompetency, onBack }) {
         )}
       </div>
 
-      {/* Two-panel */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         {!isSearching && (
           <BrowserSidebar
@@ -540,7 +586,6 @@ function BrowserMode({ onSelectCompetency, onBack }) {
         </div>
       </div>
 
-      {/* Footer */}
       <div style={{
         flexShrink: 0, padding: '10px 18px',
         borderTop: '1.5px solid #f3f4f6', background: '#fafafa',
@@ -648,27 +693,75 @@ function EmptyState({ onClear }) {
   );
 }
 
-// ─── VariantTabs ─────────────────────────────────────────────────────────────
+// ─── VariantTabs (collapsible) ────────────────────────────────────────────────
 
 function VariantTabs({ variants, activeIdx, onChange }) {
+  const [collapsed, setCollapsed] = useState(false);
   if (variants.length <= 1) return null;
+
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, padding: '14px 20px 0' }}>
-      {variants.map((v, i) => (
-        <button key={`${v.code}-${i}`} onClick={() => onChange(i)} style={{
-          display: 'flex', alignItems: 'center', gap: 6,
-          padding: '5px 13px', borderRadius: 8, border: 'none', cursor: 'pointer',
-          background: i === activeIdx ? '#f59e0b' : '#fef3c7',
-          color: i === activeIdx ? '#fff' : '#92400e',
-          fontWeight: 700, fontSize: 12, transition: 'all 0.15s',
-          boxShadow: i === activeIdx ? '0 2px 8px #f59e0b35' : 'none',
+    <div style={{
+      margin: '12px 20px 0',
+      border: '1.5px solid #fde68a',
+      borderRadius: 14,
+      background: '#fffbeb',
+      overflow: 'hidden',
+    }}>
+      {/* Collapsible header */}
+      <button
+        onClick={() => setCollapsed(v => !v)}
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center',
+          justifyContent: 'space-between', padding: '10px 14px',
+          background: 'transparent', border: 'none', cursor: 'pointer',
           fontFamily: 'inherit',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 14 }}>⚠️</span>
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: '#92400e' }}>
+            {variants.length} office variants — viewing: <em style={{ fontStyle: 'normal', color: '#b45309' }}>{variants[activeIdx]?.category}</em>
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: 11, color: '#a16207', fontWeight: 600 }}>
+            {collapsed ? 'Show' : 'Hide'} variants
+          </span>
+          <svg
+            width="14" height="14" viewBox="0 0 24 24" fill="none"
+            stroke="#b45309" strokeWidth="2.5" strokeLinecap="round"
+            style={{ transition: 'transform 0.2s', transform: collapsed ? 'rotate(0deg)' : 'rotate(180deg)' }}
+          >
+            <path d="m18 15-6-6-6 6"/>
+          </svg>
+        </div>
+      </button>
+
+      {/* Variant buttons — hidden when collapsed */}
+      {!collapsed && (
+        <div style={{
+          display: 'flex', flexWrap: 'wrap', gap: 6,
+          padding: '4px 14px 12px',
+          borderTop: '1px solid #fde68a',
         }}>
-          <span style={{ fontFamily: "'Fira Code', monospace" }}>{v.code}</span>
-          <span style={{ opacity: 0.55 }}>·</span>
-          <span>{v.category}</span>
-        </button>
-      ))}
+          {variants.map((v, i) => (
+            <button key={`${v.code}-${i}`} onClick={() => onChange(i)} style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '5px 13px', borderRadius: 8, border: 'none', cursor: 'pointer',
+              background: i === activeIdx ? '#f59e0b' : '#fff',
+              color: i === activeIdx ? '#fff' : '#92400e',
+              fontWeight: 700, fontSize: 12, transition: 'all 0.15s',
+              boxShadow: i === activeIdx ? '0 2px 8px #f59e0b35' : '0 1px 3px rgba(0,0,0,0.08)',
+              fontFamily: 'inherit',
+              border: `1px solid ${i === activeIdx ? 'transparent' : '#fcd34d'}`,
+            }}>
+              <span style={{ fontFamily: "'Fira Code', monospace" }}>{v.code}</span>
+              <span style={{ opacity: 0.55 }}>·</span>
+              <span>{v.category}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -702,23 +795,11 @@ function LoadingState({ progress, msg }) {
       <p style={{ textAlign: 'center', fontSize: 12, color: '#9ca3af', marginBottom: 24 }}>
         First-time parse only — subsequent lookups are instant.
       </p>
-      {/* Skeleton */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {[96, 130, 112, 108].map((w, i) => (
-            <div key={i} style={{ height: 38, width: w, background: '#f3f4f6', borderRadius: 12, animation: `cdm-pulse 1.6s ease-in-out ${i * 100}ms infinite` }}/>
-          ))}
-        </div>
-        <div style={{ height: 78, background: '#f9fafb', borderRadius: 14, border: '1.5px solid #f3f4f6', animation: 'cdm-pulse 1.6s ease-in-out 200ms infinite' }}/>
-        {[1, 0.85, 0.7].map((o, i) => (
-          <div key={i} style={{ height: 54, background: '#f9fafb', borderRadius: 12, opacity: o, border: '1.5px solid #f3f4f6', animation: `cdm-pulse 1.6s ease-in-out ${i * 150 + 350}ms infinite` }}/>
-        ))}
-      </div>
     </div>
   );
 }
 
-// ─── IconBtn ─────────────────────────────────────────────────────────────────
+// ─── IconBtn / TextBtn ────────────────────────────────────────────────────────
 
 function IconBtn({ onClick, children, label, danger = false }) {
   const [hovered, setHovered] = useState(false);
@@ -792,11 +873,27 @@ export default function CompetencyDetailModal({
 
   const data = variants[variantIdx] ?? null;
 
+  /**
+   * Resolve the best active level for a competency.
+   * Priority: 1) auto-detected from name prefix, 2) suggestedLevel prop,
+   *           3) first level that has actual content.
+   */
   const resolveActiveLevel = useCallback((comp, preferred) => {
-    if (preferred && (comp.levels?.[preferred]?.behavioralIndicator || comp.levels?.[preferred]?.items?.length > 0))
-      return preferred;
+    // 1. Try to detect level from competency name prefix
+    const detected = detectLevelFromName(competencyName, competencyType);
+    if (detected && (comp.levels?.[detected]?.behavioralIndicator || comp.levels?.[detected]?.items?.length > 0)) {
+      return detected;
+    }
+
+    // 2. Use the suggested/preferred level if it has content
+    const candidate = preferred || suggestedLevel;
+    if (candidate && (comp.levels?.[candidate]?.behavioralIndicator || comp.levels?.[candidate]?.items?.length > 0)) {
+      return candidate;
+    }
+
+    // 3. Fall back to first level with content
     return LEVELS.find(l => comp.levels?.[l]?.behavioralIndicator || comp.levels?.[l]?.items?.length > 0) ?? 'BASIC';
-  }, []);
+  }, [competencyName, competencyType, suggestedLevel]);
 
   useEffect(() => {
     if (isBrowsing) { setStatus('browsing'); return; }
@@ -814,7 +911,11 @@ export default function CompetencyDetailModal({
       if (!ok) { if (!cancelled) setStatus('no_pdf'); return; }
       try {
         await ensureParsed((pct, m) => { if (!cancelled) { setProgress(pct); setMsg(m); } });
-        const cleanName = competencyName?.replace(/^\([A-Z]+\)\s*[-–]\s*/i, '').trim();
+        // Strip level/code prefixes before searching
+        const cleanName = (competencyName ?? '')
+          .replace(/^\([A-Z]+\d*[A-Z]?\)\s*[-–]\s*/i, '')
+          .replace(/^\([A-Z]+\)\s*/i, '')
+          .trim();
         const results = await findCompetenciesByName(cleanName);
         if (cancelled) return;
         if (results.length > 0) {
@@ -854,7 +955,10 @@ export default function CompetencyDetailModal({
   }, [onClose]);
 
   const isMultiVariant = variants.length > 1;
-  const displayName = data?.name ?? competencyName?.replace(/^\([A-Z]+\)\s*-\s*/i, '') ?? 'CBS Manual';
+  const displayName = data?.name ?? (competencyName ?? 'CBS Manual')
+    .replace(/^\([A-Z]+\d*[A-Z]?\)\s*[-–]\s*/i, '')
+    .replace(/^\([A-Z]+\)\s*/i, '')
+    .trim();
   const typeStyle = TYPE_STYLES[competencyType];
 
   return (
@@ -1029,7 +1133,7 @@ export default function CompetencyDetailModal({
                 </h3>
                 <p style={{ margin: '0 0 28px', fontSize: 14, color: '#6b7280', maxWidth: 360, lineHeight: 1.65 }}>
                   Could not match <strong style={{ color: '#374151' }}>
-                    "{competencyName?.replace(/^\([A-Z]+\)\s*-\s*/i, '')}"
+                    "{displayName}"
                   </strong> in the PDF. The database name may differ from the manual's wording.
                 </p>
                 <div style={{ display: 'flex', gap: 10 }}>
@@ -1071,33 +1175,18 @@ export default function CompetencyDetailModal({
 
             {status === 'found' && !isBrowsing && data && (
               <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-                {/* Multi-variant warning */}
-                {isMultiVariant && (
-                  <div style={{
-                    margin: '16px 20px 0',
-                    display: 'flex', alignItems: 'flex-start', gap: 12,
-                    padding: '12px 16px', borderRadius: 13,
-                    background: '#fffbeb', border: '1.5px solid #fde68a',
-                  }}>
-                    <span style={{ fontSize: 18, flexShrink: 0, lineHeight: 1 }}>⚠️</span>
-                    <div>
-                      <p style={{ margin: '0 0 3px', fontWeight: 800, fontSize: 13, color: '#92400e' }}>
-                        {variants.length} variants found in CBS Manual
-                      </p>
-                      <p style={{ margin: 0, fontSize: 12.5, color: '#a16207', lineHeight: 1.58 }}>
-                        Multiple versions of <em>"{displayName}"</em> exist under different office contexts
-                        ({variants.map(v => v.category).join(', ')}). Review all variants below.
-                      </p>
-                    </div>
-                  </div>
-                )}
 
-                <VariantTabs variants={variants} activeIdx={variantIdx} onChange={idx => {
-                  setVariantIdx(idx);
-                  setActiveLevel(resolveActiveLevel(variants[idx], null));
-                }}/>
+                {/* ── Collapsible variant warning + tabs ─────────────── */}
+                <VariantTabs
+                  variants={variants}
+                  activeIdx={variantIdx}
+                  onChange={idx => {
+                    setVariantIdx(idx);
+                    setActiveLevel(resolveActiveLevel(variants[idx], null));
+                  }}
+                />
 
-                {/* Sticky level tabs */}
+                {/* ── Sticky level tabs ───────────────────────────────── */}
                 <div style={{
                   flexShrink: 0, padding: '14px 20px 12px',
                   borderBottom: '1.5px solid #f3f4f6',
@@ -1105,6 +1194,7 @@ export default function CompetencyDetailModal({
                   backdropFilter: 'blur(10px)',
                   position: 'sticky', top: 0, zIndex: 10,
                 }}>
+                  {/* Level tabs row */}
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
                     {LEVELS.map(level => {
                       const ld = data.levels?.[level];
@@ -1120,9 +1210,29 @@ export default function CompetencyDetailModal({
                       );
                     })}
                   </div>
+
+                  {/* Auto-detected level hint */}
+                  {(() => {
+                    const detected = detectLevelFromName(competencyName, competencyType);
+                    if (!detected) return null;
+                    const cfg = LEVEL_CFG[detected];
+                    return (
+                      <div style={{
+                        marginTop: 10, display: 'flex', alignItems: 'center', gap: 6,
+                        fontSize: 11.5, color: cfg.accentDark,
+                        background: cfg.accentLight, borderRadius: 8,
+                        padding: '5px 12px', width: 'fit-content',
+                      }}>
+                        <span>{cfg.icon}</span>
+                        <span>
+                          Auto-selected <strong>{cfg.label}</strong> level based on competency context
+                        </span>
+                      </div>
+                    );
+                  })()}
                 </div>
 
-                {/* Scrollable content */}
+                {/* ── Scrollable KSA content ──────────────────────────── */}
                 <div style={{ flex: 1, overflowY: 'auto', padding: '22px 22px 28px' }}>
                   <LevelPanel level={activeLevel} data={data.levels?.[activeLevel]}/>
                 </div>
@@ -1151,7 +1261,7 @@ export default function CompetencyDetailModal({
                 )}
                 {isMultiVariant && (
                   <span style={{ fontSize: 11.5, color: '#d97706', fontWeight: 700 }}>
-                    Variant {variantIdx + 1}/{variants.length} · {data.category}
+                    {variantIdx + 1}/{variants.length} · {data.category}
                   </span>
                 )}
               </div>
