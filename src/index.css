@@ -78,66 +78,114 @@
     @apply block w-full text-left px-4 py-2 rounded-md hover:bg-gray-700 transition-colors mb-2;
   }
   
-  /* ──────────────────────────────────────────────── */
-/* Force clean two-row + centered layout on small/medium tablets (~760–860 px) */
-/* This reliably catches Redmi Pad SE 8.7 portrait (~800 px)                   */
-/* ──────────────────────────────────────────────── */
-@media (max-width: 860px) and (min-width: 760px) {
   .navbar {
-    @apply flex-col items-center px-4 py-3 gap-3;
-    /* Vertical stack + centered + more vertical breathing room */
+    @apply bg-white shadow-sm border-b border-gray-200 w-full box-border 
+           flex flex-row items-center justify-between;
   }
 
   .navbar-title-container {
-    @apply w-full justify-center mb-2;
-    /* Full width, centered title row, extra bottom margin */
+    @apply flex items-center flex-1 min-w-0 gap-1.5 sm:gap-2;
   }
 
   .navbar-title {
-    @apply text-center text-[1.05rem] sm:text-lg font-semibold truncate max-w-[92vw];
-    /* Slightly larger but safely truncated + centered + viewport safety */
+    @apply font-bold text-gray-900 truncate;
+    font-size: clamp(0.875rem, 3.8vw, 1rem);
+    line-height: 1.25;
   }
 
   .navbar-user-type {
-    @apply text-xs ml-2;  /* Keep it visible but small */
+    @apply hidden sm:inline-flex items-center px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded-full text-[0.6875rem] sm:text-xs font-medium whitespace-nowrap;
   }
 
   .navbar-buttons {
-    @apply w-full justify-center gap-2.5 flex-wrap;
-    /* Buttons centered in their own row, slightly more gap */
-  }
-
-  .navbar-welcome {
-    @apply hidden;   /* Hide welcome name completely in this tight range */
+    @apply flex items-center gap-1.5 sm:gap-2 lg:gap-3 flex-wrap;
   }
 
   .navbar-button {
-    @apply px-3.5 py-1.5 text-sm min-w-[auto] font-medium;
-    /* Better touch targets, readable size */
-  }
-}
-
-/* Keep your existing 641–1023 px query, but make it LESS aggressive so it doesn't fight the new one */
-@media (min-width: 641px) and (max-width: 1023px) {
-  /* Remove or comment out parts that force center/w-full if they conflict */
-  /* Only keep general tablet improvements, let the narrower query handle Redmi specifically */
-  .navbar {
-    @apply px-4 py-3;
+    @apply px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors min-w-[2.5rem] text-center whitespace-nowrap;
   }
 
-  .navbar-title {
-    font-size: clamp(1rem, 4vw, 1.125rem);
-    max-width: 85vw;
+  .navbar-welcome {
+    @apply hidden md:inline text-xs text-gray-600 font-medium;
   }
-}
 
-/* Optional safety for even narrower views (e.g. zoomed browser or very small tablet) */
-@media (max-width: 820px) {
-  .navbar-title {
-    font-size: clamp(0.95rem, 4.2vw, 1.1rem);
+  /* ──────────────────────────────────────────────── */
+  /* Force clean two-row + centered layout on small/medium tablets (~760–860 px) */
+  /* Targets Redmi Pad SE 8.7 portrait reliably                              */
+  /* ──────────────────────────────────────────────── */
+  @media (max-width: 860px) and (min-width: 760px) {
+    .navbar {
+      @apply flex-col items-center px-4 py-3 gap-3;
+    }
+
+    .navbar-title-container {
+      @apply w-full justify-center mb-2 flex-wrap;
+    }
+
+    .navbar-title {
+      @apply text-center font-semibold truncate max-w-[90vw] text-[1.05rem] leading-tight;
+    }
+
+    .navbar-user-type {
+      @apply text-xs bg-gray-100 px-1.5 py-0.5 rounded-full ml-2 self-center;
+    }
+
+    .navbar-buttons {
+      @apply w-full justify-center gap-2.5 flex-wrap;
+    }
+
+    .navbar-welcome {
+      @apply hidden;
+    }
+
+    .navbar-button {
+      @apply px-4 py-2 text-sm font-medium min-w-[4.5rem];
+    }
   }
-  .navbar-buttons {
-    @apply gap-2;
+
+  /* Broader tablet range – less aggressive, lets narrower query take priority */
+  @media (min-width: 641px) and (max-width: 1023px) {
+    .navbar {
+      @apply px-4 py-3;
+    }
+
+    .navbar-title {
+      @apply max-w-[85vw];
+      font-size: clamp(1rem, 3.8vw, 1.125rem);
+    }
   }
-}
+
+  /* Safety override for very tight views / zoomed browsers */
+  @media (max-width: 860px) {
+    .navbar-title {
+      font-size: clamp(1rem, 4vw, 1.1rem) !important;
+    }
+  }
+
+  /* Larger screens */
+  @media (min-width: 1024px) {
+    .navbar {
+      @apply px-6 py-3.5;
+    }
+
+    .navbar-title {
+      font-size: clamp(1.125rem, 2.8vw, 1.25rem);
+    }
+
+    .navbar-user-type {
+      @apply px-2.5 py-1 text-sm;
+    }
+
+    .navbar-buttons {
+      @apply gap-4;
+    }
+
+    .navbar-button {
+      @apply px-4 py-2 text-sm;
+    }
+
+    .navbar-welcome {
+      @apply text-sm;
+    }
+  }
 }
