@@ -546,11 +546,16 @@ const STARGuideModal = ({ isOpen, onClose }) => {
   if (!isOpen) return null;
 
   const tabs = [
-    { id: 'overview',  label: 'STAR Overview',     icon: '⭐' },
-    { id: 'deep',      label: 'Component Deep Dive',icon: '🔬' },
-    { id: 'scoring',   label: 'Scoring Guide',      icon: '📊' },
-    { id: 'dodont',    label: 'Do\'s & Don\'ts',    icon: '✅' },
-    { id: 'samples',   label: 'Sample Questions',   icon: '💬' },
+    { id: 'overview',    label: 'STAR Overview',      icon: '⭐', group: 'star' },
+    { id: 'deep',        label: 'Component Deep Dive', icon: '🔬', group: 'star' },
+    { id: 'scoring',     label: 'Scoring Guide',       icon: '📊', group: 'star' },
+    { id: 'dodont',      label: "Do's & Don'ts",       icon: '✅', group: 'star' },
+    { id: 'samples',     label: 'Sample Questions',    icon: '💬', group: 'star' },
+    { id: 'bei_overview',label: 'BEI Overview',        icon: '🎯', group: 'bei' },
+    { id: 'bei_process', label: 'BEI Process',         icon: '🗺️', group: 'bei' },
+    { id: 'bei_probing', label: 'Probing Techniques',  icon: '🔎', group: 'bei' },
+    { id: 'bei_scoring', label: 'BEI Scoring',         icon: '🏅', group: 'bei' },
+    { id: 'bei_ethics',  label: 'Ethics & Bias',       icon: '⚖️', group: 'bei' },
   ];
 
   return (
@@ -568,16 +573,16 @@ const STARGuideModal = ({ isOpen, onClose }) => {
           <div className="flex justify-between items-start">
             <div>
               <div className="flex items-center gap-3 mb-1">
-                <span style={{ fontSize: 28 }}>⭐</span>
+                <span style={{ fontSize: 28 }}>🎯</span>
                 <h2 style={{
                   fontSize: 20, fontWeight: 800, color: '#fff',
                   letterSpacing: '-0.3px', margin: 0,
                 }}>
-                  STAR Method Interview Guide
+                  STAR & BEI Interview Guide
                 </h2>
               </div>
               <p style={{ color: '#93c5fd', fontSize: 12.5, margin: 0, fontWeight: 500 }}>
-                Structured Behavioral Interview Framework for Raters · DENR CBS Rating System
+                STAR Method + Behavioral Event Interview (BEI) Framework · DENR CBS Rating System 2025
               </p>
             </div>
             <button
@@ -612,30 +617,49 @@ const STARGuideModal = ({ isOpen, onClose }) => {
 
         {/* ── Tab Bar ── */}
         <div style={{
-          display: 'flex', gap: 2, padding: '10px 16px 0',
           background: '#f8fafc', borderBottom: '1.5px solid #e2e8f0',
           flexShrink: 0, overflowX: 'auto',
         }}>
-          {tabs.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              style={{
-                padding: '7px 13px', borderRadius: '8px 8px 0 0',
-                border: 'none', cursor: 'pointer', fontFamily: 'inherit',
-                fontSize: 12, fontWeight: activeTab === tab.id ? 700 : 500,
-                color: activeTab === tab.id ? '#1d4ed8' : '#64748b',
-                background: activeTab === tab.id ? '#fff' : 'transparent',
-                borderBottom: activeTab === tab.id ? '2px solid #1d4ed8' : '2px solid transparent',
-                whiteSpace: 'nowrap',
-                transition: 'all 0.15s',
-                display: 'flex', alignItems: 'center', gap: 5,
-              }}
-            >
-              <span>{tab.icon}</span>
-              <span>{tab.label}</span>
-            </button>
-          ))}
+          {/* Group labels */}
+          <div style={{ display: 'flex', padding: '6px 16px 0', gap: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginRight: 20 }}>
+              <span style={{ fontSize: 10, fontWeight: 800, color: '#1d4ed8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                ⭐ STAR Method
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ fontSize: 10, fontWeight: 800, color: '#7c3aed', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                🎯 Behavioral Event Interview (BEI)
+              </span>
+            </div>
+          </div>
+          {/* Tabs row */}
+          <div style={{ display: 'flex', gap: 2, padding: '4px 16px 0' }}>
+            {tabs.map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                style={{
+                  padding: '7px 11px', borderRadius: '8px 8px 0 0',
+                  border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                  fontSize: 11.5, fontWeight: activeTab === tab.id ? 700 : 500,
+                  color: activeTab === tab.id
+                    ? (tab.group === 'bei' ? '#7c3aed' : '#1d4ed8')
+                    : '#64748b',
+                  background: activeTab === tab.id ? '#fff' : 'transparent',
+                  borderBottom: activeTab === tab.id
+                    ? `2px solid ${tab.group === 'bei' ? '#7c3aed' : '#1d4ed8'}`
+                    : tab.group === 'bei' ? '2px solid #ede9fe' : '2px solid #dbeafe',
+                  whiteSpace: 'nowrap',
+                  transition: 'all 0.15s',
+                  display: 'flex', alignItems: 'center', gap: 4,
+                }}
+              >
+                <span>{tab.icon}</span>
+                <span>{tab.label}</span>
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* ── Scrollable Body ── */}
@@ -1099,9 +1123,559 @@ const STARGuideModal = ({ isOpen, onClose }) => {
               ))}
             </div>
           )}
-        </div>
+          {/* ── BEI OVERVIEW TAB ── */}
+          {activeTab === 'bei_overview' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
 
-        {/* ── Footer ── */}
+              {/* What is BEI */}
+              <div style={{ background: '#f5f3ff', border: '1.5px solid #c4b5fd', borderRadius: 12, padding: '14px 18px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                  <span style={{ fontSize: 22 }}>🎯</span>
+                  <span style={{ fontWeight: 800, fontSize: 14, color: '#4c1d95' }}>What is BEI?</span>
+                </div>
+                <p style={{ fontSize: 13, color: '#3b0764', lineHeight: 1.7, margin: 0 }}>
+                  <strong>Behavioral Event Interviewing (BEI)</strong> is a structured interview technique developed by David McClelland (Harvard, 1970s) that identifies competencies by exploring how a candidate actually handled critical events in the past. Unlike traditional interviews that ask "Can you do this?", BEI asks <em>"Tell me about a time when you DID this."</em> It is the gold standard for competency-based assessments in government and the private sector.
+                </p>
+              </div>
+
+              {/* BEI vs Traditional vs STAR */}
+              <div>
+                <h3 style={{ fontWeight: 800, fontSize: 13, color: '#1e293b', marginBottom: 10 }}>
+                  BEI vs. Traditional Interview vs. STAR
+                </h3>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ background: '#4c1d95' }}>
+                        {['Dimension', 'Traditional', 'STAR Method', 'BEI'].map((h, i) => (
+                          <th key={i} style={{
+                            padding: '9px 12px', color: '#fff', fontWeight: 700,
+                            textAlign: 'left', borderRight: '1px solid #6d28d9',
+                          }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[
+                        ['Focus', 'Qualifications & opinions', 'Structured past behavior', 'In-depth competency evidence'],
+                        ['Question type', '"What would you do if…?"', '"Tell me about a time…"', '"Tell me about a time… (then deep probing)"'],
+                        ['Depth', 'Surface-level', 'Structured narrative', 'Exhaustive event analysis'],
+                        ['Bias risk', 'High (gut-feel)', 'Moderate', 'Low (evidence-based)'],
+                        ['Time per competency', '2–3 min', '5–8 min', '10–20 min'],
+                        ['Predictive validity', 'Low (~0.10)', 'Moderate (~0.35)', 'High (~0.50–0.55)'],
+                        ['Best used for', 'Initial screening', 'Panel/structured interviews', 'Key competency deep dives'],
+                      ].map((row, i) => (
+                        <tr key={i} style={{ background: i % 2 === 0 ? '#faf5ff' : '#fff' }}>
+                          {row.map((cell, j) => (
+                            <td key={j} style={{
+                              padding: '8px 12px', color: j === 0 ? '#4c1d95' : '#374151',
+                              fontWeight: j === 0 ? 700 : 400,
+                              border: '1px solid #e9d5ff',
+                            }}>{cell}</td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Core principles */}
+              <div>
+                <h3 style={{ fontWeight: 800, fontSize: 13, color: '#1e293b', marginBottom: 10 }}>
+                  5 Core Principles of BEI
+                </h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {[
+                    { n: '1', title: 'Past behavior predicts future behavior', body: 'How a person acted in a specific, real past situation is the strongest predictor of how they will act in similar future situations. This is the scientific foundation of BEI.', color: '#7c3aed' },
+                    { n: '2', title: 'Specificity over generality', body: 'Generic statements ("I always communicate well") have near-zero predictive value. Only specific, verifiable behavioral events with full context provide reliable evidence.', color: '#1d4ed8' },
+                    { n: '3', title: 'The interviewer controls the depth', body: 'BEI is not passive. The interviewer must actively probe until all five critical elements of the event are fully explored: Context, Challenge, Actions, Results, and Learning.', color: '#065f46' },
+                    { n: '4', title: 'Emotions and thoughts are evidence', body: 'Unlike STAR which focuses on actions, BEI explicitly captures what the candidate was thinking, feeling, and wanting — revealing underlying motivations and competency drivers.', color: '#92400e' },
+                    { n: '5', title: 'Multiple events required per competency', body: 'One story is a data point. Two to three events for the same competency form a pattern. A pattern is the basis for a valid competency rating.', color: '#991b1b' },
+                  ].map(p => (
+                    <div key={p.n} style={{
+                      display: 'flex', gap: 12, alignItems: 'flex-start',
+                      background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 10, padding: '12px 14px',
+                    }}>
+                      <div style={{
+                        width: 28, height: 28, borderRadius: 8, flexShrink: 0,
+                        background: p.color, color: '#fff',
+                        fontWeight: 900, fontSize: 14,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>{p.n}</div>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 12.5, color: p.color, marginBottom: 3 }}>{p.title}</div>
+                        <p style={{ fontSize: 12, color: '#374151', lineHeight: 1.6, margin: 0 }}>{p.body}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* BEI vs STAR connection callout */}
+              <div style={{ background: 'linear-gradient(135deg, #ede9fe, #dbeafe)', border: '1.5px solid #a5b4fc', borderRadius: 12, padding: '14px 18px', display: 'flex', gap: 12 }}>
+                <span style={{ fontSize: 22, flexShrink: 0 }}>🔗</span>
+                <div>
+                  <p style={{ fontWeight: 800, fontSize: 13, color: '#312e81', marginBottom: 4 }}>How STAR and BEI Work Together</p>
+                  <p style={{ fontSize: 12.5, color: '#1e1b4b', lineHeight: 1.65, margin: 0 }}>
+                    STAR is the <strong>structure</strong> you use to organize what you hear. BEI is the <strong>technique</strong> you use to extract it. In practice: use a BEI opening question to prompt the story, then use STAR as your mental checklist to know what to probe for. When all STAR components are filled in with specific behavioral evidence, you have conducted a successful BEI.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── BEI PROCESS TAB ── */}
+          {activeTab === 'bei_process' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+              <div style={{ background: '#f5f3ff', border: '1.5px solid #c4b5fd', borderRadius: 12, padding: '12px 16px' }}>
+                <p style={{ fontSize: 12.5, color: '#3b0764', lineHeight: 1.6, margin: 0 }}>
+                  A complete BEI follows a disciplined 5-phase structure. Each phase has a specific purpose — skipping phases leads to incomplete evidence and unreliable ratings.
+                </p>
+              </div>
+
+              {[
+                {
+                  phase: '01', title: 'Preparation', time: 'Before interview',
+                  color: '#1d4ed8', bg: '#eff6ff', border: '#93c5fd', icon: '📋',
+                  steps: [
+                    'Review the competency framework and indicators for the target position',
+                    'Select 3–5 competencies to probe (prioritize those most critical to the role)',
+                    'Prepare one opening BEI question per competency',
+                    'Prepare 3–4 probe questions per competency in case the candidate\'s story is incomplete',
+                    'Review the candidate\'s application materials (but do NOT form premature judgments)',
+                    'Set up a quiet, private, distraction-free interview space',
+                    'Inform the candidate in advance that the interview will use a structured behavioral format',
+                  ],
+                  tip: 'Never improvise your questions during a BEI. Prepared questions ensure consistency across all candidates and reduce interviewer bias.',
+                },
+                {
+                  phase: '02', title: 'Opening & Rapport', time: '5–10 minutes',
+                  color: '#065f46', bg: '#ecfdf5', border: '#6ee7b7', icon: '🤝',
+                  steps: [
+                    'Welcome the candidate and introduce all panel members',
+                    'Explain the interview format: "We will be asking you about specific past situations."',
+                    'Normalize the process: "There are no right or wrong answers — we are interested in your real experiences."',
+                    'Explain note-taking: "I will be taking notes so I can accurately capture your responses."',
+                    'Set expectations on time: "We have about [X] minutes. I may need to redirect us to stay on track."',
+                    'Ask a brief warm-up question (current role, how long in government service) to ease tension',
+                  ],
+                  tip: 'The opening sets psychological safety. A nervous candidate produces shorter, less detailed responses. Take 2 extra minutes here to save 10 minutes of probing later.',
+                },
+                {
+                  phase: '03', title: 'Core BEI Questioning', time: '30–60 minutes',
+                  color: '#7c3aed', bg: '#f5f3ff', border: '#c4b5fd', icon: '🔍',
+                  steps: [
+                    'Ask the opening BEI question for the first competency',
+                    'Allow the candidate to respond fully without interruption',
+                    'Mentally check which STAR components are present in their response',
+                    'Probe for any missing or thin components using BEI probe techniques',
+                    'Explicitly capture: What were you thinking? What were you feeling? What did YOU decide to do?',
+                    'Confirm the outcome and ask for the candidate\'s reflection/learning',
+                    'When the event is fully explored, move to the next competency',
+                    'If time allows, ask for a second event per critical competency',
+                  ],
+                  tip: 'Do not move to the next competency until you have a complete S-T-A-R narrative with the candidate\'s thoughts and feelings included. Incomplete events produce unreliable scores.',
+                },
+                {
+                  phase: '04', title: 'Closing', time: '5 minutes',
+                  color: '#92400e', bg: '#fffbeb', border: '#fcd34d', icon: '🎬',
+                  steps: [
+                    'Summarize what was covered: "We have discussed [X] competencies today."',
+                    'Ask if the candidate has anything to add',
+                    'Thank the candidate for their time and openness',
+                    'Explain next steps in the selection process',
+                    'Do NOT give any feedback on their performance at this stage',
+                    'Remain neutral and consistent — your expression and tone should not signal approval or concern',
+                  ],
+                  tip: 'Never hint at how well the candidate performed during the closing. Any verbal or nonverbal signal can affect the candidate\'s behavior in remaining stages of the selection.',
+                },
+                {
+                  phase: '05', title: 'Scoring & Documentation', time: 'Immediately after',
+                  color: '#991b1b', bg: '#fef2f2', border: '#fca5a5', icon: '📝',
+                  steps: [
+                    'Score each competency immediately after the interview (memory fades quickly)',
+                    'Use only behavioral evidence from the interview — not impressions, appearance, or credentials',
+                    'For each competency, identify: (a) the event used, (b) specific behaviors observed, (c) score assigned, (d) rationale',
+                    'If the panel disagrees on a score, discuss the specific behavioral evidence — not general impressions',
+                    'Document at least one behavioral anchor per rating level claimed',
+                    'Flag any competencies where insufficient evidence was gathered for a reliable score',
+                  ],
+                  tip: 'Scores without behavioral evidence are indefensible. If challenged (e.g., CSC appeal), you must be able to cite specific things the candidate said or did that justified each rating.',
+                },
+              ].map((ph, i) => (
+                <div key={i} style={{ border: `1.5px solid ${ph.border}`, borderRadius: 12, overflow: 'hidden' }}>
+                  <div style={{ background: ph.bg, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ width: 36, height: 36, borderRadius: 10, background: ph.color, color: '#fff', fontWeight: 900, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      {ph.phase}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 800, fontSize: 13.5, color: ph.color }}>{ph.icon} Phase {ph.phase}: {ph.title}</div>
+                      <div style={{ fontSize: 11, color: ph.color, opacity: 0.8, fontWeight: 600 }}>{ph.time}</div>
+                    </div>
+                  </div>
+                  <div style={{ padding: '12px 16px', background: '#fff' }}>
+                    {ph.steps.map((s, si) => (
+                      <div key={si} style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+                        <span style={{ color: ph.color, fontWeight: 800, fontSize: 13, flexShrink: 0 }}>✓</span>
+                        <p style={{ fontSize: 12, color: '#374151', lineHeight: 1.55, margin: 0 }}>{s}</p>
+                      </div>
+                    ))}
+                    <div style={{ marginTop: 10, background: ph.bg, border: `1px solid ${ph.border}`, borderRadius: 8, padding: '8px 12px', display: 'flex', gap: 8 }}>
+                      <span style={{ fontSize: 14, flexShrink: 0 }}>💡</span>
+                      <p style={{ fontSize: 11.5, color: ph.color, lineHeight: 1.55, margin: 0, fontStyle: 'italic' }}>{ph.tip}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ── BEI PROBING TECHNIQUES TAB ── */}
+          {activeTab === 'bei_probing' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{ background: '#f5f3ff', border: '1.5px solid #c4b5fd', borderRadius: 12, padding: '12px 16px' }}>
+                <p style={{ fontSize: 12.5, color: '#3b0764', lineHeight: 1.6, margin: 0 }}>
+                  Probing is what separates a trained BEI interviewer from an untrained one. The goal is to exhaust the behavioral event — not just confirm it. Use these techniques when a candidate's story is incomplete, vague, or shifts toward the hypothetical.
+                </p>
+              </div>
+
+              {/* The 5 BEI Elements */}
+              <div>
+                <h3 style={{ fontWeight: 800, fontSize: 13, color: '#1e293b', marginBottom: 10 }}>
+                  The 5 Elements BEI Probes For (Beyond STAR)
+                </h3>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  {[
+                    { label: 'Situation / Context', desc: 'What was happening? Who was involved? What were the stakes?', color: '#1d4ed8' },
+                    { label: 'Task / Role', desc: 'What was YOUR specific responsibility? What were you expected to deliver?', color: '#065f46' },
+                    { label: 'Actions taken', desc: 'Step-by-step, what did YOU specifically do? Why those actions?', color: '#7c3aed' },
+                    { label: 'Thoughts & Feelings', desc: 'What were you thinking at the time? What did you want to achieve?', color: '#92400e' },
+                    { label: 'Results & Learning', desc: 'What happened? What did you learn? What would you do differently?', color: '#991b1b' },
+                  ].map((el, i) => (
+                    <div key={i} style={{ background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 10, padding: '10px 12px' }}>
+                      <div style={{ fontWeight: 700, fontSize: 12, color: el.color, marginBottom: 4 }}>{el.label}</div>
+                      <p style={{ fontSize: 11.5, color: '#374151', lineHeight: 1.5, margin: 0 }}>{el.desc}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Probing techniques */}
+              <div>
+                <h3 style={{ fontWeight: 800, fontSize: 13, color: '#1e293b', marginBottom: 10 }}>
+                  Core BEI Probing Techniques
+                </h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {[
+                    {
+                      tech: 'The Funnel Probe', icon: '🔽',
+                      color: '#7c3aed', bg: '#f5f3ff', border: '#c4b5fd',
+                      desc: 'Start broad, then narrow down to specific behaviors. Used to open an event.',
+                      examples: [
+                        '"Tell me about a time when you led a significant change in your office."',
+                        '"What was the specific change you were leading?"',
+                        '"What did YOU personally do to initiate it?"',
+                      ],
+                    },
+                    {
+                      tech: 'The Thought/Feeling Probe', icon: '💭',
+                      color: '#1d4ed8', bg: '#eff6ff', border: '#93c5fd',
+                      desc: 'Surfaces the candidate\'s internal state — a unique BEI element not present in basic STAR.',
+                      examples: [
+                        '"What were you thinking when that happened?"',
+                        '"How did you feel when your supervisor pushed back?"',
+                        '"What did you most want to achieve in that moment?"',
+                        '"What concerned you most at that point?"',
+                      ],
+                    },
+                    {
+                      tech: 'The Clarification Probe', icon: '❓',
+                      color: '#065f46', bg: '#ecfdf5', border: '#6ee7b7',
+                      desc: 'Clears up ambiguous pronouns, vague timeframes, or unclear ownership.',
+                      examples: [
+                        '"When you say \'we,\' what specifically did YOU do?"',
+                        '"You mentioned \'managing the situation\' — what exactly did that involve?"',
+                        '"How long ago did this happen? Was this in your current role?"',
+                      ],
+                    },
+                    {
+                      tech: 'The Completeness Probe', icon: '🧩',
+                      color: '#92400e', bg: '#fffbeb', border: '#fcd34d',
+                      desc: 'Used when a STAR component is missing. Fills gaps without leading the candidate.',
+                      examples: [
+                        '"You\'ve described the situation well — what was YOUR specific task or role in it?"',
+                        '"You\'ve told me what happened — what were the actual results or outcomes?"',
+                        '"What did you learn from that experience?"',
+                      ],
+                    },
+                    {
+                      tech: 'The Redirect Probe', icon: '↩️',
+                      color: '#581c87', bg: '#faf5ff', border: '#d8b4fe',
+                      desc: 'Brings the candidate back when they give hypothetical, general, or off-topic responses.',
+                      examples: [
+                        '"That\'s helpful context. Can you give me a specific example of when you actually did that?"',
+                        '"I want to make sure I understand — are you describing something that actually happened, or what you would typically do?"',
+                        '"Let\'s focus on one specific event. Which situation comes to mind most clearly?"',
+                      ],
+                    },
+                    {
+                      tech: 'The Depth Probe', icon: '⛏️',
+                      color: '#991b1b', bg: '#fef2f2', border: '#fca5a5',
+                      desc: 'Pushes for more detail on a key action or decision. Used when the candidate skips over critical steps.',
+                      examples: [
+                        '"You mentioned you \'coordinated with stakeholders\' — walk me through exactly how you did that."',
+                        '"What was the hardest part of that decision for you?"',
+                        '"What specific obstacles did you encounter, and how did you handle each one?"',
+                      ],
+                    },
+                  ].map((t, i) => (
+                    <div key={i} style={{ border: `1.5px solid ${t.border}`, borderRadius: 12 }}>
+                      <div style={{ background: t.bg, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 18 }}>{t.icon}</span>
+                        <div>
+                          <span style={{ fontWeight: 800, fontSize: 13, color: t.color }}>{t.tech}</span>
+                          <p style={{ fontSize: 11.5, color: t.color, opacity: 0.85, margin: '2px 0 0', lineHeight: 1.4 }}>{t.desc}</p>
+                        </div>
+                      </div>
+                      <div style={{ padding: '10px 14px', background: '#fff', display: 'flex', flexDirection: 'column', gap: 5 }}>
+                        {t.examples.map((ex, ei) => (
+                          <div key={ei} style={{ background: t.bg, border: `1px solid ${t.border}`, borderRadius: 7, padding: '6px 10px', fontSize: 12, color: '#1e293b', fontStyle: 'italic' }}>
+                            {ex}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Probing don'ts */}
+              <div style={{ background: '#fef2f2', border: '1.5px solid #fca5a5', borderRadius: 12, padding: '14px 18px' }}>
+                <h3 style={{ fontWeight: 800, fontSize: 13, color: '#991b1b', marginBottom: 10 }}>🚫 Probing Pitfalls to Avoid</h3>
+                {[
+                  { bad: 'Leading probes', example: '"You handled that professionally, didn\'t you?"', fix: 'Keep probes neutral and open-ended.' },
+                  { bad: 'Double-barreled probes', example: '"What did you do and what did you learn?"', fix: 'Ask one thing at a time.' },
+                  { bad: 'Closed probes', example: '"So you talked to your supervisor about it?"', fix: 'Use open probes: "What did you do next?"' },
+                  { bad: 'Sharing your own experiences', example: '"I would have done the same thing in your position."', fix: 'Stay neutral. Never compare.' },
+                  { bad: 'Accepting generalities', example: 'Moving on after: "I always make sure to communicate clearly."', fix: 'Always redirect to a specific event.' },
+                ].map((p, i) => (
+                  <div key={i} style={{ marginBottom: i < 4 ? 10 : 0, paddingBottom: i < 4 ? 10 : 0, borderBottom: i < 4 ? '1px solid #fecaca' : 'none' }}>
+                    <div style={{ fontWeight: 700, fontSize: 12, color: '#991b1b', marginBottom: 2 }}>❌ {p.bad}</div>
+                    <div style={{ fontSize: 11.5, color: '#7f1d1d', fontStyle: 'italic', marginBottom: 3 }}>Example: {p.example}</div>
+                    <div style={{ fontSize: 12, color: '#065f46', fontWeight: 600 }}>✓ Fix: {p.fix}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── BEI SCORING TAB ── */}
+          {activeTab === 'bei_scoring' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{ background: '#f5f3ff', border: '1.5px solid #c4b5fd', borderRadius: 12, padding: '12px 16px' }}>
+                <p style={{ fontSize: 12.5, color: '#3b0764', lineHeight: 1.6, margin: 0 }}>
+                  BEI scoring is evidence-based. Every score must be traceable to specific behavioral evidence from the interview. The table below maps behavioral indicators to rating levels under the CBS competency framework.
+                </p>
+              </div>
+
+              {/* Evidence standard */}
+              <div>
+                <h3 style={{ fontWeight: 800, fontSize: 13, color: '#1e293b', marginBottom: 10 }}>The Evidence Standard</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                  {[
+                    { level: 'Strong Evidence', icon: '✅', color: '#065f46', bg: '#ecfdf5', border: '#6ee7b7', desc: 'Specific, detailed event with full STAR components, including thoughts/feelings. Multiple events show a consistent pattern.' },
+                    { level: 'Moderate Evidence', icon: '⚠️', color: '#92400e', bg: '#fffbeb', border: '#fcd34d', desc: 'One complete event with most STAR components present. Some probing required. Results not fully quantified.' },
+                    { level: 'Weak / No Evidence', icon: '❌', color: '#991b1b', bg: '#fef2f2', border: '#fca5a5', desc: 'No specific event, only generalities. Hypothetical responses only. Missing critical STAR components despite probing.' },
+                  ].map((e, i) => (
+                    <div key={i} style={{ background: e.bg, border: `1.5px solid ${e.border}`, borderRadius: 10, padding: '12px 12px' }}>
+                      <div style={{ fontSize: 20, marginBottom: 5 }}>{e.icon}</div>
+                      <div style={{ fontWeight: 800, fontSize: 12, color: e.color, marginBottom: 5 }}>{e.level}</div>
+                      <p style={{ fontSize: 11.5, color: '#374151', lineHeight: 1.5, margin: 0 }}>{e.desc}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* BEI-specific rating scale */}
+              <div>
+                <h3 style={{ fontWeight: 800, fontSize: 13, color: '#1e293b', marginBottom: 10 }}>
+                  BEI Rating Scale with Behavioral Anchors
+                </h3>
+                {[
+                  {
+                    score: 5, label: 'Distinguished', color: '#065f46', bg: '#ecfdf5', border: '#6ee7b7',
+                    anchors: [
+                      'Candidate provided 2+ fully detailed behavioral events without prompting',
+                      'All 5 BEI elements present: Context, Task, Actions, Thoughts/Feelings, Results',
+                      'Actions demonstrate competency at a level significantly exceeding the target position',
+                      'Results are measurable, impactful, and clearly attributed to the candidate',
+                      'Candidate showed strong self-awareness and transferable learning',
+                    ],
+                  },
+                  {
+                    score: 4, label: 'Exceeds Expectations', color: '#1d4ed8', bg: '#eff6ff', border: '#93c5fd',
+                    anchors: [
+                      'One complete behavioral event provided with minimal probing needed',
+                      'Thoughts/feelings element present but may be brief',
+                      'Actions clearly demonstrate the competency at the expected level',
+                      'Results present and reasonably specific; minor gaps in quantification',
+                      'Candidate can reflect and articulate learning from the experience',
+                    ],
+                  },
+                  {
+                    score: 3, label: 'Meets Expectations', color: '#92400e', bg: '#fffbeb', border: '#fcd34d',
+                    anchors: [
+                      'One behavioral event provided but required moderate probing to complete',
+                      'Most STAR components present; thoughts/feelings element thin or absent',
+                      'Actions demonstrate the competency but at a basic or developing level',
+                      'Results are present but vague or not quantified',
+                      'Limited reflection or learning expressed',
+                    ],
+                  },
+                  {
+                    score: 2, label: 'Below Expectations', color: '#b45309', bg: '#fff7ed', border: '#fdba74',
+                    anchors: [
+                      'Partial behavioral event only; significant probing required',
+                      'Candidate frequently shifted to hypothetical or general responses',
+                      'Actions vague, unclear, or not clearly personal (overuse of "we")',
+                      'Results absent or entirely unmeasured',
+                      'No reflection or learning expressed',
+                    ],
+                  },
+                  {
+                    score: 1, label: 'Unsatisfactory', color: '#991b1b', bg: '#fef2f2', border: '#fca5a5',
+                    anchors: [
+                      'No specific behavioral event provided despite repeated probing',
+                      'Candidate responded only with opinions, generalities, or hypotheticals',
+                      'No personal actions described — only team or organizational actions',
+                      'No results or outcomes mentioned',
+                      'No evidence of the competency being demonstrated',
+                    ],
+                  },
+                ].map((r, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 12, marginBottom: 10, background: r.bg, border: `1.5px solid ${r.border}`, borderRadius: 12, padding: '12px 14px' }}>
+                    <div style={{ width: 42, height: 42, borderRadius: 10, flexShrink: 0, background: r.color, color: '#fff', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                      <span style={{ fontWeight: 900, fontSize: 17, lineHeight: 1 }}>{r.score}</span>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 800, fontSize: 13, color: r.color, marginBottom: 6 }}>{r.label}</div>
+                      {r.anchors.map((a, ai) => (
+                        <div key={ai} style={{ display: 'flex', gap: 7, marginBottom: 4 }}>
+                          <span style={{ color: r.color, fontSize: 11, flexShrink: 0, fontWeight: 800, lineHeight: 1.7 }}>•</span>
+                          <p style={{ fontSize: 12, color: '#374151', lineHeight: 1.55, margin: 0 }}>{a}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Panel consensus */}
+              <div style={{ background: '#f0f9ff', border: '1.5px solid #7dd3fc', borderRadius: 12, padding: '14px 18px' }}>
+                <h3 style={{ fontWeight: 800, fontSize: 13, color: '#0c4a6e', marginBottom: 10 }}>👥 Panel Scoring & Consensus</h3>
+                {[
+                  'Each rater scores independently BEFORE discussing with the panel — prevents anchoring bias.',
+                  'Disclose individual scores simultaneously (e.g., using cards or written sheets).',
+                  'For scores within 1 point of each other: average the scores.',
+                  'For scores 2 or more points apart: each rater must cite specific behavioral evidence for their score, then re-evaluate.',
+                  'The final score must be justified by behavioral evidence — not by seniority or social pressure.',
+                  'Document the rationale for the final score, especially when panel members disagreed.',
+                ].map((rule, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+                    <span style={{ color: '#0369a1', fontWeight: 800, fontSize: 12, flexShrink: 0, lineHeight: 1.7 }}>{i + 1}.</span>
+                    <p style={{ fontSize: 12, color: '#0c4a6e', lineHeight: 1.55, margin: 0 }}>{rule}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── BEI ETHICS & BIAS TAB ── */}
+          {activeTab === 'bei_ethics' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{ background: '#faf5ff', border: '1.5px solid #d8b4fe', borderRadius: 12, padding: '12px 16px' }}>
+                <p style={{ fontSize: 12.5, color: '#3b0764', lineHeight: 1.6, margin: 0 }}>
+                  Even structured interviews like BEI are vulnerable to cognitive bias. Understanding and actively managing these biases is part of every rater's professional obligation under the CSC Merit Selection process.
+                </p>
+              </div>
+
+              {/* Common biases */}
+              <div>
+                <h3 style={{ fontWeight: 800, fontSize: 13, color: '#1e293b', marginBottom: 10 }}>
+                  Common Interviewer Biases in BEI
+                </h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+                  {[
+                    { bias: 'Halo Effect', icon: '😇', color: '#7c3aed', desc: 'One strong response causes the rater to inflate scores for all subsequent competencies.', mitigation: 'Score each competency independently, immediately after its response. Do not let early impressions carry over.' },
+                    { bias: 'Horns Effect', icon: '😈', color: '#991b1b', desc: 'One weak response causes the rater to deflate all subsequent scores.', mitigation: 'Same as above — score competency by competency, based solely on the evidence for that specific competency.' },
+                    { bias: 'Similar-to-Me Bias', icon: '🪞', color: '#1d4ed8', desc: 'Raters unconsciously favor candidates who share their background, style, alma mater, or values.', mitigation: 'Ask: "Is my rating based on what they DID or how much they remind me of myself?" Focus only on behavioral evidence.' },
+                    { bias: 'Contrast Effect', icon: '⚖️', color: '#065f46', desc: 'Rating a candidate relative to the previous one rather than against the competency standard.', mitigation: 'Always score against the rubric, not against other candidates. Review the anchors before each interview.' },
+                    { bias: 'Attribution Bias', icon: '🎯', color: '#92400e', desc: 'Attributing success to the candidate\'s character but failure to external circumstances (or vice versa).', mitigation: 'Probe consistently for both successes and challenges. Ask what the candidate did — not why things turned out as they did.' },
+                    { bias: 'First Impression / Primacy', icon: '⏱️', color: '#581c87', desc: 'The first story shared has a disproportionate impact on the overall assessment.', mitigation: 'Use a structured scoring form. Record evidence for each competency separately. Finalize scores at the end of each section, not the end of the interview.' },
+                    { bias: 'Leniency / Strictness Bias', icon: '📏', color: '#0c4a6e', desc: 'Some raters consistently score too high (wanting to avoid conflict) or too low (being overly critical).', mitigation: 'Calibrate with co-raters before the interview. Use behavioral anchors. Justify every score above 3 or below 3 with specific evidence.' },
+                  ].map((b, i) => (
+                    <div key={i} style={{ border: '1.5px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
+                      <div style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '10px 14px', background: '#f8fafc' }}>
+                        <span style={{ fontSize: 20 }}>{b.icon}</span>
+                        <span style={{ fontWeight: 800, fontSize: 13, color: b.color }}>{b.bias}</span>
+                      </div>
+                      <div style={{ padding: '10px 14px', background: '#fff' }}>
+                        <p style={{ fontSize: 12, color: '#374151', lineHeight: 1.55, margin: '0 0 6px' }}>{b.desc}</p>
+                        <div style={{ display: 'flex', gap: 7, alignItems: 'flex-start', background: '#f0fdf4', borderRadius: 7, padding: '6px 10px', border: '1px solid #bbf7d0' }}>
+                          <span style={{ color: '#065f46', fontSize: 12, fontWeight: 800, flexShrink: 0, lineHeight: 1.6 }}>✓</span>
+                          <p style={{ fontSize: 12, color: '#064e3b', lineHeight: 1.55, margin: 0 }}><strong>Mitigation:</strong> {b.mitigation}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Legal & ethical obligations */}
+              <div style={{ background: '#fff7ed', border: '1.5px solid #fdba74', borderRadius: 12, padding: '14px 18px' }}>
+                <h3 style={{ fontWeight: 800, fontSize: 13, color: '#92400e', marginBottom: 10 }}>
+                  ⚖️ Legal & Ethical Obligations of BEI Raters
+                </h3>
+                {[
+                  { title: 'Confidentiality', body: 'All interview content — questions asked, answers given, scores assigned — is strictly confidential. Disclosure to non-panel members or candidates is a violation of CSC rules and DENR MSPP.' },
+                  { title: 'Non-discrimination', body: 'Questions must be competency-relevant. Never ask about age, civil status, pregnancy, religion, political affiliation, or disability unless directly required by the position (with proper CSC authority).' },
+                  { title: 'Consistency', body: 'The same competencies must be assessed for all candidates applying for the same position. Varying the questions or competencies assessed across candidates invalidates the process.' },
+                  { title: 'Documentation', body: 'All scoring sheets, behavioral notes, and rationales must be preserved as part of the official selection record. These documents are subject to CSC audit and Freedom of Information (FOI) requests.' },
+                  { title: 'Conflict of interest', body: 'A rater who has a personal or professional relationship with a candidate that could affect objectivity must declare this and recuse themselves from that candidate\'s interview.' },
+                  { title: 'Independence', body: 'Raters must not discuss their scores or assessments with each other BEFORE independent scoring is completed. Premature discussion introduces social bias and undermines the integrity of the panel.' },
+                ].map((item, i) => (
+                  <div key={i} style={{ marginBottom: i < 5 ? 10 : 0, paddingBottom: i < 5 ? 10 : 0, borderBottom: i < 5 ? '1px solid #fed7aa' : 'none' }}>
+                    <div style={{ fontWeight: 700, fontSize: 12.5, color: '#92400e', marginBottom: 3 }}>{item.title}</div>
+                    <p style={{ fontSize: 12, color: '#7c2d12', lineHeight: 1.6, margin: 0 }}>{item.body}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Self-check before scoring */}
+              <div style={{ background: '#f0fdf4', border: '1.5px solid #86efac', borderRadius: 12, padding: '14px 18px' }}>
+                <h3 style={{ fontWeight: 800, fontSize: 13, color: '#065f46', marginBottom: 10 }}>
+                  ✅ Rater Self-Check Before Submitting Scores
+                </h3>
+                {[
+                  'Is my score based on specific behavioral evidence from THIS interview, not my pre-existing impression of the candidate?',
+                  'Can I cite at least one specific thing the candidate SAID OR DID that justifies each score?',
+                  'Did I probe sufficiently before concluding that evidence was absent?',
+                  'Am I scoring against the competency rubric — not against other candidates I have interviewed?',
+                  'Have I checked for halo or horns effect by reviewing each competency score independently?',
+                  'Am I confident that my score would withstand a CSC review or formal appeal?',
+                ].map((q, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 7 }}>
+                    <div style={{ width: 18, height: 18, borderRadius: 4, border: '2px solid #16a34a', flexShrink: 0, marginTop: 1 }} />
+                    <p style={{ fontSize: 12, color: '#064e3b', lineHeight: 1.55, margin: 0 }}>{q}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+        </div>
         <div style={{
           flexShrink: 0, padding: '10px 20px',
           borderTop: '1.5px solid #e2e8f0',
@@ -1110,7 +1684,7 @@ const STARGuideModal = ({ isOpen, onClose }) => {
           borderRadius: '0 0 16px 16px',
         }}>
           <span style={{ fontSize: 11, color: '#94a3b8' }}>
-            STAR Method Guide · For Authorized Raters Only · DENR CBS System 2025
+            STAR & BEI Interview Guide · For Authorized Raters Only · DENR CBS System 2025
           </span>
           <button
             onClick={onClose}
@@ -1248,15 +1822,15 @@ const Dashboard = ({ user, onLogout }) => {
             About
           </button>
           <GuidesDropdown />
-          {/* STAR Guide — raters only */}
+          {/* Interview Guide (STAR + BEI) — raters only */}
           {user.userType === USER_TYPES.RATER && (
             <button
               onClick={() => setStarGuideOpen(true)}
               className="navbar-button text-white"
               style={{ background: '#7c3aed' }}
-              title="STAR Method Interview Guide"
+              title="STAR & BEI Interview Guide"
             >
-              ⭐ STAR Guide
+              🎯 Interview Guide
             </button>
           )}
           {user.userType === USER_TYPES.ADMIN && (
