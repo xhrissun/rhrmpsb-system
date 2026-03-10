@@ -120,7 +120,9 @@ const InterviewSummaryGenerator = ({ user }) => {
           const vacancies = await vacanciesAPI.getAll();
           const filteredPositions = [...new Set(
             vacancies
-              .filter(v => v.assignment === selectedAssignment)
+              .filter(v => !v.isArchived &&
+                (!selectedPublicationRange || v.publicationRangeId === selectedPublicationRange) &&
+                v.assignment === selectedAssignment)
               .map(v => v.position)
               .filter(p => p && p.trim() !== '')
           )].sort();
@@ -168,7 +170,9 @@ const InterviewSummaryGenerator = ({ user }) => {
           const vacancies = await vacanciesAPI.getAll();
           const filteredItems = [...new Set(
             vacancies
-              .filter(v => v.assignment === selectedAssignment && v.position === selectedPosition)
+              .filter(v => !v.isArchived &&
+                (!selectedPublicationRange || v.publicationRangeId === selectedPublicationRange) &&
+                v.assignment === selectedAssignment && v.position === selectedPosition)
               .map(v => v.itemNumber)
               .filter(i => i && i.trim() !== '')
           )].sort();
@@ -200,13 +204,14 @@ const InterviewSummaryGenerator = ({ user }) => {
           setLoading(true);
           const candidateData = await candidatesAPI.getAll();
           const filteredCandidates = candidateData
-            .filter(c => c.itemNumber === selectedItem && c.status === 'long_list')
+            .filter(c => !c.isArchived && c.itemNumber === selectedItem && c.status === 'long_list')
             .map(c => ({ id: c._id, name: c.fullName }))
             .sort((a, b) => a.name.localeCompare(b.name));
           setCandidates(filteredCandidates);
 
           const vacancies = await vacanciesAPI.getAll();
-          const vacancy = vacancies.find(v => v.itemNumber === selectedItem);
+          const vacancy = vacancies.find(v => !v.isArchived && v.itemNumber === selectedItem &&
+            (!selectedPublicationRange || v.publicationRangeId === selectedPublicationRange));
           setVacancyDetails(vacancy);
           setSalaryGrade(vacancy?.salaryGrade || null);
 
