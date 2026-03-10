@@ -17,7 +17,7 @@ const api = axios.create({
 // Request interceptor to add auth token
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('authToken');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -34,7 +34,7 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       // Clear all localStorage keys
-      localStorage.removeItem('token');
+      localStorage.removeItem('authToken');
       localStorage.removeItem('user');
       localStorage.removeItem('rater_selectedAssignment');
       localStorage.removeItem('rater_selectedPosition');

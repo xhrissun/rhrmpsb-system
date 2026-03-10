@@ -1,6 +1,7 @@
 import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
+import rateLimit from 'express-rate-limit';
 import fileUpload from 'express-fileupload';
 import routes from './routes.js';
 import dotenv from 'dotenv';
@@ -8,11 +9,20 @@ import { runMigration } from './migration_add_publication_ranges.js';
 
 dotenv.config();
 
+// ── Validate required environment variables at startup ────────────────────────
+const REQUIRED_ENV = ['MONGODB_URI', 'JWT_SECRET'];
+for (const key of REQUIRED_ENV) {
+  if (!process.env[key]) {
+    console.error(`FATAL: Missing required environment variable: ${key}`);
+    process.exit(1);
+  }
+}
+
 const app = express();
 
-// Environment-based CORS configuration
+// ── Environment-based CORS configuration ─────────────────────────────────────
 const corsOptions = {
-  origin: process.env.NODE_ENV === 'production' 
+  origin: process.env.NODE_ENV === 'production'
     ? [
         'https://xhrissun.github.io',
         'https://cron-job.org',
@@ -22,12 +32,30 @@ const corsOptions = {
   optionsSuccessStatus: 200
 };
 
-// Middleware
+// ── Global rate limiter (all routes) ─────────────────────────────────────────
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 500,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many requests. Please try again later.' }
+});
+
+// ── Auth-specific rate limiter (stricter) ─────────────────────────────────────
+export const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many login attempts. Please wait 15 minutes before trying again.' }
+});
+
+// ── Middleware ────────────────────────────────────────────────────────────────
 app.use(cors(corsOptions));
+app.use(globalLimiter);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// File upload middleware
 app.use(fileUpload({
   limits: { fileSize: 5 * 1024 * 1024 },
   abortOnLimit: true,
@@ -36,51 +64,37 @@ app.use(fileUpload({
   tempFileDir: undefined
 }));
 
-// Connect to MongoDB and run migration
-const MONGODB_URI = process.env.MONGODB_URI;
-if (!MONGODB_URI) {
-  console.error('MONGODB_URI environment variable is required');
-  process.exit(1);
-}
-
+// ── Connect to MongoDB and run migration ──────────────────────────────────────
 async function startServer() {
   try {
-    // Connect to MongoDB
-    await mongoose.connect(MONGODB_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    });
+    await mongoose.connect(process.env.MONGODB_URI);
     console.log('Connected to MongoDB');
-
-    // Run migration after DB connection
     console.log('\n🔄 Checking for pending migrations...');
     await runMigration();
     console.log('✅ Migration check complete\n');
-
   } catch (err) {
     console.error('Startup error:', err);
     process.exit(1);
   }
 }
 
-// Start DB connection and migration
 startServer();
 
-// Lightweight ping endpoint
+// ── Lightweight ping endpoint ─────────────────────────────────────────────────
 app.get('/ping', (req, res) => {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] Ping received from ${req.ip}`);
   res.status(200).send('pong');
 });
 
-// Routes
+// ── Routes ────────────────────────────────────────────────────────────────────
 app.use('/api', routes);
 
-// Health check route
+// ── Health check route ────────────────────────────────────────────────────────
 app.get('/health', (req, res) => {
   const uptime = process.uptime();
-  res.status(200).json({ 
-    status: 'OK', 
+  res.status(200).json({
+    status: 'OK',
     message: 'Server is running',
     environment: process.env.NODE_ENV || 'development',
     timestamp: new Date().toISOString(),
@@ -89,30 +103,30 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Root route
+// ── Root route ────────────────────────────────────────────────────────────────
 app.get('/', (req, res) => {
-  res.status(200).json({ 
+  res.status(200).json({
     message: 'Rater System API Server',
     version: '1.0.0',
     endpoints: ['/api', '/health', '/ping']
   });
 });
 
-// Error handling middleware
+// ── Global error handling middleware ─────────────────────────────────────────
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ 
+  console.error(`[${req.method} ${req.path}]`, err);
+  res.status(500).json({
     message: 'Internal server error',
     ...(process.env.NODE_ENV !== 'production' && { error: err.message })
   });
 });
 
-// 404 handler
+// ── 404 handler ───────────────────────────────────────────────────────────────
 app.use('*', (req, res) => {
   res.status(404).json({ message: 'Endpoint not found' });
 });
 
-// Start server
+// ── Start server ──────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 5001;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);

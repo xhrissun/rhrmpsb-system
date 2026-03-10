@@ -3,53 +3,50 @@ import { Eye, EyeOff, Mail, Lock, AlertCircle, CheckCircle2 } from 'lucide-react
 import { authAPI } from '../utils/api';
 
 const Login = React.memo(({ onLogin }) => {
-  const [formData, setFormData] = useState({
-    email: '',
-    password: '',
-  });
+  const [formData, setFormData] = useState({ email: '', password: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [focusedField, setFocusedField] = useState('');
 
   const handleChange = useCallback((e) => {
-    setFormData((prev) => ({
-      ...prev,
-      [e.target.name]: e.target.value,
-    }));
+    setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
     setError('');
   }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // Client-side validation
+    if (!formData.email.trim()) { setError('Email is required.'); return; }
+    if (!formData.password) { setError('Password is required.'); return; }
+
     setLoading(true);
     setError('');
 
     try {
+      // Clear stale session state before login
       const keysToRemove = [
-        'rater_selectedAssignment',
-        'rater_selectedPosition',
-        'rater_selectedItemNumber',
-        'rater_selectedCandidate',
-        'secretariat_selectedAssignment',
-        'secretariat_selectedPosition',
-        'secretariat_selectedItemNumber',
-        'secretariat_selectedCandidate',
+        'authToken', 'user',
+        'rater_selectedAssignment', 'rater_selectedPosition',
+        'rater_selectedItemNumber', 'rater_selectedCandidate',
+        'secretariat_selectedAssignment', 'secretariat_selectedPosition',
+        'secretariat_selectedItemNumber', 'secretariat_selectedCandidate',
         'admin_activeTab',
       ];
-
-      keysToRemove.forEach((key) => {
-        if (typeof localStorage !== 'undefined') {
-          localStorage.removeItem(key);
-        }
-      });
+      keysToRemove.forEach((key) => localStorage.removeItem(key));
 
       const response = await authAPI.login(formData);
+      // FIX: Use consistent key 'authToken' (matches api.js interceptor)
       localStorage.setItem('authToken', response.token);
       onLogin(response);
-    } catch (error) {
-      console.error('Login error:', error);
-      setError(error.response?.data?.message || 'Login failed. Please try again.');
+    } catch (err) {
+      console.error('Login error:', err);
+      if (err.response?.status === 429) {
+        setError('Too many login attempts. Please wait 15 minutes and try again.');
+      } else {
+        setError(err.response?.data?.message || 'Login failed. Please check your credentials and try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -64,16 +61,12 @@ const Login = React.memo(({ onLogin }) => {
 
       {/* Login Card */}
       <div className="relative w-full max-w-sm sm:max-w-md lg:max-w-lg">
-        {/* Main Card */}
         <div className="backdrop-blur-sm bg-white/10 border border-white/20 rounded-2xl shadow-2xl p-6 sm:p-8 space-y-6 sm:space-y-8">
           {/* Header */}
           <div className="text-center space-y-2">
             <div className="inline-flex items-center justify-center w-12 h-12 sm:w-16 sm:h-16 bg-white/20 rounded-2xl shadow-lg mb-4 p-2">
               <picture>
-                <source
-                  srcSet="https://raw.githubusercontent.com/xhrissun/rhrmpsb-system/main/denr-logo.png"
-                  type="image/png"
-                />
+                <source srcSet="https://raw.githubusercontent.com/xhrissun/rhrmpsb-system/main/denr-logo.png" type="image/png" />
                 <img
                   src="https://raw.githubusercontent.com/xhrissun/rhrmpsb-system/main/denr-logo.png"
                   alt="DENR Logo"
@@ -91,23 +84,16 @@ const Login = React.memo(({ onLogin }) => {
             </p>
           </div>
 
-          {/* Form Container */}
-          <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6">
+          {/* Form */}
+          <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6" noValidate>
             {/* Email Field */}
             <div className="space-y-2">
-              <label
-                htmlFor="email"
-                className="block text-sm font-medium text-slate-200"
-              >
+              <label htmlFor="email" className="block text-sm font-medium text-slate-200">
                 Email Address
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Mail
-                    className={`h-5 w-5 transition-colors duration-200 ${
-                      focusedField === 'email' ? 'text-blue-400' : 'text-slate-400'
-                    }`}
-                  />
+                  <Mail className={`h-5 w-5 transition-colors duration-200 ${focusedField === 'email' ? 'text-blue-400' : 'text-slate-400'}`} />
                 </div>
                 <input
                   id="email"
@@ -120,26 +106,20 @@ const Login = React.memo(({ onLogin }) => {
                   onBlur={() => setFocusedField('')}
                   className="w-full pl-10 pr-4 py-2.5 sm:py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-sm sm:text-base"
                   placeholder="Enter your email"
-                  aria-describedby={error ? 'email-error' : undefined}
+                  aria-describedby={error ? 'error-message' : undefined}
+                  autoComplete="email"
                 />
               </div>
             </div>
 
             {/* Password Field */}
             <div className="space-y-2">
-              <label
-                htmlFor="password"
-                className="block text-sm font-medium text-slate-200"
-              >
+              <label htmlFor="password" className="block text-sm font-medium text-slate-200">
                 Password
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Lock
-                    className={`h-5 w-5 transition-colors duration-200 ${
-                      focusedField === 'password' ? 'text-blue-400' : 'text-slate-400'
-                    }`}
-                  />
+                  <Lock className={`h-5 w-5 transition-colors duration-200 ${focusedField === 'password' ? 'text-blue-400' : 'text-slate-400'}`} />
                 </div>
                 <input
                   id="password"
@@ -152,7 +132,8 @@ const Login = React.memo(({ onLogin }) => {
                   onBlur={() => setFocusedField('')}
                   className="w-full pl-10 pr-12 py-2.5 sm:py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-sm sm:text-base"
                   placeholder="Enter your password"
-                  aria-describedby={error ? 'password-error' : undefined}
+                  aria-describedby={error ? 'error-message' : undefined}
+                  autoComplete="current-password"
                 />
                 <button
                   type="button"
@@ -160,11 +141,7 @@ const Login = React.memo(({ onLogin }) => {
                   className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-200 transition-colors duration-200 p-2"
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
-                  {showPassword ? (
-                    <EyeOff className="h-5 w-5" />
-                  ) : (
-                    <Eye className="h-5 w-5" />
-                  )}
+                  {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                 </button>
               </div>
             </div>
@@ -175,6 +152,7 @@ const Login = React.memo(({ onLogin }) => {
                 id="error-message"
                 className="flex items-center space-x-2 p-3 bg-red-500/20 border border-red-500/30 rounded-xl text-red-200 text-sm"
                 role="alert"
+                aria-live="polite"
               >
                 <AlertCircle className="h-4 w-4 flex-shrink-0" />
                 <span>{error}</span>
@@ -201,16 +179,10 @@ const Login = React.memo(({ onLogin }) => {
               )}
             </button>
 
-            {/* Forgot Password */}
-            <div className="text-center">
-              <button
-                type="button"
-                className="text-sm text-slate-300 hover:text-white transition-colors duration-200 underline-offset-4 hover:underline"
-                aria-label="Request password assistance"
-              >
-                Forgot your password? Please ask the Administrator for assistance
-              </button>
-            </div>
+            {/* FIX: Changed non-functional button to informational text */}
+            <p className="text-center text-sm text-slate-400">
+              Forgot your password? Please contact your Administrator for a reset.
+            </p>
           </form>
 
           {/* Footer */}
