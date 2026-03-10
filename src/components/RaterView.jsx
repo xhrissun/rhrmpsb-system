@@ -681,6 +681,8 @@ const RaterView = ({ user }) => {
         .replace(/^\([A-Z]+\)\s*-\s*/i, '')   // strip level prefix e.g. (ADV) -
         .replace(/\s+/g, ' ');
 
+      const currentPosition = (vacancyDetails?.position ?? '').trim().toUpperCase();
+
       const currentCompNames = new Set([
         ...groupedCompetencies.basic,
         ...groupedCompetencies.organizational,
@@ -721,8 +723,10 @@ const RaterView = ({ user }) => {
         })
       );
 
-      // Only show items that have at least 1 matching competency
-      setCopyRatingsSources(sources.filter(s => s.matchCount > 0 && s.position.trim().toUpperCase() === currentPosition)        .sort((a, b) => b.matchCount - a.matchCount));
+      // Only show items with the same position AND at least 1 matching competency
+      setCopyRatingsSources(sources
+        .filter(s => s.matchCount > 0 && s.position.trim().toUpperCase() === currentPosition)
+        .sort((a, b) => b.matchCount - a.matchCount));
     } catch (err) {
       console.error('Failed to load copy sources:', err);
       showToast('Failed to load ratings from other items.', 'error');
