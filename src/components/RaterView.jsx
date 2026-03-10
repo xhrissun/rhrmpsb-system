@@ -349,6 +349,11 @@ const RaterView = ({ user }) => {
   const [isCompetencyModalOpen, setIsCompetencyModalOpen] = useState(false);
   const [selectedCompetencyForModal, setSelectedCompetencyForModal] = useState(null);
 
+  // ── Copy Ratings from Another Item ───────────────────────────────────────
+  const [isCopyRatingsModalOpen, setIsCopyRatingsModalOpen] = useState(false);
+  const [copyRatingsSources, setCopyRatingsSources] = useState([]);  // [{itemNumber, position, assignment, matchCount, ratingsMap}]
+  const [copyRatingsLoading, setCopyRatingsLoading] = useState(false);
+
   const activeRatingRef = useRef(null);
   const scrollPositionRef = useRef(0);
 
@@ -627,6 +632,113 @@ const RaterView = ({ user }) => {
     const key = `${competencyType}_${competencyId}`;
     setRatings(prev => ({ ...prev, [key]: parseInt(score) }));
     requestAnimationFrame(() => { window.scrollTo(0, scrollPositionRef.current); });
+  };
+
+  // ── Copy Ratings from Another Item ───────────────────────────────────────
+  const handleOpenCopyRatings = async () => {
+    setCopyRatingsLoading(true);
+    setIsCopyRatingsModalOpen(true);
+    try {
+      // Get all ratings this rater has submitted for this candidate
+      const allRatings = await ratingsAPI.getByCandidate(selectedCandidate);
+      const myRatings = allRatings.filter(r =>
+        r.raterId && (r.raterId._id || r.raterId) === user._id &&
+        r.itemNumber && r.itemNumber !== selectedItemNumber
+      );
+
+      if (myRatings.length === 0) { setCopyRatingsSources([]); return; }
+
+      // Group by item number
+      const byItem = {};
+      myRatings.forEach(r => {
+        if (!byItem[r.itemNumber]) byItem[r.itemNumber] = [];
+        byItem[r.itemNumber].push(r);
+      });
+
+      // For each source item, build a name→score map and count how many
+      // competencies match the current item's competencies
+      const normalize = (name) => name.trim().toUpperCase()
+        .replace(/^\([A-Z]+\)\s*-\s*/i, '')   // strip level prefix e.g. (ADV) -
+        .replace(/\s+/g, ' ');
+
+      const currentCompNames = new Set([
+        ...groupedCompetencies.basic,
+        ...groupedCompetencies.organizational,
+        ...groupedCompetencies.leadership,
+        ...groupedCompetencies.minimum,
+      ].map(c => normalize(c.name)));
+
+      const sources = await Promise.all(
+        Object.entries(byItem).map(async ([itemNumber, itemRatings]) => {
+          // Build competencyId → score map from source ratings
+          const idToScore = {};
+          itemRatings.forEach(r => {
+            const cid = r.competencyId?._id || r.competencyId;
+            if (cid) idToScore[cid.toString()] = r.score;
+          });
+
+          // Build name→score map using competencyId name
+          const nameToScore = {};
+          itemRatings.forEach(r => {
+            const cname = r.competencyId?.name;
+            if (cname) nameToScore[normalize(cname)] = r.score;
+          });
+
+          // Count matching competencies
+          const matchCount = [...currentCompNames].filter(n => nameToScore[n] !== undefined).length;
+
+          // Lookup vacancy info for display
+          const vacancy = vacancies.find(v => v.itemNumber === itemNumber);
+
+          return {
+            itemNumber,
+            position: vacancy?.position || itemNumber,
+            assignment: vacancy?.assignment || '',
+            matchCount,
+            totalSource: itemRatings.length,
+            nameToScore,
+          };
+        })
+      );
+
+      // Only show items that have at least 1 matching competency
+      setCopyRatingsSources(sources.filter(s => s.matchCount > 0)
+        .sort((a, b) => b.matchCount - a.matchCount));
+    } catch (err) {
+      console.error('Failed to load copy sources:', err);
+      showToast('Failed to load ratings from other items.', 'error');
+    } finally {
+      setCopyRatingsLoading(false);
+    }
+  };
+
+  const handleApplyCopyRatings = (source) => {
+    const normalize = (name) => name.trim().toUpperCase()
+      .replace(/^\([A-Z]+\)\s*-\s*/i, '')
+      .replace(/\s+/g, ' ');
+
+    const allCurrentComps = [
+      ...groupedCompetencies.basic,
+      ...groupedCompetencies.organizational,
+      ...groupedCompetencies.leadership,
+      ...groupedCompetencies.minimum,
+    ];
+
+    const newRatings = { ...ratings };
+    let copied = 0;
+
+    allCurrentComps.forEach(comp => {
+      const normName = normalize(comp.name);
+      const score = source.nameToScore[normName];
+      if (score !== undefined) {
+        newRatings[`${comp.type}_${comp._id}`] = score;
+        copied++;
+      }
+    });
+
+    setRatings(newRatings);
+    setIsCopyRatingsModalOpen(false);
+    showToast(`Copied ${copied} matching rating${copied !== 1 ? 's' : ''} from ${source.itemNumber}. Review and adjust before submitting.`, 'success');
   };
 
   const areAllCompetenciesRated = () => {
@@ -1296,6 +1408,96 @@ const RaterView = ({ user }) => {
             </div>
           )}
 
+          {/* ── Copy Ratings from Another Item Modal ── */}
+          {isCopyRatingsModalOpen && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl w-full max-w-lg mx-auto shadow-2xl overflow-hidden">
+                {/* Header */}
+                <div className="bg-gray-800 px-6 py-5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-lg font-bold text-white">Copy Ratings from Another Item</h3>
+                      <p className="text-gray-300 text-xs mt-1">
+                        Candidate: <span className="font-medium text-white">{candidateDetails?.fullName}</span>
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setIsCopyRatingsModalOpen(false)}
+                      className="text-gray-400 hover:text-white transition-colors"
+                    >
+                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Body */}
+                <div className="p-6">
+                  {copyRatingsLoading ? (
+                    <div className="flex flex-col items-center justify-center py-10 gap-3">
+                      <svg className="animate-spin h-8 w-8 text-blue-500" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                      </svg>
+                      <p className="text-gray-500 text-sm">Looking for your ratings on other items…</p>
+                    </div>
+                  ) : copyRatingsSources.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-10 gap-3 text-center">
+                      <svg className="w-12 h-12 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      <p className="text-gray-600 font-medium">No matching ratings found</p>
+                      <p className="text-gray-400 text-sm">You haven't submitted ratings for this candidate under any other item number with matching competencies.</p>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-sm text-gray-500 mb-4">
+                        Select an item number to copy scores from. Only competencies with matching names will be copied — you can still adjust before submitting.
+                      </p>
+                      <div className="space-y-3 max-h-72 overflow-y-auto">
+                        {copyRatingsSources.map(source => (
+                          <button
+                            key={source.itemNumber}
+                            onClick={() => handleApplyCopyRatings(source)}
+                            className="w-full text-left p-4 rounded-xl border-2 border-gray-200 hover:border-blue-400 hover:bg-blue-50 transition-all group"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex-1 min-w-0">
+                                <p className="font-semibold text-gray-800 text-sm truncate">{source.position}</p>
+                                <p className="text-gray-500 text-xs mt-0.5 truncate">{source.assignment}</p>
+                                <p className="text-gray-400 text-xs mt-0.5 font-mono">{source.itemNumber}</p>
+                              </div>
+                              <div className="flex-shrink-0 text-right">
+                                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 border border-green-200">
+                                  {source.matchCount} / {source.totalSource} match
+                                </span>
+                                <p className="text-blue-500 text-xs mt-1 group-hover:text-blue-700 font-medium">
+                                  Click to apply →
+                                </p>
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Footer */}
+                {!copyRatingsLoading && copyRatingsSources.length > 0 && (
+                  <div className="px-6 pb-5">
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                      <p className="text-amber-700 text-xs">
+                        ⚠️ Copying will overwrite any scores you've already entered for matching competencies. Unmatched competencies will remain unchanged.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {isRaterTypeConflictModalOpen && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
               <div className="bg-white rounded-xl p-8 max-w-2xl w-full mx-4">
@@ -1392,6 +1594,16 @@ const RaterView = ({ user }) => {
                         <><svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>Progress: {Object.keys(ratings).length} / {totalCompetencies}</>
                       )}
                     </div>
+                    <button
+                      onClick={handleOpenCopyRatings}
+                      className="inline-flex items-center px-4 py-2 rounded-full text-sm font-medium bg-blue-100 text-blue-800 border border-blue-200 hover:bg-blue-200 transition-colors"
+                      title="Copy your ratings from another item number where you rated this same candidate"
+                    >
+                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                      Copy from Another Item
+                    </button>
                   </div>
                 </div>
               </div>
