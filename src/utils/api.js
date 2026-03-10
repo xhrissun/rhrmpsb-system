@@ -361,11 +361,12 @@ export const ratingsAPI = {
   
   // Check existing ratings by item number (for individual rater updates)
   checkExistingRatings: async (candidateId, raterId, itemNumber) => {
+    // After F-07, GET /ratings/candidate/:id returns ONLY the rater's own ratings
+    // when called by a rater. No need to filter by raterId — all results belong to them.
+    // We still filter by itemNumber in case multiple items share the same candidateId.
     const response = await api.get(`/ratings/candidate/${candidateId}`);
-    const raterRatings = response.data.filter(rating => 
-      rating.raterId && 
-      rating.raterId._id === raterId &&
-      rating.itemNumber === itemNumber  // Filter by itemNumber
+    const raterRatings = response.data.filter(rating =>
+      rating.itemNumber === itemNumber
     );
     return {
       hasExisting: raterRatings.length > 0,

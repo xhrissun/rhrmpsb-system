@@ -17,6 +17,15 @@ const authLimiter = rateLimit({
   message: { message: 'Too many login attempts. Please wait 15 minutes before trying again.' }
 });
 
+// F-15 FIX: Stricter limiter for bulk export/report endpoints — prevents data exfiltration loops.
+const exportLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many export requests. Please wait 15 minutes before trying again.' }
+});
+
 // ── Authentication middleware ─────────────────────────────────────────────────
 const authMiddleware = async (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
@@ -117,6 +126,17 @@ const USER_UPDATE_ALLOWED = [
   'administrativePrivilege', 'assignedVacancies', 'assignedAssignment', 'assignedItemNumbers'
 ];
 
+// F-06 FIX: Allowlists for vacancy and competency updates — prevent mass assignment.
+const VACANCY_CREATE_ALLOWED = [
+  'itemNumber', 'position', 'assignment', 'salaryGrade', 'qualifications', 'publicationRangeId'
+];
+const VACANCY_UPDATE_ALLOWED = [
+  'itemNumber', 'position', 'assignment', 'salaryGrade', 'qualifications'
+];
+const COMPETENCY_WRITE_ALLOWED = [
+  'name', 'type', 'vacancyId', 'vacancyIds', 'isFixed'
+];
+
 
 // ═══════════════════════════════════════════════════════════════════════════
 // AUTH ROUTES
@@ -183,8 +203,21 @@ router.get('/users', authMiddleware, async (req, res) => {
 });
 
 router.get('/users/raters', authMiddleware, async (req, res) => {
+  // F-08 FIX: Admin gets full rater objects (including _id for management).
+  // Non-admin (secretariat) gets assignment fields needed for vacancy filtering
+  // but NOT _id, password, or other sensitive fields that could enable IDOR attacks.
   try {
     const raters = await User.findRaters();
+    if (req.user.userType !== 'admin') {
+      return res.json(raters.map(r => ({
+        name: r.name,
+        raterType: r.raterType,
+        userType: r.userType,
+        assignedVacancies: r.assignedVacancies,
+        assignedAssignment: r.assignedAssignment,
+        assignedItemNumbers: r.assignedItemNumbers,
+      })));
+    }
     res.json(raters);
   } catch (error) {
     console.error('[GET /users/raters]', error);
@@ -255,11 +288,15 @@ router.post('/users/:userId/assign-vacancies', authMiddleware, async (req, res) 
     res.json({ message: 'Vacancy assignment updated successfully', user });
   } catch (error) {
     console.error('[POST /users/:userId/assign-vacancies]', error);
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
 
 router.get('/users/:userId/assigned-vacancies', authMiddleware, async (req, res) => {
+  // F-05 FIX: A user may only query their own assignments; admins can query any user.
+  const isOwner = req.user._id.toString() === req.params.userId;
+  const isAdmin = req.user.userType === 'admin';
+  if (!isOwner && !isAdmin) return res.status(403).json({ message: 'Access denied' });
   try {
     const user = await User.findById(req.params.userId).select('-password');
     if (!user) return res.status(404).json({ message: 'User not found' });
@@ -282,7 +319,7 @@ router.get('/users/:userId/assigned-vacancies', authMiddleware, async (req, res)
     });
   } catch (error) {
     console.error('[GET /users/:userId/assigned-vacancies]', error);
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
 
@@ -300,7 +337,7 @@ router.put('/users/:id/change-password', authMiddleware, async (req, res) => {
     res.json({ message: `Password updated successfully for ${user.name}`, userName: user.name });
   } catch (error) {
     console.error('[PUT /users/:id/change-password]', error);
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
 
@@ -325,7 +362,7 @@ router.put('/users/:id', authMiddleware, async (req, res) => {
     res.json(user);
   } catch (error) {
     console.error('[PUT /users/:id]', error);
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
 
@@ -379,14 +416,16 @@ router.get('/vacancies/by-publication/:publicationRangeId', authMiddleware, asyn
     res.json(vacancies);
   } catch (error) {
     console.error('[GET /vacancies/by-publication]', error);
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
 
 router.post('/vacancies/undo-import/:publicationRangeId', authMiddleware, async (req, res) => {
   if (req.user.userType !== 'admin') return res.status(403).json({ message: 'Access denied' });
   try {
-    const { minutesAgo = 5 } = req.body;
+    // F-12 FIX: Clamp minutesAgo to 1–60 — prevents wiping historically old records.
+    const raw = parseInt(req.body.minutesAgo) || 5;
+    const minutesAgo = Math.min(Math.max(raw, 1), 60);
     const cutoffTime = new Date(Date.now() - minutesAgo * 60 * 1000);
     const result = await Vacancy.deleteMany({
       publicationRangeId: req.params.publicationRangeId,
@@ -400,7 +439,7 @@ router.post('/vacancies/undo-import/:publicationRangeId', authMiddleware, async 
     });
   } catch (error) {
     console.error('[POST /vacancies/undo-import]', error);
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
 
@@ -525,14 +564,15 @@ router.get('/vacancies/:id', authMiddleware, async (req, res) => {
 router.post('/vacancies', authMiddleware, async (req, res) => {
   if (req.user.userType !== 'admin') return res.status(403).json({ message: 'Access denied' });
   try {
-    const vacancyData = {
-      ...req.body,
-      qualifications: {
-        education:   req.body.qualifications?.education   || '',
-        training:    req.body.qualifications?.training    || '',
-        experience:  req.body.qualifications?.experience  || '',
-        eligibility: req.body.qualifications?.eligibility || ''
-      }
+    // F-06 FIX: Only allowlisted fields accepted — no mass assignment.
+    const vacancyData = Object.fromEntries(
+      Object.entries(req.body).filter(([k]) => VACANCY_CREATE_ALLOWED.includes(k))
+    );
+    vacancyData.qualifications = {
+      education:   req.body.qualifications?.education   || '',
+      training:    req.body.qualifications?.training    || '',
+      experience:  req.body.qualifications?.experience  || '',
+      eligibility: req.body.qualifications?.eligibility || ''
     };
     const vacancy = new Vacancy(vacancyData);
     await vacancy.save();
@@ -546,7 +586,19 @@ router.post('/vacancies', authMiddleware, async (req, res) => {
 router.put('/vacancies/:id', authMiddleware, async (req, res) => {
   if (req.user.userType !== 'admin') return res.status(403).json({ message: 'Access denied' });
   try {
-    const vacancy = await Vacancy.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    // F-06 FIX: Only allowlisted fields accepted — no mass assignment.
+    const updateData = Object.fromEntries(
+      Object.entries(req.body).filter(([k]) => VACANCY_UPDATE_ALLOWED.includes(k))
+    );
+    if (req.body.qualifications) {
+      updateData.qualifications = {
+        education:   req.body.qualifications?.education   || '',
+        training:    req.body.qualifications?.training    || '',
+        experience:  req.body.qualifications?.experience  || '',
+        eligibility: req.body.qualifications?.eligibility || ''
+      };
+    }
+    const vacancy = await Vacancy.findByIdAndUpdate(req.params.id, updateData, { new: true });
     if (!vacancy) return res.status(404).json({ message: 'Vacancy not found' });
     res.json(vacancy);
   } catch (error) {
@@ -626,7 +678,7 @@ router.post('/vacancies/:vacancyId/clone-to-publication/:publicationRangeId', au
     });
   } catch (error) {
     console.error('[POST /vacancies/:id/clone-to-publication]', error);
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
 
@@ -637,6 +689,22 @@ router.post('/vacancies/:vacancyId/clone-to-publication/:publicationRangeId', au
 
 router.get('/candidates', authMiddleware, async (req, res) => {
   try {
+    // F-09 FIX: Raters only see candidates for their assigned item numbers.
+    // Admin and secretariat see all candidates.
+    if (req.user.userType === 'rater') {
+      let filter = {};
+      if (req.user.assignedVacancies === 'specific' && req.user.assignedItemNumbers?.length > 0) {
+        filter.itemNumber = { $in: req.user.assignedItemNumbers };
+      } else if (req.user.assignedVacancies === 'assignment' && req.user.assignedAssignment) {
+        const vacancies = await Vacancy.find({ assignment: req.user.assignedAssignment }, 'itemNumber');
+        filter.itemNumber = { $in: vacancies.map(v => v.itemNumber) };
+      } else if (req.user.assignedVacancies === 'none') {
+        return res.json([]); // No assignments — return nothing
+      }
+      // assignedVacancies === 'all': no filter, rater sees everything
+      const candidates = await Candidate.find(filter);
+      return res.json(candidates);
+    }
     const candidates = await Candidate.find();
     res.json(candidates);
   } catch (error) {
@@ -645,7 +713,7 @@ router.get('/candidates', authMiddleware, async (req, res) => {
   }
 });
 
-router.get('/candidates/export-summary-csv', authMiddleware, async (req, res) => {
+router.get('/candidates/export-summary-csv', exportLimiter, authMiddleware, async (req, res) => {
   try {
     const candidates = await Candidate.find().sort({ fullName: 1 });
     if (candidates.length === 0) return res.status(404).json({ message: 'No candidates found for export' });
@@ -673,11 +741,11 @@ router.get('/candidates/export-summary-csv', authMiddleware, async (req, res) =>
     res.send('\ufeff' + csvContent);
   } catch (error) {
     console.error('[GET /candidates/export-summary-csv]', error);
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
 
-router.get('/candidates/export-csv', authMiddleware, async (req, res) => {
+router.get('/candidates/export-csv', exportLimiter, authMiddleware, async (req, res) => {
   try {
     const { itemNumber, assignment, position } = req.query;
     let filter = {};
@@ -751,7 +819,7 @@ router.get('/candidates/export-csv', authMiddleware, async (req, res) => {
     res.send('\ufeff' + csvContent);
   } catch (error) {
     console.error('[GET /candidates/export-csv]', error);
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
 
@@ -773,6 +841,8 @@ router.get('/candidates/item/:itemNumber', authMiddleware, async (req, res) => {
 });
 
 router.get('/candidates/comment-suggestions/:field', authMiddleware, async (req, res) => {
+  // F-11 FIX: Secretariat evaluation language must not be visible to raters.
+  if (req.user.userType === 'rater') return res.status(403).json({ message: 'Access denied' });
   try {
     const { field } = req.params;
     const { limit = 250 } = req.query;
@@ -802,7 +872,7 @@ router.get('/candidates/comment-suggestions/:field', authMiddleware, async (req,
     res.json(suggestions);
   } catch (error) {
     console.error('[GET /candidates/comment-suggestions]', error);
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
 
@@ -818,7 +888,7 @@ router.get('/candidates/by-publication/:publicationRangeId', authMiddleware, asy
     res.json(candidates);
   } catch (error) {
     console.error('[GET /candidates/by-publication]', error);
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
 
@@ -928,7 +998,9 @@ router.post('/candidates/upload-csv', authMiddleware, async (req, res) => {
 router.post('/candidates/undo-import/:publicationRangeId', authMiddleware, async (req, res) => {
   if (req.user.userType !== 'admin') return res.status(403).json({ message: 'Access denied' });
   try {
-    const { minutesAgo = 5 } = req.body;
+    // F-12 FIX: Clamp minutesAgo to 1–60 — prevents wiping historically old records.
+    const raw = parseInt(req.body.minutesAgo) || 5;
+    const minutesAgo = Math.min(Math.max(raw, 1), 60);
     const cutoffTime = new Date(Date.now() - minutesAgo * 60 * 1000);
     const result = await Candidate.deleteMany({
       publicationRangeId: req.params.publicationRangeId,
@@ -940,7 +1012,7 @@ router.post('/candidates/undo-import/:publicationRangeId', authMiddleware, async
     });
   } catch (error) {
     console.error('[POST /candidates/undo-import]', error);
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
 
@@ -992,7 +1064,7 @@ router.post('/candidates', authMiddleware, async (req, res) => {
       const messages = Object.values(error.errors).map(err => `${err.path}: ${err.message}`);
       return res.status(400).json({ message: 'Validation error: ' + messages.join(', '), errors: error.errors });
     }
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
 
@@ -1070,7 +1142,7 @@ router.put('/candidates/:id', authMiddleware, async (req, res) => {
       const messages = Object.values(error.errors).map(err => `${err.path}: ${err.message}`);
       return res.status(400).json({ message: 'Validation error: ' + messages.join(', '), errors: error.errors });
     }
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
 
@@ -1265,7 +1337,7 @@ router.post('/competencies/undo-upload/:uploadId', authMiddleware, async (req, r
     res.json({ message: `Undo successful: ${deletedCount} deleted, ${revertedCount} reverted`, deletedCount, revertedCount });
   } catch (error) {
     console.error('[POST /competencies/undo-upload]', error);
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
 
@@ -1284,7 +1356,11 @@ router.get('/competencies/:id', authMiddleware, async (req, res) => {
 router.post('/competencies', authMiddleware, async (req, res) => {
   if (req.user.userType !== 'admin') return res.status(403).json({ message: 'Access denied' });
   try {
-    const competency = new Competency(req.body);
+    // F-06 FIX: Only allowlisted fields accepted.
+    const compData = Object.fromEntries(
+      Object.entries(req.body).filter(([k]) => COMPETENCY_WRITE_ALLOWED.includes(k))
+    );
+    const competency = new Competency(compData);
     await competency.save();
     res.json(competency);
   } catch (error) {
@@ -1296,7 +1372,11 @@ router.post('/competencies', authMiddleware, async (req, res) => {
 router.put('/competencies/:id', authMiddleware, async (req, res) => {
   if (req.user.userType !== 'admin') return res.status(403).json({ message: 'Access denied' });
   try {
-    const competency = await Competency.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    // F-06 FIX: Only allowlisted fields accepted.
+    const compUpdate = Object.fromEntries(
+      Object.entries(req.body).filter(([k]) => COMPETENCY_WRITE_ALLOWED.includes(k))
+    );
+    const competency = await Competency.findByIdAndUpdate(req.params.id, compUpdate, { new: true });
     if (!competency) return res.status(404).json({ message: 'Competency not found' });
     res.json(competency);
   } catch (error) {
@@ -1323,6 +1403,9 @@ router.delete('/competencies/:id', authMiddleware, async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 router.get('/ratings', authMiddleware, async (req, res) => {
+  // F-01 FIX: Only admins may fetch the full ratings collection.
+  // Raters must not see other raters' scores — CBS independence requirement.
+  if (req.user.userType !== 'admin') return res.status(403).json({ message: 'Access denied' });
   try {
     const ratings = await Rating.find()
       .populate('raterId', 'name raterType')
@@ -1363,7 +1446,10 @@ router.post('/ratings/submit', authMiddleware, async (req, res) => {
         itemNumber: ratingData.itemNumber
       };
       const existingRating = await Rating.findOne(filter);
+      // F-14 FIX: Validate score range before hitting the DB.
       const newScore = parseInt(ratingData.score);
+      if (isNaN(newScore) || newScore < 1 || newScore > 5)
+        return res.status(400).json({ message: `Invalid score value: ${ratingData.score}. Must be 1–5.` });
       if (existingRating && existingRating.score === newScore) continue;
 
       const update = { ...filter, score: newScore, submittedAt: new Date() };
@@ -1386,12 +1472,23 @@ router.post('/ratings/submit', authMiddleware, async (req, res) => {
     });
   } catch (error) {
     console.error('[POST /ratings/submit]', error);
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
 
 router.get('/ratings/candidate/:candidateId', authMiddleware, async (req, res) => {
   try {
+    // F-07 FIX: Raters only see their own ratings for a candidate.
+    // Admin and secretariat see all ratings (needed for reporting and compilation).
+    if (req.user.userType === 'rater') {
+      const ratings = await Rating.find({
+        candidateId: req.params.candidateId,
+        raterId: req.user._id
+      })
+        .populate('competencyId', 'name type')
+        .populate('raterId', 'name raterType position designation');
+      return res.json(ratings);
+    }
     const ratings = await Rating.findByCandidate(req.params.candidateId);
     res.json(ratings);
   } catch (error) {
@@ -1401,6 +1498,11 @@ router.get('/ratings/candidate/:candidateId', authMiddleware, async (req, res) =
 });
 
 router.get('/ratings/rater/:raterId', authMiddleware, async (req, res) => {
+  // F-02 FIX: A rater may only fetch their own ratings.
+  // Admins may fetch any rater's ratings (for reporting / audit).
+  const isOwner = req.user._id.toString() === req.params.raterId;
+  const isAdmin = req.user.userType === 'admin';
+  if (!isOwner && !isAdmin) return res.status(403).json({ message: 'Access denied' });
   try {
     const ratings = await Rating.findByRater(req.params.raterId);
     res.json(ratings);
@@ -1431,12 +1533,14 @@ router.get('/ratings/check-existing/:candidateId/:itemNumber/:raterType', authMi
     res.json({ hasExisting: false });
   } catch (error) {
     console.error('[GET /ratings/check-existing]', error);
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
 
 router.delete('/ratings/candidate/:candidateId/rater/:raterId/item/:itemNumber', authMiddleware, async (req, res) => {
-  if (req.user.userType !== 'rater') return res.status(403).json({ message: 'Access denied' });
+  // F-03 FIX: A rater may only delete their own ratings — identity check added.
+  if (req.user.userType !== 'rater' || req.user._id.toString() !== req.params.raterId)
+    return res.status(403).json({ message: 'Access denied' });
   try {
     const { candidateId, raterId, itemNumber } = req.params;
     const decodedItemNumber = decodeURIComponent(itemNumber);
@@ -1455,12 +1559,14 @@ router.delete('/ratings/candidate/:candidateId/rater/:raterId/item/:itemNumber',
     res.json({ message: 'Ratings reset successfully', deletedCount: result.deletedCount });
   } catch (error) {
     console.error('[DELETE /ratings/candidate/:id/rater/:id/item/:id]', error);
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
 
 router.delete('/ratings/candidate/:candidateId/rater/:raterId', authMiddleware, async (req, res) => {
-  if (req.user.userType !== 'rater') return res.status(403).json({ message: 'Access denied' });
+  // F-03 FIX: Identity check — rater can only delete their own ratings.
+  if (req.user.userType !== 'rater' || req.user._id.toString() !== req.params.raterId)
+    return res.status(403).json({ message: 'Access denied' });
   try {
     await Rating.deleteMany({ candidateId: req.params.candidateId, raterId: req.params.raterId });
     res.json({ message: 'Ratings reset successfully' });
@@ -1473,8 +1579,18 @@ router.delete('/ratings/candidate/:candidateId/rater/:raterId', authMiddleware, 
 router.put('/ratings/:id', authMiddleware, async (req, res) => {
   if (req.user.userType !== 'rater') return res.status(403).json({ message: 'Access denied' });
   try {
-    const rating = await Rating.findByIdAndUpdate(req.params.id, req.body, { new: true });
-    if (!rating) return res.status(404).json({ message: 'Rating not found' });
+    // F-04 FIX: Verify ownership — rater may only update their own ratings.
+    const existing = await Rating.findById(req.params.id);
+    if (!existing) return res.status(404).json({ message: 'Rating not found' });
+    if (existing.raterId.toString() !== req.user._id.toString())
+      return res.status(403).json({ message: 'Access denied' });
+    // F-04 FIX: Only allow score updates — no other fields writable via this route.
+    const newScore = parseInt(req.body.score);
+    if (isNaN(newScore) || newScore < 1 || newScore > 5)
+      return res.status(400).json({ message: 'Score must be between 1 and 5' });
+    const rating = await Rating.findByIdAndUpdate(
+      req.params.id, { score: newScore, submittedAt: new Date() }, { new: true }
+    );
     res.json(rating);
   } catch (error) {
     console.error('[PUT /ratings/:id]', error);
@@ -1487,7 +1603,7 @@ router.put('/ratings/:id', authMiddleware, async (req, res) => {
 // REPORT ROUTES
 // ═══════════════════════════════════════════════════════════════════════════
 
-router.get('/reports/rating/:candidateId', authMiddleware, async (req, res) => {
+router.get('/reports/rating/:candidateId', exportLimiter, authMiddleware, async (req, res) => {
   try {
     const ratings = await Rating.findByCandidate(req.params.candidateId);
     res.json(ratings);
@@ -1497,7 +1613,7 @@ router.get('/reports/rating/:candidateId', authMiddleware, async (req, res) => {
   }
 });
 
-router.get('/reports/candidate/:candidateId', authMiddleware, async (req, res) => {
+router.get('/reports/candidate/:candidateId', exportLimiter, authMiddleware, async (req, res) => {
   try {
     const candidate = await Candidate.findById(req.params.candidateId);
     if (!candidate) return res.status(404).json({ message: 'Candidate not found' });
@@ -1537,7 +1653,7 @@ router.get('/rating-logs', authMiddleware, async (req, res) => {
     res.json({ logs, total, limit: parseInt(limit), skip: parseInt(skip) });
   } catch (error) {
     console.error('[GET /rating-logs]', error);
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
 
@@ -1564,11 +1680,11 @@ router.get('/rating-logs/stats', authMiddleware, async (req, res) => {
     res.json({ actionStats: stats, raterActivity });
   } catch (error) {
     console.error('[GET /rating-logs/stats]', error);
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
 
-router.get('/rating-logs/export-csv', authMiddleware, async (req, res) => {
+router.get('/rating-logs/export-csv', exportLimiter, authMiddleware, async (req, res) => {
   if (req.user.userType !== 'admin' && !req.user.administrativePrivilege) {
     return res.status(403).json({ message: 'Access denied' });
   }
@@ -1602,7 +1718,7 @@ router.get('/rating-logs/export-csv', authMiddleware, async (req, res) => {
     res.send('\ufeff' + csvContent);
   } catch (error) {
     console.error('[GET /rating-logs/export-csv]', error);
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
 
@@ -1620,7 +1736,7 @@ router.get('/publication-ranges', authMiddleware, async (req, res) => {
     res.json(publicationRanges);
   } catch (error) {
     console.error('[GET /publication-ranges]', error);
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
 
@@ -1630,7 +1746,7 @@ router.get('/publication-ranges/active', authMiddleware, async (req, res) => {
     res.json(publicationRanges);
   } catch (error) {
     console.error('[GET /publication-ranges/active]', error);
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
 
@@ -1641,7 +1757,7 @@ router.get('/publication-ranges/archived', authMiddleware, async (req, res) => {
     res.json(publicationRanges);
   } catch (error) {
     console.error('[GET /publication-ranges/archived]', error);
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
 
@@ -1666,7 +1782,7 @@ router.post('/publication-ranges', authMiddleware, async (req, res) => {
     if (error.message.includes('End date must be after start date')) {
       return res.status(400).json({ message: error.message });
     }
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
 
@@ -1712,7 +1828,7 @@ router.post('/publication-ranges/:id/archive', authMiddleware, async (req, res) 
     });
   } catch (error) {
     console.error('[POST /publication-ranges/:id/archive]', error);
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
 
@@ -1758,7 +1874,7 @@ router.post('/publication-ranges/:id/unarchive', authMiddleware, async (req, res
     });
   } catch (error) {
     console.error('[POST /publication-ranges/:id/unarchive]', error);
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
 
@@ -1785,7 +1901,7 @@ router.get('/publication-ranges/:id/statistics', authMiddleware, async (req, res
     });
   } catch (error) {
     console.error('[GET /publication-ranges/:id/statistics]', error);
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
 
@@ -1797,7 +1913,7 @@ router.get('/publication-ranges/:id', authMiddleware, async (req, res) => {
     res.json(publicationRange);
   } catch (error) {
     console.error('[GET /publication-ranges/:id]', error);
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
 
@@ -1828,7 +1944,7 @@ router.put('/publication-ranges/:id', authMiddleware, async (req, res) => {
     if (error.message.includes('End date must be after start date')) {
       return res.status(400).json({ message: error.message });
     }
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
 
@@ -1854,7 +1970,7 @@ router.delete('/publication-ranges/:id', authMiddleware, async (req, res) => {
     res.json({ message: 'Publication range deleted successfully' });
   } catch (error) {
     console.error('[DELETE /publication-ranges/:id]', error);
-    res.status(500).json({ message: 'Server error: ' + error.message });
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
 

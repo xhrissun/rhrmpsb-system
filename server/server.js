@@ -17,6 +17,11 @@ for (const key of REQUIRED_ENV) {
     process.exit(1);
   }
 }
+// F-16 FIX: Enforce minimum JWT secret length — short secrets are brute-forceable.
+if (process.env.JWT_SECRET.length < 32) {
+  console.error('FATAL: JWT_SECRET must be at least 32 characters long for security');
+  process.exit(1);
+}
 
 const app = express();
 
@@ -90,8 +95,20 @@ app.get('/ping', (req, res) => {
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use('/api', routes);
 
-// ── Health check route ────────────────────────────────────────────────────────
-app.get('/health', (req, res) => {
+// ── Health check route (F-10 FIX: admin-only — prevents unauthenticated recon) ──
+app.get('/health', async (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) return res.status(401).json({ message: 'Unauthorized' });
+  try {
+    const jwt = (await import('jsonwebtoken')).default;
+    const { User } = (await import('./models.js'));
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findById(decoded.id).select('userType');
+    if (!user || user.userType !== 'admin')
+      return res.status(403).json({ message: 'Access denied' });
+  } catch {
+    return res.status(401).json({ message: 'Invalid token' });
+  }
   const uptime = process.uptime();
   res.status(200).json({
     status: 'OK',
@@ -103,13 +120,9 @@ app.get('/health', (req, res) => {
   });
 });
 
-// ── Root route ────────────────────────────────────────────────────────────────
+// ── Root route (F-18 FIX: no endpoint map exposed to unauthenticated requests) ──
 app.get('/', (req, res) => {
-  res.status(200).json({
-    message: 'Rater System API Server',
-    version: '1.0.0',
-    endpoints: ['/api', '/health', '/ping']
-  });
+  res.status(200).send('OK');
 });
 
 // ── Global error handling middleware ─────────────────────────────────────────
