@@ -588,7 +588,7 @@ const RaterView = ({ user }) => {
       const existingRatings = await ratingsAPI.getByCandidate(selectedCandidate);
       const raterRatings = existingRatings.filter(rating =>
         rating.raterId &&
-        rating.raterId._id === user._id &&
+        (rating.raterId._id ?? rating.raterId).toString() === user._id.toString() &&
         rating.itemNumber === selectedItemNumber
       );
       const ratingsMap = {};
@@ -642,7 +642,7 @@ const RaterView = ({ user }) => {
       // Get all ratings this rater has submitted for this candidate
       const allRatings = await ratingsAPI.getByCandidate(selectedCandidate);
       const myRatings = allRatings.filter(r =>
-        r.raterId && (r.raterId._id || r.raterId) === user._id &&
+        r.raterId && (r.raterId._id ?? r.raterId).toString() === user._id.toString() &&
         r.itemNumber && r.itemNumber !== selectedItemNumber
       );
 
