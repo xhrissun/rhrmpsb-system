@@ -7,6 +7,7 @@ import { useToast } from '../utils/ToastContext';
 import RatingLogsView from './RatingLogsView';
 import PublicationRangeManager from './PublicationRangeManager';
 import CompetencyDetailModal from './CompetencyDetailModal';
+import { getAllTOCEntries } from '../lib/pdfParser';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Exported reusable components
@@ -1788,6 +1789,42 @@ const loadDataForCurrentTab = useCallback(async () => {
     }
   }, [lastCompetencyUpload, loadDataForCurrentTab, showToast, setUploadResult]);
 
+  const handleExportCBSManual = useCallback(() => {
+    try {
+      const entries = getAllTOCEntries();
+      const headers = ['Code', 'Title', 'Office'];
+      const rows = entries.map(e => [
+        e.code,
+        e.name,
+        e.office
+      ]);
+
+      const escapeCsv = (val) => {
+        const s = String(val ?? '');
+        return s.includes(',') || s.includes('"') || s.includes('\n')
+          ? `"${s.replace(/"/g, '""')}"` : s;
+      };
+
+      const csvContent = [headers, ...rows]
+        .map(r => r.map(escapeCsv).join(','))
+        .join('\n');
+
+      const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `CBS_Manual_Codes_and_Titles_${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast(`CBS Manual exported — ${entries.length} competencies`, 'success');
+    } catch (err) {
+      console.error('CBS export error:', err);
+      showToast('Failed to export CBS Manual', 'error');
+    }
+  }, [showToast]);
+
   const renderCompetencies = useCallback(() => {
     const filteredCompetencies = filterAndSortData(competencies, ['name', 'type']);
     const isUploading = csvUploading.competencies;
@@ -1807,6 +1844,13 @@ const loadDataForCurrentTab = useCallback(async () => {
               className="px-3 py-1 rounded text-xs bg-purple-500 text-white hover:bg-purple-600 flex items-center gap-1"
             >
               📚 Browse CBS Manual
+            </button>
+            <button
+              onClick={handleExportCBSManual}
+              className="px-3 py-1 rounded text-xs bg-green-600 text-white hover:bg-green-700 flex items-center gap-1"
+              title="Download all CBS competency codes and titles as CSV"
+            >
+              ⬇️ Export CBS Manual CSV
             </button>
             <button
               onClick={() => setShowCompetencySummary(true)}
