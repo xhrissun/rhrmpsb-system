@@ -421,11 +421,35 @@ router.post('/vacancies/upload-csv/:publicationRangeId', authMiddleware, async (
     }
 
     const vacanciesData = parseCSV(req.files.csv.data);
-    const processedVacancies = vacanciesData.map(vacancy => ({
-      itemNumber: vacancy.itemNumber || '',
-      position: vacancy.position || '',
-      assignment: vacancy.assignment || '',
-      salaryGrade: vacancy.salaryGrade || 1,
+
+    // Validate required fields first — give clear error instead of crashing
+    const invalidRows = [];
+    const validRows   = [];
+    vacanciesData.forEach((vacancy, index) => {
+      const missing = [];
+      if (!vacancy.itemNumber || !vacancy.itemNumber.trim()) missing.push('itemNumber');
+      if (!vacancy.position   || !vacancy.position.trim())   missing.push('position');
+      if (!vacancy.assignment || !vacancy.assignment.trim())  missing.push('assignment');
+      if (missing.length > 0) {
+        invalidRows.push({ row: index + 2, missingFields: missing });
+      } else {
+        validRows.push(vacancy);
+      }
+    });
+
+    if (invalidRows.length > 0) {
+      return res.status(400).json({
+        message: `${invalidRows.length} row(s) are missing required fields`,
+        invalidRows,
+        hint: 'Required columns: itemNumber, position, assignment'
+      });
+    }
+
+    const processedVacancies = validRows.map(vacancy => ({
+      itemNumber: vacancy.itemNumber.trim(),
+      position:   vacancy.position.trim(),
+      assignment: vacancy.assignment.trim(),
+      salaryGrade: Number(vacancy.salaryGrade) || 1,
       publicationRangeId: publicationRange._id,
       qualifications: {
         education:   vacancy.education   || '',
@@ -439,7 +463,7 @@ router.post('/vacancies/upload-csv/:publicationRangeId', authMiddleware, async (
       publicationRangeId: publicationRange._id, isArchived: false
     }).distinct('itemNumber');
     const existingSet = new Set(existingItemNumbers);
-    const duplicates = processedVacancies.filter(v => existingSet.has(v.itemNumber));
+    const duplicates  = processedVacancies.filter(v => existingSet.has(v.itemNumber));
     if (duplicates.length > 0) {
       return res.status(400).json({
         message: 'Duplicate item numbers found in this publication range',
@@ -447,7 +471,7 @@ router.post('/vacancies/upload-csv/:publicationRangeId', authMiddleware, async (
       });
     }
 
-    // FIX: Batch lookup instead of N+1 queries
+    // Batch lookup — single query instead of one per row
     const itemNums = processedVacancies.map(v => v.itemNumber);
     const archivedVacancies = await Vacancy.find({
       itemNumber: { $in: itemNums },
