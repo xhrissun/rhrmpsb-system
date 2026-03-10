@@ -639,12 +639,32 @@ const RaterView = ({ user }) => {
     setCopyRatingsLoading(true);
     setIsCopyRatingsModalOpen(true);
     try {
-      // Get all ratings this rater has submitted for this candidate
-      const allRatings = await ratingsAPI.getByCandidate(selectedCandidate);
-      const myRatings = allRatings.filter(r =>
-        r.raterId && (r.raterId._id ?? r.raterId).toString() === user._id.toString() &&
-        r.itemNumber && r.itemNumber !== selectedItemNumber
-      );
+      // ── ROOT CAUSE FIX ────────────────────────────────────────────────────
+      // Each candidate document is scoped to ONE itemNumber. "Juan dela Cruz"
+      // under Item A and Item B are TWO separate candidateId values.
+      // getByCandidate(selectedCandidate) only returns ratings for THIS item's
+      // candidate doc — ratings from other items are stored under different
+      // candidateIds and are invisible to that query.
+      //
+      // Solution: query by RATER to get ALL ratings this rater has ever
+      // submitted, then match by candidateId.fullName to find the same person
+      // rated under a different item number.
+      // ─────────────────────────────────────────────────────────────────────
+
+      // Step 1: get the current candidate's name
+      const currentName = candidateDetails?.fullName?.trim().toUpperCase();
+      if (!currentName) { setCopyRatingsSources([]); return; }
+
+      // Step 2: get ALL ratings this rater has ever submitted (across all candidates)
+      const allMyRatings = await ratingsAPI.getByRater(user._id);
+
+      // Step 3: keep only ratings where:
+      //   - candidateId.fullName matches (same person)
+      //   - itemNumber is different from the currently selected item
+      const myRatings = allMyRatings.filter(r => {
+        const rName = (r.candidateId?.fullName ?? '').trim().toUpperCase();
+        return rName === currentName && r.itemNumber !== selectedItemNumber;
+      });
 
       if (myRatings.length === 0) { setCopyRatingsSources([]); return; }
 
