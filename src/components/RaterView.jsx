@@ -1745,4 +1745,5 @@ const RaterView = ({ user }) => {
   );
 };
 
+
 export default RaterView;
