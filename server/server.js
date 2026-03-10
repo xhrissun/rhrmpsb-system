@@ -25,6 +25,7 @@ const corsOptions = {
   origin: process.env.NODE_ENV === 'production'
     ? [
         'https://xhrissun.github.io',
+        'https://denr4a-rhrmpsb-system.onrender.com/',
         'https://cron-job.org',
       ]
     : ['http://localhost:3000', 'http://localhost:5173'],
