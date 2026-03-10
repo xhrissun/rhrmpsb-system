@@ -52,7 +52,7 @@ function App() {
   }
 
   // Use basename for GitHub Pages deployment if needed
-  const basename = import.meta.env.VITE_BASENAME || '/';
+  const basename = import.meta.env.PROD ? '/rhrmpsb-system' : '/';
 
   return (
     <ToastProvider>
