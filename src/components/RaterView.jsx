@@ -722,8 +722,7 @@ const RaterView = ({ user }) => {
       );
 
       // Only show items that have at least 1 matching competency
-      setCopyRatingsSources(sources.filter(s => s.matchCount > 0)
-        .sort((a, b) => b.matchCount - a.matchCount));
+      setCopyRatingsSources(sources.filter(s => s.matchCount > 0 && s.position.trim().toUpperCase() === currentPosition)        .sort((a, b) => b.matchCount - a.matchCount));
     } catch (err) {
       console.error('Failed to load copy sources:', err);
       showToast('Failed to load ratings from other items.', 'error');
@@ -1744,6 +1743,5 @@ const RaterView = ({ user }) => {
     </div>
   );
 };
-
 
 export default RaterView;
