@@ -1191,7 +1191,13 @@ router.post('/competencies/upload-csv', authMiddleware, async (req, res) => {
             addedVacancyIds: newVacancyIds,
           });
           const mergedObjectIds = [...existingVacancyIds, ...newVacancyIds].map(id => new mongoose.Types.ObjectId(id));
-          await Competency.findByIdAndUpdate(bestMatch._id, { vacancyIds: mergedObjectIds, vacancyId: null });
+          await Competency.findByIdAndUpdate(bestMatch._id, {
+            vacancyIds: mergedObjectIds,
+            vacancyId: null,
+            isArchived: false,      // ← unarchive if it was previously archived
+            archivedAt: null,
+            archivedBy: null
+          });
           results.merged.push({ existingName: bestMatch.name, uploadedName: row.name, similarity: Math.round(bestScore * 100), addedItemCount: newVacancyIds.length });
         } else {
           results.skipped.push({ name: row.name, reason: `Matched '${bestMatch.name}' (${Math.round(bestScore * 100)}% similar) — no new vacancies to add` });

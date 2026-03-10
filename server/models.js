@@ -290,6 +290,7 @@ competencySchema.statics.findByType = function(type) {
 };
 competencySchema.statics.findByVacancy = function(vacancyId) {
   return this.find({
+    isArchived: { $ne: true },
     $or: [
       { vacancyId },
       { vacancyIds: { $exists: true, $ne: [], $in: [vacancyId] } },
