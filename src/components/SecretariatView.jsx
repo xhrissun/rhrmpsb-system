@@ -136,6 +136,14 @@ const SecretariatView = ({ user }) => {
   const [statusFilter, setStatusFilter] = useState(null);
   const [showAssignmentSummary, setShowAssignmentSummary] = useState(false);
   const [showCBSManual, setShowCBSManual] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [cpCurrentPwd, setCpCurrentPwd] = useState('');
+  const [cpNewPwd, setCpNewPwd] = useState('');
+  const [cpConfirmPwd, setCpConfirmPwd] = useState('');
+  const [cpError, setCpError] = useState('');
+  const [cpSuccess, setCpSuccess] = useState('');
+  const [cpLoading, setCpLoading] = useState(false);
+  const [cpShow, setCpShow] = useState(false);
   const [cbsCompetency, setCbsCompetency] = useState(null); // { name, competencyType }
   const [summaryData, setSummaryData] = useState([]);
   const [summaryLoading, setSummaryLoading] = useState(false);
@@ -922,6 +930,15 @@ const SecretariatView = ({ user }) => {
                 style={{ background: 'linear-gradient(135deg,#d97706,#f59e0b)' }}>
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
                 CBS Manual
+              </button>
+
+              <div className="w-px h-5 bg-gray-200 mx-0.5" />
+
+              <button onClick={() => { setShowChangePassword(true); setCpError(''); setCpSuccess(''); setCpCurrentPwd(''); setCpNewPwd(''); setCpConfirmPwd(''); }} aria-label="Change Password"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-all hover:opacity-90 active:scale-95"
+                style={{ background: 'linear-gradient(135deg,#475569,#64748b)' }}>
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>
+                Change Password
               </button>
 
             </div>
@@ -2199,6 +2216,113 @@ const SecretariatView = ({ user }) => {
           </div>
         );
       })()}
+
+      {/* Change Password Modal */}
+      {showChangePassword && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: 'rgba(15,23,42,0.7)', backdropFilter: 'blur(4px)' }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+            {/* Header */}
+            <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg,#475569,#64748b)' }}>
+                  <svg className="w-4.5 h-4.5 text-white w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-gray-900">Change Password</h2>
+                  <p className="text-xs text-gray-400">{user.name}</p>
+                </div>
+              </div>
+              <button onClick={() => setShowChangePassword(false)} className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-all">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="px-6 py-5 space-y-4">
+              {cpSuccess ? (
+                <div className="flex flex-col items-center py-6 text-center gap-3">
+                  <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center">
+                    <svg className="w-7 h-7 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                  </div>
+                  <p className="text-sm font-semibold text-gray-800">Password changed successfully!</p>
+                  <p className="text-xs text-gray-400">Use your new password next time you log in.</p>
+                  <button onClick={() => setShowChangePassword(false)} className="mt-2 px-5 py-2 rounded-xl text-sm font-semibold text-white transition-all hover:opacity-90" style={{ background: 'linear-gradient(135deg,#475569,#64748b)' }}>Done</button>
+                </div>
+              ) : (
+                <>
+                  {cpError && (
+                    <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-red-50 border border-red-200">
+                      <svg className="w-4 h-4 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                      <p className="text-xs font-medium text-red-700">{cpError}</p>
+                    </div>
+                  )}
+
+                  {[
+                    { label: 'Current Password', value: cpCurrentPwd, setter: setCpCurrentPwd, placeholder: 'Enter your current password' },
+                    { label: 'New Password', value: cpNewPwd, setter: setCpNewPwd, placeholder: 'At least 8 characters' },
+                    { label: 'Confirm New Password', value: cpConfirmPwd, setter: setCpConfirmPwd, placeholder: 'Repeat new password' },
+                  ].map(({ label, value, setter, placeholder }) => (
+                    <div key={label}>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1.5">{label}</label>
+                      <input
+                        type={cpShow ? 'text' : 'password'}
+                        value={value}
+                        onChange={e => setter(e.target.value)}
+                        placeholder={placeholder}
+                        disabled={cpLoading}
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-slate-400 transition-all disabled:bg-gray-50"
+                      />
+                    </div>
+                  ))}
+
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input type="checkbox" checked={cpShow} onChange={e => setCpShow(e.target.checked)} className="w-3.5 h-3.5 rounded border-gray-300 text-slate-600" />
+                    <span className="text-xs text-gray-500">Show passwords</span>
+                  </label>
+
+                  <p className="text-xs text-gray-400">Minimum 8 characters. You will need to log in again after changing.</p>
+                </>
+              )}
+            </div>
+
+            {/* Footer */}
+            {!cpSuccess && (
+              <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
+                <button onClick={() => setShowChangePassword(false)} className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 hover:bg-gray-100 transition-all" disabled={cpLoading}>
+                  Cancel
+                </button>
+                <button
+                  disabled={cpLoading}
+                  onClick={async () => {
+                    setCpError('');
+                    if (!cpCurrentPwd) { setCpError('Current password is required'); return; }
+                    if (!cpNewPwd || cpNewPwd.length < 8) { setCpError('New password must be at least 8 characters'); return; }
+                    if (cpNewPwd !== cpConfirmPwd) { setCpError('New passwords do not match'); return; }
+                    if (cpCurrentPwd === cpNewPwd) { setCpError('New password must differ from current password'); return; }
+                    setCpLoading(true);
+                    try {
+                      await usersAPI.changeSelfPassword(cpCurrentPwd, cpNewPwd);
+                      setCpSuccess(true);
+                    } catch (err) {
+                      setCpError(err.response?.data?.message || 'Failed to change password');
+                    } finally {
+                      setCpLoading(false);
+                    }
+                  }}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold text-white transition-all hover:opacity-90 disabled:opacity-50"
+                  style={{ background: 'linear-gradient(135deg,#475569,#64748b)' }}
+                >
+                  {cpLoading ? (
+                    <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />Saving…</>
+                  ) : (
+                    <><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>Change Password</>
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* CBS Manual Modal — browse mode */}
       {showCBSManual && (

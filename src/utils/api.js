@@ -117,11 +117,14 @@ export const usersAPI = {
   },
   // Add this to your usersAPI object in api.js
   changePassword: async (userId, newPassword) => {
-  const response = await api.put(`/users/${userId}/change-password`, { 
-    newPassword 
-  });
-  return response.data;
-}
+    const response = await api.put(`/users/${userId}/change-password`, { newPassword });
+    return response.data;
+  },
+
+  changeSelfPassword: async (currentPassword, newPassword) => {
+    const response = await api.put('/users/me/change-password', { currentPassword, newPassword });
+    return response.data;
+  },
 };
 
 // Vacancies API

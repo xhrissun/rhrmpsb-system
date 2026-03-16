@@ -341,6 +341,31 @@ router.put('/users/:id/change-password', authMiddleware, async (req, res) => {
   }
 });
 
+// Self-service password change — secretariat (or any user) changes their OWN password.
+// Requires current password verification. No admin privilege needed.
+router.put('/users/me/change-password', authMiddleware, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword) return res.status(400).json({ message: 'Current password is required' });
+    if (!newPassword || newPassword.length < 8) {
+      return res.status(400).json({ message: 'New password must be at least 8 characters long' });
+    }
+    if (currentPassword === newPassword) {
+      return res.status(400).json({ message: 'New password must be different from current password' });
+    }
+    const user = await User.findById(req.user._id).select('+password');
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) return res.status(401).json({ message: 'Current password is incorrect' });
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+    await User.findByIdAndUpdate(req.user._id, { password: hashedPassword });
+    res.json({ message: 'Password changed successfully' });
+  } catch (error) {
+    console.error('[PUT /users/me/change-password]', error);
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
+  }
+});
+
 // /:id routes LAST for users
 router.put('/users/:id', authMiddleware, async (req, res) => {
   if (req.user.userType !== 'admin') return res.status(403).json({ message: 'Access denied' });
@@ -715,7 +740,7 @@ router.get('/candidates', authMiddleware, async (req, res) => {
 
 router.get('/candidates/export-summary-csv', exportLimiter, authMiddleware, async (req, res) => {
   try {
-    const candidates = await Candidate.find({ isArchived: { $ne: true } }).sort({ fullName: 1 });
+    const candidates = await Candidate.find().sort({ fullName: 1 });
     if (candidates.length === 0) return res.status(404).json({ message: 'No candidates found for export' });
 
     const vacancies = await Vacancy.find({}, 'itemNumber position');
