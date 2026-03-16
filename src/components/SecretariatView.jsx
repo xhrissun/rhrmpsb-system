@@ -121,10 +121,8 @@ const SecretariatView = ({ user }) => {
     experience: '',
     eligibility: '',
   });
-  const [loading, _setLoading] = useState(true);        // page-level (vacancies / pub ranges)
-  const [candidatesLoading, _setCandidatesLoading] = useState(false); // table-level only
-  const setLoading = (v) => { console.trace('[setLoading] ' + v); _setLoading(v); };
-  const setCandidatesLoading = (v) => { console.trace('[setCandidatesLoading] ' + v); _setCandidatesLoading(v); };
+  const [loading, setLoading] = useState(true);        // page-level (vacancies / pub ranges)
+  const [candidatesLoading, setCandidatesLoading] = useState(false); // table-level only
   const [error, setError] = useState('');
 
   const [commentSuggestions, setCommentSuggestions] = useState({
@@ -338,13 +336,24 @@ const SecretariatView = ({ user }) => {
   const selectedItemNumberRef       = useRef(selectedItemNumber);
   const publicationRangesRef        = useRef([]);
   const vacanciesRef                = useRef([]);
+  // Refs for values that change reference on every render (context, props, callbacks)
+  const showToastRef                    = useRef(showToast);
+  const filterVacanciesByAssignmentRef  = useRef(filterVacanciesByAssignment);
+  const userRef                         = useRef(user);
+  const showArchivedRangesRef           = useRef(showArchivedRanges);
+  const setSelectedPublicationRangeRef  = useRef(setSelectedPublicationRange);
 
-  useEffect(() => { selectedPublicationRangeRef.current = selectedPublicationRange; }, [selectedPublicationRange]);
-  useEffect(() => { selectedAssignmentRef.current       = selectedAssignment; },       [selectedAssignment]);
-  useEffect(() => { selectedPositionRef.current         = selectedPosition; },         [selectedPosition]);
-  useEffect(() => { selectedItemNumberRef.current       = selectedItemNumber; },       [selectedItemNumber]);
-  useEffect(() => { publicationRangesRef.current        = publicationRanges; },        [publicationRanges]);
-  useEffect(() => { vacanciesRef.current                = vacancies; },                [vacancies]);
+  useEffect(() => { selectedPublicationRangeRef.current       = selectedPublicationRange; }, [selectedPublicationRange]);
+  useEffect(() => { selectedAssignmentRef.current             = selectedAssignment; },       [selectedAssignment]);
+  useEffect(() => { selectedPositionRef.current               = selectedPosition; },         [selectedPosition]);
+  useEffect(() => { selectedItemNumberRef.current             = selectedItemNumber; },       [selectedItemNumber]);
+  useEffect(() => { publicationRangesRef.current              = publicationRanges; },        [publicationRanges]);
+  useEffect(() => { vacanciesRef.current                      = vacancies; },                [vacancies]);
+  useEffect(() => { showToastRef.current                      = showToast; },                [showToast]);
+  useEffect(() => { filterVacanciesByAssignmentRef.current    = filterVacanciesByAssignment; }, [filterVacanciesByAssignment]);
+  useEffect(() => { userRef.current                           = user; },                     [user]);
+  useEffect(() => { showArchivedRangesRef.current             = showArchivedRanges; },       [showArchivedRanges]);
+  useEffect(() => { setSelectedPublicationRangeRef.current    = setSelectedPublicationRange; }, [setSelectedPublicationRange]);
 
   // ─── loadCandidatesByFilters ─────────────────────────────────────────────
   // ZERO state deps — every value read from refs. This function reference
@@ -410,49 +419,45 @@ const SecretariatView = ({ user }) => {
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ─── loadAllActiveVacancies ──────────────────────────────────────────────
+  // ─── ALL load callbacks have [] deps — every value read from refs ──────────
+  // This guarantees these function references NEVER change, so no useEffect
+  // ever re-fires simply because a callback was recreated.
+
   const loadAllActiveVacancies = useCallback(async () => {
     try {
       setLoading(true);
-      const vacanciesRes     = await vacanciesAPI.getAll();
-      const activeVacancies  = vacanciesRes.filter(v => !v.isArchived);
-      const filtered         = filterVacanciesByAssignment(activeVacancies, user);
+      const vacanciesRes    = await vacanciesAPI.getAll();
+      const activeVacancies = vacanciesRes.filter(v => !v.isArchived);
+      const filtered        = filterVacanciesByAssignmentRef.current(activeVacancies, userRef.current);
       setVacancies(filtered);
     } catch (err) {
       console.error('Failed to load vacancies:', err);
       setError('Failed to load vacancies. Please refresh the page.');
-      showToast('Failed to load vacancies', 'error');
+      showToastRef.current('Failed to load vacancies', 'error');
     } finally {
       setLoading(false);
     }
-  }, [filterVacanciesByAssignment, user, showToast]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ─── loadPublicationRanges ───────────────────────────────────────────────
-  // showArchivedRanges is the ONLY dep that should re-trigger this.
   const loadPublicationRanges = useCallback(async () => {
     try {
       setLoading(true);
-      const ranges = await publicationRangesAPI.getAll(showArchivedRanges);
+      const ranges = await publicationRangesAPI.getAll(showArchivedRangesRef.current);
       setPublicationRanges(ranges);
-
       const currentRange = selectedPublicationRangeRef.current;
       if (currentRange && !ranges.find(r => r._id === currentRange)) {
-        setSelectedPublicationRange('');
-        showToast('Selected publication range is no longer available', 'info');
+        setSelectedPublicationRangeRef.current('');
+        showToastRef.current('Selected publication range is no longer available', 'info');
       }
     } catch (err) {
       console.error('Failed to load publication ranges:', err);
       setError('Failed to load publication ranges. Please refresh the page.');
-      showToast('Failed to load publication ranges', 'error');
+      showToastRef.current('Failed to load publication ranges', 'error');
     } finally {
       setLoading(false);
     }
-  }, [showArchivedRanges, setSelectedPublicationRange, showToast]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ─── loadDataForPublicationRange ─────────────────────────────────────────
-  // selectedPublicationRange is a value dep here (intentionally) because this
-  // function is only ever called from the pub-range-change useEffect below,
-  // which already guards against the initial mount.
   const loadDataForPublicationRange = useCallback(async () => {
     if (!selectedPublicationRangeRef.current) {
       await loadAllActiveVacancies();
@@ -463,16 +468,16 @@ const SecretariatView = ({ user }) => {
       const selectedRange   = publicationRangesRef.current.find(r => r._id === selectedPublicationRangeRef.current);
       const includeArchived = selectedRange?.isArchived || false;
       const vacanciesRes    = await vacanciesAPI.getByPublicationRange(selectedPublicationRangeRef.current, includeArchived);
-      const filtered        = filterVacanciesByAssignment(vacanciesRes, user);
+      const filtered        = filterVacanciesByAssignmentRef.current(vacanciesRes, userRef.current);
       setVacancies(filtered);
     } catch (err) {
       console.error('Failed to load data for publication range:', err);
-      showToast('Failed to load publication range data', 'error');
+      showToastRef.current('Failed to load publication range data', 'error');
       setError('Failed to load publication range data.');
     } finally {
       setLoading(false);
     }
-  }, [loadAllActiveVacancies, filterVacanciesByAssignment, user, showToast]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Event Handlers with useCallback
   const handleCommentChange = useCallback((field, value) => {
@@ -687,15 +692,12 @@ const SecretariatView = ({ user }) => {
 
   // STEP 6: useEffect Hooks
   // ─── Initial load + showArchivedRanges toggle ────────────────────────────
-  // On mount: load pub ranges then immediately load all active vacancies.
-  // This fixes the blank-on-first-load bug where vacancies never loaded
-  // because the pub-range change effect was skipped on initial mount.
+  // All three load callbacks are stable ([] deps) so this effect only ever
+  // re-runs when showArchivedRanges genuinely toggles — never after a
+  // candidate update or any other state change.
   useEffect(() => {
     const init = async () => {
       await loadPublicationRanges();
-      // Only load all-active vacancies on mount if no range is pre-selected.
-      // If a range IS pre-selected (persisted), loadDataForPublicationRange
-      // handles it via the selectedPublicationRange change effect below.
       if (!selectedPublicationRangeRef.current) {
         await loadAllActiveVacancies();
       } else {
@@ -703,18 +705,17 @@ const SecretariatView = ({ user }) => {
       }
     };
     init();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showArchivedRanges]); // re-run only when archive toggle changes
+  }, [showArchivedRanges, loadPublicationRanges, loadAllActiveVacancies, loadDataForPublicationRange]);
+  // All three callbacks are [] deps so adding them here is safe — they never change.
 
   // ─── Publication range selection change ──────────────────────────────────
-  // Skip the very first render (handled by init above).
+  // loadDataForPublicationRange is [] deps so listing it here is safe.
   useEffect(() => {
     if (isInitialMount.current) {
       isInitialMount.current = false;
       return;
     }
     loadDataForPublicationRange();
-  // loadDataForPublicationRange is stable (zero state deps)
   }, [selectedPublicationRange, loadDataForPublicationRange]);
 
   // ─── Populate dropdowns when vacancies change ───────────────────────────
