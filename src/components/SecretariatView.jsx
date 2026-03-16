@@ -859,95 +859,71 @@ const SecretariatView = ({ user }) => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
-      {/* Header - STEP 10: Fixed z-index */}
-      <div className="sticky top-14 z-40 pt-3 pb-3">
+      {/* Header */}
+      <div className="sticky top-14 z-40 py-2">
         <div className="max-w-7xl mx-auto px-4">
-          <div className="bg-white shadow-md border-b border-gray-200 rounded-xl">
-            <div className="px-4 py-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 bg-gradient-to-r from-green-600 to-emerald-600 rounded-lg flex items-center justify-center shadow-md">
-                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-                    </svg>
-                  </div>
-                  <div>
-                    <h1 className="text-xl font-bold text-gray-900">Secretariat Dashboard</h1>
-                    <p className="text-sm text-gray-600">Welcome, {user.name}</p>
-                  </div>
-                </div>
-                
-                <div className="flex items-center space-x-3">
-                  {selectedItemNumber && (
-                    <>
-                      <button
-                        onClick={handleExportCSV}
-                        aria-label="Export CSV for selected item"
-                        className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-2.5 px-6 rounded-lg text-sm transition-all duration-200 shadow-lg hover:shadow-xl"
-                      >
-                        <div className="flex items-center space-x-2">
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                          </svg>
-                          <span>Export CSV</span>
-                        </div>
-                      </button>
-                      
-                      <button
-                        onClick={handleGenerateReport}
-                        aria-label="Generate PDF report"
-                        className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-bold py-2.5 px-6 rounded-lg text-sm transition-all duration-200 shadow-lg hover:shadow-xl"
-                      >
-                        <div className="flex items-center space-x-2">
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                          </svg>
-                          <span>Generate Report</span>
-                        </div>
-                      </button>
+          <div className="bg-white shadow-sm border border-gray-200 rounded-xl px-4 py-2.5 flex items-center justify-between gap-3">
 
-                      <button
-                        onClick={() => { setShowAssignmentSummary(true); loadAssignmentSummaryData(); }}
-                        aria-label="View assignment summary"
-                        className="bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 text-white font-bold py-2.5 px-6 rounded-lg text-sm transition-all duration-200 shadow-lg hover:shadow-xl"
-                      >
-                        <div className="flex items-center space-x-2">
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                          </svg>
-                          <span>Assignment Summary</span>
-                        </div>
-                      </button>
-                    </>
-                  )}
-                  
-                  <button
-                    onClick={handleExportSummaryCSV}
-                    aria-label="Export summary CSV for all candidates"
-                    className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-bold py-2.5 px-6 rounded-lg text-sm transition-all duration-200 shadow-lg hover:shadow-xl"
-                  >
-                    <div className="flex items-center space-x-2">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
-                      <span>Export All (Summary)</span>
-                    </div>
-                  </button>
-
-                  <button
-                    onClick={() => setShowCBSManual(true)}
-                    aria-label="Browse CBS Manual"
-                    className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-bold py-2.5 px-6 rounded-lg text-sm transition-all duration-200 shadow-lg hover:shadow-xl"
-                  >
-                    <div className="flex items-center space-x-2">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                      </svg>
-                      <span>CBS Manual</span>
-                    </div>
-                  </button>
-                </div>
+            {/* Brand */}
+            <div className="flex items-center gap-2.5 shrink-0">
+              <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-emerald-600 rounded-lg flex items-center justify-center shadow-sm">
+                <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                </svg>
               </div>
+              <div className="leading-tight">
+                <p className="text-sm font-bold text-gray-900">Secretariat</p>
+                <p className="text-xs text-gray-400">{user.name}</p>
+              </div>
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex items-center gap-1.5 flex-wrap justify-end">
+
+              {/* Item-number-gated buttons */}
+              {selectedItemNumber && (
+                <>
+                  <button onClick={handleExportCSV} aria-label="Export CSV"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-all hover:opacity-90 active:scale-95"
+                    style={{ background: 'linear-gradient(135deg,#2563eb,#4f46e5)' }}>
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                    Export CSV
+                  </button>
+
+                  <button onClick={handleGenerateReport} aria-label="Generate Report"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-all hover:opacity-90 active:scale-95"
+                    style={{ background: 'linear-gradient(135deg,#059669,#10b981)' }}>
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                    Generate Report
+                  </button>
+
+                  <button onClick={() => { setShowAssignmentSummary(true); loadAssignmentSummaryData(); }} aria-label="Assignment Summary"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-all hover:opacity-90 active:scale-95"
+                    style={{ background: 'linear-gradient(135deg,#0891b2,#06b6d4)' }}>
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                    Assignment Summary
+                  </button>
+
+                  {/* Divider */}
+                  <div className="w-px h-5 bg-gray-200 mx-0.5" />
+                </>
+              )}
+
+              {/* Always-visible buttons */}
+              <button onClick={handleExportSummaryCSV} aria-label="Export All Summary"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-all hover:opacity-90 active:scale-95"
+                style={{ background: 'linear-gradient(135deg,#7c3aed,#a855f7)' }}>
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                Export All
+              </button>
+
+              <button onClick={() => setShowCBSManual(true)} aria-label="CBS Manual"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-all hover:opacity-90 active:scale-95"
+                style={{ background: 'linear-gradient(135deg,#d97706,#f59e0b)' }}>
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
+                CBS Manual
+              </button>
+
             </div>
           </div>
         </div>
@@ -1893,192 +1869,183 @@ const SecretariatView = ({ user }) => {
         </div>
       )}
 
-      {showCompetenciesModal && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50" role="dialog" aria-modal="true" aria-labelledby="competencies-title">
-          <div className="relative top-10 mx-auto p-6 border w-11/12 max-w-5xl shadow-lg rounded-md bg-white max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-6 sticky top-0 bg-white pb-4 border-b">
-              <div>
-                <h2 id="competencies-title" className="text-2xl font-bold text-gray-900">Competencies</h2>
-                <p className="text-sm text-gray-600 mt-1">
-                  {vacancyDetails?.position} • Item # {vacancyDetails?.itemNumber} • SG {vacancyDetails?.salaryGrade}
-                </p>
-              </div>
-              <button
-                onClick={closeCompetenciesModal}
-                aria-label="Close competencies modal"
-                className="text-gray-500 hover:text-gray-700 text-2xl font-bold"
-              >
-                ×
-              </button>
-            </div>
+      {showCompetenciesModal && (() => {
+        const totalCount = competencies.length;
+        const groups = [
+          {
+            key: 'basic',
+            label: 'Core Competencies',
+            sub: 'Psycho-Social',
+            items: groupedCompetencies.basic,
+            type: COMPETENCY_TYPES.BASIC,
+            accent: '#2563eb',
+            light: '#eff6ff',
+            badge: '#dbeafe',
+            badgeText: '#1d4ed8',
+            dot: 'bg-blue-500',
+            tag: 'CORE',
+            tagBg: '#dbeafe',
+            tagColor: '#1e40af',
+          },
+          {
+            key: 'organizational',
+            label: 'Organizational Competencies',
+            sub: 'Potential',
+            items: groupedCompetencies.organizational,
+            type: COMPETENCY_TYPES.ORGANIZATIONAL,
+            accent: '#7c3aed',
+            light: '#f5f3ff',
+            badge: '#ede9fe',
+            badgeText: '#5b21b6',
+            dot: 'bg-violet-500',
+            tag: 'ORG',
+            tagBg: '#ede9fe',
+            tagColor: '#5b21b6',
+          },
+          {
+            key: 'leadership',
+            label: 'Leadership Competencies',
+            sub: vacancyDetails?.salaryGrade >= 18 ? `Required · SG ${vacancyDetails?.salaryGrade}` : `Optional · SG ${vacancyDetails?.salaryGrade}`,
+            items: groupedCompetencies.leadership,
+            type: COMPETENCY_TYPES.LEADERSHIP,
+            accent: '#0891b2',
+            light: '#ecfeff',
+            badge: '#cffafe',
+            badgeText: '#0e7490',
+            dot: 'bg-cyan-500',
+            tag: 'LEAD',
+            tagBg: '#cffafe',
+            tagColor: '#0e7490',
+          },
+          {
+            key: 'minimum',
+            label: 'Minimum Competencies',
+            sub: 'Potential',
+            items: groupedCompetencies.minimum,
+            type: COMPETENCY_TYPES.MINIMUM,
+            accent: '#d97706',
+            light: '#fffbeb',
+            badge: '#fef3c7',
+            badgeText: '#92400e',
+            dot: 'bg-amber-500',
+            tag: 'MIN',
+            tagBg: '#fef3c7',
+            tagColor: '#92400e',
+          },
+        ].filter(g => g.items.length > 0);
 
-            {competencies.length === 0 ? (
-              <div className="text-center py-12">
-                <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
-                  <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                  </svg>
+        return (
+          <div className="fixed inset-0 z-50 flex items-start justify-center" style={{ backgroundColor: 'rgba(15,23,42,0.7)', backdropFilter: 'blur(4px)' }} role="dialog" aria-modal="true" aria-labelledby="competencies-title">
+            <div className="relative w-full max-w-5xl mx-4 mt-8 mb-8 bg-white rounded-2xl shadow-2xl flex flex-col" style={{ maxHeight: 'calc(100vh - 4rem)' }}>
+
+              {/* ── Header ── */}
+              <div className="flex-shrink-0 px-8 pt-7 pb-5 border-b border-gray-100">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-4">
+                    <div className="flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg,#4f46e5,#7c3aed)' }}>
+                      <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h2 id="competencies-title" className="text-xl font-bold text-gray-900 leading-tight">{vacancyDetails?.position}</h2>
+                      <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: '#f1f5f9', color: '#475569' }}>
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" /></svg>
+                          Item # {vacancyDetails?.itemNumber}
+                        </span>
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: '#f1f5f9', color: '#475569' }}>
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                          SG {vacancyDetails?.salaryGrade}
+                        </span>
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: '#e0e7ff', color: '#3730a3' }}>
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>
+                          {totalCount} {totalCount === 1 ? 'Competency' : 'Competencies'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <button onClick={closeCompetenciesModal} aria-label="Close" className="flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-all">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                  </button>
                 </div>
-                <h3 className="text-lg font-medium text-gray-900 mb-2">No Competencies Found</h3>
-                <p className="text-gray-500">No competencies have been assigned to this position yet.</p>
               </div>
-            ) : (
-              <div className="space-y-6">
-                {/* Basic Competencies */}
-                {groupedCompetencies.basic.length > 0 && (
-                  <div>
-                    <div className="bg-blue-50 border-l-4 border-blue-500 p-4 mb-4">
-                      <h3 className="text-lg font-bold text-blue-900">Core Competencies (Psycho-Social)</h3>
-                      <p className="text-sm text-blue-700 mt-1">{groupedCompetencies.basic.length} competencies</p>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {groupedCompetencies.basic.map((comp, index) => (
-                        <div key={comp._id} className="bg-white border-2 border-blue-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                          <div className="flex items-start">
-                            <span className="flex-shrink-0 w-8 h-8 bg-blue-500 text-white rounded-full flex items-center justify-center font-bold text-sm">
-                              {index + 1}
-                            </span>
-                            <div className="ml-3 flex-1">
-                              <div className="flex items-center justify-between gap-2">
-                                <h4 className="font-semibold text-gray-900">{comp.name}</h4>
-                                <button
-                                  onClick={() => setCbsCompetency({ name: comp.name, competencyType: COMPETENCY_TYPES.BASIC })}
-                                  title="View CBS proficiency levels"
-                                  className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-100 hover:bg-blue-200 text-blue-700 flex items-center justify-center text-xs font-bold transition-colors"
-                                >ⓘ</button>
-                              </div>
-                              {comp.description && (
-                                <p className="text-sm text-gray-600 mt-1">{comp.description}</p>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
 
-                {/* Organizational Competencies */}
-                {groupedCompetencies.organizational.length > 0 && (
-                  <div>
-                    <div className="bg-purple-50 border-l-4 border-purple-500 p-4 mb-4">
-                      <h3 className="text-lg font-bold text-purple-900">Organizational Competencies (Potential)</h3>
-                      <p className="text-sm text-purple-700 mt-1">{groupedCompetencies.organizational.length} competencies</p>
+              {/* ── Body ── */}
+              <div className="flex-1 overflow-y-auto px-8 py-6">
+                {competencies.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-20 text-center">
+                    <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center mb-4">
+                      <svg className="w-8 h-8 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {groupedCompetencies.organizational.map((comp, index) => (
-                        <div key={comp._id} className="bg-white border-2 border-purple-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                          <div className="flex items-start">
-                            <span className="flex-shrink-0 w-8 h-8 bg-purple-500 text-white rounded-full flex items-center justify-center font-bold text-sm">
-                              {index + 1}
-                            </span>
-                            <div className="ml-3 flex-1">
-                              <div className="flex items-center justify-between gap-2">
-                                <h4 className="font-semibold text-gray-900">{comp.name}</h4>
-                                <button
-                                  onClick={() => setCbsCompetency({ name: comp.name, competencyType: COMPETENCY_TYPES.ORGANIZATIONAL })}
-                                  title="View CBS proficiency levels"
-                                  className="flex-shrink-0 w-6 h-6 rounded-full bg-purple-100 hover:bg-purple-200 text-purple-700 flex items-center justify-center text-xs font-bold transition-colors"
-                                >ⓘ</button>
-                              </div>
-                              {comp.description && (
-                                <p className="text-sm text-gray-600 mt-1">{comp.description}</p>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                    <p className="text-base font-semibold text-gray-500">No competencies assigned yet</p>
+                    <p className="text-sm text-gray-400 mt-1">This position has no competencies configured.</p>
                   </div>
-                )}
-
-                {/* Leadership Competencies */}
-                {groupedCompetencies.leadership.length > 0 && (
-                  <div>
-                    <div className="bg-indigo-50 border-l-4 border-indigo-500 p-4 mb-4">
-                      <h3 className="text-lg font-bold text-indigo-900">Leadership Competencies (Potential)</h3>
-                      <p className="text-sm text-indigo-700 mt-1">
-                        {groupedCompetencies.leadership.length} competencies
-                        {vacancyDetails?.salaryGrade >= 18 
-                          ? ' • Required for SG ' + vacancyDetails.salaryGrade
-                          : ' • Not required for SG ' + vacancyDetails?.salaryGrade}
-                      </p>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {groupedCompetencies.leadership.map((comp, index) => (
-                        <div key={comp._id} className="bg-white border-2 border-indigo-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                          <div className="flex items-start">
-                            <span className="flex-shrink-0 w-8 h-8 bg-indigo-500 text-white rounded-full flex items-center justify-center font-bold text-sm">
-                              {index + 1}
-                            </span>
-                            <div className="ml-3 flex-1">
-                              <div className="flex items-center justify-between gap-2">
-                                <h4 className="font-semibold text-gray-900">{comp.name}</h4>
-                                <button
-                                  onClick={() => setCbsCompetency({ name: comp.name, competencyType: COMPETENCY_TYPES.LEADERSHIP })}
-                                  title="View CBS proficiency levels"
-                                  className="flex-shrink-0 w-6 h-6 rounded-full bg-indigo-100 hover:bg-indigo-200 text-indigo-700 flex items-center justify-center text-xs font-bold transition-colors"
-                                >ⓘ</button>
-                              </div>
-                              {comp.description && (
-                                <p className="text-sm text-gray-600 mt-1">{comp.description}</p>
-                              )}
+                ) : (
+                  <div className="space-y-8">
+                    {groups.map((group) => (
+                      <div key={group.key}>
+                        {/* Group header */}
+                        <div className="flex items-center gap-3 mb-4">
+                          <div className="flex-shrink-0 w-1 h-10 rounded-full" style={{ background: group.accent }} />
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider">{group.label}</h3>
+                              <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: group.tagBg, color: group.tagColor }}>{group.tag}</span>
                             </div>
+                            <p className="text-xs text-gray-400 mt-0.5">{group.sub} · {group.items.length} {group.items.length === 1 ? 'item' : 'items'}</p>
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
 
-                {/* Minimum Competencies */}
-                {groupedCompetencies.minimum.length > 0 && (
-                  <div>
-                    <div className="bg-orange-50 border-l-4 border-orange-500 p-4 mb-4">
-                      <h3 className="text-lg font-bold text-orange-900">Minimum Competencies (Potential)</h3>
-                      <p className="text-sm text-orange-700 mt-1">{groupedCompetencies.minimum.length} competencies</p>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {groupedCompetencies.minimum.map((comp, index) => (
-                        <div key={comp._id} className="bg-white border-2 border-orange-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                          <div className="flex items-start">
-                            <span className="flex-shrink-0 w-8 h-8 bg-orange-500 text-white rounded-full flex items-center justify-center font-bold text-sm">
-                              {index + 1}
-                            </span>
-                            <div className="ml-3 flex-1">
-                              <div className="flex items-center justify-between gap-2">
-                                <h4 className="font-semibold text-gray-900">{comp.name}</h4>
-                                <button
-                                  onClick={() => setCbsCompetency({ name: comp.name, competencyType: COMPETENCY_TYPES.MINIMUM })}
-                                  title="View CBS proficiency levels"
-                                  className="flex-shrink-0 w-6 h-6 rounded-full bg-orange-100 hover:bg-orange-200 text-orange-700 flex items-center justify-center text-xs font-bold transition-colors"
-                                >ⓘ</button>
+                        {/* Competency rows — clean horizontal list */}
+                        <div className="rounded-xl border border-gray-100 overflow-hidden divide-y divide-gray-50" style={{ boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+                          {group.items.map((comp, index) => (
+                            <div key={comp._id} className="flex items-center gap-4 px-5 py-3.5 bg-white hover:bg-gray-50 transition-colors group">
+                              {/* Index pill */}
+                              <span className="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold text-white" style={{ background: group.accent }}>
+                                {index + 1}
+                              </span>
+                              {/* Name + description */}
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-semibold text-gray-900 truncate">{comp.name}</p>
+                                {comp.description && (
+                                  <p className="text-xs text-gray-400 mt-0.5 truncate">{comp.description}</p>
+                                )}
                               </div>
-                              {comp.description && (
-                                <p className="text-sm text-gray-600 mt-1">{comp.description}</p>
-                              )}
+                              {/* CBS button — appears on hover */}
+                              <button
+                                onClick={() => setCbsCompetency({ name: comp.name, competencyType: group.type })}
+                                title="View CBS proficiency levels"
+                                className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold opacity-0 group-hover:opacity-100 transition-all"
+                                style={{ background: group.badge, color: group.badgeText }}
+                              >
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                CBS
+                              </button>
                             </div>
-                          </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
-            )}
 
-            <div className="mt-6 pt-4 border-t sticky bottom-0 bg-white">
-              <button
-                onClick={closeCompetenciesModal}
-                aria-label="Close competencies modal"
-                className="w-full bg-gray-600 hover:bg-gray-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors duration-200"
-              >
-                Close
-              </button>
+              {/* ── Footer ── */}
+              <div className="flex-shrink-0 px-8 py-4 border-t border-gray-100 flex items-center justify-between">
+                <p className="text-xs text-gray-400">Click <strong className="text-gray-600">CBS</strong> on any row to view proficiency levels</p>
+                <button
+                  onClick={closeCompetenciesModal}
+                  aria-label="Close competencies modal"
+                  className="px-5 py-2 rounded-xl text-sm font-semibold text-gray-600 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 transition-all"
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Assignment Summary Modal */}
       {showAssignmentSummary && (() => {
