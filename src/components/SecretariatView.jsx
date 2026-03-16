@@ -326,173 +326,79 @@ const SecretariatView = ({ user }) => {
     }
   }, [vacancies, showToast]);
 
-  // STEP 4: Replace loadInitialData with three separate functions
-  // selectedPublicationRange accessed via ref so this callback does not
-  // recreate (and re-trigger its useEffect) every time the persisted state changes.
+  // ─── Refs for all values accessed inside load callbacks ────────────────────
+  // All mutable state that load functions need is stored in refs so the
+  // useCallback functions have ZERO state dependencies — their references
+  // never change, so no useEffect ever re-fires because a callback recreated.
   const selectedPublicationRangeRef = useRef(selectedPublicationRange);
+  const selectedAssignmentRef       = useRef(selectedAssignment);
+  const selectedPositionRef         = useRef(selectedPosition);
+  const selectedItemNumberRef       = useRef(selectedItemNumber);
+  const publicationRangesRef        = useRef([]);
+  const vacanciesRef                = useRef([]);
+
   useEffect(() => { selectedPublicationRangeRef.current = selectedPublicationRange; }, [selectedPublicationRange]);
+  useEffect(() => { selectedAssignmentRef.current       = selectedAssignment; },       [selectedAssignment]);
+  useEffect(() => { selectedPositionRef.current         = selectedPosition; },         [selectedPosition]);
+  useEffect(() => { selectedItemNumberRef.current       = selectedItemNumber; },       [selectedItemNumber]);
+  useEffect(() => { publicationRangesRef.current        = publicationRanges; },        [publicationRanges]);
+  useEffect(() => { vacanciesRef.current                = vacancies; },                [vacancies]);
 
-  const loadPublicationRanges = useCallback(async () => {
-    try {
-      setLoading(true);
-      const ranges = await publicationRangesAPI.getAll(showArchivedRanges);
-      setPublicationRanges(ranges);
-
-      // Validate selected range is still available
-      const currentRange = selectedPublicationRangeRef.current;
-      if (currentRange) {
-        const stillExists = ranges.find(r => r._id === currentRange);
-        if (!stillExists) {
-          setSelectedPublicationRange('');
-          showToast('Selected publication range is no longer available', 'info');
-        }
-      }
-    } catch (error) {
-      console.error('Failed to load publication ranges:', error);
-      setError('Failed to load publication ranges. Please refresh the page.');
-      showToast('Failed to load publication ranges', 'error');
-    } finally {
-      setLoading(false);
-    }
-  // selectedPublicationRange intentionally omitted — accessed via ref above.
-  }, [showArchivedRanges, setSelectedPublicationRange, showToast]);
-
-  const loadAllActiveVacancies = useCallback(async () => {
-    try {
-      setLoading(true);
-      const vacanciesRes = await vacanciesAPI.getAll();
-      const activeVacancies = vacanciesRes.filter(v => !v.isArchived);
-      const filteredVacancies = filterVacanciesByAssignment(activeVacancies, user);
-      setVacancies(filteredVacancies);
-    } catch (error) {
-      console.error('Failed to load vacancies:', error);
-      setError('Failed to load vacancies. Please refresh the page.');
-      showToast('Failed to load vacancies', 'error');
-    } finally {
-      setLoading(false);
-    }
-  }, [filterVacanciesByAssignment, user, showToast]);
-
-  // publicationRanges array accessed via ref so this callback does not recreate
-  // every time setPublicationRanges fires (which would re-trigger its useEffect).
-  const publicationRangesRef = useRef([]);
-  useEffect(() => { publicationRangesRef.current = publicationRanges; }, [publicationRanges]);
-
-  const loadDataForPublicationRange = useCallback(async () => {
-    if (!selectedPublicationRange) {
-      await loadAllActiveVacancies();
-      return;
-    }
-
-    try {
-      setLoading(true);
-      const selectedRange = publicationRangesRef.current.find(r => r._id === selectedPublicationRange);
-      const includeArchived = selectedRange?.isArchived || false;
-
-      const vacanciesRes = await vacanciesAPI.getByPublicationRange(
-        selectedPublicationRange,
-        includeArchived
-      );
-
-      const filteredVacancies = filterVacanciesByAssignment(vacanciesRes, user);
-      setVacancies(filteredVacancies);
-    } catch (error) {
-      console.error('Failed to load data for publication range:', error);
-      showToast('Failed to load publication range data', 'error');
-      setError('Failed to load publication range data.');
-    } finally {
-      setLoading(false);
-    }
-  // publicationRanges intentionally omitted — accessed via ref above.
-  }, [selectedPublicationRange, loadAllActiveVacancies, filterVacanciesByAssignment, user, showToast]);
-
-  // STEP 5: Update loadCandidatesByFilters
-  // Keep a ref to vacancies so loadCandidatesByFilters does not recreate (and defeat
-  // the previousFilters guard) every time the vacancies state reference changes.
-  const vacanciesRef = useRef(vacancies);
-  useEffect(() => { vacanciesRef.current = vacancies; }, [vacancies]);
-
-  // Also keep loadCandidatesByFilters in a ref so the vacancies useEffect below
-  // can call it without listing it as a dependency — preventing the effect from
-  // re-running every time the callback function reference changes.
-  const loadCandidatesByFiltersRef = useRef(null);
-
+  // ─── loadCandidatesByFilters ─────────────────────────────────────────────
+  // ZERO state deps — every value read from refs. This function reference
+  // NEVER changes, so nothing re-fires because it was recreated.
   const loadCandidatesByFilters = useCallback(async () => {
-    // Prevent concurrent loading
-    if (loadingCandidates.current) {
-      return;
-    }
+    if (loadingCandidates.current) return;
 
-    // Check if filters actually changed
     const currentFilters = {
-      assignment: selectedAssignment,
-      position: selectedPosition,
-      itemNumber: selectedItemNumber,
-      publicationRange: selectedPublicationRange
+      assignment:       selectedAssignmentRef.current,
+      position:         selectedPositionRef.current,
+      itemNumber:       selectedItemNumberRef.current,
+      publicationRange: selectedPublicationRangeRef.current,
     };
 
-    if (JSON.stringify(currentFilters) === JSON.stringify(previousFilters.current)) {
-      return;
-    }
+    if (JSON.stringify(currentFilters) === JSON.stringify(previousFilters.current)) return;
 
-    previousFilters.current = currentFilters;
-    loadingCandidates.current = true;
-
-    // Only show the loading indicator AFTER we know filters actually changed.
-    // Moving this after the guard means spurious re-calls never flash the spinner.
+    previousFilters.current      = currentFilters;
+    loadingCandidates.current    = true;
     setCandidatesLoading(true);
 
     try {
+      const { assignment, position, itemNumber, publicationRange } = currentFilters;
+      const currentVacancies = vacanciesRef.current;
+      const selectedRange    = publicationRangesRef.current.find(r => r._id === publicationRange);
+      const includeArchived  = selectedRange?.isArchived || false;
+
       let filteredCandidates = [];
 
-      // Access vacancies via ref to avoid recreating this callback on every vacancies change
-      const currentVacancies = vacanciesRef.current;
-
-      // Determine if we're viewing archived data
-      const selectedRange = publicationRanges.find(r => r._id === selectedPublicationRange);
-      const includeArchived = selectedRange?.isArchived || false;
-      
-      if (selectedItemNumber) {
-        filteredCandidates = await candidatesAPI.getByItemNumber(selectedItemNumber, includeArchived);
-      } else if (selectedPosition) {
-        const vacancyItemNumbers = currentVacancies
-          .filter(v => v.assignment === selectedAssignment && v.position === selectedPosition)
+      if (itemNumber) {
+        filteredCandidates = await candidatesAPI.getByItemNumber(itemNumber, includeArchived);
+      } else if (position) {
+        const itemNums = currentVacancies
+          .filter(v => v.assignment === assignment && v.position === position)
           .map(v => v.itemNumber);
-        const candidatesRes = await Promise.all(
-          vacancyItemNumbers.map(itemNumber => 
-            candidatesAPI.getByItemNumber(itemNumber, includeArchived)
-          )
-        );
-        filteredCandidates = candidatesRes.flat();
-      } else if (selectedAssignment) {
-        const vacancyItemNumbers = currentVacancies
-          .filter(v => v.assignment === selectedAssignment)
+        filteredCandidates = (await Promise.all(
+          itemNums.map(n => candidatesAPI.getByItemNumber(n, includeArchived))
+        )).flat();
+      } else if (assignment) {
+        const itemNums = currentVacancies
+          .filter(v => v.assignment === assignment)
           .map(v => v.itemNumber);
-        const candidatesRes = await Promise.all(
-          vacancyItemNumbers.map(itemNumber => 
-            candidatesAPI.getByItemNumber(itemNumber, includeArchived)
-          )
-        );
-        filteredCandidates = candidatesRes.flat();
+        filteredCandidates = (await Promise.all(
+          itemNums.map(n => candidatesAPI.getByItemNumber(n, includeArchived))
+        )).flat();
       } else {
-        const vacancyItemNumbers = currentVacancies.map(v => v.itemNumber);
-        const candidatesRes = await Promise.all(
-          vacancyItemNumbers.map(itemNumber => 
-            candidatesAPI.getByItemNumber(itemNumber, includeArchived)
-          )
-        );
-        filteredCandidates = candidatesRes.flat();
+        const itemNums = currentVacancies.map(v => v.itemNumber);
+        filteredCandidates = (await Promise.all(
+          itemNums.map(n => candidatesAPI.getByItemNumber(n, includeArchived))
+        )).flat();
       }
-      
-      // CRITICAL: Deduplicate candidates by _id
-      const uniqueCandidates = Array.from(
-        new Map(filteredCandidates.map(c => [c._id, c])).values()
-      );
-      
-      uniqueCandidates.sort((a, b) => a.fullName.localeCompare(b.fullName));
-      setCandidates(uniqueCandidates);
-    } catch (error) {
-      console.error('Failed to load candidates:', error);
+
+      const unique = Array.from(new Map(filteredCandidates.map(c => [c._id, c])).values());
+      unique.sort((a, b) => a.fullName.localeCompare(b.fullName));
+      setCandidates(unique);
+    } catch (err) {
+      console.error('Failed to load candidates:', err);
       setError('Failed to load candidates.');
       showToast('Failed to load candidates', 'error');
       setCandidates([]);
@@ -500,12 +406,71 @@ const SecretariatView = ({ user }) => {
       setCandidatesLoading(false);
       loadingCandidates.current = false;
     }
-  // NOTE: `vacancies` intentionally omitted — accessed via vacanciesRef above.
-  }, [selectedAssignment, selectedPosition, selectedItemNumber, selectedPublicationRange, showToast]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Keep the ref in sync so the vacancies useEffect always calls the latest version
-  // without needing to list it as a dependency.
-  useEffect(() => { loadCandidatesByFiltersRef.current = loadCandidatesByFilters; }, [loadCandidatesByFilters]);
+  // ─── loadAllActiveVacancies ──────────────────────────────────────────────
+  const loadAllActiveVacancies = useCallback(async () => {
+    try {
+      setLoading(true);
+      const vacanciesRes     = await vacanciesAPI.getAll();
+      const activeVacancies  = vacanciesRes.filter(v => !v.isArchived);
+      const filtered         = filterVacanciesByAssignment(activeVacancies, user);
+      setVacancies(filtered);
+    } catch (err) {
+      console.error('Failed to load vacancies:', err);
+      setError('Failed to load vacancies. Please refresh the page.');
+      showToast('Failed to load vacancies', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [filterVacanciesByAssignment, user, showToast]);
+
+  // ─── loadPublicationRanges ───────────────────────────────────────────────
+  // showArchivedRanges is the ONLY dep that should re-trigger this.
+  const loadPublicationRanges = useCallback(async () => {
+    try {
+      setLoading(true);
+      const ranges = await publicationRangesAPI.getAll(showArchivedRanges);
+      setPublicationRanges(ranges);
+
+      const currentRange = selectedPublicationRangeRef.current;
+      if (currentRange && !ranges.find(r => r._id === currentRange)) {
+        setSelectedPublicationRange('');
+        showToast('Selected publication range is no longer available', 'info');
+      }
+    } catch (err) {
+      console.error('Failed to load publication ranges:', err);
+      setError('Failed to load publication ranges. Please refresh the page.');
+      showToast('Failed to load publication ranges', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [showArchivedRanges, setSelectedPublicationRange, showToast]);
+
+  // ─── loadDataForPublicationRange ─────────────────────────────────────────
+  // selectedPublicationRange is a value dep here (intentionally) because this
+  // function is only ever called from the pub-range-change useEffect below,
+  // which already guards against the initial mount.
+  const loadDataForPublicationRange = useCallback(async () => {
+    if (!selectedPublicationRangeRef.current) {
+      await loadAllActiveVacancies();
+      return;
+    }
+    try {
+      setLoading(true);
+      const selectedRange   = publicationRangesRef.current.find(r => r._id === selectedPublicationRangeRef.current);
+      const includeArchived = selectedRange?.isArchived || false;
+      const vacanciesRes    = await vacanciesAPI.getByPublicationRange(selectedPublicationRangeRef.current, includeArchived);
+      const filtered        = filterVacanciesByAssignment(vacanciesRes, user);
+      setVacancies(filtered);
+    } catch (err) {
+      console.error('Failed to load data for publication range:', err);
+      showToast('Failed to load publication range data', 'error');
+      setError('Failed to load publication range data.');
+    } finally {
+      setLoading(false);
+    }
+  }, [loadAllActiveVacancies, filterVacanciesByAssignment, user, showToast]);
 
   // Event Handlers with useCallback
   const handleCommentChange = useCallback((field, value) => {
@@ -718,41 +683,61 @@ const SecretariatView = ({ user }) => {
     }
   }, [filterVacanciesByAssignment, user, showToast]);
 
-  // STEP 6: Update useEffect Hooks
-  // Load publication ranges when archive toggle changes
+  // STEP 6: useEffect Hooks
+  // ─── Initial load + showArchivedRanges toggle ────────────────────────────
+  // On mount: load pub ranges then immediately load all active vacancies.
+  // This fixes the blank-on-first-load bug where vacancies never loaded
+  // because the pub-range change effect was skipped on initial mount.
   useEffect(() => {
-    loadPublicationRanges();
-  }, [loadPublicationRanges]);
+    const init = async () => {
+      await loadPublicationRanges();
+      // Only load all-active vacancies on mount if no range is pre-selected.
+      // If a range IS pre-selected (persisted), loadDataForPublicationRange
+      // handles it via the selectedPublicationRange change effect below.
+      if (!selectedPublicationRangeRef.current) {
+        await loadAllActiveVacancies();
+      } else {
+        await loadDataForPublicationRange();
+      }
+    };
+    init();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showArchivedRanges]); // re-run only when archive toggle changes
 
-  // Load data when publication range changes
+  // ─── Publication range selection change ──────────────────────────────────
+  // Skip the very first render (handled by init above).
   useEffect(() => {
-    // Skip on initial mount
     if (isInitialMount.current) {
       isInitialMount.current = false;
       return;
     }
-
     loadDataForPublicationRange();
+  // loadDataForPublicationRange is stable (zero state deps)
   }, [selectedPublicationRange, loadDataForPublicationRange]);
 
-  // Handle state restoration and population of dropdowns
+  // ─── Populate dropdowns when vacancies change ───────────────────────────
+  // This effect ONLY manages dropdown options and restores persisted selections.
+  // It does NOT trigger candidate loading — that is handled by loadCandidatesByFilters
+  // which is called directly from the vacancy loaders after setVacancies.
+  // loadCandidatesByFilters is stable (zero deps) so safe to list here.
   useEffect(() => {
     if (vacancies.length > 0) {
-      const uniqueAssignments = [...new Set(vacancies.map(v => v.assignment))].filter(a => a).sort();
+      const uniqueAssignments = [...new Set(vacancies.map(v => v.assignment))].filter(Boolean).sort();
       setAssignments(uniqueAssignments);
 
       if (selectedAssignment && uniqueAssignments.includes(selectedAssignment)) {
         const filteredVacancies = vacancies.filter(v => v.assignment === selectedAssignment);
-        const uniquePositions = [...new Set(filteredVacancies.map(v => v.position))].filter(p => p).sort();
+        const uniquePositions   = [...new Set(filteredVacancies.map(v => v.position))].filter(Boolean).sort();
         setPositions(uniquePositions);
 
         if (selectedPosition && uniquePositions.includes(selectedPosition)) {
           const positionVacancies = filteredVacancies.filter(v => v.position === selectedPosition);
-          const uniqueItemNumbers = [...new Set(positionVacancies.map(v => v.itemNumber))].filter(i => i).sort();
+          const uniqueItemNumbers = [...new Set(positionVacancies.map(v => v.itemNumber))].filter(Boolean).sort();
           setItemNumbers(uniqueItemNumbers);
 
           if (selectedItemNumber && uniqueItemNumbers.includes(selectedItemNumber)) {
-            loadCandidatesByFiltersRef.current?.();
+            // Restore persisted item-number selection — load its candidates
+            loadCandidatesByFilters();
           } else {
             setSelectedItemNumber('');
             setSelectedCandidate('');
@@ -791,9 +776,10 @@ const SecretariatView = ({ user }) => {
       setCandidateDetails(null);
       setVacancyDetails(null);
     }
-  }, [vacancies, selectedAssignment, selectedPosition, selectedItemNumber, setSelectedAssignment, setSelectedPosition, setSelectedItemNumber, setSelectedCandidate]);
-  // NOTE: loadCandidatesByFilters intentionally omitted — called via ref above
-  // so this effect does not re-run when only the callback reference changes.
+  // loadCandidatesByFilters is stable ([] deps) — safe to include without causing loops
+  }, [vacancies, selectedAssignment, selectedPosition, selectedItemNumber,
+      loadCandidatesByFilters, setSelectedAssignment, setSelectedPosition,
+      setSelectedItemNumber, setSelectedCandidate]);
 
   // Validate selected candidate still exists after filter/vacancy changes
   // NOTE: Do NOT call loadCandidateDetails here — it causes a reload loop every time
