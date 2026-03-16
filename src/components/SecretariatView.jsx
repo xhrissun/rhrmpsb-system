@@ -936,7 +936,7 @@ const SecretariatView = ({ user }) => {
       <div ref={sentinelRef} aria-hidden="true" style={{ height: 0, overflow: 'hidden' }} />
 
       {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-4 pt-2 pb-6">
+      <div className="max-w-7xl mx-auto px-4 pb-6">
         {error && (
           <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-6">
             {error}
@@ -947,7 +947,7 @@ const SecretariatView = ({ user }) => {
      Replaces the 4 previous stacked sticky sections.
      Single sticky container: expanded = full controls,
      collapsed = slim summary bar (auto-collapses on scroll down). */}
-      <div className="sticky top-36 z-40 pt-1 pb-1">
+      <div className="sticky top-[104px] z-40 pb-1">
 
         {/* EXPANDED PANEL */}
         {isFiltersExpanded && (
