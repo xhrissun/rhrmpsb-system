@@ -121,6 +121,7 @@ const SecretariatView = ({ user }) => {
   });
 
   const [statusFilter, setStatusFilter] = useState(null);
+  const [showAssignmentSummary, setShowAssignmentSummary] = useState(false);
 
   // STEP 1: Add Required Refs
   const isInitialMount = useRef(true);
@@ -379,6 +380,11 @@ const SecretariatView = ({ user }) => {
   }, [selectedPublicationRange, publicationRanges, loadAllActiveVacancies, filterVacanciesByAssignment, user, showToast]);
 
   // STEP 5: Update loadCandidatesByFilters
+  // Keep a ref to vacancies so loadCandidatesByFilters does not recreate (and defeat
+  // the previousFilters guard) every time the vacancies state reference changes.
+  const vacanciesRef = useRef(vacancies);
+  useEffect(() => { vacanciesRef.current = vacancies; }, [vacancies]);
+
   const loadCandidatesByFilters = useCallback(async () => {
     // Prevent concurrent loading
     if (loadingCandidates.current) {
@@ -403,40 +409,41 @@ const SecretariatView = ({ user }) => {
     try {
       setLoading(true);
       let filteredCandidates = [];
-      
+
+      // Access vacancies via ref to avoid recreating this callback on every vacancies change
+      const currentVacancies = vacanciesRef.current;
+
       // Determine if we're viewing archived data
       const selectedRange = publicationRanges.find(r => r._id === selectedPublicationRange);
       const includeArchived = selectedRange?.isArchived || false;
       
       if (selectedItemNumber) {
-        // ✅ CHANGE THIS LINE:
         filteredCandidates = await candidatesAPI.getByItemNumber(selectedItemNumber, includeArchived);
-        // REMOVED: Manual filtering since backend now handles it
       } else if (selectedPosition) {
-        const vacancyItemNumbers = vacancies
+        const vacancyItemNumbers = currentVacancies
           .filter(v => v.assignment === selectedAssignment && v.position === selectedPosition)
           .map(v => v.itemNumber);
         const candidatesRes = await Promise.all(
           vacancyItemNumbers.map(itemNumber => 
-            candidatesAPI.getByItemNumber(itemNumber, includeArchived) // ✅ ADD includeArchived
+            candidatesAPI.getByItemNumber(itemNumber, includeArchived)
           )
         );
         filteredCandidates = candidatesRes.flat();
       } else if (selectedAssignment) {
-        const vacancyItemNumbers = vacancies
+        const vacancyItemNumbers = currentVacancies
           .filter(v => v.assignment === selectedAssignment)
           .map(v => v.itemNumber);
         const candidatesRes = await Promise.all(
           vacancyItemNumbers.map(itemNumber => 
-            candidatesAPI.getByItemNumber(itemNumber, includeArchived) // ✅ ADD includeArchived
+            candidatesAPI.getByItemNumber(itemNumber, includeArchived)
           )
         );
         filteredCandidates = candidatesRes.flat();
       } else {
-        const vacancyItemNumbers = vacancies.map(v => v.itemNumber);
+        const vacancyItemNumbers = currentVacancies.map(v => v.itemNumber);
         const candidatesRes = await Promise.all(
           vacancyItemNumbers.map(itemNumber => 
-            candidatesAPI.getByItemNumber(itemNumber, includeArchived) // ✅ ADD includeArchived
+            candidatesAPI.getByItemNumber(itemNumber, includeArchived)
           )
         );
         filteredCandidates = candidatesRes.flat();
@@ -458,7 +465,8 @@ const SecretariatView = ({ user }) => {
       setLoading(false);
       loadingCandidates.current = false;
     }
-  }, [selectedAssignment, selectedPosition, selectedItemNumber, selectedPublicationRange, publicationRanges, vacancies, showToast]);
+  // NOTE: `vacancies` intentionally omitted — accessed via vacanciesRef above.
+  }, [selectedAssignment, selectedPosition, selectedItemNumber, selectedPublicationRange, publicationRanges, showToast]);
 
   // Event Handlers with useCallback
   const handleCommentChange = useCallback((field, value) => {
@@ -591,6 +599,33 @@ const SecretariatView = ({ user }) => {
     }
   }, [showToast]);
 
+  const getAssignmentSummaryData = useCallback(() => {
+    const summaryMap = {};
+    vacancies.forEach(v => {
+      if (!summaryMap[v.assignment]) {
+        summaryMap[v.assignment] = { assignment: v.assignment, positions: {}, totalVacancies: 0 };
+      }
+      if (!summaryMap[v.assignment].positions[v.position]) {
+        summaryMap[v.assignment].positions[v.position] = { position: v.position, itemNumbers: [] };
+      }
+      summaryMap[v.assignment].positions[v.position].itemNumbers.push(v.itemNumber);
+      summaryMap[v.assignment].totalVacancies++;
+    });
+    return Object.values(summaryMap).map(group => {
+      const itemNums = vacancies.filter(v => v.assignment === group.assignment).map(v => v.itemNumber);
+      const groupCandidates = candidates.filter(c => itemNums.includes(c.itemNumber));
+      return {
+        ...group,
+        totalCandidates: groupCandidates.length,
+        generalList: groupCandidates.filter(c => c.status === CANDIDATE_STATUS.GENERAL_LIST).length,
+        longListed: groupCandidates.filter(c => c.status === CANDIDATE_STATUS.LONG_LIST).length,
+        forReview: groupCandidates.filter(c => c.status === CANDIDATE_STATUS.FOR_REVIEW).length,
+        disqualified: groupCandidates.filter(c => c.status === CANDIDATE_STATUS.DISQUALIFIED).length,
+        positions: Object.values(group.positions),
+      };
+    }).sort((a, b) => a.assignment.localeCompare(b.assignment));
+  }, [vacancies, candidates]);
+
   // STEP 6: Update useEffect Hooks
   // Load publication ranges when archive toggle changes
   useEffect(() => {
@@ -610,7 +645,7 @@ const SecretariatView = ({ user }) => {
 
   // Handle state restoration and population of dropdowns
   useEffect(() => {
-    if (!loading && vacancies.length > 0) {
+    if (vacancies.length > 0) {
       const uniqueAssignments = [...new Set(vacancies.map(v => v.assignment))].filter(a => a).sort();
       setAssignments(uniqueAssignments);
 
@@ -652,7 +687,7 @@ const SecretariatView = ({ user }) => {
         setCandidateDetails(null);
         setVacancyDetails(null);
       }
-    } else if (!loading && vacancies.length === 0) {
+    } else if (vacancies.length === 0) {
       setAssignments([]);
       setPositions([]);
       setItemNumbers([]);
@@ -664,9 +699,12 @@ const SecretariatView = ({ user }) => {
       setCandidateDetails(null);
       setVacancyDetails(null);
     }
-  }, [vacancies, loading, selectedAssignment, selectedPosition, selectedItemNumber, loadCandidatesByFilters, setSelectedAssignment, setSelectedPosition, setSelectedItemNumber, setSelectedCandidate]);
+  }, [vacancies, selectedAssignment, selectedPosition, selectedItemNumber, loadCandidatesByFilters, setSelectedAssignment, setSelectedPosition, setSelectedItemNumber, setSelectedCandidate]);
 
-  // Validate and load candidate details
+  // Validate selected candidate still exists after filter/vacancy changes
+  // NOTE: Do NOT call loadCandidateDetails here — it causes a reload loop every time
+  // setCandidates is called (e.g. after handleStatusUpdate). Details are loaded
+  // directly in the Update button onClick and in loadCandidatesByFilters.
   useEffect(() => {
     if (candidates.length > 0 && selectedCandidate) {
       if (!candidates.find(c => c._id === selectedCandidate)) {
@@ -678,11 +716,9 @@ const SecretariatView = ({ user }) => {
           experience: '',
           eligibility: ''
         });
-      } else {
-        loadCandidateDetails(selectedCandidate);
       }
     }
-  }, [candidates, selectedCandidate, loadCandidateDetails, setSelectedCandidate]);
+  }, [candidates, selectedCandidate, setSelectedCandidate]);
 
   // STEP 7: Add Modal Focus Management
   useEffect(() => {
@@ -784,6 +820,19 @@ const SecretariatView = ({ user }) => {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                           </svg>
                           <span>Generate Report</span>
+                        </div>
+                      </button>
+
+                      <button
+                        onClick={() => setShowAssignmentSummary(true)}
+                        aria-label="View assignment summary"
+                        className="bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 text-white font-bold py-2.5 px-6 rounded-lg text-sm transition-all duration-200 shadow-lg hover:shadow-xl"
+                      >
+                        <div className="flex items-center space-x-2">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                          </svg>
+                          <span>Assignment Summary</span>
                         </div>
                       </button>
                     </>
@@ -1892,6 +1941,164 @@ const SecretariatView = ({ user }) => {
           </div>
         </div>
       )}
+
+      {/* Assignment Summary Modal */}
+      {showAssignmentSummary && (() => {
+        const summaryData = getAssignmentSummaryData();
+        const grandTotal = summaryData.reduce((acc, g) => ({
+          vacancies: acc.vacancies + g.totalVacancies,
+          candidates: acc.candidates + g.totalCandidates,
+          generalList: acc.generalList + g.generalList,
+          longListed: acc.longListed + g.longListed,
+          forReview: acc.forReview + g.forReview,
+          disqualified: acc.disqualified + g.disqualified,
+        }), { vacancies: 0, candidates: 0, generalList: 0, longListed: 0, forReview: 0, disqualified: 0 });
+
+        return (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col">
+              {/* Header */}
+              <div className="bg-gradient-to-r from-teal-600 to-cyan-600 px-6 py-4 rounded-t-2xl flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className="w-9 h-9 bg-white bg-opacity-20 rounded-lg flex items-center justify-center">
+                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-white">Assignment Summary</h2>
+                    <p className="text-xs text-teal-100">
+                      {user.assignedVacancies === 'assignment'
+                        ? `Assigned to: ${user.assignedAssignment}`
+                        : user.assignedVacancies === 'specific'
+                        ? 'Specific item numbers assigned'
+                        : 'All assignments'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowAssignmentSummary(false)}
+                  aria-label="Close assignment summary"
+                  className="text-white hover:bg-white hover:bg-opacity-20 rounded-lg p-1.5 transition-colors"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Grand Total Banner */}
+              <div className="bg-gray-50 border-b border-gray-200 px-6 py-3 grid grid-cols-6 gap-3">
+                {[
+                  { label: 'Total Vacancies', value: grandTotal.vacancies, color: 'text-gray-800' },
+                  { label: 'Total Applicants', value: grandTotal.candidates, color: 'text-blue-700' },
+                  { label: 'General List', value: grandTotal.generalList, color: 'text-gray-600' },
+                  { label: 'Long Listed', value: grandTotal.longListed, color: 'text-green-700' },
+                  { label: 'For Review', value: grandTotal.forReview, color: 'text-yellow-700' },
+                  { label: 'Disqualified', value: grandTotal.disqualified, color: 'text-red-700' },
+                ].map(stat => (
+                  <div key={stat.label} className="text-center">
+                    <div className={`text-2xl font-extrabold ${stat.color}`}>{stat.value}</div>
+                    <div className="text-xs text-gray-500 font-medium">{stat.label}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Scrollable Body */}
+              <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
+                {summaryData.length === 0 ? (
+                  <div className="text-center text-gray-500 py-12">No assignment data available.</div>
+                ) : (
+                  summaryData.map(group => (
+                    <div key={group.assignment} className="border border-gray-200 rounded-xl overflow-hidden">
+                      {/* Assignment header row */}
+                      <div className="bg-gradient-to-r from-teal-50 to-cyan-50 px-4 py-3 flex flex-wrap items-center justify-between gap-2 border-b border-gray-200">
+                        <h3 className="font-bold text-teal-800 text-sm uppercase tracking-wide">
+                          {group.assignment}
+                        </h3>
+                        <div className="flex items-center gap-3 flex-wrap text-xs font-semibold">
+                          <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded-md">
+                            {group.totalVacancies} {group.totalVacancies === 1 ? 'Vacancy' : 'Vacancies'}
+                          </span>
+                          <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded-md">
+                            {group.totalCandidates} Applicants
+                          </span>
+                          {group.longListed > 0 && (
+                            <span className="bg-green-100 text-green-700 px-2 py-1 rounded-md">
+                              {group.longListed} Long Listed
+                            </span>
+                          )}
+                          {group.forReview > 0 && (
+                            <span className="bg-yellow-100 text-yellow-700 px-2 py-1 rounded-md">
+                              {group.forReview} For Review
+                            </span>
+                          )}
+                          {group.disqualified > 0 && (
+                            <span className="bg-red-100 text-red-700 px-2 py-1 rounded-md">
+                              {group.disqualified} Disqualified
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Positions breakdown table */}
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="bg-gray-50 text-gray-500 text-xs uppercase">
+                            <th className="text-left px-4 py-2 font-semibold">Position</th>
+                            <th className="text-center px-3 py-2 font-semibold">Item No(s)</th>
+                            <th className="text-center px-3 py-2 font-semibold">Applicants</th>
+                            <th className="text-center px-3 py-2 font-semibold">General</th>
+                            <th className="text-center px-3 py-2 font-semibold">Long Listed</th>
+                            <th className="text-center px-3 py-2 font-semibold">For Review</th>
+                            <th className="text-center px-3 py-2 font-semibold">Disqualified</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {group.positions.map(pos => {
+                            const posCandidates = candidates.filter(c => pos.itemNumbers.includes(c.itemNumber));
+                            return (
+                              <tr key={pos.position} className="hover:bg-gray-50 transition-colors">
+                                <td className="px-4 py-2.5 font-medium text-gray-800">{pos.position}</td>
+                                <td className="px-3 py-2.5 text-center text-gray-500 text-xs">
+                                  {pos.itemNumbers.join(', ')}
+                                </td>
+                                <td className="px-3 py-2.5 text-center font-bold text-blue-700">{posCandidates.length}</td>
+                                <td className="px-3 py-2.5 text-center text-gray-600">
+                                  {posCandidates.filter(c => c.status === CANDIDATE_STATUS.GENERAL_LIST).length}
+                                </td>
+                                <td className="px-3 py-2.5 text-center text-green-700 font-semibold">
+                                  {posCandidates.filter(c => c.status === CANDIDATE_STATUS.LONG_LIST).length}
+                                </td>
+                                <td className="px-3 py-2.5 text-center text-yellow-700 font-semibold">
+                                  {posCandidates.filter(c => c.status === CANDIDATE_STATUS.FOR_REVIEW).length}
+                                </td>
+                                <td className="px-3 py-2.5 text-center text-red-700 font-semibold">
+                                  {posCandidates.filter(c => c.status === CANDIDATE_STATUS.DISQUALIFIED).length}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="px-6 py-3 border-t border-gray-200 flex justify-end">
+                <button
+                  onClick={() => setShowAssignmentSummary(false)}
+                  className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold px-5 py-2 rounded-lg text-sm transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {showReportModal && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50" role="dialog" aria-modal="true" aria-labelledby="report-modal-title">
