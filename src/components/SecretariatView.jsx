@@ -121,8 +121,10 @@ const SecretariatView = ({ user }) => {
     experience: '',
     eligibility: '',
   });
-  const [loading, setLoading] = useState(true);        // page-level (vacancies / pub ranges)
-  const [candidatesLoading, setCandidatesLoading] = useState(false); // table-level only
+  const [loading, _setLoading] = useState(true);        // page-level (vacancies / pub ranges)
+  const [candidatesLoading, _setCandidatesLoading] = useState(false); // table-level only
+  const setLoading = (v) => { console.trace('[setLoading] ' + v); _setLoading(v); };
+  const setCandidatesLoading = (v) => { console.trace('[setCandidatesLoading] ' + v); _setCandidatesLoading(v); };
   const [error, setError] = useState('');
 
   const [commentSuggestions, setCommentSuggestions] = useState({
