@@ -323,26 +323,8 @@ router.get('/users/:userId/assigned-vacancies', authMiddleware, async (req, res)
   }
 });
 
-router.put('/users/:id/change-password', authMiddleware, async (req, res) => {
-  if (req.user.userType !== 'admin') return res.status(403).json({ message: 'Access denied' });
-  try {
-    const { newPassword } = req.body;
-    if (!newPassword || newPassword.length < 8) {
-      return res.status(400).json({ message: 'Password must be at least 8 characters long' });
-    }
-    const user = await User.findById(req.params.id);
-    if (!user) return res.status(404).json({ message: 'User not found' });
-    const hashedPassword = await bcrypt.hash(newPassword, 12);
-    await User.findByIdAndUpdate(req.params.id, { password: hashedPassword });
-    res.json({ message: `Password updated successfully for ${user.name}`, userName: user.name });
-  } catch (error) {
-    console.error('[PUT /users/:id/change-password]', error);
-    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
-  }
-});
-
-// Self-service password change — secretariat (or any user) changes their OWN password.
-// Requires current password verification. No admin privilege needed.
+// Self-service password change — must be BEFORE /:id/change-password so Express
+// does not match the literal string "me" as a :id parameter.
 router.put('/users/me/change-password', authMiddleware, async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
@@ -362,6 +344,25 @@ router.put('/users/me/change-password', authMiddleware, async (req, res) => {
     res.json({ message: 'Password changed successfully' });
   } catch (error) {
     console.error('[PUT /users/me/change-password]', error);
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
+  }
+});
+
+// Admin-only: change any user's password by ID
+router.put('/users/:id/change-password', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin') return res.status(403).json({ message: 'Access denied' });
+  try {
+    const { newPassword } = req.body;
+    if (!newPassword || newPassword.length < 8) {
+      return res.status(400).json({ message: 'Password must be at least 8 characters long' });
+    }
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+    await User.findByIdAndUpdate(req.params.id, { password: hashedPassword });
+    res.json({ message: `Password updated successfully for ${user.name}`, userName: user.name });
+  } catch (error) {
+    console.error('[PUT /users/:id/change-password]', error);
     res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
