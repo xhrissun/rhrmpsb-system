@@ -89,11 +89,22 @@ const SecretariatView = ({ user }) => {
   );
   const [showArchivedRanges, setShowArchivedRanges] = useState(false);
 
-  // Use usePersistedState for dropdown selections
-  const [selectedAssignment, setSelectedAssignment] = usePersistedState(`secretariat_${user._id}_selectedAssignment`, '');
-  const [selectedPosition, setSelectedPosition] = usePersistedState(`secretariat_${user._id}_selectedPosition`, '');
-  const [selectedItemNumber, setSelectedItemNumber] = usePersistedState(`secretariat_${user._id}_selectedItemNumber`, '');
-  const [selectedCandidate, setSelectedCandidate] = usePersistedState(`secretariat_${user._id}_selectedCandidate`, '');
+  // Use usePersistedState for dropdown selections.
+  // Wrap each setter in useCallback so the reference is stable across renders.
+  // Without this, usePersistedState's plain setState changes reference on every
+  // render, causing the vacancies useEffect to re-fire after every setCandidates call.
+  const [selectedAssignment, _setSelectedAssignment] = usePersistedState(`secretariat_${user._id}_selectedAssignment`, '');
+  const [selectedPosition, _setSelectedPosition] = usePersistedState(`secretariat_${user._id}_selectedPosition`, '');
+  const [selectedItemNumber, _setSelectedItemNumber] = usePersistedState(`secretariat_${user._id}_selectedItemNumber`, '');
+  const [selectedCandidate, _setSelectedCandidate] = usePersistedState(`secretariat_${user._id}_selectedCandidate`, '');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const setSelectedAssignment = useCallback((v) => _setSelectedAssignment(v), []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const setSelectedPosition = useCallback((v) => _setSelectedPosition(v), []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const setSelectedItemNumber = useCallback((v) => _setSelectedItemNumber(v), []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const setSelectedCandidate = useCallback((v) => _setSelectedCandidate(v), []);
 
   const [candidateDetails, setCandidateDetails] = useState(null);
   const [vacancyDetails, setVacancyDetails] = useState(null);
@@ -122,6 +133,8 @@ const SecretariatView = ({ user }) => {
 
   const [statusFilter, setStatusFilter] = useState(null);
   const [showAssignmentSummary, setShowAssignmentSummary] = useState(false);
+  const [summaryData, setSummaryData] = useState([]);
+  const [summaryLoading, setSummaryLoading] = useState(false);
 
   // STEP 1: Add Required Refs
   const isInitialMount = useRef(true);
@@ -599,32 +612,85 @@ const SecretariatView = ({ user }) => {
     }
   }, [showToast]);
 
-  const getAssignmentSummaryData = useCallback(() => {
-    const summaryMap = {};
-    vacancies.forEach(v => {
-      if (!summaryMap[v.assignment]) {
-        summaryMap[v.assignment] = { assignment: v.assignment, positions: {}, totalVacancies: 0 };
+  const loadAssignmentSummaryData = useCallback(async () => {
+    setSummaryLoading(true);
+    try {
+      // 1. Get all active (non-archived) publication ranges
+      const activeRanges = await publicationRangesAPI.getActive();
+
+      // 2. For each active range, load vacancies and filter by this user's assignment scope
+      let allVacancies = [];
+      for (const range of activeRanges) {
+        const rangeVacancies = await vacanciesAPI.getByPublicationRange(range._id, false);
+        const filtered = filterVacanciesByAssignment(rangeVacancies, user);
+        allVacancies = allVacancies.concat(filtered);
       }
-      if (!summaryMap[v.assignment].positions[v.position]) {
-        summaryMap[v.assignment].positions[v.position] = { position: v.position, itemNumbers: [] };
+
+      // Deduplicate vacancies by _id
+      allVacancies = Array.from(new Map(allVacancies.map(v => [v._id, v])).values());
+
+      if (allVacancies.length === 0) {
+        setSummaryData([]);
+        return;
       }
-      summaryMap[v.assignment].positions[v.position].itemNumbers.push(v.itemNumber);
-      summaryMap[v.assignment].totalVacancies++;
-    });
-    return Object.values(summaryMap).map(group => {
-      const itemNums = vacancies.filter(v => v.assignment === group.assignment).map(v => v.itemNumber);
-      const groupCandidates = candidates.filter(c => itemNums.includes(c.itemNumber));
-      return {
-        ...group,
-        totalCandidates: groupCandidates.length,
-        generalList: groupCandidates.filter(c => c.status === CANDIDATE_STATUS.GENERAL_LIST).length,
-        longListed: groupCandidates.filter(c => c.status === CANDIDATE_STATUS.LONG_LIST).length,
-        forReview: groupCandidates.filter(c => c.status === CANDIDATE_STATUS.FOR_REVIEW).length,
-        disqualified: groupCandidates.filter(c => c.status === CANDIDATE_STATUS.DISQUALIFIED).length,
-        positions: Object.values(group.positions),
-      };
-    }).sort((a, b) => a.assignment.localeCompare(b.assignment));
-  }, [vacancies, candidates]);
+
+      // 3. Load candidates for all vacancies
+      const allItemNumbers = allVacancies.map(v => v.itemNumber);
+      const candidatesRes = await Promise.all(
+        allItemNumbers.map(itemNumber => candidatesAPI.getByItemNumber(itemNumber, false))
+      );
+      const allCandidates = Array.from(
+        new Map(candidatesRes.flat().map(c => [c._id, c])).values()
+      );
+
+      // 4. Build summary grouped by assignment
+      const summaryMap = {};
+      allVacancies.forEach(v => {
+        if (!summaryMap[v.assignment]) {
+          summaryMap[v.assignment] = { assignment: v.assignment, positions: {}, totalVacancies: 0 };
+        }
+        if (!summaryMap[v.assignment].positions[v.position]) {
+          summaryMap[v.assignment].positions[v.position] = { position: v.position, itemNumbers: [] };
+        }
+        summaryMap[v.assignment].positions[v.position].itemNumbers.push(v.itemNumber);
+        summaryMap[v.assignment].totalVacancies++;
+      });
+
+      const result = Object.values(summaryMap).map(group => {
+        const itemNums = allVacancies
+          .filter(v => v.assignment === group.assignment)
+          .map(v => v.itemNumber);
+        const groupCandidates = allCandidates.filter(c => itemNums.includes(c.itemNumber));
+        return {
+          ...group,
+          totalCandidates: groupCandidates.length,
+          generalList: groupCandidates.filter(c => c.status === CANDIDATE_STATUS.GENERAL_LIST).length,
+          longListed: groupCandidates.filter(c => c.status === CANDIDATE_STATUS.LONG_LIST).length,
+          forReview: groupCandidates.filter(c => c.status === CANDIDATE_STATUS.FOR_REVIEW).length,
+          disqualified: groupCandidates.filter(c => c.status === CANDIDATE_STATUS.DISQUALIFIED).length,
+          positions: Object.values(group.positions).map(pos => {
+            const posCandidates = allCandidates.filter(c => pos.itemNumbers.includes(c.itemNumber));
+            return {
+              ...pos,
+              totalCandidates: posCandidates.length,
+              generalList: posCandidates.filter(c => c.status === CANDIDATE_STATUS.GENERAL_LIST).length,
+              longListed: posCandidates.filter(c => c.status === CANDIDATE_STATUS.LONG_LIST).length,
+              forReview: posCandidates.filter(c => c.status === CANDIDATE_STATUS.FOR_REVIEW).length,
+              disqualified: posCandidates.filter(c => c.status === CANDIDATE_STATUS.DISQUALIFIED).length,
+            };
+          }),
+        };
+      }).sort((a, b) => a.assignment.localeCompare(b.assignment));
+
+      setSummaryData(result);
+    } catch (error) {
+      console.error('Failed to load assignment summary:', error);
+      showToast('Failed to load assignment summary', 'error');
+      setSummaryData([]);
+    } finally {
+      setSummaryLoading(false);
+    }
+  }, [filterVacanciesByAssignment, user, showToast]);
 
   // STEP 6: Update useEffect Hooks
   // Load publication ranges when archive toggle changes
@@ -735,28 +801,38 @@ const SecretariatView = ({ user }) => {
   }, [showCommentModal, showViewCommentsModal, showReportModal, 
       showVacancyModal, showCompetenciesModal, showCommentHistoryModal]);
 
-  // Auto-collapse filter panel on scroll down, re-expand near top
+  // Auto-collapse filter panel on scroll down, re-expand near top.
+  // We use a ref to track the current expanded state inside the scroll handler
+  // so that layout shifts caused by collapsing/expanding the panel do not
+  // feed back into the scroll position check and cause a stutter loop.
+  const isFiltersExpandedRef = useRef(isFiltersExpanded);
+  useEffect(() => { isFiltersExpandedRef.current = isFiltersExpanded; }, [isFiltersExpanded]);
+
   useEffect(() => {
     let lastScrollY = window.scrollY;
     let ticking = false;
-    
+
     const handleScroll = () => {
-      if (!ticking) {
-        window.requestAnimationFrame(() => {
-          const currentScrollY = window.scrollY;
-          if (currentScrollY > 160 && currentScrollY > lastScrollY) {
-            setIsFiltersExpanded(false);
-          }
-          if (currentScrollY < 80) {
-            setIsFiltersExpanded(true);
-          }
-          lastScrollY = currentScrollY;
-          ticking = false;
-        });
-        ticking = true;
-      }
+      if (ticking) return;
+      ticking = true;
+      window.requestAnimationFrame(() => {
+        const currentScrollY = window.scrollY;
+        const scrollingDown = currentScrollY > lastScrollY;
+        lastScrollY = currentScrollY;
+        ticking = false;
+
+        // Collapse only when genuinely scrolling down past threshold
+        // and panel is currently expanded — avoids re-triggering on layout shift
+        if (scrollingDown && currentScrollY > 160 && isFiltersExpandedRef.current) {
+          setIsFiltersExpanded(false);
+        }
+        // Re-expand only when near the very top
+        if (currentScrollY < 80 && !isFiltersExpandedRef.current) {
+          setIsFiltersExpanded(true);
+        }
+      });
     };
-    
+
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
@@ -824,7 +900,7 @@ const SecretariatView = ({ user }) => {
                       </button>
 
                       <button
-                        onClick={() => setShowAssignmentSummary(true)}
+                        onClick={() => { setShowAssignmentSummary(true); loadAssignmentSummaryData(); }}
                         aria-label="View assignment summary"
                         className="bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 text-white font-bold py-2.5 px-6 rounded-lg text-sm transition-all duration-200 shadow-lg hover:shadow-xl"
                       >
@@ -1944,7 +2020,6 @@ const SecretariatView = ({ user }) => {
 
       {/* Assignment Summary Modal */}
       {showAssignmentSummary && (() => {
-        const summaryData = getAssignmentSummaryData();
         const grandTotal = summaryData.reduce((acc, g) => ({
           vacancies: acc.vacancies + g.totalVacancies,
           candidates: acc.candidates + g.totalCandidates,
@@ -1972,7 +2047,7 @@ const SecretariatView = ({ user }) => {
                         ? `Assigned to: ${user.assignedAssignment}`
                         : user.assignedVacancies === 'specific'
                         ? 'Specific item numbers assigned'
-                        : 'All assignments'}
+                        : 'All active publication ranges'}
                     </p>
                   </div>
                 </div>
@@ -1988,25 +2063,32 @@ const SecretariatView = ({ user }) => {
               </div>
 
               {/* Grand Total Banner */}
-              <div className="bg-gray-50 border-b border-gray-200 px-6 py-3 grid grid-cols-6 gap-3">
-                {[
-                  { label: 'Total Vacancies', value: grandTotal.vacancies, color: 'text-gray-800' },
-                  { label: 'Total Applicants', value: grandTotal.candidates, color: 'text-blue-700' },
-                  { label: 'General List', value: grandTotal.generalList, color: 'text-gray-600' },
-                  { label: 'Long Listed', value: grandTotal.longListed, color: 'text-green-700' },
-                  { label: 'For Review', value: grandTotal.forReview, color: 'text-yellow-700' },
-                  { label: 'Disqualified', value: grandTotal.disqualified, color: 'text-red-700' },
-                ].map(stat => (
-                  <div key={stat.label} className="text-center">
-                    <div className={`text-2xl font-extrabold ${stat.color}`}>{stat.value}</div>
-                    <div className="text-xs text-gray-500 font-medium">{stat.label}</div>
-                  </div>
-                ))}
-              </div>
+              {!summaryLoading && (
+                <div className="bg-gray-50 border-b border-gray-200 px-6 py-3 grid grid-cols-6 gap-3">
+                  {[
+                    { label: 'Total Vacancies', value: grandTotal.vacancies, color: 'text-gray-800' },
+                    { label: 'Total Applicants', value: grandTotal.candidates, color: 'text-blue-700' },
+                    { label: 'General List', value: grandTotal.generalList, color: 'text-gray-600' },
+                    { label: 'Long Listed', value: grandTotal.longListed, color: 'text-green-700' },
+                    { label: 'For Review', value: grandTotal.forReview, color: 'text-yellow-700' },
+                    { label: 'Disqualified', value: grandTotal.disqualified, color: 'text-red-700' },
+                  ].map(stat => (
+                    <div key={stat.label} className="text-center">
+                      <div className={`text-2xl font-extrabold ${stat.color}`}>{stat.value}</div>
+                      <div className="text-xs text-gray-500 font-medium">{stat.label}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {/* Scrollable Body */}
               <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
-                {summaryData.length === 0 ? (
+                {summaryLoading ? (
+                  <div className="flex flex-col items-center justify-center py-16 gap-4">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-600"></div>
+                    <p className="text-sm text-gray-500 font-medium">Loading all assignments across active publications...</p>
+                  </div>
+                ) : summaryData.length === 0 ? (
                   <div className="text-center text-gray-500 py-12">No assignment data available.</div>
                 ) : (
                   summaryData.map(group => (
@@ -2055,30 +2137,19 @@ const SecretariatView = ({ user }) => {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
-                          {group.positions.map(pos => {
-                            const posCandidates = candidates.filter(c => pos.itemNumbers.includes(c.itemNumber));
-                            return (
-                              <tr key={pos.position} className="hover:bg-gray-50 transition-colors">
-                                <td className="px-4 py-2.5 font-medium text-gray-800">{pos.position}</td>
-                                <td className="px-3 py-2.5 text-center text-gray-500 text-xs">
-                                  {pos.itemNumbers.join(', ')}
-                                </td>
-                                <td className="px-3 py-2.5 text-center font-bold text-blue-700">{posCandidates.length}</td>
-                                <td className="px-3 py-2.5 text-center text-gray-600">
-                                  {posCandidates.filter(c => c.status === CANDIDATE_STATUS.GENERAL_LIST).length}
-                                </td>
-                                <td className="px-3 py-2.5 text-center text-green-700 font-semibold">
-                                  {posCandidates.filter(c => c.status === CANDIDATE_STATUS.LONG_LIST).length}
-                                </td>
-                                <td className="px-3 py-2.5 text-center text-yellow-700 font-semibold">
-                                  {posCandidates.filter(c => c.status === CANDIDATE_STATUS.FOR_REVIEW).length}
-                                </td>
-                                <td className="px-3 py-2.5 text-center text-red-700 font-semibold">
-                                  {posCandidates.filter(c => c.status === CANDIDATE_STATUS.DISQUALIFIED).length}
-                                </td>
-                              </tr>
-                            );
-                          })}
+                          {group.positions.map(pos => (
+                            <tr key={pos.position} className="hover:bg-gray-50 transition-colors">
+                              <td className="px-4 py-2.5 font-medium text-gray-800">{pos.position}</td>
+                              <td className="px-3 py-2.5 text-center text-gray-500 text-xs">
+                                {pos.itemNumbers.join(', ')}
+                              </td>
+                              <td className="px-3 py-2.5 text-center font-bold text-blue-700">{pos.totalCandidates}</td>
+                              <td className="px-3 py-2.5 text-center text-gray-600">{pos.generalList}</td>
+                              <td className="px-3 py-2.5 text-center text-green-700 font-semibold">{pos.longListed}</td>
+                              <td className="px-3 py-2.5 text-center text-yellow-700 font-semibold">{pos.forReview}</td>
+                              <td className="px-3 py-2.5 text-center text-red-700 font-semibold">{pos.disqualified}</td>
+                            </tr>
+                          ))}
                         </tbody>
                       </table>
                     </div>
