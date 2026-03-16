@@ -947,7 +947,7 @@ const SecretariatView = ({ user }) => {
      Replaces the 4 previous stacked sticky sections.
      Single sticky container: expanded = full controls,
      collapsed = slim summary bar (auto-collapses on scroll down). */}
-      <div className="sticky top-[104px] z-40 pb-1">
+      <div className="sticky top-[110px] z-40 pb-1">
 
         {/* EXPANDED PANEL */}
         {isFiltersExpanded && (
