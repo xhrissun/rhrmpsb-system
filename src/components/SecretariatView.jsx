@@ -857,7 +857,7 @@ const SecretariatView = ({ user }) => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
       {/* Header - STEP 10: Fixed z-index */}
-      <div className="sticky top-14 z-50 pt-3 pb-3">
+      <div className="sticky top-14 z-40 pt-3 pb-3">
         <div className="max-w-7xl mx-auto px-4">
           <div className="bg-white shadow-md border-b border-gray-200 rounded-xl">
             <div className="px-4 py-4">

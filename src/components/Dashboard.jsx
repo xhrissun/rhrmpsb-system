@@ -1172,9 +1172,10 @@ const GuidesDropdown = () => {
   }, []);
 
   const guides = [
-    { name: 'MSPP', fullName: 'DENR Merit Selection and Promotion Plan', url: 'https://drive.google.com/file/d/1YhjcPs2o37592n9-a14YEHbWcx36yMdY/view?usp=sharing' },
-    { name: 'ORAOHRA', fullName: '2025 Omnibus Rules on Human Resources and Other Human Resource Actions', url: 'https://drive.google.com/file/d/1osaiwsNm5KRBxKYDl7dXcrSITKOi-2JD/view?usp=sharing' },
-    { name: 'SRP', fullName: '2025 System of Ranking Positions', url: 'https://drive.google.com/file/d/1jwSut541U2V6fRrPPvcMO1wFMj9tK-2T/view?usp=sharing' },
+    { name: 'MSPP',    fullName: 'DENR Merit Selection and Promotion Plan',                              url: 'https://drive.google.com/file/d/1YhjcPs2o37592n9-a14YEHbWcx36yMdY/view?usp=sharing' },
+    { name: 'OHRA',    fullName: '2025 Omnibus Rules on Human Resources and Other Human Resource Actions', url: 'https://drive.google.com/file/d/1osaiwsNm5KRBxKYDl7dXcrSITKOi-2JD/view?usp=sharing' },
+    { name: 'SRP',     fullName: '2025 System of Ranking Positions',                                     url: 'https://drive.google.com/file/d/1jwSut541U2V6fRrPPvcMO1wFMj9tK-2T/view?usp=sharing' },
+    { name: 'CBS Manual', fullName: '2025 Competency-Based Standards Manual',                            url: 'https://xhrissun.github.io/rhrmpsb-system/2025_CBS.pdf' },
   ];
 
   return (
@@ -1186,7 +1187,7 @@ const GuidesDropdown = () => {
         </svg>
       </button>
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-xl border border-gray-200 py-2 z-50">
+        <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-xl border border-gray-200 py-2 z-[200]">
           {guides.map((guide, index) => (
             <a key={index} href={guide.url} target="_blank" rel="noopener noreferrer" className="block px-4 py-3 hover:bg-gray-50 transition-colors border-b last:border-b-0 border-gray-100" onClick={() => setIsOpen(false)}>
               <div className="flex items-start gap-3">
