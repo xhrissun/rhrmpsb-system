@@ -121,7 +121,8 @@ const SecretariatView = ({ user }) => {
     experience: '',
     eligibility: '',
   });
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true);        // page-level (vacancies / pub ranges)
+  const [candidatesLoading, setCandidatesLoading] = useState(false); // table-level only
   const [error, setError] = useState('');
 
   const [commentSuggestions, setCommentSuggestions] = useState({
@@ -326,15 +327,21 @@ const SecretariatView = ({ user }) => {
   }, [vacancies, showToast]);
 
   // STEP 4: Replace loadInitialData with three separate functions
+  // selectedPublicationRange accessed via ref so this callback does not
+  // recreate (and re-trigger its useEffect) every time the persisted state changes.
+  const selectedPublicationRangeRef = useRef(selectedPublicationRange);
+  useEffect(() => { selectedPublicationRangeRef.current = selectedPublicationRange; }, [selectedPublicationRange]);
+
   const loadPublicationRanges = useCallback(async () => {
     try {
       setLoading(true);
       const ranges = await publicationRangesAPI.getAll(showArchivedRanges);
       setPublicationRanges(ranges);
-      
-      // CRITICAL: Validate selected range is still available
-      if (selectedPublicationRange) {
-        const stillExists = ranges.find(r => r._id === selectedPublicationRange);
+
+      // Validate selected range is still available
+      const currentRange = selectedPublicationRangeRef.current;
+      if (currentRange) {
+        const stillExists = ranges.find(r => r._id === currentRange);
         if (!stillExists) {
           setSelectedPublicationRange('');
           showToast('Selected publication range is no longer available', 'info');
@@ -347,7 +354,8 @@ const SecretariatView = ({ user }) => {
     } finally {
       setLoading(false);
     }
-  }, [showArchivedRanges, selectedPublicationRange, setSelectedPublicationRange, showToast]);
+  // selectedPublicationRange intentionally omitted — accessed via ref above.
+  }, [showArchivedRanges, setSelectedPublicationRange, showToast]);
 
   const loadAllActiveVacancies = useCallback(async () => {
     try {
@@ -365,6 +373,11 @@ const SecretariatView = ({ user }) => {
     }
   }, [filterVacanciesByAssignment, user, showToast]);
 
+  // publicationRanges array accessed via ref so this callback does not recreate
+  // every time setPublicationRanges fires (which would re-trigger its useEffect).
+  const publicationRangesRef = useRef([]);
+  useEffect(() => { publicationRangesRef.current = publicationRanges; }, [publicationRanges]);
+
   const loadDataForPublicationRange = useCallback(async () => {
     if (!selectedPublicationRange) {
       await loadAllActiveVacancies();
@@ -373,14 +386,14 @@ const SecretariatView = ({ user }) => {
 
     try {
       setLoading(true);
-      const selectedRange = publicationRanges.find(r => r._id === selectedPublicationRange);
+      const selectedRange = publicationRangesRef.current.find(r => r._id === selectedPublicationRange);
       const includeArchived = selectedRange?.isArchived || false;
-      
+
       const vacanciesRes = await vacanciesAPI.getByPublicationRange(
-        selectedPublicationRange, 
+        selectedPublicationRange,
         includeArchived
       );
-      
+
       const filteredVacancies = filterVacanciesByAssignment(vacanciesRes, user);
       setVacancies(filteredVacancies);
     } catch (error) {
@@ -390,7 +403,8 @@ const SecretariatView = ({ user }) => {
     } finally {
       setLoading(false);
     }
-  }, [selectedPublicationRange, publicationRanges, loadAllActiveVacancies, filterVacanciesByAssignment, user, showToast]);
+  // publicationRanges intentionally omitted — accessed via ref above.
+  }, [selectedPublicationRange, loadAllActiveVacancies, filterVacanciesByAssignment, user, showToast]);
 
   // STEP 5: Update loadCandidatesByFilters
   // Keep a ref to vacancies so loadCandidatesByFilters does not recreate (and defeat
@@ -420,7 +434,7 @@ const SecretariatView = ({ user }) => {
     loadingCandidates.current = true;
 
     try {
-      setLoading(true);
+      setCandidatesLoading(true);
       let filteredCandidates = [];
 
       // Access vacancies via ref to avoid recreating this callback on every vacancies change
@@ -475,11 +489,11 @@ const SecretariatView = ({ user }) => {
       showToast('Failed to load candidates', 'error');
       setCandidates([]);
     } finally {
-      setLoading(false);
+      setCandidatesLoading(false);
       loadingCandidates.current = false;
     }
   // NOTE: `vacancies` intentionally omitted — accessed via vacanciesRef above.
-  }, [selectedAssignment, selectedPosition, selectedItemNumber, selectedPublicationRange, publicationRanges, showToast]);
+  }, [selectedAssignment, selectedPosition, selectedItemNumber, selectedPublicationRange, showToast]);
 
   // Event Handlers with useCallback
   const handleCommentChange = useCallback((field, value) => {
@@ -801,40 +815,27 @@ const SecretariatView = ({ user }) => {
   }, [showCommentModal, showViewCommentsModal, showReportModal, 
       showVacancyModal, showCompetenciesModal, showCommentHistoryModal]);
 
-  // Auto-collapse filter panel on scroll down, re-expand near top.
-  // We use a ref to track the current expanded state inside the scroll handler
-  // so that layout shifts caused by collapsing/expanding the panel do not
-  // feed back into the scroll position check and cause a stutter loop.
-  const isFiltersExpandedRef = useRef(isFiltersExpanded);
-  useEffect(() => { isFiltersExpandedRef.current = isFiltersExpanded; }, [isFiltersExpanded]);
+  // Auto-collapse filter panel using IntersectionObserver on a sentinel element.
+  // This avoids the scroll-position feedback loop where collapsing the panel
+  // shifts the layout, changes window.scrollY, and re-triggers the handler.
+  // IntersectionObserver is based on element visibility — immune to layout shifts.
+  const sentinelRef = useRef(null);
 
   useEffect(() => {
-    let lastScrollY = window.scrollY;
-    let ticking = false;
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
 
-    const handleScroll = () => {
-      if (ticking) return;
-      ticking = true;
-      window.requestAnimationFrame(() => {
-        const currentScrollY = window.scrollY;
-        const scrollingDown = currentScrollY > lastScrollY;
-        lastScrollY = currentScrollY;
-        ticking = false;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        // Sentinel is visible  → user is near top → expand
+        // Sentinel is hidden   → user scrolled past it → collapse
+        setIsFiltersExpanded(entry.isIntersecting);
+      },
+      { threshold: 0, rootMargin: '0px' }
+    );
 
-        // Collapse only when genuinely scrolling down past threshold
-        // and panel is currently expanded — avoids re-triggering on layout shift
-        if (scrollingDown && currentScrollY > 160 && isFiltersExpandedRef.current) {
-          setIsFiltersExpanded(false);
-        }
-        // Re-expand only when near the very top
-        if (currentScrollY < 80 && !isFiltersExpandedRef.current) {
-          setIsFiltersExpanded(true);
-        }
-      });
-    };
-
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
+    observer.observe(sentinel);
+    return () => observer.disconnect();
   }, []);
 
   if (loading) {
@@ -932,6 +933,12 @@ const SecretariatView = ({ user }) => {
           </div>
         </div>
       </div>             
+
+      {/* Sentinel for IntersectionObserver — sits just below the sticky header.
+           When this element scrolls out of view the filter panel auto-collapses;
+           when it scrolls back into view the panel re-expands. Zero height so it
+           never affects layout. */}
+      <div ref={sentinelRef} aria-hidden="true" style={{ height: 0, overflow: 'hidden' }} />
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 py-6">
@@ -1210,14 +1217,22 @@ const SecretariatView = ({ user }) => {
 
         {/* Candidates Table */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900">Candidates</h3>
-            <p className="text-sm text-gray-600 mt-1">
-              Showing {filteredCandidates.length} candidate{filteredCandidates.length !== 1 ? 's' : ''}
-              {statusFilter && ` (${getStatusLabel(statusFilter)})`}
-              {genderFilter && ` (${genderFilter})`}
-              {currentPublicationRange && ` from ${currentPublicationRange.name}`}
-            </p>
+          <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">Candidates</h3>
+              <p className="text-sm text-gray-600 mt-1">
+                Showing {filteredCandidates.length} candidate{filteredCandidates.length !== 1 ? 's' : ''}
+                {statusFilter && ` (${getStatusLabel(statusFilter)})`}
+                {genderFilter && ` (${genderFilter})`}
+                {currentPublicationRange && ` from ${currentPublicationRange.name}`}
+              </p>
+            </div>
+            {candidatesLoading && (
+              <div className="flex items-center gap-2 text-xs text-gray-400 font-medium">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-400"></div>
+                Loading…
+              </div>
+            )}
           </div>
 
           <div className="overflow-x-auto">
