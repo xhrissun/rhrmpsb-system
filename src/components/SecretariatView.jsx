@@ -412,6 +412,11 @@ const SecretariatView = ({ user }) => {
   const vacanciesRef = useRef(vacancies);
   useEffect(() => { vacanciesRef.current = vacancies; }, [vacancies]);
 
+  // Also keep loadCandidatesByFilters in a ref so the vacancies useEffect below
+  // can call it without listing it as a dependency — preventing the effect from
+  // re-running every time the callback function reference changes.
+  const loadCandidatesByFiltersRef = useRef(null);
+
   const loadCandidatesByFilters = useCallback(async () => {
     // Prevent concurrent loading
     if (loadingCandidates.current) {
@@ -433,8 +438,11 @@ const SecretariatView = ({ user }) => {
     previousFilters.current = currentFilters;
     loadingCandidates.current = true;
 
+    // Only show the loading indicator AFTER we know filters actually changed.
+    // Moving this after the guard means spurious re-calls never flash the spinner.
+    setCandidatesLoading(true);
+
     try {
-      setCandidatesLoading(true);
       let filteredCandidates = [];
 
       // Access vacancies via ref to avoid recreating this callback on every vacancies change
@@ -494,6 +502,10 @@ const SecretariatView = ({ user }) => {
     }
   // NOTE: `vacancies` intentionally omitted — accessed via vacanciesRef above.
   }, [selectedAssignment, selectedPosition, selectedItemNumber, selectedPublicationRange, showToast]);
+
+  // Keep the ref in sync so the vacancies useEffect always calls the latest version
+  // without needing to list it as a dependency.
+  useEffect(() => { loadCandidatesByFiltersRef.current = loadCandidatesByFilters; }, [loadCandidatesByFilters]);
 
   // Event Handlers with useCallback
   const handleCommentChange = useCallback((field, value) => {
@@ -740,7 +752,7 @@ const SecretariatView = ({ user }) => {
           setItemNumbers(uniqueItemNumbers);
 
           if (selectedItemNumber && uniqueItemNumbers.includes(selectedItemNumber)) {
-            loadCandidatesByFilters();
+            loadCandidatesByFiltersRef.current?.();
           } else {
             setSelectedItemNumber('');
             setSelectedCandidate('');
@@ -779,7 +791,9 @@ const SecretariatView = ({ user }) => {
       setCandidateDetails(null);
       setVacancyDetails(null);
     }
-  }, [vacancies, selectedAssignment, selectedPosition, selectedItemNumber, loadCandidatesByFilters, setSelectedAssignment, setSelectedPosition, setSelectedItemNumber, setSelectedCandidate]);
+  }, [vacancies, selectedAssignment, selectedPosition, selectedItemNumber, setSelectedAssignment, setSelectedPosition, setSelectedItemNumber, setSelectedCandidate]);
+  // NOTE: loadCandidatesByFilters intentionally omitted — called via ref above
+  // so this effect does not re-run when only the callback reference changes.
 
   // Validate selected candidate still exists after filter/vacancy changes
   // NOTE: Do NOT call loadCandidateDetails here — it causes a reload loop every time
