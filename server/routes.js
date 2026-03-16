@@ -323,9 +323,9 @@ router.get('/users/:userId/assigned-vacancies', authMiddleware, async (req, res)
   }
 });
 
-// Self-service password change — must be BEFORE /:id/change-password so Express
-// does not match the literal string "me" as a :id parameter.
-router.put('/users/me/change-password', authMiddleware, async (req, res) => {
+// Self-service password change — uses /auth/ namespace to avoid any
+// collision with the /users/:id pattern entirely.
+router.put('/auth/change-password', authMiddleware, async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
     if (!currentPassword) return res.status(400).json({ message: 'Current password is required' });
@@ -343,7 +343,7 @@ router.put('/users/me/change-password', authMiddleware, async (req, res) => {
     await User.findByIdAndUpdate(req.user._id, { password: hashedPassword });
     res.json({ message: 'Password changed successfully' });
   } catch (error) {
-    console.error('[PUT /users/me/change-password]', error);
+    console.error('[PUT /auth/change-password]', error);
     res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
