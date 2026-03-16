@@ -715,7 +715,7 @@ router.get('/candidates', authMiddleware, async (req, res) => {
 
 router.get('/candidates/export-summary-csv', exportLimiter, authMiddleware, async (req, res) => {
   try {
-    const candidates = await Candidate.find().sort({ fullName: 1 });
+    const candidates = await Candidate.find({ isArchived: { $ne: true } }).sort({ fullName: 1 });
     if (candidates.length === 0) return res.status(404).json({ message: 'No candidates found for export' });
 
     const vacancies = await Vacancy.find({}, 'itemNumber position');
