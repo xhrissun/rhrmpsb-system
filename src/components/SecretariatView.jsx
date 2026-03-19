@@ -1265,7 +1265,7 @@ const SecretariatView = ({ user }) => {
                   return (
                     <tr key={candidate._id} className={`hover:bg-gradient-to-r hover:from-blue-50 hover:to-indigo-50 transition-all duration-150 ${candidate.isArchived ? 'bg-gray-100 opacity-60' : ''}`}>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{index + 1}</td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-6 py-4 max-w-[220px]">
                         <div className="flex items-center">
                           <div className="flex-shrink-0 h-8 w-8">
                             <div className={`h-8 w-8 rounded-full ${candidate.isArchived ? 'bg-gray-400' : 'bg-gradient-to-br from-blue-500 to-indigo-600'} flex items-center justify-center`}>
@@ -1275,7 +1275,7 @@ const SecretariatView = ({ user }) => {
                             </div>
                           </div>
                           <div className="ml-3">
-                            <div className="text-sm font-medium text-gray-900 flex items-center gap-2">
+                            <div className="text-sm font-medium text-gray-900 flex items-center gap-2 break-words min-w-0 flex-wrap">
                               {candidate.fullName}
                               {candidate.isArchived && (
                                 <span className="px-2 py-0.5 bg-orange-100 text-orange-800 text-xs font-bold rounded">
@@ -1296,8 +1296,8 @@ const SecretariatView = ({ user }) => {
                           View
                         </button>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        <div className="max-w-xs truncate" title={vacancy?.position}>
+                      <td className="px-6 py-4 text-sm text-gray-500 max-w-[200px]">
+                        <div className="break-words whitespace-normal" title={vacancy?.position}>
                           {vacancy?.position || 'N/A'}
                         </div>
                       </td>
