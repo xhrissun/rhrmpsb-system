@@ -752,7 +752,8 @@ router.get('/candidates/export-summary-csv', exportLimiter, authMiddleware, asyn
       'Full Name', 'Gender', 'Item Number', 'Position Applied',
       'Status', 'Education Comments', 'Training Comments',
       'Experience Comments', 'Eligibility Comments',
-      'Govt Agency', 'Govt Position', 'Govt Employment Status', 'Govt Employment Period', 'Govt Remarks'
+      'Govt Agency', 'Govt Position', 'Govt Employment Status', 'Govt Employment Period',
+      'Govt Employment End Date', 'Pre-Assessment Exam Consideration', 'Govt Remarks'
     ];
     const rows = candidates.map(c => [
       c.fullName || '', c.gender || '', c.itemNumber || '',
@@ -764,6 +765,11 @@ router.get('/candidates/export-summary-csv', exportLimiter, authMiddleware, asyn
       c.governmentEmployment?.status           || '',
       c.governmentEmployment?.employmentPeriod === 'present'        ? 'Present Employment'  :
       c.governmentEmployment?.employmentPeriod === 'within_2_years' ? 'Within Last 2 Years' : '',
+      c.governmentEmployment?.employmentEndDate
+        ? new Date(c.governmentEmployment.employmentEndDate).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' })
+        : '',
+      c.governmentEmployment?.preAssessmentExam === 'more_than_6_months' ? 'More than 6 Months' :
+      c.governmentEmployment?.preAssessmentExam === 'less_than_6_months' ? 'Less than 6 Months' : '',
       c.governmentEmployment?.remarks          || ''
     ]);
 
@@ -821,7 +827,8 @@ router.get('/candidates/export-csv', exportLimiter, authMiddleware, async (req, 
       'Professional License', 'Letter of Intent', 'Personal Data Sheet',
       'Work Experience Sheet', 'Proof of Eligibility', 'Certificates', 'IPCR',
       'Certificate of Employment', 'Diploma', 'Transcript of Records',
-      'Govt Agency', 'Govt Position', 'Govt Employment Status', 'Govt Employment Period', 'Govt Remarks'
+      'Govt Agency', 'Govt Position', 'Govt Employment Status', 'Govt Employment Period',
+      'Govt Employment End Date', 'Pre-Assessment Exam Consideration', 'Govt Remarks'
     ];
 
     const rows = candidates.map(c => {
@@ -845,6 +852,11 @@ router.get('/candidates/export-csv', exportLimiter, authMiddleware, async (req, 
         c.governmentEmployment?.status           || '',
         c.governmentEmployment?.employmentPeriod === 'present'       ? 'Present Employment'  :
         c.governmentEmployment?.employmentPeriod === 'within_2_years'? 'Within Last 2 Years' : '',
+        c.governmentEmployment?.employmentEndDate
+          ? new Date(c.governmentEmployment.employmentEndDate).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' })
+          : '',
+        c.governmentEmployment?.preAssessmentExam === 'more_than_6_months' ? 'More than 6 Months' :
+        c.governmentEmployment?.preAssessmentExam === 'less_than_6_months' ? 'Less than 6 Months' : '',
         c.governmentEmployment?.remarks          || ''
       ];
     });

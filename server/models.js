@@ -143,6 +143,11 @@ const candidateSchema = new mongoose.Schema({
     // End date of employment — required when employmentPeriod is 'within_2_years'
     // Stored as Date; audited on the client against the publication range endDate.
     employmentEndDate: { type: Date, default: null },
+    preAssessmentExam: {
+      type: String,
+      enum: ['', 'more_than_6_months', 'less_than_6_months'],
+      default: ''
+    },
     remarks:  { type: String, trim: true, default: '' }
   },
   isArchived: { type: Boolean, default: false },

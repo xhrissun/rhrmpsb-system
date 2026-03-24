@@ -136,7 +136,7 @@ const SecretariatView = ({ user }) => {
   // Government Employment modal
   const [showGovtEmpModal, setShowGovtEmpModal] = useState(false);
   const [govtEmpCandidate, setGovtEmpCandidate] = useState(null);
-  const [govtEmpForm, setGovtEmpForm] = useState({ agency: '', position: '', status: '', employmentPeriod: '', employmentEndDate: '', remarks: '' });
+  const [govtEmpForm, setGovtEmpForm] = useState({ agency: '', position: '', status: '', employmentPeriod: '', employmentEndDate: '', preAssessmentExam: '', remarks: '' });
   const [govtEmpLoading, setGovtEmpLoading] = useState(false);
   const [govtEmpCustomPositions, setGovtEmpCustomPositions] = useState([]);
   // Merge built-in positions from POSITIONS.txt with any custom ones added at runtime
@@ -619,6 +619,7 @@ const SecretariatView = ({ user }) => {
       employmentEndDate:   candidate.governmentEmployment?.employmentEndDate
                              ? candidate.governmentEmployment.employmentEndDate.toString().slice(0, 10)
                              : '',
+      preAssessmentExam:   candidate.governmentEmployment?.preAssessmentExam   || '',
       remarks:             candidate.governmentEmployment?.remarks             || ''
     });
     setShowGovtEmpModal(true);
@@ -627,7 +628,7 @@ const SecretariatView = ({ user }) => {
   const closeGovtEmpModal = useCallback(() => {
     setShowGovtEmpModal(false);
     setGovtEmpCandidate(null);
-    setGovtEmpForm({ agency: '', position: '', status: '', employmentPeriod: '', employmentEndDate: '', remarks: '' });
+    setGovtEmpForm({ agency: '', position: '', status: '', employmentPeriod: '', employmentEndDate: '', preAssessmentExam: '', remarks: '' });
   }, []);
 
   const handleSaveGovtEmp = useCallback(async () => {
@@ -1308,7 +1309,6 @@ const SecretariatView = ({ user }) => {
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-16">#</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">VACANCY DETAILS</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Position</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-28">Status</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Actions</th>
@@ -1331,7 +1331,14 @@ const SecretariatView = ({ user }) => {
                           </div>
                           <div className="ml-3">
                             <div className="text-sm font-medium text-gray-900 flex items-center gap-2 break-words min-w-0 flex-wrap">
-                              {candidate.fullName}
+                              <button
+                                type="button"
+                                onClick={() => handleViewComments(candidate)}
+                                aria-label={`View comments for ${candidate.fullName}`}
+                                className="text-left font-medium text-blue-700 hover:text-blue-900 hover:underline transition-colors focus:outline-none focus:underline"
+                              >
+                                {candidate.fullName}
+                              </button>
                               {candidate.isArchived && (
                                 <span className="px-2 py-0.5 bg-orange-100 text-orange-800 text-xs font-bold rounded">
                                   ARCHIVED
@@ -1388,19 +1395,16 @@ const SecretariatView = ({ user }) => {
                           </div>
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <td className="px-6 py-4 text-sm max-w-[200px]">
                         <button
+                          type="button"
                           onClick={() => handleViewVacancy(candidate.itemNumber)}
                           aria-label={`View vacancy details for ${candidate.itemNumber}`}
-                          className="bg-gray-600 hover:bg-gray-700 text-white px-2 py-1 rounded text-xs transition-colors duration-200"
+                          className="text-left break-words whitespace-normal text-blue-700 hover:text-blue-900 hover:underline transition-colors focus:outline-none focus:underline font-medium"
+                          title={vacancy?.position}
                         >
-                          View
-                        </button>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-500 max-w-[200px]">
-                        <div className="break-words whitespace-normal" title={vacancy?.position}>
                           {vacancy?.position || 'N/A'}
-                        </div>
+                        </button>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(candidate.status)}`}>
@@ -1409,13 +1413,6 @@ const SecretariatView = ({ user }) => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex space-x-2">
-                          <button
-                            onClick={() => handleViewComments(candidate)}
-                            aria-label={`View comments for ${candidate.fullName}`}
-                            className="bg-gray-600 hover:bg-gray-700 text-white px-2 py-1 rounded text-xs transition-colors duration-200"
-                          >
-                            View
-                          </button>
                           <button
                             onClick={() => handleViewCommentHistory(candidate)}
                             aria-label={`View comment history for ${candidate.fullName}`}
@@ -2678,6 +2675,43 @@ const SecretariatView = ({ user }) => {
                     )}
                   </div>
                 )}
+
+                {/* In Consideration of Pre-Assessment Examination */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-2">In Consideration of Pre-Assessment Examination</label>
+                  <div className="flex gap-3">
+                    {[
+                      { value: 'more_than_6_months', label: 'More than 6 Months', color: 'peer-checked:border-indigo-500 peer-checked:bg-indigo-50', dot: 'bg-indigo-500', text: 'peer-checked:text-indigo-700' },
+                      { value: 'less_than_6_months', label: 'Less than 6 Months', color: 'peer-checked:border-violet-500 peer-checked:bg-violet-50', dot: 'bg-violet-500', text: 'peer-checked:text-violet-700' },
+                    ].map(({ value, label, color, dot, text }) => (
+                      <label key={value} className="flex-1 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="preAssessmentExam"
+                          value={value}
+                          checked={govtEmpForm.preAssessmentExam === value}
+                          onChange={() => setGovtEmpForm(f => ({ ...f, preAssessmentExam: value }))}
+                          className="peer sr-only"
+                        />
+                        <div className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border-2 border-gray-200 transition-all ${color}`}>
+                          <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${govtEmpForm.preAssessmentExam === value ? dot : 'bg-gray-300'}`} />
+                          <span className={`text-xs font-semibold ${govtEmpForm.preAssessmentExam === value ? text.replace('peer-checked:', '') : 'text-gray-500'}`}>
+                            {label}
+                          </span>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                  {govtEmpForm.preAssessmentExam && (
+                    <button
+                      type="button"
+                      onClick={() => setGovtEmpForm(f => ({ ...f, preAssessmentExam: '' }))}
+                      className="mt-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                    >
+                      Clear selection
+                    </button>
+                  )}
+                </div>
 
                 {/* Remarks */}
                 <div>
