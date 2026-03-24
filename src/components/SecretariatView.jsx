@@ -633,6 +633,16 @@ const SecretariatView = ({ user }) => {
 
   const handleSaveGovtEmp = useCallback(async () => {
     if (!govtEmpCandidate) return;
+    // Validate: preAssessmentExam is always required before saving
+    if (!govtEmpForm.preAssessmentExam) {
+      showToast('Please select an option for "In Consideration of Pre-Assessment Examination" before saving.', 'error');
+      return;
+    }
+    // Validate: employmentEndDate is required when Within Last 2 Years is selected
+    if (govtEmpForm.employmentPeriod === 'within_2_years' && !govtEmpForm.employmentEndDate) {
+      showToast('Employment End Date is required when "Within Last 2 Years" is selected.', 'error');
+      return;
+    }
     setGovtEmpLoading(true);
     try {
       const updated = await candidatesAPI.update(govtEmpCandidate._id, {
@@ -2548,26 +2558,29 @@ const SecretariatView = ({ user }) => {
                   />
                 </div>
 
-                {/* Row 2: Employment Status + Employment End Date (conditional) */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1">Employment Status</label>
-                    <select
-                      value={govtEmpForm.status}
-                      onChange={e => setGovtEmpForm(f => ({ ...f, status: e.target.value }))}
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition-all bg-white"
-                    >
-                      <option value="">— Select status —</option>
-                      <option value="Permanent">Permanent</option>
-                      <option value="Casual">Casual</option>
-                      <option value="Contractual-PS">Contractual-PS</option>
-                      <option value="Contractual">Contractual</option>
-                    </select>
-                  </div>
+                {/* Row 2: Employment Status (full width) */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Employment Status</label>
+                  <select
+                    value={govtEmpForm.status}
+                    onChange={e => setGovtEmpForm(f => ({ ...f, status: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition-all bg-white"
+                  >
+                    <option value="">— Select status —</option>
+                    <option value="Permanent">Permanent</option>
+                    <option value="Casual">Casual</option>
+                    <option value="Contractual-PS">Contractual-PS</option>
+                    <option value="Contractual">Contractual</option>
+                  </select>
+                </div>
+
+                {/* Employment End Date — only shown when Within Last 2 Years is selected */}
+                {isWithin2Years && (
                   <div>
                     <label className="block text-xs font-semibold text-gray-700 mb-1">
                       Employment End Date
-                      <span className="ml-1 font-normal text-gray-400">(if applicable)</span>
+                      <span className="ml-1 font-semibold text-red-500">*</span>
+                      <span className="ml-1 font-normal text-gray-400">(required)</span>
                     </label>
                     <input
                       type="date"
@@ -2577,11 +2590,12 @@ const SecretariatView = ({ user }) => {
                       className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent transition-all ${
                         endDateAudit?.type === 'error' ? 'border-red-400 focus:ring-red-400 bg-red-50'       :
                         endDateAudit?.type === 'warn'  ? 'border-amber-400 focus:ring-amber-400 bg-amber-50' :
+                        !govtEmpForm.employmentEndDate  ? 'border-amber-300 focus:ring-amber-400 bg-amber-50' :
                         'border-gray-200 focus:ring-indigo-400'
                       }`}
                     />
                   </div>
-                </div>
+                )}
 
                 {/* Audit feedback banner for end date */}
                 {isWithin2Years && endDateAudit && (
@@ -2603,9 +2617,9 @@ const SecretariatView = ({ user }) => {
                   </div>
                 )}
                 {isWithin2Years && !govtEmpForm.employmentEndDate && (
-                  <p className="text-xs text-amber-600 flex items-center gap-1">
+                  <p className="text-xs text-red-600 flex items-center gap-1 font-semibold">
                     <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
-                    Please specify the date this employment ended so it can be verified.
+                    Employment End Date is required for "Within Last 2 Years".
                   </p>
                 )}
 
@@ -2646,7 +2660,10 @@ const SecretariatView = ({ user }) => {
 
                   {/* Pre-Assessment Examination */}
                   <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-2">In Consideration of Pre-Assessment Examination</label>
+                    <label className="block text-xs font-semibold text-gray-700 mb-2">
+                      In Consideration of Pre-Assessment Examination
+                      <span className="ml-1 font-semibold text-red-500">*</span>
+                    </label>
                     <div className="flex flex-col gap-2">
                       {[
                         { value: 'more_than_6_months', label: 'More than 6 Months', color: 'peer-checked:border-indigo-500 peer-checked:bg-indigo-50', dot: 'bg-indigo-500', text: 'peer-checked:text-indigo-700' },
@@ -2695,27 +2712,54 @@ const SecretariatView = ({ user }) => {
               </div>
 
               {/* Footer */}
-              <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
+              <div className="px-6 py-4 border-t border-gray-100 flex justify-between items-center gap-2">
+                {/* Clear All button on the left */}
                 <button
-                  onClick={closeGovtEmpModal}
+                  type="button"
+                  onClick={() => setGovtEmpForm({ agency: '', position: '', status: '', employmentPeriod: '', employmentEndDate: '', preAssessmentExam: '', remarks: '' })}
                   disabled={govtEmpLoading}
-                  className="px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition-all"
+                  className="px-4 py-2 text-xs font-semibold text-red-500 hover:bg-red-50 border border-red-200 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                  title="Clear all form fields (does not affect saved data until you Save)"
                 >
-                  Cancel
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                  Clear All
                 </button>
-                <button
-                  onClick={handleSaveGovtEmp}
-                  disabled={govtEmpLoading || endDateAudit?.type === 'error'}
-                  title={endDateAudit?.type === 'error' ? 'Fix the employment end date error before saving.' : undefined}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold text-white transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-                  style={{ background: 'linear-gradient(135deg,#4f46e5,#6366f1)' }}
-                >
-                  {govtEmpLoading ? (
-                    <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />Saving…</>
-                  ) : (
-                    <><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>Save</>
-                  )}
-                </button>
+                {/* Cancel + Save on the right */}
+                <div className="flex gap-2">
+                  <button
+                    onClick={closeGovtEmpModal}
+                    disabled={govtEmpLoading}
+                    className="px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveGovtEmp}
+                    disabled={
+                      govtEmpLoading ||
+                      endDateAudit?.type === 'error' ||
+                      !govtEmpForm.preAssessmentExam ||
+                      (govtEmpForm.employmentPeriod === 'within_2_years' && !govtEmpForm.employmentEndDate)
+                    }
+                    title={
+                      endDateAudit?.type === 'error'
+                        ? 'Fix the employment end date error before saving.'
+                        : !govtEmpForm.preAssessmentExam
+                        ? 'Select an option for "In Consideration of Pre-Assessment Examination" before saving.'
+                        : (govtEmpForm.employmentPeriod === 'within_2_years' && !govtEmpForm.employmentEndDate)
+                        ? 'Employment End Date is required when "Within Last 2 Years" is selected.'
+                        : undefined
+                    }
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold text-white transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                    style={{ background: 'linear-gradient(135deg,#4f46e5,#6366f1)' }}
+                  >
+                    {govtEmpLoading ? (
+                      <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />Saving…</>
+                    ) : (
+                      <><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>Save</>
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
