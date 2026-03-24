@@ -1193,6 +1193,31 @@ router.delete('/candidates/:id', authMiddleware, async (req, res) => {
   }
 });
 
+// One-time migration: recompute and persist age for every candidate that has
+// dateOfBirth but a null/missing age. Safe to call multiple times.
+router.post('/candidates/backfill-ages', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin') return res.status(403).json({ message: 'Access denied' });
+  try {
+    const candidates = await Candidate.find({ dateOfBirth: { $ne: null } });
+    let updated = 0;
+    const today = new Date();
+    for (const c of candidates) {
+      const birthDate = new Date(c.dateOfBirth);
+      let age = today.getFullYear() - birthDate.getFullYear();
+      const m = today.getMonth() - birthDate.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
+      if (c.age !== age) {
+        await Candidate.updateOne({ _id: c._id }, { $set: { age } });
+        updated++;
+      }
+    }
+    res.json({ message: `Backfill complete. Updated ${updated} of ${candidates.length} candidates.`, updated, total: candidates.length });
+  } catch (error) {
+    console.error('[POST /candidates/backfill-ages]', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 
 // ═══════════════════════════════════════════════════════════════════════════
 // COMPETENCY ROUTES

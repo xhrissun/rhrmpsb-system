@@ -1363,7 +1363,17 @@ const SecretariatView = ({ user }) => {
                                 );
                               })()}
                             </div>
-                            <div className="text-xs text-gray-500">{candidate.gender} • Age: {candidate.age || 'N/A'}</div>
+                            <div className="text-xs text-gray-500">{candidate.gender} • Age: {(() => {
+                              if (candidate.age != null) return candidate.age;
+                              if (candidate.dateOfBirth) {
+                                const today = new Date(), b = new Date(candidate.dateOfBirth);
+                                let a = today.getFullYear() - b.getFullYear();
+                                const m = today.getMonth() - b.getMonth();
+                                if (m < 0 || (m === 0 && today.getDate() < b.getDate())) a--;
+                                return a;
+                              }
+                              return 'N/A';
+                            })()}</div>
                           </div>
                         </div>
                       </td>

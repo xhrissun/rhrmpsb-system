@@ -142,34 +142,51 @@ const candidateSchema = new mongoose.Schema({
   archivedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });
 
-// FIX: Also recalculate age on findOneAndUpdate so updates stay correct
+// Shared age calculator
+const computeAge = (dob) => {
+  if (!dob) return null;
+  const today = new Date();
+  const birthDate = new Date(dob);
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const m = today.getMonth() - birthDate.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
+  return age;
+};
+
+// Always recompute age from dateOfBirth on save (never trust the stored value)
+candidateSchema.pre('save', function(next) {
+  if (this.dateOfBirth) this.age = computeAge(this.dateOfBirth);
+  next();
+});
+
+// Always recompute age from dateOfBirth on findOneAndUpdate
 const calcAge = function(next) {
   const update = this.getUpdate();
   const dob = update?.$set?.dateOfBirth || update?.dateOfBirth;
   if (dob) {
-    const today = new Date();
-    const birthDate = new Date(dob);
-    let age = today.getFullYear() - birthDate.getFullYear();
-    const m = today.getMonth() - birthDate.getMonth();
-    if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
+    const age = computeAge(dob);
     if (update.$set) update.$set.age = age;
     else update.age = age;
   }
   next();
 };
-
-candidateSchema.pre('save', function(next) {
-  if (this.dateOfBirth && !this.age) {
-    const today = new Date();
-    const birthDate = new Date(this.dateOfBirth);
-    let age = today.getFullYear() - birthDate.getFullYear();
-    const m = today.getMonth() - birthDate.getMonth();
-    if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
-    this.age = age;
-  }
-  next();
-});
 candidateSchema.pre('findOneAndUpdate', calcAge);
+
+// Virtual: compute age live from dateOfBirth at read time so stale DB
+// values (including null) never reach the client as N/A.
+candidateSchema.virtual('computedAge').get(function() {
+  return computeAge(this.dateOfBirth);
+});
+
+// Override toJSON so that `age` is always the live-computed value when
+// dateOfBirth is present, falling back to the stored value only if no dob.
+candidateSchema.set('toJSON', {
+  virtuals: false,
+  transform(doc, ret) {
+    if (ret.dateOfBirth) ret.age = computeAge(ret.dateOfBirth);
+    return ret;
+  }
+});
 
 // ── Competency Schema ─────────────────────────────────────────────────────────
 const competencySchema = new mongoose.Schema({
