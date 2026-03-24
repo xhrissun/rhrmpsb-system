@@ -134,7 +134,8 @@ const candidateSchema = new mongoose.Schema({
       type: String,
       enum: ['', 'Permanent', 'Casual', 'Contractual-PS', 'Contractual'],
       default: ''
-    }
+    },
+    remarks:  { type: String, trim: true, default: '' }
   },
   isArchived: { type: Boolean, default: false },
   archivedAt: { type: Date },

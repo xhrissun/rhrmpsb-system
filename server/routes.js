@@ -1135,7 +1135,8 @@ router.put('/candidates/:id', authMiddleware, async (req, res) => {
       updateData.governmentEmployment = {
         agency:   req.body.governmentEmployment?.agency   || '',
         position: req.body.governmentEmployment?.position || '',
-        status:   req.body.governmentEmployment?.status   || ''
+        status:   req.body.governmentEmployment?.status   || '',
+        remarks:  req.body.governmentEmployment?.remarks  || ''
       };
     }
 

@@ -136,8 +136,14 @@ const SecretariatView = ({ user }) => {
   // Government Employment modal
   const [showGovtEmpModal, setShowGovtEmpModal] = useState(false);
   const [govtEmpCandidate, setGovtEmpCandidate] = useState(null);
-  const [govtEmpForm, setGovtEmpForm] = useState({ agency: '', position: '', status: '' });
+  const [govtEmpForm, setGovtEmpForm] = useState({ agency: '', position: '', status: '', remarks: '' });
   const [govtEmpLoading, setGovtEmpLoading] = useState(false);
+  const [govtEmpCustomPositions, setGovtEmpCustomPositions] = useState([]);
+  // Merge built-in positions from POSITIONS.txt with any custom ones added at runtime
+  const govtEmpPositions = React.useMemo(
+    () => Array.from(new Set([...GOVT_EMP_POSITIONS, ...govtEmpCustomPositions])).sort(),
+    [govtEmpCustomPositions]
+  );
 
   const [statusFilter, setStatusFilter] = useState(null);
   const [showAssignmentSummary, setShowAssignmentSummary] = useState(false);
@@ -608,7 +614,8 @@ const SecretariatView = ({ user }) => {
     setGovtEmpForm({
       agency:   candidate.governmentEmployment?.agency   || '',
       position: candidate.governmentEmployment?.position || '',
-      status:   candidate.governmentEmployment?.status   || ''
+      status:   candidate.governmentEmployment?.status   || '',
+      remarks:  candidate.governmentEmployment?.remarks  || ''
     });
     setShowGovtEmpModal(true);
   }, []);
@@ -2450,28 +2457,25 @@ const SecretariatView = ({ user }) => {
                 </div>
 
                 {/* Agency */}
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Government Agency</label>
-                  <input
-                    type="text"
-                    value={govtEmpForm.agency}
-                    onChange={e => setGovtEmpForm(f => ({ ...f, agency: e.target.value }))}
-                    placeholder="e.g. Department of Environment and Natural Resources"
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition-all"
-                  />
-                </div>
+                <AutocompleteInput
+                  label="Government Agency"
+                  value={govtEmpForm.agency}
+                  onChange={v => setGovtEmpForm(f => ({ ...f, agency: v }))}
+                  options={PH_GOVERNMENT_AGENCIES}
+                  placeholder="Type to search agencies…"
+                />
 
                 {/* Position */}
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Position</label>
-                  <input
-                    type="text"
-                    value={govtEmpForm.position}
-                    onChange={e => setGovtEmpForm(f => ({ ...f, position: e.target.value }))}
-                    placeholder="e.g. Administrative Officer II"
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition-all"
-                  />
-                </div>
+                <AutocompleteInput
+                  label="Position"
+                  value={govtEmpForm.position}
+                  onChange={v => setGovtEmpForm(f => ({ ...f, position: v }))}
+                  options={govtEmpPositions}
+                  onAddCustom={newVal => setGovtEmpCustomPositions(prev =>
+                    prev.includes(newVal) ? prev : [...prev, newVal]
+                  )}
+                  placeholder="Type to search positions…"
+                />
 
                 {/* Employment Status */}
                 <div>
@@ -2487,6 +2491,18 @@ const SecretariatView = ({ user }) => {
                     <option value="Contractual-PS">Contractual-PS</option>
                     <option value="Contractual">Contractual</option>
                   </select>
+                </div>
+
+                {/* Remarks */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Remarks</label>
+                  <textarea
+                    value={govtEmpForm.remarks}
+                    onChange={e => setGovtEmpForm(f => ({ ...f, remarks: e.target.value }))}
+                    placeholder="Optional notes about this employment…"
+                    rows={3}
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition-all resize-none"
+                  />
                 </div>
 
                 {/* Clear hint */}
@@ -2545,6 +2561,582 @@ const SecretariatView = ({ user }) => {
             />
           </div>
         </div>
+      )}
+    </div>
+  );
+};
+
+// ── Government Employment Data ────────────────────────────────────────────────
+
+const GOVT_EMP_POSITIONS = [
+  'ACCOUNTANT I','ACCOUNTANT II','ACCOUNTANT III','ACCOUNTING ANALYST',
+  'ADMINISTRATIVE AIDE IV','ADMINISTRATIVE AIDE VI',
+  'ADMINISTRATIVE ASSISTANT I','ADMINISTRATIVE ASSISTANT II','ADMINISTRATIVE ASSISTANT III',
+  'ADMINISTRATIVE OFFICER I','ADMINISTRATIVE OFFICER II','ADMINISTRATIVE OFFICER III',
+  'ADMINISTRATIVE OFFICER IV','ADMINISTRATIVE OFFICER V',
+  'ADMINISTRATIVE STAFF','ADMINISTRATIVE SUPPORT STAFF',
+  'APPLICATION DEVELOPER II','ATTORNEY II','ATTORNEY III','ATTORNEY IV','ATTORNEY V',
+  'AUDIT ASSISTANT','AUDIT ASSOCIATE',
+  'BIOLOGIST I','BIOLOGIST II','BOOKKEEPING ASSISTANT',
+  'CARTOGRAPHER I','CARTOGRAPHER II','CARTOGRAPHER III','CARTOGRAPHER IV',
+  'CBFM MONITORING AND EVALUATION OFFICER',
+  'CHIEF ADMINISTRATIVE OFFICER','CLERK II',
+  'COMMUNICATIONS DEVELOPMENT OFFICER I','COMMUNICATIONS DEVELOPMENT OFFICER II',
+  'COMMUNITY AFFAIRS OFFICER I',
+  'COMPUTER PROGRAMMER I','COMPUTER PROGRAMMER II','COMPUTER TECHNICIAN',
+  'CREDIT OFFICER I',
+  'DATA MANAGEMENT OFFICER','DATA MANAGEMENT STAFF',
+  'DATABASE MANAGEMENT OFFICER','DATABASE MANAGEMENT STAFF',
+  'DATABASE MANAGER FOR INSTRUMENTATION',
+  'DEVELOPMENT COMMUNICATIONS SPECIALIST',
+  'DEVELOPMENT MANAGEMENT OFFICER II','DEVELOPMENT MANAGEMENT OFFICER III',
+  'DEVELOPMENT MANAGEMENT OFFICER IV','DEVELOPMENT MANAGEMENT OFFICER V',
+  'DIPLOMA','DRAFTSMAN II','DRIVER','DRIVER/MECHANIC/PC TECHNICIAN',
+  'ECONOMIST I','ECOSYSTEMS MANAGEMENT SPECIALIST I','ECOSYSTEMS MANAGEMENT SPECIALIST II',
+  'ELECTRICAL ENGINEER','ENCODER','ENGINEER I','ENGINEER II','ENGINEER III',
+  'ENGINEER IV','ENGINEER V','ENGINEERING AIDE',
+  'FINANCIAL ANALYST','FOREST EXTENSION OFFICER','FORESTER I','FORESTER II','FORESTER III',
+  'GEOGRAPHIC INFORMATION SYSTEMS SPECIALIST I',
+  'GIS OPERATOR I','GIS SPECIALIST',
+  'HEALTH & WELLNESS SPECIALIST II (NURSE)',
+  'ICT INFRASTRUCTURE AND OPERATIONS OFFICER','ICT TECHNICAL SUPPORT II',
+  'INFORMATION ASSISTANT I','INFORMATION OFFICER I','INFORMATION OFFICER II',
+  'INFORMATION SYSTEMS ANALYST II','INFORMATION SYSTEMS ANALYST III',
+  'INFORMATION TECHNOLOGIST',
+  'LAND MANAGEMENT EXAMINER',
+  'LAND MANAGEMENT OFFICER I','LAND MANAGEMENT OFFICER II',
+  'LAND MANAGEMENT OFFICER III','LAND MANAGEMENT OFFICER IV',
+  'LEGAL ASSISTANT II','LEGAL RESEARCHER',
+  'MATHEMATICIAN AIDE I','MATHEMATICIAN AIDE II',
+  'MONITORING AND EVALUATION OFFICER II',
+  'NURSERY AIDE',
+  'OFFICE SUPPORT ASSISTANT','OFFICE SUPPORT OFFICER',
+  'PARKS OPERATIONS SUPERINTENDENT IV',
+  'PLANNING AND PROGRAMMING OFFICER II',
+  'PLANNING CONTROL OFFICER',
+  'PLANNING OFFICER I','PLANNING OFFICER II','PLANNING OFFICER III',
+  'PLANNING OFFICER IV','PLANNING OFFICER V',
+  'PRECISION INSTRUMENT TECH. II',
+  'PROJECT ADMINISTRATIVE OFFICER I',
+  'PROJECT COORDINATOR',
+  'PROJECT DEVELOPMENT OFFICER',
+  'PROJECT DOCUMENTATION ASSISTANT','PROJECT DOCUMENTATION SPECIALIST',
+  'PROJECT EVALUATION OFFICER I','PROJECT EVALUATION OFFICER II','PROJECT EVALUATION OFFICER III',
+  'PROJECT MONITORING ASSISTANT',
+  'PROJECT OPERATIONS MANAGER',
+  'PROJECT PLANNING AND DEVELOPMENT OFFICER I','PROJECT PLANNING AND DEVELOPMENT OFFICER II',
+  'PROJECT TECHNICAL OFFICER I','PROJECT TECHNICAL OFFICER II',
+  'PROPERTY OFFICER I',
+  'SCIENCE RESEARCH ASSISTANT',
+  'SENIOR COMMUNICATIONS DEVELOPMENT OFFICER',
+  'SENIOR ECOSYSTEMS MANAGEMENT SPECIALIST',
+  'SENIOR FOREST MANAGEMENT SPECIALIST',
+  'SPECIAL INVESTIGATOR I',
+  'STATISTICIAN I','STATISTICIAN II',
+  'SUPERVISING ADMINISTRATIVE OFFICER',
+  'TECHNICAL SUPPORT STAFF','TRACER',
+  'TRAINING PROGRAM OFFICER',
+  'WEMIS DATABASE ENCODER',
+  'ZOOLOGY TECHNICIAN',
+];
+
+const PH_GOVERNMENT_AGENCIES = [
+  // ── Constitutional Bodies ──────────────────────────────────────────────────
+  'Civil Service Commission (CSC)',
+  'Commission on Audit (COA)',
+  'Commission on Elections (COMELEC)',
+  'Office of the Ombudsman',
+  'Commission on Human Rights (CHR)',
+  // ── Office of the President ────────────────────────────────────────────────
+  'Office of the President (OP)',
+  'Office of the Executive Secretary',
+  'Presidential Communications Office (PCO)',
+  'Presidential Management Staff (PMS)',
+  'National Security Council (NSC)',
+  'Presidential Adviser on Peace, Reconciliation and Unity (PAPRU)',
+  // ── Executive Departments ──────────────────────────────────────────────────
+  'Department of Agrarian Reform (DAR)',
+  'Department of Agriculture (DA)',
+  'Department of Budget and Management (DBM)',
+  'Department of Education (DepEd)',
+  'Department of Energy (DOE)',
+  'Department of Environment and Natural Resources (DENR)',
+  'Department of Finance (DOF)',
+  'Department of Foreign Affairs (DFA)',
+  'Department of Health (DOH)',
+  'Department of Human Settlements and Urban Development (DHSUD)',
+  'Department of Information and Communications Technology (DICT)',
+  'Department of the Interior and Local Government (DILG)',
+  'Department of Justice (DOJ)',
+  'Department of Labor and Employment (DOLE)',
+  'Department of Migrant Workers (DMW)',
+  'Department of National Defense (DND)',
+  'Department of Public Works and Highways (DPWH)',
+  'Department of Science and Technology (DOST)',
+  'Department of Social Welfare and Development (DSWD)',
+  'Department of Tourism (DOT)',
+  'Department of Trade and Industry (DTI)',
+  'Department of Transportation (DOTr)',
+  // ── Other Executive Offices / Authorities / Commissions ───────────────────
+  'Bangko Sentral ng Pilipinas (BSP)',
+  'Board of Investments (BOI)',
+  'Bureau of Customs (BOC)',
+  'Bureau of Internal Revenue (BIR)',
+  'Bureau of Immigration (BI)',
+  'Bureau of Fisheries and Aquatic Resources (BFAR)',
+  'Bureau of Local Government Finance (BLGF)',
+  'Bureau of the Treasury (BTr)',
+  'Civil Aeronautics Board (CAB)',
+  'Climate Change Commission (CCC)',
+  'Cooperative Development Authority (CDA)',
+  'Film Development Council of the Philippines (FDCP)',
+  'Games and Amusements Board (GAB)',
+  'Governance Commission for GOCCs (GCG)',
+  'Government Service Insurance System (GSIS)',
+  'Housing and Urban Development Coordinating Council (HUDCC)',
+  'Insurance Commission (IC)',
+  'Intellectual Property Office of the Philippines (IPOPHL)',
+  'Land Authority',
+  'Land Bank of the Philippines (LBP)',
+  'Land Registration Authority (LRA)',
+  'Local Water Utilities Administration (LWUA)',
+  'Metropolitan Waterworks and Sewerage System (MWSS)',
+  'Mindanao Development Authority (MinDA)',
+  'National Agri-Business Corporation (NABCOR)',
+  'National Amnesty Commission (NAC)',
+  'National Anti-Poverty Commission (NAPC)',
+  'National Commission for Culture and the Arts (NCCA)',
+  'National Commission on Indigenous Peoples (NCIP)',
+  'National Commission on Muslim Filipinos (NCMF)',
+  'National Council on Disability Affairs (NCDA)',
+  'National Economic and Development Authority (NEDA)',
+  'National Food Authority (NFA)',
+  'National Housing Authority (NHA)',
+  'National Irrigation Administration (NIA)',
+  'National Labor Relations Commission (NLRC)',
+  'National Power Corporation (NPC)',
+  'National Privacy Commission (NPC)',
+  'National Telecommunications Commission (NTC)',
+  'National Youth Commission (NYC)',
+  'Overseas Workers Welfare Administration (OWWA)',
+  'Philippine Charity Sweepstakes Office (PCSO)',
+  'Philippine Coconut Authority (PCA)',
+  'Philippine Competition Commission (PCC)',
+  'Philippine Crop Insurance Corporation (PCIC)',
+  'Philippine Drug Enforcement Agency (PDEA)',
+  'Philippine Economic Zone Authority (PEZA)',
+  'Philippine Fisheries Development Authority (PFDA)',
+  'Philippine Forest Corporation (PFC)',
+  'Philippine Health Insurance Corporation (PhilHealth)',
+  'Philippine Institute of Volcanology and Seismology (PHIVOLCS)',
+  'Philippine National Oil Company (PNOC)',
+  'Philippine National Police (PNP)',
+  'Philippine National Railways (PNR)',
+  'Philippine Ports Authority (PPA)',
+  'Philippine Reclamation Authority (PRA)',
+  'Philippine Rice Research Institute (PhilRice)',
+  'Philippine Statistics Authority (PSA)',
+  'Philippine Tourism Authority (PTA)',
+  'Privatization and Management Office (PMO)',
+  'Professional Regulation Commission (PRC)',
+  'Securities and Exchange Commission (SEC)',
+  'Social Security System (SSS)',
+  'Sugar Regulatory Administration (SRA)',
+  'Technical Education and Skills Development Authority (TESDA)',
+  'Toll Regulatory Board (TRB)',
+  'Tourism Infrastructure and Enterprise Zone Authority (TIEZA)',
+  'University of the Philippines (UP)',
+  'Veterans Affairs Office',
+  // ── Legislative ───────────────────────────────────────────────────────────
+  'Senate of the Philippines',
+  'House of Representatives',
+  'Congressional Planning and Budget Department (CPBD)',
+  // ── Judiciary ─────────────────────────────────────────────────────────────
+  'Supreme Court of the Philippines',
+  'Court of Appeals (CA)',
+  'Sandiganbayan',
+  'Court of Tax Appeals (CTA)',
+  'Regional Trial Court (RTC)',
+  'Metropolitan Trial Court (MeTC)',
+  'Municipal Trial Court (MTC)',
+  // ── Local Government ──────────────────────────────────────────────────────
+  'City Government of Manila',
+  'City Government of Quezon City',
+  'City Government of Makati',
+  'City Government of Pasig',
+  'City Government of Taguig',
+  'City Government of Mandaluyong',
+  'City Government of Marikina',
+  'City Government of Parañaque',
+  'City Government of Las Piñas',
+  'City Government of Muntinlupa',
+  'City Government of Caloocan',
+  'City Government of Malabon',
+  'City Government of Navotas',
+  'City Government of Valenzuela',
+  'City Government of Pasay',
+  'City Government of San Juan',
+  'Metro Manila Development Authority (MMDA)',
+  'City Government of Antipolo',
+  'City Government of Batangas',
+  'City Government of Lipa',
+  'City Government of Calamba',
+  'City Government of San Pablo',
+  'City Government of Lucena',
+  'Province of Batangas',
+  'Province of Cavite',
+  'Province of Laguna',
+  'Province of Quezon',
+  'Province of Rizal',
+  'Province of Aurora',
+  'Province of Bataan',
+  'Province of Bulacan',
+  'Province of Nueva Ecija',
+  'Province of Pampanga',
+  'Province of Tarlac',
+  'Province of Zambales',
+  'Province of Abra',
+  'Province of Apayao',
+  'Province of Benguet',
+  'Province of Ifugao',
+  'Province of Kalinga',
+  'Province of Mountain Province',
+  'Province of Ilocos Norte',
+  'Province of Ilocos Sur',
+  'Province of La Union',
+  'Province of Pangasinan',
+  'Province of Cagayan',
+  'Province of Isabela',
+  'Province of Nueva Vizcaya',
+  'Province of Quirino',
+  'Province of Batanes',
+  'Province of Albay',
+  'Province of Camarines Norte',
+  'Province of Camarines Sur',
+  'Province of Catanduanes',
+  'Province of Masbate',
+  'Province of Sorsogon',
+  'Province of Aklan',
+  'Province of Antique',
+  'Province of Capiz',
+  'Province of Guimaras',
+  'Province of Iloilo',
+  'Province of Negros Occidental',
+  'Province of Bohol',
+  'Province of Cebu',
+  'Province of Negros Oriental',
+  'Province of Siquijor',
+  'Province of Biliran',
+  'Province of Eastern Samar',
+  'Province of Leyte',
+  'Province of Northern Samar',
+  'Province of Samar',
+  'Province of Southern Leyte',
+  'Province of Zamboanga del Norte',
+  'Province of Zamboanga del Sur',
+  'Province of Zamboanga Sibugay',
+  'Province of Bukidnon',
+  'Province of Camiguin',
+  'Province of Lanao del Norte',
+  'Province of Misamis Occidental',
+  'Province of Misamis Oriental',
+  'Province of Compostela Valley (Davao de Oro)',
+  'Province of Davao del Norte',
+  'Province of Davao del Sur',
+  'Province of Davao Occidental',
+  'Province of Davao Oriental',
+  'Province of Cotabato',
+  'Province of Sarangani',
+  'Province of South Cotabato',
+  'Province of Sultan Kudarat',
+  'Province of Agusan del Norte',
+  'Province of Agusan del Sur',
+  'Province of Dinagat Islands',
+  'Province of Surigao del Norte',
+  'Province of Surigao del Sur',
+  'Province of Basilan',
+  'Province of Lanao del Sur',
+  'Province of Maguindanao',
+  'Province of Sulu',
+  'Province of Tawi-Tawi',
+  // ── DENR — Central Office ─────────────────────────────────────────────────
+  'DENR Central Office',
+  'DENR Biodiversity Management Bureau (BMB)',
+  'DENR Environmental Management Bureau (EMB)',
+  'DENR Forest Management Bureau (FMB)',
+  'DENR Land Management Bureau (LMB)',
+  'DENR Mines and Geosciences Bureau (MGB)',
+  'DENR National Mapping and Resource Information Authority (NAMRIA)',
+  'DENR Palawan Council for Sustainable Development (PCSD)',
+  // ── DENR Regional Offices ─────────────────────────────────────────────────
+  'DENR Regional Office I — Ilocos Region',
+  'DENR Regional Office II — Cagayan Valley',
+  'DENR Regional Office III — Central Luzon',
+  'DENR Regional Office IV-A — CALABARZON',
+  'DENR Regional Office IV-B — MIMAROPA',
+  'DENR Regional Office V — Bicol Region',
+  'DENR Regional Office VI — Western Visayas',
+  'DENR Regional Office VII — Central Visayas',
+  'DENR Regional Office VIII — Eastern Visayas',
+  'DENR Regional Office IX — Zamboanga Peninsula',
+  'DENR Regional Office X — Northern Mindanao',
+  'DENR Regional Office XI — Davao Region',
+  'DENR Regional Office XII — SOCCSKSARGEN',
+  'DENR Regional Office XIII — CARAGA',
+  'DENR Regional Office CAR — Cordillera Administrative Region',
+  'DENR Regional Office NCR — National Capital Region',
+  'DENR Regional Office BARMM — Bangsamoro',
+  // ── DENR PENROs ───────────────────────────────────────────────────────────
+  // NCR
+  'DENR PENRO Metro Manila',
+  // CAR
+  'DENR PENRO Abra','DENR PENRO Apayao','DENR PENRO Benguet',
+  'DENR PENRO Ifugao','DENR PENRO Kalinga','DENR PENRO Mountain Province',
+  // Region I
+  'DENR PENRO Ilocos Norte','DENR PENRO Ilocos Sur',
+  'DENR PENRO La Union','DENR PENRO Pangasinan',
+  // Region II
+  'DENR PENRO Batanes','DENR PENRO Cagayan','DENR PENRO Isabela',
+  'DENR PENRO Nueva Vizcaya','DENR PENRO Quirino',
+  // Region III
+  'DENR PENRO Aurora','DENR PENRO Bataan','DENR PENRO Bulacan',
+  'DENR PENRO Nueva Ecija','DENR PENRO Pampanga',
+  'DENR PENRO Tarlac','DENR PENRO Zambales',
+  // Region IV-A
+  'DENR PENRO Batangas','DENR PENRO Cavite','DENR PENRO Laguna',
+  'DENR PENRO Quezon','DENR PENRO Rizal',
+  // Region IV-B
+  'DENR PENRO Marinduque','DENR PENRO Occidental Mindoro',
+  'DENR PENRO Oriental Mindoro','DENR PENRO Palawan','DENR PENRO Romblon',
+  // Region V
+  'DENR PENRO Albay','DENR PENRO Camarines Norte','DENR PENRO Camarines Sur',
+  'DENR PENRO Catanduanes','DENR PENRO Masbate','DENR PENRO Sorsogon',
+  // Region VI
+  'DENR PENRO Aklan','DENR PENRO Antique','DENR PENRO Capiz',
+  'DENR PENRO Guimaras','DENR PENRO Iloilo','DENR PENRO Negros Occidental',
+  // Region VII
+  'DENR PENRO Bohol','DENR PENRO Cebu',
+  'DENR PENRO Negros Oriental','DENR PENRO Siquijor',
+  // Region VIII
+  'DENR PENRO Biliran','DENR PENRO Eastern Samar','DENR PENRO Leyte',
+  'DENR PENRO Northern Samar','DENR PENRO Samar','DENR PENRO Southern Leyte',
+  // Region IX
+  'DENR PENRO Zamboanga del Norte','DENR PENRO Zamboanga del Sur',
+  'DENR PENRO Zamboanga Sibugay',
+  // Region X
+  'DENR PENRO Bukidnon','DENR PENRO Camiguin',
+  'DENR PENRO Lanao del Norte','DENR PENRO Misamis Occidental',
+  'DENR PENRO Misamis Oriental',
+  // Region XI
+  'DENR PENRO Compostela Valley (Davao de Oro)','DENR PENRO Davao del Norte',
+  'DENR PENRO Davao del Sur','DENR PENRO Davao Occidental',
+  'DENR PENRO Davao Oriental',
+  // Region XII
+  'DENR PENRO Cotabato','DENR PENRO Sarangani',
+  'DENR PENRO South Cotabato','DENR PENRO Sultan Kudarat',
+  // Region XIII
+  'DENR PENRO Agusan del Norte','DENR PENRO Agusan del Sur',
+  'DENR PENRO Dinagat Islands','DENR PENRO Surigao del Norte',
+  'DENR PENRO Surigao del Sur',
+  // ── DENR CENROs — Region IV-A (CALABARZON) ────────────────────────────────
+  // Batangas
+  'DENR CENRO Batangas City','DENR CENRO Bauan','DENR CENRO Balayan',
+  'DENR CENRO Lipa City','DENR CENRO Nasugbu','DENR CENRO San Jose',
+  // Cavite
+  'DENR CENRO Bacoor','DENR CENRO Dasmariñas','DENR CENRO Naic',
+  'DENR CENRO Tagaytay City','DENR CENRO Trece Martires',
+  // Laguna
+  'DENR CENRO Biñan','DENR CENRO Calamba','DENR CENRO Los Baños',
+  'DENR CENRO Pagsanjan','DENR CENRO Santa Cruz',
+  // Quezon
+  'DENR CENRO Atimonan','DENR CENRO Gumaca','DENR CENRO Infanta',
+  'DENR CENRO Lopez','DENR CENRO Lucena City','DENR CENRO Mauban',
+  'DENR CENRO Quezon (Catanauan)','DENR CENRO Real','DENR CENRO Tayabas',
+  // Rizal
+  'DENR CENRO Antipolo','DENR CENRO Binangonan',
+  'DENR CENRO Morong','DENR CENRO Tanay',
+  // ── DENR CENROs — Region III (Central Luzon) ──────────────────────────────
+  'DENR CENRO Balanga (Bataan)','DENR CENRO Dinalupihan (Bataan)',
+  'DENR CENRO Bulacan (Malolos)','DENR CENRO San Jose del Monte (Bulacan)',
+  'DENR CENRO Cabanatuan (Nueva Ecija)','DENR CENRO Palayan (Nueva Ecija)',
+  'DENR CENRO San Jose (Nueva Ecija)',
+  'DENR CENRO Angeles (Pampanga)','DENR CENRO San Fernando (Pampanga)',
+  'DENR CENRO Tarlac City (Tarlac)',
+  'DENR CENRO Olongapo (Zambales)','DENR CENRO San Antonio (Zambales)',
+  'DENR CENRO Palauig (Zambales)',
+  'DENR CENRO Baler (Aurora)',
+  // ── DENR CENROs — Region I (Ilocos) ──────────────────────────────────────
+  'DENR CENRO Laoag (Ilocos Norte)','DENR CENRO Pagudpud (Ilocos Norte)',
+  'DENR CENRO Bangued (Abra)','DENR CENRO Vigan (Ilocos Sur)',
+  'DENR CENRO Candon (Ilocos Sur)',
+  'DENR CENRO San Fernando (La Union)','DENR CENRO Bauang (La Union)',
+  'DENR CENRO Alaminos (Pangasinan)','DENR CENRO Lingayen (Pangasinan)',
+  'DENR CENRO Urdaneta (Pangasinan)',
+  // ── DENR CENROs — Region II (Cagayan Valley) ─────────────────────────────
+  'DENR CENRO Aparri (Cagayan)','DENR CENRO Tuguegarao (Cagayan)',
+  'DENR CENRO Ilagan (Isabela)','DENR CENRO Cauayan (Isabela)',
+  'DENR CENRO Solano (Nueva Vizcaya)','DENR CENRO Bayombong (Nueva Vizcaya)',
+  'DENR CENRO Cabarroguis (Quirino)',
+  // ── DENR CENROs — CAR ────────────────────────────────────────────────────
+  'DENR CENRO Baguio City (Benguet)','DENR CENRO La Trinidad (Benguet)',
+  'DENR CENRO Bontoc (Mountain Province)',
+  'DENR CENRO Lagawe (Ifugao)','DENR CENRO Tabuk (Kalinga)',
+  'DENR CENRO Bangued (CAR/Abra)','DENR CENRO Luna (Apayao)',
+  // ── DENR CENROs — Region V (Bicol) ───────────────────────────────────────
+  'DENR CENRO Legazpi (Albay)','DENR CENRO Ligao (Albay)',
+  'DENR CENRO Tabaco (Albay)',
+  'DENR CENRO Daet (Camarines Norte)',
+  'DENR CENRO Naga (Camarines Sur)','DENR CENRO Iriga (Camarines Sur)',
+  'DENR CENRO Pili (Camarines Sur)',
+  'DENR CENRO Virac (Catanduanes)',
+  'DENR CENRO Masbate City','DENR CENRO Sorsogon City',
+  // ── DENR CENROs — Region VI (Western Visayas) ────────────────────────────
+  'DENR CENRO Kalibo (Aklan)','DENR CENRO San Jose (Antique)',
+  'DENR CENRO Roxas (Capiz)','DENR CENRO Jordan (Guimaras)',
+  'DENR CENRO Iloilo City','DENR CENRO Pototan (Iloilo)',
+  'DENR CENRO Bacolod (Negros Occidental)','DENR CENRO Kabankalan (Negros Occidental)',
+  'DENR CENRO San Carlos (Negros Occidental)',
+  // ── DENR CENROs — Region VII (Central Visayas) ───────────────────────────
+  'DENR CENRO Tagbilaran (Bohol)','DENR CENRO Talibon (Bohol)',
+  'DENR CENRO Carmen (Bohol)',
+  'DENR CENRO Cebu City','DENR CENRO Carcar (Cebu)','DENR CENRO Bogo (Cebu)',
+  'DENR CENRO Dumaguete (Negros Oriental)','DENR CENRO Bais (Negros Oriental)',
+  'DENR CENRO Siquijor',
+  // ── DENR CENROs — Region VIII (Eastern Visayas) ──────────────────────────
+  'DENR CENRO Naval (Biliran)',
+  'DENR CENRO Borongan (Eastern Samar)',
+  'DENR CENRO Tacloban (Leyte)','DENR CENRO Carigara (Leyte)',
+  'DENR CENRO Ormoc (Leyte)',
+  'DENR CENRO Catarman (Northern Samar)',
+  'DENR CENRO Calbayog (Samar)','DENR CENRO Catbalogan (Samar)',
+  'DENR CENRO Maasin (Southern Leyte)',
+  // ── DENR CENROs — Region IX (Zamboanga Peninsula) ────────────────────────
+  'DENR CENRO Dipolog (Zamboanga del Norte)',
+  'DENR CENRO Pagadian (Zamboanga del Sur)',
+  'DENR CENRO Zamboanga City',
+  'DENR CENRO Ipil (Zamboanga Sibugay)',
+  // ── DENR CENROs — Region X (Northern Mindanao) ───────────────────────────
+  'DENR CENRO Malaybalay (Bukidnon)','DENR CENRO Valencia (Bukidnon)',
+  'DENR CENRO Mambajao (Camiguin)',
+  'DENR CENRO Iligan (Lanao del Norte)',
+  'DENR CENRO Oroquieta (Misamis Occidental)',
+  'DENR CENRO Cagayan de Oro (Misamis Oriental)',
+  'DENR CENRO Gingoog (Misamis Oriental)',
+  // ── DENR CENROs — Region XI (Davao) ──────────────────────────────────────
+  'DENR CENRO Nabunturan (Davao de Oro)',
+  'DENR CENRO Tagum (Davao del Norte)','DENR CENRO Island Garden City of Samal',
+  'DENR CENRO Davao City','DENR CENRO Digos (Davao del Sur)',
+  'DENR CENRO Malita (Davao Occidental)',
+  'DENR CENRO Mati (Davao Oriental)',
+  // ── DENR CENROs — Region XII (SOCCSKSARGEN) ──────────────────────────────
+  'DENR CENRO Kidapawan (Cotabato)','DENR CENRO Kabacan (Cotabato)',
+  'DENR CENRO General Santos (Sarangani / South Cotabato)',
+  'DENR CENRO Koronadal (South Cotabato)',
+  'DENR CENRO Isulan (Sultan Kudarat)',
+  // ── DENR CENROs — Region XIII (CARAGA) ───────────────────────────────────
+  'DENR CENRO Butuan (Agusan del Norte)',
+  'DENR CENRO Prosperidad (Agusan del Sur)',
+  'DENR CENRO Dinagat (Dinagat Islands)',
+  'DENR CENRO Surigao City (Surigao del Norte)',
+  'DENR CENRO Tandag (Surigao del Sur)','DENR CENRO Bislig (Surigao del Sur)',
+  // ── EMB Regional Offices ──────────────────────────────────────────────────
+  'EMB Regional Office I','EMB Regional Office II','EMB Regional Office III',
+  'EMB Regional Office IV-A','EMB Regional Office IV-B','EMB Regional Office V',
+  'EMB Regional Office VI','EMB Regional Office VII','EMB Regional Office VIII',
+  'EMB Regional Office IX','EMB Regional Office X','EMB Regional Office XI',
+  'EMB Regional Office XII','EMB Regional Office XIII',
+  'EMB Regional Office CAR','EMB Regional Office NCR',
+  // ── MGB Regional Offices ──────────────────────────────────────────────────
+  'MGB Regional Office I','MGB Regional Office II','MGB Regional Office III',
+  'MGB Regional Office IV-A','MGB Regional Office IV-B','MGB Regional Office V',
+  'MGB Regional Office VI','MGB Regional Office VII','MGB Regional Office VIII',
+  'MGB Regional Office IX','MGB Regional Office X','MGB Regional Office XI',
+  'MGB Regional Office XII','MGB Regional Office XIII',
+  'MGB Regional Office CAR','MGB Regional Office NCR',
+];
+
+// ── AutocompleteInput Component ───────────────────────────────────────────────
+// Reusable combo-box: shows filtered suggestions as the user types,
+// accepts free-text, and optionally fires onAddCustom for new entries.
+const AutocompleteInput = ({ label, value, onChange, options, placeholder, onAddCustom }) => {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState(value || '');
+  const wrapRef = useRef(null);
+
+  // Keep local query in sync when parent resets the value (e.g. modal re-open)
+  useEffect(() => { setQuery(value || ''); }, [value]);
+
+  const filtered = React.useMemo(() => {
+    if (!query.trim()) return options.slice(0, 12);
+    const q = query.toLowerCase();
+    return options.filter(o => o.toLowerCase().includes(q)).slice(0, 12);
+  }, [query, options]);
+
+  // Is the typed value new (not already in list)?
+  const isNew = query.trim() !== '' && !options.some(
+    o => o.toLowerCase() === query.trim().toLowerCase()
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const commit = (val) => {
+    onChange(val);
+    setQuery(val);
+    if (onAddCustom && !options.some(o => o.toLowerCase() === val.toLowerCase())) {
+      onAddCustom(val);
+    }
+    setOpen(false);
+  };
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <label className="block text-xs font-semibold text-gray-700 mb-1">{label}</label>
+      <input
+        type="text"
+        value={query}
+        placeholder={placeholder}
+        onFocus={() => setOpen(true)}
+        onChange={e => { setQuery(e.target.value); onChange(e.target.value); setOpen(true); }}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition-all"
+      />
+      {open && (filtered.length > 0 || isNew) && (
+        <ul className="absolute z-[60] mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-52 overflow-y-auto">
+          {filtered.map((opt, i) => (
+            <li key={i}>
+              <button
+                type="button"
+                onMouseDown={() => commit(opt)}
+                className={`w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 hover:text-indigo-800 transition-colors ${
+                  opt.toLowerCase() === query.trim().toLowerCase() ? 'bg-indigo-50 font-semibold text-indigo-700' : 'text-gray-700'
+                }`}
+              >
+                {opt}
+              </button>
+            </li>
+          ))}
+          {isNew && (
+            <li>
+              <button
+                type="button"
+                onMouseDown={() => commit(query.trim())}
+                className="w-full text-left px-3 py-2 text-sm text-indigo-600 font-semibold hover:bg-indigo-50 border-t border-gray-100 transition-colors flex items-center gap-1.5"
+              >
+                <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Add &ldquo;{query.trim()}&rdquo;
+              </button>
+            </li>
+          )}
+        </ul>
       )}
     </div>
   );
