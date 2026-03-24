@@ -136,7 +136,7 @@ const SecretariatView = ({ user }) => {
   // Government Employment modal
   const [showGovtEmpModal, setShowGovtEmpModal] = useState(false);
   const [govtEmpCandidate, setGovtEmpCandidate] = useState(null);
-  const [govtEmpForm, setGovtEmpForm] = useState({ agency: '', position: '', status: '', employmentPeriod: '', remarks: '' });
+  const [govtEmpForm, setGovtEmpForm] = useState({ agency: '', position: '', status: '', employmentPeriod: '', employmentEndDate: '', remarks: '' });
   const [govtEmpLoading, setGovtEmpLoading] = useState(false);
   const [govtEmpCustomPositions, setGovtEmpCustomPositions] = useState([]);
   // Merge built-in positions from POSITIONS.txt with any custom ones added at runtime
@@ -612,11 +612,14 @@ const SecretariatView = ({ user }) => {
   const openGovtEmpModal = useCallback((candidate) => {
     setGovtEmpCandidate(candidate);
     setGovtEmpForm({
-      agency:           candidate.governmentEmployment?.agency           || '',
-      position:         candidate.governmentEmployment?.position         || '',
-      status:           candidate.governmentEmployment?.status           || '',
-      employmentPeriod: candidate.governmentEmployment?.employmentPeriod || '',
-      remarks:          candidate.governmentEmployment?.remarks          || ''
+      agency:              candidate.governmentEmployment?.agency              || '',
+      position:            candidate.governmentEmployment?.position            || '',
+      status:              candidate.governmentEmployment?.status              || '',
+      employmentPeriod:    candidate.governmentEmployment?.employmentPeriod    || '',
+      employmentEndDate:   candidate.governmentEmployment?.employmentEndDate
+                             ? candidate.governmentEmployment.employmentEndDate.toString().slice(0, 10)
+                             : '',
+      remarks:             candidate.governmentEmployment?.remarks             || ''
     });
     setShowGovtEmpModal(true);
   }, []);
@@ -624,7 +627,7 @@ const SecretariatView = ({ user }) => {
   const closeGovtEmpModal = useCallback(() => {
     setShowGovtEmpModal(false);
     setGovtEmpCandidate(null);
-    setGovtEmpForm({ agency: '', position: '', status: '' });
+    setGovtEmpForm({ agency: '', position: '', status: '', employmentPeriod: '', employmentEndDate: '', remarks: '' });
   }, []);
 
   const handleSaveGovtEmp = useCallback(async () => {
@@ -2445,6 +2448,41 @@ const SecretariatView = ({ user }) => {
         const ge = govtEmpCandidate.governmentEmployment;
         const isGovtEmp = ge && (ge.agency || ge.position || ge.status);
         const hasInput = govtEmpForm.agency || govtEmpForm.position || govtEmpForm.status;
+        const isWithin2Years = govtEmpForm.employmentPeriod === 'within_2_years';
+
+        // ── Audit: check employmentEndDate against the publication range's endDate ──
+        // The end date must fall within [pubEndDate − 2 years, pubEndDate] to be valid.
+        const pubRange = publicationRanges.find(r => r._id === selectedPublicationRange);
+        const pubEndDate = pubRange?.endDate ? new Date(pubRange.endDate) : null;
+
+        let endDateAudit = null; // null = no issue; object = warning info
+        if (isWithin2Years && govtEmpForm.employmentEndDate && pubEndDate) {
+          const empEnd = new Date(govtEmpForm.employmentEndDate);
+          const twoYearsBefore = new Date(pubEndDate);
+          twoYearsBefore.setFullYear(twoYearsBefore.getFullYear() - 2);
+
+          const afterPubEnd   = empEnd > pubEndDate;
+          const beforeCutoff  = empEnd < twoYearsBefore;
+
+          if (afterPubEnd) {
+            endDateAudit = {
+              type: 'error',
+              message: `Employment end date is after the publication end date (${pubEndDate.toLocaleDateString('en-PH', { year:'numeric', month:'short', day:'numeric' })}). This cannot be "within last 2 years" of the vacancy.`,
+            };
+          } else if (beforeCutoff) {
+            endDateAudit = {
+              type: 'warn',
+              message: `Employment ended more than 2 years before the publication end date (${pubEndDate.toLocaleDateString('en-PH', { year:'numeric', month:'short', day:'numeric' })}). This does NOT qualify as "within last 2 years."`,
+            };
+          }
+        } else if (isWithin2Years && govtEmpForm.employmentEndDate && !pubEndDate) {
+          // No publication range selected — cannot validate, soft notice
+          endDateAudit = {
+            type: 'info',
+            message: 'No publication range is selected, so the 2-year window cannot be verified automatically.',
+          };
+        }
+
         return (
           <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true" aria-labelledby="govt-emp-modal-title">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
@@ -2543,7 +2581,12 @@ const SecretariatView = ({ user }) => {
                           name="employmentPeriod"
                           value={value}
                           checked={govtEmpForm.employmentPeriod === value}
-                          onChange={() => setGovtEmpForm(f => ({ ...f, employmentPeriod: value }))}
+                          onChange={() => setGovtEmpForm(f => ({
+                            ...f,
+                            employmentPeriod: value,
+                            // Clear end date when switching away from within_2_years
+                            ...(value !== 'within_2_years' ? { employmentEndDate: '' } : {})
+                          }))}
                           className="peer sr-only"
                         />
                         <div className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border-2 border-gray-200 transition-all ${color}`}>
@@ -2558,13 +2601,83 @@ const SecretariatView = ({ user }) => {
                   {govtEmpForm.employmentPeriod && (
                     <button
                       type="button"
-                      onClick={() => setGovtEmpForm(f => ({ ...f, employmentPeriod: '' }))}
+                      onClick={() => setGovtEmpForm(f => ({ ...f, employmentPeriod: '', employmentEndDate: '' }))}
                       className="mt-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors"
                     >
                       Clear selection
                     </button>
                   )}
                 </div>
+
+                {/* ── Employment End Date (only when "Within Last 2 Years" is selected) ── */}
+                {isWithin2Years && (
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Employment End Date
+                      <span className="ml-1 font-normal text-gray-400">(date employment ended)</span>
+                    </label>
+                    <input
+                      type="date"
+                      value={govtEmpForm.employmentEndDate}
+                      max={pubEndDate ? pubEndDate.toISOString().slice(0, 10) : undefined}
+                      onChange={e => setGovtEmpForm(f => ({ ...f, employmentEndDate: e.target.value }))}
+                      className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent transition-all ${
+                        endDateAudit?.type === 'error' ? 'border-red-400 focus:ring-red-400 bg-red-50'    :
+                        endDateAudit?.type === 'warn'  ? 'border-amber-400 focus:ring-amber-400 bg-amber-50' :
+                        'border-gray-200 focus:ring-indigo-400'
+                      }`}
+                    />
+
+                    {/* Audit feedback banner */}
+                    {endDateAudit && (
+                      <div className={`mt-2 flex items-start gap-2 px-3 py-2.5 rounded-lg text-xs font-medium ${
+                        endDateAudit.type === 'error' ? 'bg-red-50 text-red-700 border border-red-200'     :
+                        endDateAudit.type === 'warn'  ? 'bg-amber-50 text-amber-800 border border-amber-200' :
+                        'bg-blue-50 text-blue-700 border border-blue-200'
+                      }`}>
+                        {/* Icon */}
+                        {endDateAudit.type === 'error' && (
+                          <svg className="w-4 h-4 shrink-0 mt-px text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        )}
+                        {endDateAudit.type === 'warn' && (
+                          <svg className="w-4 h-4 shrink-0 mt-px text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                          </svg>
+                        )}
+                        {endDateAudit.type === 'info' && (
+                          <svg className="w-4 h-4 shrink-0 mt-px text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        )}
+                        <span>{endDateAudit.message}</span>
+                      </div>
+                    )}
+
+                    {/* Helpful context when all is valid */}
+                    {!endDateAudit && govtEmpForm.employmentEndDate && pubEndDate && (
+                      <div className="mt-2 flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium bg-green-50 text-green-700 border border-green-200">
+                        <svg className="w-4 h-4 shrink-0 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span>
+                          End date is within 2 years of the publication end date ({pubEndDate.toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' })}).
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Nudge to fill in date if blank */}
+                    {!govtEmpForm.employmentEndDate && (
+                      <p className="mt-1.5 text-xs text-amber-600 flex items-center gap-1">
+                        <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                        </svg>
+                        Please specify the date this employment ended so it can be verified.
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 {/* Remarks */}
                 <div>
@@ -2597,8 +2710,9 @@ const SecretariatView = ({ user }) => {
                 </button>
                 <button
                   onClick={handleSaveGovtEmp}
-                  disabled={govtEmpLoading}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold text-white transition-all hover:opacity-90 disabled:opacity-50"
+                  disabled={govtEmpLoading || endDateAudit?.type === 'error'}
+                  title={endDateAudit?.type === 'error' ? 'Fix the employment end date error before saving.' : undefined}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold text-white transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{ background: 'linear-gradient(135deg,#4f46e5,#6366f1)' }}
                 >
                   {govtEmpLoading ? (
