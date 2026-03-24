@@ -2482,9 +2482,9 @@ const SecretariatView = ({ user }) => {
 
         return (
           <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true" aria-labelledby="govt-emp-modal-title">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl">
               {/* Header */}
-              <div className="px-6 pt-6 pb-4 border-b border-gray-100 flex items-center justify-between">
+              <div className="px-6 pt-5 pb-4 border-b border-gray-100 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${
                     hasInput && govtEmpForm.employmentPeriod === 'present'        ? 'bg-emerald-100' :
@@ -2501,7 +2501,7 @@ const SecretariatView = ({ user }) => {
                   </div>
                   <div>
                     <h2 id="govt-emp-modal-title" className="text-sm font-bold text-gray-900">Government Employment</h2>
-                    <p className="text-xs text-gray-500 truncate max-w-[220px]">{govtEmpCandidate.fullName}</p>
+                    <p className="text-xs text-gray-500">{govtEmpCandidate.fullName}</p>
                   </div>
                 </div>
                 <button onClick={closeGovtEmpModal} className="text-gray-400 hover:text-gray-600 transition-colors" aria-label="Close">
@@ -2527,91 +2527,47 @@ const SecretariatView = ({ user }) => {
                    hasInput ? 'Government employee (period not set)' : 'No government employment details set'}
                 </div>
 
-                {/* Agency */}
-                <AutocompleteInput
-                  label="Government Agency"
-                  value={govtEmpForm.agency}
-                  onChange={v => setGovtEmpForm(f => ({ ...f, agency: v }))}
-                  options={PH_GOVERNMENT_AGENCIES}
-                  placeholder="Type to search agencies…"
-                />
-
-                {/* Position */}
-                <AutocompleteInput
-                  label="Position"
-                  value={govtEmpForm.position}
-                  onChange={v => setGovtEmpForm(f => ({ ...f, position: v }))}
-                  options={govtEmpPositions}
-                  onAddCustom={newVal => setGovtEmpCustomPositions(prev =>
-                    prev.includes(newVal) ? prev : [...prev, newVal]
-                  )}
-                  placeholder="Type to search positions…"
-                />
-
-                {/* Employment Status */}
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Employment Status</label>
-                  <select
-                    value={govtEmpForm.status}
-                    onChange={e => setGovtEmpForm(f => ({ ...f, status: e.target.value }))}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition-all bg-white"
-                  >
-                    <option value="">— Select status —</option>
-                    <option value="Permanent">Permanent</option>
-                    <option value="Casual">Casual</option>
-                    <option value="Contractual-PS">Contractual-PS</option>
-                    <option value="Contractual">Contractual</option>
-                  </select>
+                {/* Row 1: Agency + Position */}
+                <div className="grid grid-cols-2 gap-4">
+                  <AutocompleteInput
+                    label="Government Agency"
+                    value={govtEmpForm.agency}
+                    onChange={v => setGovtEmpForm(f => ({ ...f, agency: v }))}
+                    options={PH_GOVERNMENT_AGENCIES}
+                    placeholder="Type to search agencies…"
+                  />
+                  <AutocompleteInput
+                    label="Position"
+                    value={govtEmpForm.position}
+                    onChange={v => setGovtEmpForm(f => ({ ...f, position: v }))}
+                    options={govtEmpPositions}
+                    onAddCustom={newVal => setGovtEmpCustomPositions(prev =>
+                      prev.includes(newVal) ? prev : [...prev, newVal]
+                    )}
+                    placeholder="Type to search positions…"
+                  />
                 </div>
 
-                {/* Employment Period */}
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-2">Employment Period</label>
-                  <div className="flex gap-3">
-                    {[
-                      { value: 'present',        label: 'Present Employment',   color: 'peer-checked:border-emerald-500 peer-checked:bg-emerald-50', dot: 'bg-emerald-500', text: 'peer-checked:text-emerald-700' },
-                      { value: 'within_2_years', label: 'Within Last 2 Years',  color: 'peer-checked:border-amber-500 peer-checked:bg-amber-50',   dot: 'bg-amber-500',   text: 'peer-checked:text-amber-700'  },
-                    ].map(({ value, label, color, dot, text }) => (
-                      <label key={value} className="flex-1 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="employmentPeriod"
-                          value={value}
-                          checked={govtEmpForm.employmentPeriod === value}
-                          onChange={() => setGovtEmpForm(f => ({
-                            ...f,
-                            employmentPeriod: value,
-                            // Clear end date when switching away from within_2_years
-                            ...(value !== 'within_2_years' ? { employmentEndDate: '' } : {})
-                          }))}
-                          className="peer sr-only"
-                        />
-                        <div className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border-2 border-gray-200 transition-all ${color}`}>
-                          <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${govtEmpForm.employmentPeriod === value ? dot : 'bg-gray-300'}`} />
-                          <span className={`text-xs font-semibold ${govtEmpForm.employmentPeriod === value ? text.replace('peer-checked:', '') : 'text-gray-500'}`}>
-                            {label}
-                          </span>
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-                  {govtEmpForm.employmentPeriod && (
-                    <button
-                      type="button"
-                      onClick={() => setGovtEmpForm(f => ({ ...f, employmentPeriod: '', employmentEndDate: '' }))}
-                      className="mt-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                {/* Row 2: Employment Status + Employment End Date (conditional) */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Employment Status</label>
+                    <select
+                      value={govtEmpForm.status}
+                      onChange={e => setGovtEmpForm(f => ({ ...f, status: e.target.value }))}
+                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition-all bg-white"
                     >
-                      Clear selection
-                    </button>
-                  )}
-                </div>
-
-                {/* ── Employment End Date (only when "Within Last 2 Years" is selected) ── */}
-                {isWithin2Years && (
+                      <option value="">— Select status —</option>
+                      <option value="Permanent">Permanent</option>
+                      <option value="Casual">Casual</option>
+                      <option value="Contractual-PS">Contractual-PS</option>
+                      <option value="Contractual">Contractual</option>
+                    </select>
+                  </div>
                   <div>
                     <label className="block text-xs font-semibold text-gray-700 mb-1">
                       Employment End Date
-                      <span className="ml-1 font-normal text-gray-400">(date employment ended)</span>
+                      <span className="ml-1 font-normal text-gray-400">(if applicable)</span>
                     </label>
                     <input
                       type="date"
@@ -2619,98 +2575,103 @@ const SecretariatView = ({ user }) => {
                       max={pubEndDate ? pubEndDate.toISOString().slice(0, 10) : undefined}
                       onChange={e => setGovtEmpForm(f => ({ ...f, employmentEndDate: e.target.value }))}
                       className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent transition-all ${
-                        endDateAudit?.type === 'error' ? 'border-red-400 focus:ring-red-400 bg-red-50'    :
+                        endDateAudit?.type === 'error' ? 'border-red-400 focus:ring-red-400 bg-red-50'       :
                         endDateAudit?.type === 'warn'  ? 'border-amber-400 focus:ring-amber-400 bg-amber-50' :
                         'border-gray-200 focus:ring-indigo-400'
                       }`}
                     />
+                  </div>
+                </div>
 
-                    {/* Audit feedback banner */}
-                    {endDateAudit && (
-                      <div className={`mt-2 flex items-start gap-2 px-3 py-2.5 rounded-lg text-xs font-medium ${
-                        endDateAudit.type === 'error' ? 'bg-red-50 text-red-700 border border-red-200'     :
-                        endDateAudit.type === 'warn'  ? 'bg-amber-50 text-amber-800 border border-amber-200' :
-                        'bg-blue-50 text-blue-700 border border-blue-200'
-                      }`}>
-                        {/* Icon */}
-                        {endDateAudit.type === 'error' && (
-                          <svg className="w-4 h-4 shrink-0 mt-px text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                        )}
-                        {endDateAudit.type === 'warn' && (
-                          <svg className="w-4 h-4 shrink-0 mt-px text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-                          </svg>
-                        )}
-                        {endDateAudit.type === 'info' && (
-                          <svg className="w-4 h-4 shrink-0 mt-px text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                        )}
-                        <span>{endDateAudit.message}</span>
-                      </div>
-                    )}
-
-                    {/* Helpful context when all is valid */}
-                    {!endDateAudit && govtEmpForm.employmentEndDate && pubEndDate && (
-                      <div className="mt-2 flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium bg-green-50 text-green-700 border border-green-200">
-                        <svg className="w-4 h-4 shrink-0 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <span>
-                          End date is within 2 years of the publication end date ({pubEndDate.toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' })}).
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Nudge to fill in date if blank */}
-                    {!govtEmpForm.employmentEndDate && (
-                      <p className="mt-1.5 text-xs text-amber-600 flex items-center gap-1">
-                        <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-                        </svg>
-                        Please specify the date this employment ended so it can be verified.
-                      </p>
-                    )}
+                {/* Audit feedback banner for end date */}
+                {isWithin2Years && endDateAudit && (
+                  <div className={`flex items-start gap-2 px-3 py-2.5 rounded-lg text-xs font-medium ${
+                    endDateAudit.type === 'error' ? 'bg-red-50 text-red-700 border border-red-200'       :
+                    endDateAudit.type === 'warn'  ? 'bg-amber-50 text-amber-800 border border-amber-200' :
+                    'bg-blue-50 text-blue-700 border border-blue-200'
+                  }`}>
+                    {endDateAudit.type === 'error' && <svg className="w-4 h-4 shrink-0 mt-px text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+                    {endDateAudit.type === 'warn'  && <svg className="w-4 h-4 shrink-0 mt-px text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>}
+                    {endDateAudit.type === 'info'  && <svg className="w-4 h-4 shrink-0 mt-px text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+                    <span>{endDateAudit.message}</span>
                   </div>
                 )}
-
-                {/* In Consideration of Pre-Assessment Examination */}
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-2">In Consideration of Pre-Assessment Examination</label>
-                  <div className="flex gap-3">
-                    {[
-                      { value: 'more_than_6_months', label: 'More than 6 Months', color: 'peer-checked:border-indigo-500 peer-checked:bg-indigo-50', dot: 'bg-indigo-500', text: 'peer-checked:text-indigo-700' },
-                      { value: 'less_than_6_months', label: 'Less than 6 Months', color: 'peer-checked:border-violet-500 peer-checked:bg-violet-50', dot: 'bg-violet-500', text: 'peer-checked:text-violet-700' },
-                    ].map(({ value, label, color, dot, text }) => (
-                      <label key={value} className="flex-1 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="preAssessmentExam"
-                          value={value}
-                          checked={govtEmpForm.preAssessmentExam === value}
-                          onChange={() => setGovtEmpForm(f => ({ ...f, preAssessmentExam: value }))}
-                          className="peer sr-only"
-                        />
-                        <div className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border-2 border-gray-200 transition-all ${color}`}>
-                          <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${govtEmpForm.preAssessmentExam === value ? dot : 'bg-gray-300'}`} />
-                          <span className={`text-xs font-semibold ${govtEmpForm.preAssessmentExam === value ? text.replace('peer-checked:', '') : 'text-gray-500'}`}>
-                            {label}
-                          </span>
-                        </div>
-                      </label>
-                    ))}
+                {isWithin2Years && !endDateAudit && govtEmpForm.employmentEndDate && pubEndDate && (
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium bg-green-50 text-green-700 border border-green-200">
+                    <svg className="w-4 h-4 shrink-0 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    <span>End date is within 2 years of the publication end date ({pubEndDate.toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' })}).</span>
                   </div>
-                  {govtEmpForm.preAssessmentExam && (
-                    <button
-                      type="button"
-                      onClick={() => setGovtEmpForm(f => ({ ...f, preAssessmentExam: '' }))}
-                      className="mt-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors"
-                    >
-                      Clear selection
-                    </button>
-                  )}
+                )}
+                {isWithin2Years && !govtEmpForm.employmentEndDate && (
+                  <p className="text-xs text-amber-600 flex items-center gap-1">
+                    <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
+                    Please specify the date this employment ended so it can be verified.
+                  </p>
+                )}
+
+                {/* Row 3: Employment Period + Pre-Assessment Exam side by side */}
+                <div className="grid grid-cols-2 gap-4">
+                  {/* Employment Period */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-2">Employment Period</label>
+                    <div className="flex flex-col gap-2">
+                      {[
+                        { value: 'present',        label: 'Present Employment',  color: 'peer-checked:border-emerald-500 peer-checked:bg-emerald-50', dot: 'bg-emerald-500', text: 'peer-checked:text-emerald-700' },
+                        { value: 'within_2_years', label: 'Within Last 2 Years', color: 'peer-checked:border-amber-500 peer-checked:bg-amber-50',     dot: 'bg-amber-500',   text: 'peer-checked:text-amber-700'  },
+                      ].map(({ value, label, color, dot, text }) => (
+                        <label key={value} className="cursor-pointer">
+                          <input
+                            type="radio"
+                            name="employmentPeriod"
+                            value={value}
+                            checked={govtEmpForm.employmentPeriod === value}
+                            onChange={() => setGovtEmpForm(f => ({
+                              ...f,
+                              employmentPeriod: value,
+                              ...(value !== 'within_2_years' ? { employmentEndDate: '' } : {})
+                            }))}
+                            className="peer sr-only"
+                          />
+                          <div className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border-2 border-gray-200 transition-all ${color}`}>
+                            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${govtEmpForm.employmentPeriod === value ? dot : 'bg-gray-300'}`} />
+                            <span className={`text-xs font-semibold ${govtEmpForm.employmentPeriod === value ? text.replace('peer-checked:', '') : 'text-gray-500'}`}>{label}</span>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                    {govtEmpForm.employmentPeriod && (
+                      <button type="button" onClick={() => setGovtEmpForm(f => ({ ...f, employmentPeriod: '', employmentEndDate: '' }))} className="mt-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors">Clear selection</button>
+                    )}
+                  </div>
+
+                  {/* Pre-Assessment Examination */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-2">In Consideration of Pre-Assessment Examination</label>
+                    <div className="flex flex-col gap-2">
+                      {[
+                        { value: 'more_than_6_months', label: 'More than 6 Months', color: 'peer-checked:border-indigo-500 peer-checked:bg-indigo-50', dot: 'bg-indigo-500', text: 'peer-checked:text-indigo-700' },
+                        { value: 'less_than_6_months', label: 'Less than 6 Months', color: 'peer-checked:border-violet-500 peer-checked:bg-violet-50', dot: 'bg-violet-500', text: 'peer-checked:text-violet-700' },
+                      ].map(({ value, label, color, dot, text }) => (
+                        <label key={value} className="cursor-pointer">
+                          <input
+                            type="radio"
+                            name="preAssessmentExam"
+                            value={value}
+                            checked={govtEmpForm.preAssessmentExam === value}
+                            onChange={() => setGovtEmpForm(f => ({ ...f, preAssessmentExam: value }))}
+                            className="peer sr-only"
+                          />
+                          <div className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border-2 border-gray-200 transition-all ${color}`}>
+                            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${govtEmpForm.preAssessmentExam === value ? dot : 'bg-gray-300'}`} />
+                            <span className={`text-xs font-semibold ${govtEmpForm.preAssessmentExam === value ? text.replace('peer-checked:', '') : 'text-gray-500'}`}>{label}</span>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                    {govtEmpForm.preAssessmentExam && (
+                      <button type="button" onClick={() => setGovtEmpForm(f => ({ ...f, preAssessmentExam: '' }))} className="mt-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors">Clear selection</button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Remarks */}
@@ -2720,7 +2681,7 @@ const SecretariatView = ({ user }) => {
                     value={govtEmpForm.remarks}
                     onChange={e => setGovtEmpForm(f => ({ ...f, remarks: e.target.value }))}
                     placeholder="Optional notes about this employment…"
-                    rows={3}
+                    rows={2}
                     className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition-all resize-none"
                   />
                 </div>

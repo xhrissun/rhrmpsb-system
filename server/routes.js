@@ -1159,11 +1159,13 @@ router.put('/candidates/:id', authMiddleware, async (req, res) => {
 
     if (req.body.hasOwnProperty('governmentEmployment')) {
       updateData.governmentEmployment = {
-        agency:           req.body.governmentEmployment?.agency           || '',
-        position:         req.body.governmentEmployment?.position         || '',
-        status:           req.body.governmentEmployment?.status           || '',
-        employmentPeriod: req.body.governmentEmployment?.employmentPeriod || '',
-        remarks:          req.body.governmentEmployment?.remarks          || ''
+        agency:            req.body.governmentEmployment?.agency            || '',
+        position:          req.body.governmentEmployment?.position          || '',
+        status:            req.body.governmentEmployment?.status            || '',
+        employmentPeriod:  req.body.governmentEmployment?.employmentPeriod  || '',
+        employmentEndDate: req.body.governmentEmployment?.employmentEndDate || null,
+        preAssessmentExam: req.body.governmentEmployment?.preAssessmentExam || '',
+        remarks:           req.body.governmentEmployment?.remarks           || ''
       };
     }
 
