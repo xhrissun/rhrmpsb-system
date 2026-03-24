@@ -751,13 +751,20 @@ router.get('/candidates/export-summary-csv', exportLimiter, authMiddleware, asyn
     const headers = [
       'Full Name', 'Gender', 'Item Number', 'Position Applied',
       'Status', 'Education Comments', 'Training Comments',
-      'Experience Comments', 'Eligibility Comments'
+      'Experience Comments', 'Eligibility Comments',
+      'Govt Agency', 'Govt Position', 'Govt Employment Status', 'Govt Employment Period', 'Govt Remarks'
     ];
     const rows = candidates.map(c => [
       c.fullName || '', c.gender || '', c.itemNumber || '',
       itemNumberToPosition[c.itemNumber] || 'N/A', c.status || '',
       c.comments?.education || '', c.comments?.training || '',
-      c.comments?.experience || '', c.comments?.eligibility || ''
+      c.comments?.experience || '', c.comments?.eligibility || '',
+      c.governmentEmployment?.agency           || '',
+      c.governmentEmployment?.position         || '',
+      c.governmentEmployment?.status           || '',
+      c.governmentEmployment?.employmentPeriod === 'present'        ? 'Present Employment'  :
+      c.governmentEmployment?.employmentPeriod === 'within_2_years' ? 'Within Last 2 Years' : '',
+      c.governmentEmployment?.remarks          || ''
     ]);
 
     const csvContent = [headers, ...rows].map(r => r.map(escapeCsvValue).join(',')).join('\n');
@@ -813,7 +820,8 @@ router.get('/candidates/export-csv', exportLimiter, authMiddleware, async (req, 
       'Eligibility Comments', 'Eligibility Last Updated By', 'Eligibility Last Updated At',
       'Professional License', 'Letter of Intent', 'Personal Data Sheet',
       'Work Experience Sheet', 'Proof of Eligibility', 'Certificates', 'IPCR',
-      'Certificate of Employment', 'Diploma', 'Transcript of Records'
+      'Certificate of Employment', 'Diploma', 'Transcript of Records',
+      'Govt Agency', 'Govt Position', 'Govt Employment Status', 'Govt Employment Period', 'Govt Remarks'
     ];
 
     const rows = candidates.map(c => {
@@ -831,7 +839,13 @@ router.get('/candidates/export-csv', exportLimiter, authMiddleware, async (req, 
         c.comments?.eligibility||'', elig.name, elig.date,
         c.professionalLicense||'', c.letterOfIntent||'', c.personalDataSheet||'',
         c.workExperienceSheet||'', c.proofOfEligibility||'', c.certificates||'',
-        c.ipcr||'', c.certificateOfEmployment||'', c.diploma||'', c.transcriptOfRecords||''
+        c.ipcr||'', c.certificateOfEmployment||'', c.diploma||'', c.transcriptOfRecords||'',
+        c.governmentEmployment?.agency           || '',
+        c.governmentEmployment?.position         || '',
+        c.governmentEmployment?.status           || '',
+        c.governmentEmployment?.employmentPeriod === 'present'       ? 'Present Employment'  :
+        c.governmentEmployment?.employmentPeriod === 'within_2_years'? 'Within Last 2 Years' : '',
+        c.governmentEmployment?.remarks          || ''
       ];
     });
 
@@ -1133,10 +1147,11 @@ router.put('/candidates/:id', authMiddleware, async (req, res) => {
 
     if (req.body.hasOwnProperty('governmentEmployment')) {
       updateData.governmentEmployment = {
-        agency:   req.body.governmentEmployment?.agency   || '',
-        position: req.body.governmentEmployment?.position || '',
-        status:   req.body.governmentEmployment?.status   || '',
-        remarks:  req.body.governmentEmployment?.remarks  || ''
+        agency:           req.body.governmentEmployment?.agency           || '',
+        position:         req.body.governmentEmployment?.position         || '',
+        status:           req.body.governmentEmployment?.status           || '',
+        employmentPeriod: req.body.governmentEmployment?.employmentPeriod || '',
+        remarks:          req.body.governmentEmployment?.remarks          || ''
       };
     }
 

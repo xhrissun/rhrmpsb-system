@@ -135,6 +135,11 @@ const candidateSchema = new mongoose.Schema({
       enum: ['', 'Permanent', 'Casual', 'Contractual-PS', 'Contractual'],
       default: ''
     },
+    employmentPeriod: {
+      type: String,
+      enum: ['', 'present', 'within_2_years'],
+      default: ''
+    },
     remarks:  { type: String, trim: true, default: '' }
   },
   isArchived: { type: Boolean, default: false },

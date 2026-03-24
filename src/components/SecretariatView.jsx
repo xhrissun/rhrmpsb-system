@@ -136,7 +136,7 @@ const SecretariatView = ({ user }) => {
   // Government Employment modal
   const [showGovtEmpModal, setShowGovtEmpModal] = useState(false);
   const [govtEmpCandidate, setGovtEmpCandidate] = useState(null);
-  const [govtEmpForm, setGovtEmpForm] = useState({ agency: '', position: '', status: '', remarks: '' });
+  const [govtEmpForm, setGovtEmpForm] = useState({ agency: '', position: '', status: '', employmentPeriod: '', remarks: '' });
   const [govtEmpLoading, setGovtEmpLoading] = useState(false);
   const [govtEmpCustomPositions, setGovtEmpCustomPositions] = useState([]);
   // Merge built-in positions from POSITIONS.txt with any custom ones added at runtime
@@ -612,10 +612,11 @@ const SecretariatView = ({ user }) => {
   const openGovtEmpModal = useCallback((candidate) => {
     setGovtEmpCandidate(candidate);
     setGovtEmpForm({
-      agency:   candidate.governmentEmployment?.agency   || '',
-      position: candidate.governmentEmployment?.position || '',
-      status:   candidate.governmentEmployment?.status   || '',
-      remarks:  candidate.governmentEmployment?.remarks  || ''
+      agency:           candidate.governmentEmployment?.agency           || '',
+      position:         candidate.governmentEmployment?.position         || '',
+      status:           candidate.governmentEmployment?.status           || '',
+      employmentPeriod: candidate.governmentEmployment?.employmentPeriod || '',
+      remarks:          candidate.governmentEmployment?.remarks          || ''
     });
     setShowGovtEmpModal(true);
   }, []);
@@ -1337,25 +1338,32 @@ const SecretariatView = ({ user }) => {
                               {(() => {
                                 const ge = candidate.governmentEmployment;
                                 const isGovtEmp = ge && (ge.agency || ge.position || ge.status);
+                                const isPresent = isGovtEmp && ge.employmentPeriod === 'present';
+                                const isRecent  = isGovtEmp && ge.employmentPeriod === 'within_2_years';
+                                const iconColor = isPresent ? 'text-emerald-600'
+                                                : isRecent  ? 'text-amber-500'
+                                                : isGovtEmp ? 'text-indigo-400'
+                                                : 'text-gray-300 hover:text-gray-400';
+                                const tooltip = isPresent ? `Present Govt Employee — ${ge.agency || ''}${ge.position ? ' · ' + ge.position : ''}${ge.status ? ' · ' + ge.status : ''}`
+                                              : isRecent  ? `Within Last 2 Years — ${ge.agency || ''}${ge.position ? ' · ' + ge.position : ''}${ge.status ? ' · ' + ge.status : ''}`
+                                              : isGovtEmp ? `Govt Employee — ${ge.agency || ''}${ge.position ? ' · ' + ge.position : ''}`
+                                              : 'Set government employment details';
                                 return (
                                   <button
                                     type="button"
                                     onClick={() => openGovtEmpModal(candidate)}
-                                    title={isGovtEmp
-                                      ? `Govt Employee — ${ge.agency || ''}${ge.position ? ' · ' + ge.position : ''}${ge.status ? ' · ' + ge.status : ''}`
-                                      : 'Set government employment details'}
-                                    aria-label={isGovtEmp ? 'Government employee (click to edit)' : 'Not a government employee (click to set)'}
+                                    title={tooltip}
+                                    aria-label={tooltip}
                                     className="shrink-0 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-indigo-400 rounded-full transition-transform hover:scale-110"
                                   >
                                     <svg
                                       xmlns="http://www.w3.org/2000/svg"
                                       viewBox="0 0 24 24"
-                                      className={`w-4 h-4 transition-colors ${isGovtEmp ? 'text-indigo-600' : 'text-gray-300 hover:text-gray-400'}`}
+                                      className={`w-4 h-4 transition-colors ${iconColor}`}
                                       fill={isGovtEmp ? 'currentColor' : 'none'}
                                       stroke="currentColor"
                                       strokeWidth={isGovtEmp ? 0 : 1.5}
                                     >
-                                      {/* Government building / institution icon */}
                                       <path strokeLinecap="round" strokeLinejoin="round" d="M12 3L2 9h2v10h3v-6h3v6h4v-6h3v6h3V9h2L12 3z" />
                                       <rect x="10" y="15" width="4" height="4" />
                                     </svg>
@@ -2443,8 +2451,16 @@ const SecretariatView = ({ user }) => {
               {/* Header */}
               <div className="px-6 pt-6 pb-4 border-b border-gray-100 flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${hasInput ? 'bg-indigo-100' : 'bg-gray-100'}`}>
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className={`w-5 h-5 ${hasInput ? 'text-indigo-600' : 'text-gray-400'}`} fill="currentColor">
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${
+                    hasInput && govtEmpForm.employmentPeriod === 'present'        ? 'bg-emerald-100' :
+                    hasInput && govtEmpForm.employmentPeriod === 'within_2_years' ? 'bg-amber-100'   :
+                    hasInput ? 'bg-indigo-100' : 'bg-gray-100'
+                  }`}>
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className={`w-5 h-5 ${
+                      hasInput && govtEmpForm.employmentPeriod === 'present'        ? 'text-emerald-600' :
+                      hasInput && govtEmpForm.employmentPeriod === 'within_2_years' ? 'text-amber-500'   :
+                      hasInput ? 'text-indigo-600' : 'text-gray-400'
+                    }`} fill="currentColor">
                       <path d="M12 3L2 9h2v10h3v-6h3v6h4v-6h3v6h3V9h2L12 3z" />
                     </svg>
                   </div>
@@ -2461,9 +2477,19 @@ const SecretariatView = ({ user }) => {
               {/* Body */}
               <div className="px-6 py-5 space-y-4">
                 {/* Status pill */}
-                <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold ${hasInput ? 'bg-indigo-50 text-indigo-700' : 'bg-gray-50 text-gray-500'}`}>
-                  <span className={`w-2 h-2 rounded-full shrink-0 ${hasInput ? 'bg-indigo-500' : 'bg-gray-300'}`} />
-                  {hasInput ? 'Applicant is a present government employee' : 'No government employment details set'}
+                <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold ${
+                  hasInput && govtEmpForm.employmentPeriod === 'present'        ? 'bg-emerald-50 text-emerald-700' :
+                  hasInput && govtEmpForm.employmentPeriod === 'within_2_years' ? 'bg-amber-50 text-amber-700'     :
+                  hasInput ? 'bg-indigo-50 text-indigo-700' : 'bg-gray-50 text-gray-500'
+                }`}>
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${
+                    hasInput && govtEmpForm.employmentPeriod === 'present'        ? 'bg-emerald-500' :
+                    hasInput && govtEmpForm.employmentPeriod === 'within_2_years' ? 'bg-amber-500'   :
+                    hasInput ? 'bg-indigo-500' : 'bg-gray-300'
+                  }`} />
+                  {hasInput && govtEmpForm.employmentPeriod === 'present'        ? 'Present government employee' :
+                   hasInput && govtEmpForm.employmentPeriod === 'within_2_years' ? 'Government employee within last 2 years' :
+                   hasInput ? 'Government employee (period not set)' : 'No government employment details set'}
                 </div>
 
                 {/* Agency */}
@@ -2501,6 +2527,43 @@ const SecretariatView = ({ user }) => {
                     <option value="Contractual-PS">Contractual-PS</option>
                     <option value="Contractual">Contractual</option>
                   </select>
+                </div>
+
+                {/* Employment Period */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-2">Employment Period</label>
+                  <div className="flex gap-3">
+                    {[
+                      { value: 'present',        label: 'Present Employment',   color: 'peer-checked:border-emerald-500 peer-checked:bg-emerald-50', dot: 'bg-emerald-500', text: 'peer-checked:text-emerald-700' },
+                      { value: 'within_2_years', label: 'Within Last 2 Years',  color: 'peer-checked:border-amber-500 peer-checked:bg-amber-50',   dot: 'bg-amber-500',   text: 'peer-checked:text-amber-700'  },
+                    ].map(({ value, label, color, dot, text }) => (
+                      <label key={value} className="flex-1 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="employmentPeriod"
+                          value={value}
+                          checked={govtEmpForm.employmentPeriod === value}
+                          onChange={() => setGovtEmpForm(f => ({ ...f, employmentPeriod: value }))}
+                          className="peer sr-only"
+                        />
+                        <div className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border-2 border-gray-200 transition-all ${color}`}>
+                          <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${govtEmpForm.employmentPeriod === value ? dot : 'bg-gray-300'}`} />
+                          <span className={`text-xs font-semibold ${govtEmpForm.employmentPeriod === value ? text.replace('peer-checked:', '') : 'text-gray-500'}`}>
+                            {label}
+                          </span>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                  {govtEmpForm.employmentPeriod && (
+                    <button
+                      type="button"
+                      onClick={() => setGovtEmpForm(f => ({ ...f, employmentPeriod: '' }))}
+                      className="mt-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                    >
+                      Clear selection
+                    </button>
+                  )}
                 </div>
 
                 {/* Remarks */}
