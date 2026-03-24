@@ -133,6 +133,12 @@ const SecretariatView = ({ user }) => {
     eligibility: []
   });
 
+  // Government Employment modal
+  const [showGovtEmpModal, setShowGovtEmpModal] = useState(false);
+  const [govtEmpCandidate, setGovtEmpCandidate] = useState(null);
+  const [govtEmpForm, setGovtEmpForm] = useState({ agency: '', position: '', status: '' });
+  const [govtEmpLoading, setGovtEmpLoading] = useState(false);
+
   const [statusFilter, setStatusFilter] = useState(null);
   const [showAssignmentSummary, setShowAssignmentSummary] = useState(false);
   const [showCBSManual, setShowCBSManual] = useState(false);
@@ -596,6 +602,44 @@ const SecretariatView = ({ user }) => {
     setShowCommentHistoryModal(false);
     setCommentHistoryData(null);
   }, []);
+
+  const openGovtEmpModal = useCallback((candidate) => {
+    setGovtEmpCandidate(candidate);
+    setGovtEmpForm({
+      agency:   candidate.governmentEmployment?.agency   || '',
+      position: candidate.governmentEmployment?.position || '',
+      status:   candidate.governmentEmployment?.status   || ''
+    });
+    setShowGovtEmpModal(true);
+  }, []);
+
+  const closeGovtEmpModal = useCallback(() => {
+    setShowGovtEmpModal(false);
+    setGovtEmpCandidate(null);
+    setGovtEmpForm({ agency: '', position: '', status: '' });
+  }, []);
+
+  const handleSaveGovtEmp = useCallback(async () => {
+    if (!govtEmpCandidate) return;
+    setGovtEmpLoading(true);
+    try {
+      const updated = await candidatesAPI.update(govtEmpCandidate._id, {
+        governmentEmployment: govtEmpForm
+      });
+      setCandidates(prev =>
+        prev.map(c => c._id === govtEmpCandidate._id
+          ? { ...c, governmentEmployment: updated.governmentEmployment }
+          : c
+        )
+      );
+      showToast('Government employment details saved.', 'success');
+      closeGovtEmpModal();
+    } catch (err) {
+      showToast('Failed to save: ' + (err.response?.data?.message || err.message), 'error');
+    } finally {
+      setGovtEmpLoading(false);
+    }
+  }, [govtEmpCandidate, govtEmpForm, closeGovtEmpModal, showToast]);
 
   const handleExportCSV = useCallback(async () => {
     try {
@@ -1282,6 +1326,35 @@ const SecretariatView = ({ user }) => {
                                   ARCHIVED
                                 </span>
                               )}
+                              {/* Government Employee indicator */}
+                              {(() => {
+                                const ge = candidate.governmentEmployment;
+                                const isGovtEmp = ge && (ge.agency || ge.position || ge.status);
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={() => openGovtEmpModal(candidate)}
+                                    title={isGovtEmp
+                                      ? `Govt Employee — ${ge.agency || ''}${ge.position ? ' · ' + ge.position : ''}${ge.status ? ' · ' + ge.status : ''}`
+                                      : 'Set government employment details'}
+                                    aria-label={isGovtEmp ? 'Government employee (click to edit)' : 'Not a government employee (click to set)'}
+                                    className="shrink-0 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-indigo-400 rounded-full transition-transform hover:scale-110"
+                                  >
+                                    <svg
+                                      xmlns="http://www.w3.org/2000/svg"
+                                      viewBox="0 0 24 24"
+                                      className={`w-4 h-4 transition-colors ${isGovtEmp ? 'text-indigo-600' : 'text-gray-300 hover:text-gray-400'}`}
+                                      fill={isGovtEmp ? 'currentColor' : 'none'}
+                                      stroke="currentColor"
+                                      strokeWidth={isGovtEmp ? 0 : 1.5}
+                                    >
+                                      {/* Government building / institution icon */}
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 3L2 9h2v10h3v-6h3v6h4v-6h3v6h3V9h2L12 3z" />
+                                      <rect x="10" y="15" width="4" height="4" />
+                                    </svg>
+                                  </button>
+                                );
+                              })()}
                             </div>
                             <div className="text-xs text-gray-500">{candidate.gender} • Age: {candidate.age || 'N/A'}</div>
                           </div>
@@ -2341,6 +2414,115 @@ const SecretariatView = ({ user }) => {
           onClose={() => setCbsCompetency(null)}
         />
       )}
+
+      {/* Government Employment Modal */}
+      {showGovtEmpModal && govtEmpCandidate && (() => {
+        const ge = govtEmpCandidate.governmentEmployment;
+        const isGovtEmp = ge && (ge.agency || ge.position || ge.status);
+        const hasInput = govtEmpForm.agency || govtEmpForm.position || govtEmpForm.status;
+        return (
+          <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true" aria-labelledby="govt-emp-modal-title">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+              {/* Header */}
+              <div className="px-6 pt-6 pb-4 border-b border-gray-100 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${hasInput ? 'bg-indigo-100' : 'bg-gray-100'}`}>
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className={`w-5 h-5 ${hasInput ? 'text-indigo-600' : 'text-gray-400'}`} fill="currentColor">
+                      <path d="M12 3L2 9h2v10h3v-6h3v6h4v-6h3v6h3V9h2L12 3z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h2 id="govt-emp-modal-title" className="text-sm font-bold text-gray-900">Government Employment</h2>
+                    <p className="text-xs text-gray-500 truncate max-w-[220px]">{govtEmpCandidate.fullName}</p>
+                  </div>
+                </div>
+                <button onClick={closeGovtEmpModal} className="text-gray-400 hover:text-gray-600 transition-colors" aria-label="Close">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="px-6 py-5 space-y-4">
+                {/* Status pill */}
+                <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold ${hasInput ? 'bg-indigo-50 text-indigo-700' : 'bg-gray-50 text-gray-500'}`}>
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${hasInput ? 'bg-indigo-500' : 'bg-gray-300'}`} />
+                  {hasInput ? 'Applicant is a present government employee' : 'No government employment details set'}
+                </div>
+
+                {/* Agency */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Government Agency</label>
+                  <input
+                    type="text"
+                    value={govtEmpForm.agency}
+                    onChange={e => setGovtEmpForm(f => ({ ...f, agency: e.target.value }))}
+                    placeholder="e.g. Department of Environment and Natural Resources"
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition-all"
+                  />
+                </div>
+
+                {/* Position */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Position</label>
+                  <input
+                    type="text"
+                    value={govtEmpForm.position}
+                    onChange={e => setGovtEmpForm(f => ({ ...f, position: e.target.value }))}
+                    placeholder="e.g. Administrative Officer II"
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition-all"
+                  />
+                </div>
+
+                {/* Employment Status */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Employment Status</label>
+                  <select
+                    value={govtEmpForm.status}
+                    onChange={e => setGovtEmpForm(f => ({ ...f, status: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition-all bg-white"
+                  >
+                    <option value="">— Select status —</option>
+                    <option value="Permanent">Permanent</option>
+                    <option value="Casual">Casual</option>
+                    <option value="Contractual-PS">Contractual-PS</option>
+                    <option value="Contractual">Contractual</option>
+                  </select>
+                </div>
+
+                {/* Clear hint */}
+                {hasInput && (
+                  <p className="text-xs text-gray-400">
+                    Clear all fields and save to mark applicant as not a government employee.
+                  </p>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
+                <button
+                  onClick={closeGovtEmpModal}
+                  disabled={govtEmpLoading}
+                  className="px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveGovtEmp}
+                  disabled={govtEmpLoading}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold text-white transition-all hover:opacity-90 disabled:opacity-50"
+                  style={{ background: 'linear-gradient(135deg,#4f46e5,#6366f1)' }}
+                >
+                  {govtEmpLoading ? (
+                    <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />Saving…</>
+                  ) : (
+                    <><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>Save</>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {showReportModal && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50" role="dialog" aria-modal="true" aria-labelledby="report-modal-title">

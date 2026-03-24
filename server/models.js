@@ -127,6 +127,15 @@ const candidateSchema = new mongoose.Schema({
     ref: 'PublicationRange',
     required: true
   },
+  governmentEmployment: {
+    agency:   { type: String, trim: true, default: '' },
+    position: { type: String, trim: true, default: '' },
+    status: {
+      type: String,
+      enum: ['', 'Permanent', 'Casual', 'Contractual-PS', 'Contractual'],
+      default: ''
+    }
+  },
   isArchived: { type: Boolean, default: false },
   archivedAt: { type: Date },
   archivedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }

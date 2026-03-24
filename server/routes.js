@@ -1131,6 +1131,14 @@ router.put('/candidates/:id', authMiddleware, async (req, res) => {
       }
     }
 
+    if (req.body.hasOwnProperty('governmentEmployment')) {
+      updateData.governmentEmployment = {
+        agency:   req.body.governmentEmployment?.agency   || '',
+        position: req.body.governmentEmployment?.position || '',
+        status:   req.body.governmentEmployment?.status   || ''
+      };
+    }
+
     if (req.body.comments) {
       const newComments = {
         education:   req.body.comments.education   || '',
