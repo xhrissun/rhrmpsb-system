@@ -16821,7 +16821,7 @@ function(t2) {
  */
 function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-ebee43ec.js"), true ? ["assets/index.es-ebee43ec.js","assets/vendor-05345498.js","assets/pdfjs-3a644b6e.js"] : void 0)).catch(function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-9e864c5b.js"), true ? ["assets/index.es-9e864c5b.js","assets/vendor-05345498.js","assets/pdfjs-3a644b6e.js"] : void 0)).catch(function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     }).then(function(t3) {
       return t3.default ? t3.default : t3;
@@ -20628,6 +20628,7 @@ const SecretariatView = ({ user }) => {
     [govtEmpCustomPositions]
   );
   const [govtEmpSiblings, setGovtEmpSiblings] = reactExports.useState([]);
+  const [commentSiblings, setCommentSiblings] = reactExports.useState([]);
   const [reviewBadgeIds, setReviewBadgeIds] = reactExports.useState(/* @__PURE__ */ new Set());
   const [statusFilter, setStatusFilter] = reactExports.useState(null);
   const [showAssignmentSummary, setShowAssignmentSummary] = reactExports.useState(false);
@@ -21051,6 +21052,7 @@ const SecretariatView = ({ user }) => {
   }, []);
   const closeCommentModal = reactExports.useCallback(() => {
     setShowCommentModal(false);
+    setCommentSiblings([]);
     setSelectedCandidate("");
     setCandidateDetails(null);
     setComments({
@@ -21844,11 +21846,24 @@ const SecretariatView = ({ user }) => {
                   !candidate.isArchived && /* @__PURE__ */ jsx(
                     "button",
                     {
-                      onClick: () => {
+                      onClick: async () => {
                         setSelectedCandidate(candidate._id);
                         loadCandidateDetails(candidate._id);
                         loadCommentSuggestions();
+                        setCommentSiblings([]);
                         setShowCommentModal(true);
+                        const pubRangeId = candidate.publicationRangeId || selectedPublicationRangeRef.current;
+                        if (pubRangeId) {
+                          try {
+                            const siblings = await candidatesAPI.getSiblings(
+                              candidate.fullName,
+                              candidate._id,
+                              pubRangeId
+                            );
+                            setCommentSiblings(siblings);
+                          } catch {
+                          }
+                        }
                       },
                       "aria-label": `Update status for ${candidate.fullName}`,
                       className: "bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-xs transition-colors duration-200",
@@ -22181,6 +22196,90 @@ const SecretariatView = ({ user }) => {
         ] })
       ] }),
       /* @__PURE__ */ jsxs("div", { className: "space-y-4", children: [
+        commentSiblings.length > 0 && (() => {
+          const FIELDS = ["education", "training", "experience", "eligibility"];
+          const sibsWithData = commentSiblings.filter(
+            (s2) => s2.comments && FIELDS.some((f2) => {
+              var _a2;
+              return (_a2 = s2.comments[f2]) == null ? void 0 : _a2.trim();
+            })
+          );
+          const sibsWithout = commentSiblings.filter(
+            (s2) => !s2.comments || FIELDS.every((f2) => {
+              var _a2;
+              return !((_a2 = s2.comments[f2]) == null ? void 0 : _a2.trim());
+            })
+          );
+          return /* @__PURE__ */ jsxs("div", { className: "rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 space-y-3", children: [
+            /* @__PURE__ */ jsxs("div", { className: "flex items-start gap-2", children: [
+              /* @__PURE__ */ jsx("svg", { className: "w-4 h-4 shrink-0 mt-0.5 text-blue-500", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24", children: /* @__PURE__ */ jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" }) }),
+              /* @__PURE__ */ jsxs("div", { children: [
+                /* @__PURE__ */ jsxs("p", { className: "text-xs font-bold text-blue-900", children: [
+                  candidateDetails == null ? void 0 : candidateDetails.fullName,
+                  " applied to ",
+                  commentSiblings.length,
+                  " other item",
+                  commentSiblings.length > 1 ? "s" : "",
+                  "."
+                ] }),
+                /* @__PURE__ */ jsx("p", { className: "text-[10px] text-blue-600 mt-0.5", children: "Each field can be copied individually. This save applies ONLY to this record." })
+              ] })
+            ] }),
+            sibsWithData.length > 0 && /* @__PURE__ */ jsxs("div", { className: "space-y-2", children: [
+              /* @__PURE__ */ jsx("p", { className: "text-[10px] font-bold text-blue-700 uppercase tracking-wide", children: "Comments saved on other applications:" }),
+              sibsWithData.map((sib) => {
+                var _a2, _b2;
+                const sibVacancy = vacancies.find((v2) => v2.itemNumber === sib.itemNumber);
+                const enteredBy = (_a2 = sib.lastUpdatedBy) == null ? void 0 : _a2.name;
+                const isCurrentUser = ((_b2 = sib.lastUpdatedBy) == null ? void 0 : _b2._id) === user._id || sib.lastUpdatedBy === user._id;
+                return /* @__PURE__ */ jsxs("div", { className: "bg-white rounded-lg border border-blue-200 px-3 py-2.5 space-y-1.5", children: [
+                  /* @__PURE__ */ jsxs("div", { className: "flex items-center justify-between gap-2", children: [
+                    /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-1.5 min-w-0", children: [
+                      /* @__PURE__ */ jsx("svg", { className: "w-3 h-3 shrink-0 text-blue-400", fill: "currentColor", viewBox: "0 0 24 24", children: /* @__PURE__ */ jsx("path", { d: "M12 3L2 9h2v10h3v-6h3v6h4v-6h3v6h3V9h2L12 3z" }) }),
+                      /* @__PURE__ */ jsx("span", { className: "text-xs font-bold text-blue-800", children: sib.itemNumber }),
+                      (sibVacancy == null ? void 0 : sibVacancy.position) && /* @__PURE__ */ jsx("span", { className: "text-[10px] text-blue-500 truncate", children: sibVacancy.position })
+                    ] }),
+                    enteredBy && /* @__PURE__ */ jsx("span", { className: `text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${isCurrentUser ? "bg-green-100 text-green-700" : "bg-orange-100 text-orange-700"}`, children: isCurrentUser ? "You" : enteredBy })
+                  ] }),
+                  FIELDS.map((field) => {
+                    var _a3, _b3;
+                    const val = (_b3 = (_a3 = sib.comments) == null ? void 0 : _a3[field]) == null ? void 0 : _b3.trim();
+                    if (!val)
+                      return null;
+                    return /* @__PURE__ */ jsxs("div", { className: "flex items-start justify-between gap-2", children: [
+                      /* @__PURE__ */ jsxs("div", { className: "min-w-0 flex-1", children: [
+                        /* @__PURE__ */ jsxs("span", { className: "text-[10px] font-bold text-gray-500 uppercase", children: [
+                          field,
+                          ": "
+                        ] }),
+                        /* @__PURE__ */ jsx("span", { className: "text-[10px] text-gray-700 break-words line-clamp-2", children: val })
+                      ] }),
+                      /* @__PURE__ */ jsx(
+                        "button",
+                        {
+                          type: "button",
+                          onClick: () => setComments((prev) => ({ ...prev, [field]: val })),
+                          className: "text-[10px] font-bold text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2 py-1 rounded-lg border border-indigo-200 transition-colors shrink-0",
+                          children: "Use"
+                        }
+                      )
+                    ] }, field);
+                  })
+                ] }, sib._id);
+              })
+            ] }),
+            sibsWithout.length > 0 && /* @__PURE__ */ jsxs("div", { children: [
+              /* @__PURE__ */ jsx("p", { className: "text-[10px] font-bold text-blue-700 uppercase tracking-wide mb-1", children: "Other items with no comments yet:" }),
+              /* @__PURE__ */ jsx("div", { className: "flex flex-wrap gap-1.5", children: sibsWithout.map((sib) => {
+                const sibVacancy = vacancies.find((v2) => v2.itemNumber === sib.itemNumber);
+                return /* @__PURE__ */ jsxs("span", { className: "text-[10px] bg-white border border-blue-100 text-blue-600 px-2 py-1 rounded-lg font-semibold", children: [
+                  sib.itemNumber,
+                  (sibVacancy == null ? void 0 : sibVacancy.position) ? ` – ${sibVacancy.position}` : ""
+                ] }, sib._id);
+              }) })
+            ] })
+          ] });
+        })(),
         /* @__PURE__ */ jsx(
           CommentInput,
           {
@@ -31213,4 +31312,4 @@ client.createRoot(document.getElementById("root")).render(
 export {
   _typeof as _
 };
-//# sourceMappingURL=index-31aefd6b.js.map
+//# sourceMappingURL=index-9ff2876a.js.map
