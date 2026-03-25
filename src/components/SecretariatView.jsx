@@ -152,15 +152,10 @@ const SecretariatView = ({ user }) => {
   const [pendingGovtEmpData, setPendingGovtEmpData] = useState({}); // { [candidateId]: formData }
 
   // All candidates with the same fullName as the currently-open modal candidate,
-  // excluding the candidate being edited. Drives the propagation panel + badge.
-  const govtEmpSiblings = React.useMemo(() => {
-    if (!govtEmpCandidate) return [];
-    const name = govtEmpCandidate.fullName.trim().toLowerCase();
-    return candidates.filter(c =>
-      c._id !== govtEmpCandidate._id &&
-      c.fullName.trim().toLowerCase() === name
-    );
-  }, [govtEmpCandidate, candidates]);
+  // excluding the candidate being edited. Fetched from the API on modal open so
+  // siblings across ALL item numbers are found — not just those in the current
+  // filtered view (which only holds candidates for selectedItemNumber).
+  const [govtEmpSiblings, setGovtEmpSiblings] = useState([]);
 
   // Keep pendingGovtEmpData for siblings in sync with every keystroke in the modal.
   useEffect(() => {
@@ -644,8 +639,9 @@ const SecretariatView = ({ user }) => {
     setCommentHistoryData(null);
   }, []);
 
-  const openGovtEmpModal = useCallback((candidate) => {
+  const openGovtEmpModal = useCallback(async (candidate) => {
     setGovtEmpCandidate(candidate);
+    setGovtEmpSiblings([]); // clear while loading
     // If this candidate has pending propagated data (filled in via another item),
     // pre-load that so the secretariat can review/edit before saving.
     setPendingGovtEmpData(prev => {
@@ -664,11 +660,39 @@ const SecretariatView = ({ user }) => {
       return prev; // no mutation — just reading
     });
     setShowGovtEmpModal(true);
+    // Fetch siblings from the API so we find ALL candidates with the same name
+    // across every item number — not just those loaded in the current filtered view.
+    // Use the candidate's own publicationRangeId if present, otherwise fall back
+    // to the secretariat's currently selected publication range.
+    const pubRangeId = candidate.publicationRangeId || selectedPublicationRangeRef.current;
+    if (pubRangeId) {
+      try {
+        const token = localStorage.getItem('authToken');
+        const API_BASE = import.meta.env.PROD
+          ? 'https://rhrmpsb-system.onrender.com/api'
+          : 'http://localhost:5001/api';
+        const params = new URLSearchParams({
+          fullName: candidate.fullName,
+          excludeId: candidate._id,
+          publicationRangeId: pubRangeId
+        });
+        const res = await fetch(`${API_BASE}/candidates/siblings?${params}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const siblings = await res.json();
+          setGovtEmpSiblings(siblings);
+        }
+      } catch {
+        // Non-fatal: modal still works, propagation panel just stays empty
+      }
+    }
   }, []);
 
   const closeGovtEmpModal = useCallback(() => {
     setShowGovtEmpModal(false);
     setGovtEmpCandidate(null);
+    setGovtEmpSiblings([]);
     setGovtEmpForm({ agency: '', position: '', status: '', employmentPeriod: '', employmentEndDate: '', preAssessmentExam: '', remarks: '' });
   }, []);
 
@@ -1620,7 +1644,6 @@ const SecretariatView = ({ user }) => {
                         { key: 'proofOfEligibility', label: 'POE', color: 'bg-yellow-100 text-yellow-800' },
                         { key: 'professionalLicense', label: 'P. License', color: 'bg-teal-100 text-teal-800' },
                         { key: 'certificates', label: 'Certs', color: 'bg-indigo-100 text-indigo-800' },
-                        { key: 'certificateOfEmployment', label: 'COE', color: 'bg-cyan-100 text-cyan-800' },
                         { key: 'diploma', label: 'Diploma', color: 'bg-pink-100 text-pink-800' },
                         { key: 'transcriptOfRecords', label: 'TOR', color: 'bg-red-100 text-red-800' },
                         { key: 'ipcr', label: 'IPCR', color: 'bg-orange-100 text-orange-800' }
@@ -1893,7 +1916,6 @@ const SecretariatView = ({ user }) => {
                       { key: 'proofOfEligibility', label: 'Proof of Eligibility', color: 'bg-yellow-100 text-yellow-800' },
                       { key: 'professionalLicense', label: 'Professional License', color: 'bg-teal-100 text-teal-800' },
                       { key: 'certificates', label: 'Certificates', color: 'bg-indigo-100 text-indigo-800' },
-                      { key: 'certificateOfEmployment', label: 'Certificate of Employment', color: 'bg-cyan-100 text-cyan-800' },
                       { key: 'diploma', label: 'Diploma', color: 'bg-pink-100 text-pink-800' },
                       { key: 'transcriptOfRecords', label: 'Transcript of Records', color: 'bg-red-100 text-red-800' },
                       { key: 'ipcr', label: 'IPCR', color: 'bg-orange-100 text-orange-800' }
