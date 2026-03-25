@@ -2790,6 +2790,8 @@ const SecretariatView = ({ user }) => {
                     <option value="">— Select status —</option>
                     <option value="Permanent">Permanent</option>
                     <option value="Casual">Casual</option>
+                    <option value="Temporary">Temporary</option>
+                    <option value="Co-terminus with the incumbent">Co-terminus with the incumbent</option>
                     <option value="Contractual-PS">Contractual-PS</option>
                     <option value="Contractual">Contractual</option>
                   </select>

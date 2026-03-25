@@ -132,7 +132,7 @@ const candidateSchema = new mongoose.Schema({
     position: { type: String, trim: true, default: '' },
     status: {
       type: String,
-      enum: ['', 'Permanent', 'Casual', 'Contractual-PS', 'Contractual'],
+      enum: ['', 'Permanent', 'Casual', 'Temporary', 'Co-terminus with the incumbent', 'Contractual-PS', 'Contractual'],
       default: ''
     },
     employmentPeriod: {
