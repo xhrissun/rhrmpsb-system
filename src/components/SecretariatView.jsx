@@ -1620,100 +1620,156 @@ const SecretariatView = ({ user }) => {
           headerStyle = 'bg-gray-500 text-white';
         }
 
+        // Derive status accent colors for the new design
+        const statusAccent =
+          candidate.status === CANDIDATE_STATUS.LONG_LIST    ? { ring: 'ring-green-500',  dot: 'bg-green-500',  badge: 'bg-green-100 text-green-800',  label: 'text-green-700'  } :
+          candidate.status === CANDIDATE_STATUS.FOR_REVIEW   ? { ring: 'ring-amber-400',  dot: 'bg-amber-400',  badge: 'bg-amber-100 text-amber-800',   label: 'text-amber-700'  } :
+          candidate.status === CANDIDATE_STATUS.DISQUALIFIED ? { ring: 'ring-red-500',    dot: 'bg-red-500',    badge: 'bg-red-100 text-red-800',       label: 'text-red-700'    } :
+                                                               { ring: 'ring-gray-400',   dot: 'bg-gray-400',   badge: 'bg-gray-100 text-gray-700',     label: 'text-gray-600'   };
+
+        const COMMENT_FIELDS = [
+          { key: 'education',   label: 'Education',   icon: 'M12 14l9-5-9-5-9 5 9 5z M12 14l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14z' },
+          { key: 'training',    label: 'Training',    icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
+          { key: 'experience',  label: 'Experience',  icon: 'M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z' },
+          { key: 'eligibility', label: 'Eligibility', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z' },
+        ];
+
+        const DOCS = [
+          { key: 'letterOfIntent',         label: 'Letter of Intent',        abbr: 'LOI',  color: 'bg-blue-50 text-blue-700 border-blue-200'    },
+          { key: 'personalDataSheet',       label: 'Personal Data Sheet',     abbr: 'PDS',  color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+          { key: 'workExperienceSheet',     label: 'Work Experience Sheet',   abbr: 'WES',  color: 'bg-violet-50 text-violet-700 border-violet-200'   },
+          { key: 'proofOfEligibility',      label: 'Proof of Eligibility',    abbr: 'POE',  color: 'bg-yellow-50 text-yellow-700 border-yellow-200'   },
+          { key: 'professionalLicense',     label: 'Professional License',    abbr: 'LIC',  color: 'bg-teal-50 text-teal-700 border-teal-200'        },
+          { key: 'certificates',            label: 'Certificates',            abbr: 'CERT', color: 'bg-indigo-50 text-indigo-700 border-indigo-200'   },
+          { key: 'certificateOfEmployment', label: 'Certificate of Employment', abbr: 'COE', color: 'bg-cyan-50 text-cyan-700 border-cyan-200'       },
+          { key: 'diploma',                 label: 'Diploma',                 abbr: 'DIP',  color: 'bg-pink-50 text-pink-700 border-pink-200'        },
+          { key: 'transcriptOfRecords',     label: 'Transcript of Records',   abbr: 'TOR',  color: 'bg-rose-50 text-rose-700 border-rose-200'        },
+          { key: 'ipcr',                    label: 'IPCR',                    abbr: 'IPCR', color: 'bg-orange-50 text-orange-700 border-orange-200'  },
+        ];
+
         return (
-          <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50" role="dialog" aria-modal="true" aria-labelledby="view-comments-title">
-            <div className="relative top-8 mx-auto border w-11/12 max-w-6xl shadow-lg rounded-lg bg-white">
-              <div className={`${headerStyle} px-6 py-4 rounded-t-lg text-center`}>
-                <h2 id="view-comments-title" className="text-2xl font-bold">{candidate.fullName}</h2>
-                <p className="text-base font-medium mt-1 uppercase tracking-wide">{displayStatus}</p>
-                {candidate.isArchived && (
-                  <p className="text-sm mt-1 bg-orange-200 text-orange-900 px-3 py-1 rounded inline-block">ARCHIVED</p>
-                )}
-              </div>
-              
-              <div className="p-5">
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-5">
-                  <div className="bg-gray-50 p-3 rounded">
-                    <h4 className="text-sm font-medium text-gray-700 mb-2">Candidate Info</h4>
-                    <div className="text-xs space-y-1">
-                      <p><span className="font-medium">Gender:</span> {candidate.gender}</p>
-                      <p><span className="font-medium">Age:</span> {candidate.age || 'N/A'}</p>
-                      <p><span className="font-medium">Item Number:</span> {candidate.itemNumber}</p>
-                    </div>
-                  </div>
-                  
-                  {vacancy && (
-                    <div className="bg-blue-50 p-3 rounded">
-                      <h4 className="text-sm font-medium text-gray-700 mb-2">Position Info</h4>
-                      <div className="text-xs space-y-1">
-                        <p><span className="font-medium">Position:</span> {vacancy.position}</p>
-                        <p><span className="font-medium">Assignment:</span> {vacancy.assignment}</p>
-                        <p><span className="font-medium">Salary Grade:</span> SG {vacancy.salaryGrade}</p>
+          <div className="fixed inset-0 bg-black bg-opacity-40 backdrop-blur-sm flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true" aria-labelledby="view-comments-title">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl flex flex-col max-h-[92vh]">
+
+              {/* ── Header ── */}
+              <div className="px-6 pt-6 pb-4 border-b border-gray-100 shrink-0">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    {/* Status dot */}
+                    <span className={`w-3 h-3 rounded-full shrink-0 mt-1 ${statusAccent.dot}`} />
+                    <div className="min-w-0">
+                      <h2 id="view-comments-title" className="text-xl font-bold text-gray-900 leading-tight truncate">{candidate.fullName}</h2>
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                        <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${statusAccent.badge}`}>{displayStatus}</span>
+                        {candidate.isArchived && (
+                          <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-orange-100 text-orange-700">Archived</span>
+                        )}
+                        {vacancy && (
+                          <span className="text-xs text-gray-500">{vacancy.position} · SG {vacancy.salaryGrade} · {candidate.itemNumber}</span>
+                        )}
                       </div>
                     </div>
-                  )}
-
-                  <div className="bg-green-50 p-3 rounded">
-                    <h4 className="text-sm font-medium text-gray-700 mb-2">Documents</h4>
-                    <div className="grid grid-cols-2 gap-1">
-                      {[
-                        { key: 'letterOfIntent', label: 'LOI', color: 'bg-blue-100 text-blue-800' },
-                        { key: 'personalDataSheet', label: 'PDS', color: 'bg-green-100 text-green-800' },
-                        { key: 'workExperienceSheet', label: 'WES', color: 'bg-purple-100 text-purple-800' },
-                        { key: 'proofOfEligibility', label: 'POE', color: 'bg-yellow-100 text-yellow-800' },
-                        { key: 'professionalLicense', label: 'P. License', color: 'bg-teal-100 text-teal-800' },
-                        { key: 'certificates', label: 'Certs', color: 'bg-indigo-100 text-indigo-800' },
-                        { key: 'certificateOfEmployment', label: 'COE', color: 'bg-cyan-100 text-cyan-800' },
-                        { key: 'diploma', label: 'Diploma', color: 'bg-pink-100 text-pink-800' },
-                        { key: 'transcriptOfRecords', label: 'TOR', color: 'bg-red-100 text-red-800' },
-                        { key: 'ipcr', label: 'IPCR', color: 'bg-orange-100 text-orange-800' }
-                      ].map(doc => (
-                        <button
-                          key={doc.key}
-                          onClick={() => candidate[doc.key] && openDocumentLink(candidate[doc.key])}
-                          aria-label={`Open ${doc.label} document`}
-                          className={`inline-flex items-center justify-center px-2 py-1 rounded text-xs font-medium ${doc.color} ${candidate[doc.key] ? 'hover:opacity-75 transition-opacity cursor-pointer' : 'opacity-50 cursor-not-allowed'}`}
-                          disabled={!candidate[doc.key]}
-                        >
-                          {doc.label}
-                        </button>
-                      ))}
-                    </div>
                   </div>
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                  <div>
-                    <h3 className="text-base font-semibold text-gray-700 uppercase tracking-wide border-b border-gray-200 pb-1 mb-3">Education</h3>
-                    <p className="text-gray-800 text-base leading-relaxed">{comments.education || 'No comment provided.'}</p>
-                  </div>
-                  
-                  <div>
-                    <h3 className="text-base font-semibold text-gray-700 uppercase tracking-wide border-b border-gray-200 pb-1 mb-3">Training</h3>
-                    <p className="text-gray-800 text-base leading-relaxed">{comments.training || 'No comment provided.'}</p>
-                  </div>
-                  
-                  <div>
-                    <h3 className="text-base font-semibold text-gray-700 uppercase tracking-wide border-b border-gray-200 pb-1 mb-3">Experience</h3>
-                    <p className="text-gray-800 text-base leading-relaxed">{comments.experience || 'No comment provided.'}</p>
-                  </div>
-                  
-                  <div>
-                    <h3 className="text-base font-semibold text-gray-700 uppercase tracking-wide border-b border-gray-200 pb-1 mb-3">Eligibility</h3>
-                    <p className="text-gray-800 text-base leading-relaxed">{comments.eligibility || 'No comment provided.'}</p>
-                  </div>
+                  <button
+                    onClick={closeViewCommentsModal}
+                    aria-label="Close comments modal"
+                    className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
                 </div>
               </div>
-              
-              <div className="px-5 py-4 border-t bg-gray-50 rounded-b-lg">
+
+              {/* ── Scrollable body ── */}
+              <div className="flex-1 overflow-y-auto">
+
+                {/* Meta strip */}
+                <div className="px-6 py-4 bg-gray-50 border-b border-gray-100 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                  <div>
+                    <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">Gender</p>
+                    <p className="font-semibold text-gray-800">{candidate.gender || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">Age</p>
+                    <p className="font-semibold text-gray-800">{candidate.age || '—'}</p>
+                  </div>
+                  {vacancy && (
+                    <div>
+                      <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">Assignment</p>
+                      <p className="font-semibold text-gray-800 truncate">{vacancy.assignment}</p>
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">Eligibility</p>
+                    <p className="font-semibold text-gray-800 truncate">{candidate.eligibility || '—'}</p>
+                  </div>
+                </div>
+
+                {/* Documents */}
+                <div className="px-6 py-4 border-b border-gray-100">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Documents</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {DOCS.map(doc => (
+                      <button
+                        key={doc.key}
+                        onClick={() => candidate[doc.key] && openDocumentLink(candidate[doc.key])}
+                        aria-label={`Open ${doc.label}`}
+                        disabled={!candidate[doc.key]}
+                        title={doc.label}
+                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-semibold transition-all
+                          ${candidate[doc.key]
+                            ? `${doc.color} hover:shadow-sm hover:scale-105 cursor-pointer`
+                            : 'bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed'
+                          }`}
+                      >
+                        {candidate[doc.key] && (
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                          </svg>
+                        )}
+                        {doc.abbr}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Comment fields */}
+                <div className="px-6 py-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {COMMENT_FIELDS.map(field => {
+                    const hasContent = !!comments[field.key];
+                    return (
+                      <div key={field.key} className={`rounded-xl border p-4 ${hasContent ? 'bg-white border-gray-200' : 'bg-gray-50 border-gray-100'}`}>
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className={`w-6 h-6 rounded-md flex items-center justify-center ${hasContent ? 'bg-indigo-100' : 'bg-gray-100'}`}>
+                            <svg className={`w-3.5 h-3.5 ${hasContent ? 'text-indigo-600' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={field.icon} />
+                            </svg>
+                          </div>
+                          <span className={`text-xs font-bold uppercase tracking-wide ${hasContent ? 'text-gray-700' : 'text-gray-400'}`}>{field.label}</span>
+                        </div>
+                        {hasContent
+                          ? <p className="text-sm text-gray-800 leading-relaxed">{comments[field.key]}</p>
+                          : <p className="text-xs text-gray-400 italic">No comment provided.</p>
+                        }
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* ── Footer ── */}
+              <div className="px-6 py-4 border-t border-gray-100 flex justify-end shrink-0">
                 <button
                   onClick={closeViewCommentsModal}
                   aria-label="Close comments modal"
-                  className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded text-sm transition-colors duration-200"
+                  className="px-5 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold transition-colors"
                 >
                   Close
                 </button>
               </div>
+
             </div>
           </div>
         );
@@ -1893,83 +1949,100 @@ const SecretariatView = ({ user }) => {
       {showCommentModal && candidateDetails && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true" aria-labelledby="update-status-title">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl flex flex-col max-h-[92vh]">
-            <div className="flex justify-between items-center px-6 py-4 border-b border-gray-100 shrink-0">
-              <h2 id="update-status-title" className="text-xl font-bold text-gray-900">
-                Update Status: {candidateDetails.fullName}
+            {/* ── Header ── */}
+            <div className="px-6 py-4 border-b border-gray-100 shrink-0 flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-indigo-500 uppercase tracking-wide mb-0.5">Update Status</p>
+                <h2 id="update-status-title" className="text-lg font-bold text-gray-900 leading-tight truncate">
+                  {candidateDetails.fullName}
+                </h2>
                 {candidateDetails.isArchived && (
-                  <span className="ml-3 px-3 py-1 bg-orange-100 text-orange-800 text-sm font-bold rounded">ARCHIVED</span>
+                  <span className="mt-1 inline-block text-xs font-semibold px-2.5 py-0.5 rounded-full bg-orange-100 text-orange-700">Archived</span>
                 )}
-              </h2>
+              </div>
               <button
                 onClick={closeCommentModal}
                 aria-label="Close update status modal"
-                className="text-gray-500 hover:text-gray-700 text-xl font-bold"
+                className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
               >
-                ×
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
             </div>
             
             {candidateDetails.isArchived && (
-              <div className="mx-6 mt-4 bg-orange-100 border-l-4 border-orange-500 p-3 rounded shrink-0">
-                <p className="text-sm text-orange-800">
-                  <strong>Note:</strong> This candidate is archived. Updates can still be made for historical record purposes.
-                </p>
+              <div className="mx-6 mt-4 flex items-start gap-2 bg-orange-50 border border-orange-200 p-3 rounded-lg shrink-0">
+                <svg className="w-4 h-4 text-orange-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-1.963-1.333-2.732 0L3.732 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <p className="text-xs text-orange-700"><strong>Archived record.</strong> Updates can still be made for historical purposes.</p>
               </div>
             )}
 
             <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-              <div className="bg-gray-50 p-4 rounded-lg">
-                <h3 className="font-semibold text-gray-900 mb-2">Candidate Information</h3>
-                <div className="space-y-1 text-sm">
-                  <p><span className="font-medium">Name:</span> {candidateDetails.fullName}</p>
-                  <p><span className="font-medium">Gender:</span> {candidateDetails.gender}</p>
-                  <p><span className="font-medium">Age:</span> {candidateDetails.age || 'N/A'}</p>
-                  <p><span className="font-medium">Eligibility:</span> {candidateDetails.eligibility || 'N/A'}</p>
+
+            {/* Meta strip */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {[
+                { label: 'Gender',      value: candidateDetails.gender },
+                { label: 'Age',         value: candidateDetails.age || '—' },
+                { label: 'Eligibility', value: candidateDetails.eligibility || '—' },
+                { label: 'Item No.',    value: vacancyDetails?.itemNumber || '—' },
+              ].map(item => (
+                <div key={item.label} className="bg-gray-50 rounded-lg px-3 py-2.5">
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">{item.label}</p>
+                  <p className="text-sm font-semibold text-gray-800 truncate">{item.value}</p>
                 </div>
-                <div className="mt-4">
-                  <h4 className="text-sm font-medium text-gray-700 mb-2">Documents</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {[
-                      { key: 'letterOfIntent', label: 'Letter of Intent', color: 'bg-blue-100 text-blue-800' },
-                      { key: 'personalDataSheet', label: 'Personal Data Sheet', color: 'bg-green-100 text-green-800' },
-                      { key: 'workExperienceSheet', label: 'Work Experience Sheet', color: 'bg-purple-100 text-purple-800' },
-                      { key: 'proofOfEligibility', label: 'Proof of Eligibility', color: 'bg-yellow-100 text-yellow-800' },
-                      { key: 'professionalLicense', label: 'Professional License', color: 'bg-teal-100 text-teal-800' },
-                      { key: 'certificates', label: 'Certificates', color: 'bg-indigo-100 text-indigo-800' },
-                      { key: 'certificateOfEmployment', label: 'Certificate of Employment', color: 'bg-cyan-100 text-cyan-800' },
-                      { key: 'diploma', label: 'Diploma', color: 'bg-pink-100 text-pink-800' },
-                      { key: 'transcriptOfRecords', label: 'Transcript of Records', color: 'bg-red-100 text-red-800' },
-                      { key: 'ipcr', label: 'IPCR', color: 'bg-orange-100 text-orange-800' }
-                    ].map(doc => (
-                      <button
-                        key={doc.key}
-                        onClick={() => candidateDetails[doc.key] && openDocumentLink(candidateDetails[doc.key])}
-                        aria-label={`Open ${doc.label} document`}
-                        className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${doc.color} ${candidateDetails[doc.key] ? 'hover:opacity-75 transition-opacity cursor-pointer' : 'opacity-50 cursor-not-allowed'}`}
-                        disabled={!candidateDetails[doc.key]}
-                      >
-                        <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                        {doc.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              
+              ))}
+            </div>
+
+            {/* Position + Documents row */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {vacancyDetails && (
-                <div className="bg-blue-50 p-4 rounded-lg">
-                  <h3 className="font-semibold text-gray-900 mb-2">Position Information</h3>
-                  <div className="space-y-1 text-sm">
-                    <p><span className="font-medium">Position:</span> {vacancyDetails.position}</p>
-                    <p><span className="font-medium">Assignment:</span> {vacancyDetails.assignment}</p>
-                    <p><span className="font-medium">Salary Grade:</span> SG {vacancyDetails.salaryGrade}</p>
-                    <p><span className="font-medium">Item Number:</span> {vacancyDetails.itemNumber}</p>
-                  </div>
+                <div className="bg-indigo-50 rounded-lg px-4 py-3 border border-indigo-100">
+                  <p className="text-[10px] font-semibold text-indigo-400 uppercase tracking-wide mb-1.5">Position</p>
+                  <p className="text-sm font-bold text-indigo-900">{vacancyDetails.position}</p>
+                  <p className="text-xs text-indigo-600 mt-0.5">{vacancyDetails.assignment} · SG {vacancyDetails.salaryGrade}</p>
                 </div>
               )}
+              <div className="bg-gray-50 rounded-lg px-4 py-3 border border-gray-100">
+                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Documents</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { key: 'letterOfIntent',         label: 'Letter of Intent',        abbr: 'LOI',  color: 'bg-blue-50 text-blue-700 border-blue-200'         },
+                    { key: 'personalDataSheet',       label: 'Personal Data Sheet',     abbr: 'PDS',  color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+                    { key: 'workExperienceSheet',     label: 'Work Experience Sheet',   abbr: 'WES',  color: 'bg-violet-50 text-violet-700 border-violet-200'    },
+                    { key: 'proofOfEligibility',      label: 'Proof of Eligibility',    abbr: 'POE',  color: 'bg-yellow-50 text-yellow-700 border-yellow-200'    },
+                    { key: 'professionalLicense',     label: 'Professional License',    abbr: 'LIC',  color: 'bg-teal-50 text-teal-700 border-teal-200'          },
+                    { key: 'certificates',            label: 'Certificates',            abbr: 'CERT', color: 'bg-indigo-50 text-indigo-700 border-indigo-200'    },
+                    { key: 'certificateOfEmployment', label: 'Certificate of Employment', abbr: 'COE', color: 'bg-cyan-50 text-cyan-700 border-cyan-200'         },
+                    { key: 'diploma',                 label: 'Diploma',                 abbr: 'DIP',  color: 'bg-pink-50 text-pink-700 border-pink-200'          },
+                    { key: 'transcriptOfRecords',     label: 'Transcript of Records',   abbr: 'TOR',  color: 'bg-rose-50 text-rose-700 border-rose-200'          },
+                    { key: 'ipcr',                    label: 'IPCR',                    abbr: 'IPCR', color: 'bg-orange-50 text-orange-700 border-orange-200'   },
+                  ].map(doc => (
+                    <button
+                      key={doc.key}
+                      onClick={() => candidateDetails[doc.key] && openDocumentLink(candidateDetails[doc.key])}
+                      aria-label={`Open ${doc.label}`}
+                      disabled={!candidateDetails[doc.key]}
+                      title={doc.label}
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-bold transition-all
+                        ${candidateDetails[doc.key]
+                          ? `${doc.color} hover:shadow-sm hover:scale-105 cursor-pointer`
+                          : 'bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed'
+                        }`}
+                    >
+                      {candidateDetails[doc.key] && (
+                        <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                        </svg>
+                      )}
+                      {doc.abbr}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
 
             <div className="space-y-4">
@@ -2127,25 +2200,25 @@ const SecretariatView = ({ user }) => {
 
             </div>{/* end scrollable body */}
 
-            <div className="flex justify-end space-x-3 px-6 py-4 border-t border-gray-100 shrink-0">
+            <div className="flex justify-end gap-2 px-6 py-4 border-t border-gray-100 shrink-0">
               <button
                 onClick={() => handleStatusUpdate(CANDIDATE_STATUS.LONG_LIST)}
                 aria-label="Mark candidate as long listed"
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded transition-colors duration-200"
+                className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-colors"
               >
                 Long List
               </button>
               <button
                 onClick={() => handleStatusUpdate(CANDIDATE_STATUS.FOR_REVIEW)}
                 aria-label="Mark candidate for review"
-                className="bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-2 rounded transition-colors duration-200"
+                className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold transition-colors"
               >
                 For Review
               </button>
               <button
                 onClick={() => handleStatusUpdate(CANDIDATE_STATUS.DISQUALIFIED)}
                 aria-label="Disqualify candidate"
-                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded transition-colors duration-200"
+                className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-semibold transition-colors"
               >
                 Disqualify
               </button>
