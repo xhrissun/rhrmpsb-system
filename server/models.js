@@ -148,7 +148,11 @@ const candidateSchema = new mongoose.Schema({
       enum: ['', 'more_than_6_months', 'less_than_6_months'],
       default: ''
     },
-    remarks:  { type: String, trim: true, default: '' }
+    remarks:  { type: String, trim: true, default: '' },
+    // Track which secretariat user last saved this record so the modal can
+    // show "Data entered by <name>" on sibling rows.
+    lastUpdatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    lastUpdatedAt: { type: Date, default: null }
   },
   isArchived: { type: Boolean, default: false },
   archivedAt: { type: Date },

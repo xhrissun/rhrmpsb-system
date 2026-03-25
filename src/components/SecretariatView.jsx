@@ -145,47 +145,11 @@ const SecretariatView = ({ user }) => {
     [govtEmpCustomPositions]
   );
 
-  // Pending (unsaved) propagated govt employment data keyed by candidate._id.
-  // Populated live as the secretariat types in the modal — siblings with the same
-  // fullName that are visible in this secretariat's candidates list receive a copy.
-  // Cleared per-candidate once saved or when the form is cleared.
-  const [pendingGovtEmpData, setPendingGovtEmpData] = useState({}); // { [candidateId]: formData }
-
-  // All candidates with the same fullName as the currently-open modal candidate,
-  // excluding the candidate being edited. Fetched from the API on modal open so
-  // siblings across ALL item numbers are found — not just those in the current
-  // filtered view (which only holds candidates for selectedItemNumber).
+  // Siblings of the currently-open modal candidate: same fullName, different itemNumber.
+  // Fetched from the API on modal open. Shown as suggestion cards in the modal so the
+  // secretariat can choose to copy a sibling's data into the form. Save NEVER auto-
+  // propagates to siblings -- each must be opened and saved individually.
   const [govtEmpSiblings, setGovtEmpSiblings] = useState([]);
-
-  // Keep pendingGovtEmpData for siblings in sync with every keystroke in the modal.
-  // Also writes the PRIMARY candidate's own _id so their table row shows the Review
-  // badge even when filtered to a single item number (where sibling rows aren't visible).
-  // The primary candidate's _id is filtered out during save so it is never double-saved.
-  useEffect(() => {
-    if (!showGovtEmpModal || !govtEmpCandidate || govtEmpSiblings.length === 0) return;
-    const hasAnyInput = govtEmpForm.agency || govtEmpForm.position || govtEmpForm.status ||
-                        govtEmpForm.employmentPeriod || govtEmpForm.preAssessmentExam ||
-                        govtEmpForm.remarks;
-    setPendingGovtEmpData(prev => {
-      const next = { ...prev };
-      // Write all siblings
-      govtEmpSiblings.forEach(sib => {
-        if (hasAnyInput || !prev[sib._id]) {
-          next[sib._id] = { ...govtEmpForm };
-        } else {
-          delete next[sib._id];
-        }
-      });
-      // Also mark the primary candidate so their own row shows the Review badge.
-      // handleSaveGovtEmp already filters this id out before saving siblings.
-      if (hasAnyInput || !prev[govtEmpCandidate._id]) {
-        next[govtEmpCandidate._id] = { ...govtEmpForm };
-      } else {
-        delete next[govtEmpCandidate._id];
-      }
-      return next;
-    });
-  }, [govtEmpForm, showGovtEmpModal, govtEmpCandidate, govtEmpSiblings]);
 
   const [statusFilter, setStatusFilter] = useState(null);
   const [showAssignmentSummary, setShowAssignmentSummary] = useState(false);
@@ -653,23 +617,19 @@ const SecretariatView = ({ user }) => {
 
   const openGovtEmpModal = useCallback(async (candidate) => {
     setGovtEmpCandidate(candidate);
-    setGovtEmpSiblings([]); // clear while loading
-    // If this candidate has pending propagated data (filled in via another item),
-    // pre-load that so the secretariat can review/edit before saving.
-    setPendingGovtEmpData(prev => {
-      const pending = prev[candidate._id];
-      setGovtEmpForm(pending ? { ...pending } : {
-        agency:            candidate.governmentEmployment?.agency            || '',
-        position:          candidate.governmentEmployment?.position          || '',
-        status:            candidate.governmentEmployment?.status            || '',
-        employmentPeriod:  candidate.governmentEmployment?.employmentPeriod  || '',
-        employmentEndDate: candidate.governmentEmployment?.employmentEndDate
-                             ? candidate.governmentEmployment.employmentEndDate.toString().slice(0, 10)
-                             : '',
-        preAssessmentExam: candidate.governmentEmployment?.preAssessmentExam || '',
-        remarks:           candidate.governmentEmployment?.remarks           || ''
-      });
-      return prev; // no mutation — just reading
+    setGovtEmpSiblings([]); // clear while loading siblings
+    // Always init the form from THIS candidate's own saved DB data only.
+    // NEVER pre-fill from another candidate's record or pending state.
+    setGovtEmpForm({
+      agency:            candidate.governmentEmployment?.agency            || '',
+      position:          candidate.governmentEmployment?.position          || '',
+      status:            candidate.governmentEmployment?.status            || '',
+      employmentPeriod:  candidate.governmentEmployment?.employmentPeriod  || '',
+      employmentEndDate: candidate.governmentEmployment?.employmentEndDate
+                           ? candidate.governmentEmployment.employmentEndDate.toString().slice(0, 10)
+                           : '',
+      preAssessmentExam: candidate.governmentEmployment?.preAssessmentExam || '',
+      remarks:           candidate.governmentEmployment?.remarks           || ''
     });
     setShowGovtEmpModal(true);
     // Use candidatesAPI.getSiblings (shared axios instance — correct baseURL + authToken).
@@ -698,65 +658,43 @@ const SecretariatView = ({ user }) => {
 
   const handleSaveGovtEmp = useCallback(async () => {
     if (!govtEmpCandidate) return;
-    // Validate: preAssessmentExam is always required before saving
-    if (!govtEmpForm.preAssessmentExam) {
+    // Determine if the form has any employment data at all.
+    // A completely empty form is a valid "clear this record" save — no field is required in that case.
+    const formIsEmpty = !govtEmpForm.agency && !govtEmpForm.position && !govtEmpForm.status &&
+                        !govtEmpForm.employmentPeriod && !govtEmpForm.employmentEndDate &&
+                        !govtEmpForm.preAssessmentExam && !govtEmpForm.remarks;
+    // Validate: preAssessmentExam required only when actual employment data is being entered
+    if (!formIsEmpty && !govtEmpForm.preAssessmentExam) {
       showToast('Please select an option for "In Consideration of Pre-Assessment Examination" before saving.', 'error');
       return;
     }
-    // Validate: employmentEndDate is required when Within Last 2 Years is selected
+    // Validate: employmentEndDate required when Within Last 2 Years
     if (govtEmpForm.employmentPeriod === 'within_2_years' && !govtEmpForm.employmentEndDate) {
       showToast('Employment End Date is required when "Within Last 2 Years" is selected.', 'error');
       return;
     }
     setGovtEmpLoading(true);
     try {
-      // Save the primary candidate
+      // Save ONLY the current candidate. Siblings must be opened individually.
       const updated = await candidatesAPI.update(govtEmpCandidate._id, {
         governmentEmployment: govtEmpForm
       });
-      // Save all sibling candidates that have pending propagated data
-      const siblingIds = Object.keys(pendingGovtEmpData).filter(id => id !== govtEmpCandidate._id);
-      const siblingResults = await Promise.allSettled(
-        siblingIds.map(id =>
-          candidatesAPI.update(id, { governmentEmployment: pendingGovtEmpData[id] })
-            .then(r => ({ id, data: r }))
+      // Reflect the save in local candidates list immediately
+      setCandidates(prev =>
+        prev.map(c =>
+          c._id === govtEmpCandidate._id
+            ? { ...c, governmentEmployment: updated.governmentEmployment }
+            : c
         )
       );
-      const savedSiblingMap = {};
-      siblingResults.forEach(r => {
-        if (r.status === 'fulfilled') savedSiblingMap[r.value.id] = r.value.data.governmentEmployment;
-      });
-      const failedCount = siblingResults.filter(r => r.status === 'rejected').length;
-      // Update all affected candidates in local state at once
-      setCandidates(prev =>
-        prev.map(c => {
-          if (c._id === govtEmpCandidate._id) return { ...c, governmentEmployment: updated.governmentEmployment };
-          if (savedSiblingMap[c._id])          return { ...c, governmentEmployment: savedSiblingMap[c._id] };
-          return c;
-        })
-      );
-      // Clear pending data for every successfully saved candidate
-      setPendingGovtEmpData(prev => {
-        const next = { ...prev };
-        delete next[govtEmpCandidate._id];
-        siblingIds.forEach(id => { if (savedSiblingMap[id]) delete next[id]; });
-        return next;
-      });
-      const totalSaved = 1 + siblingIds.length - failedCount;
-      if (failedCount > 0) {
-        showToast(`Saved ${totalSaved} record(s). ${failedCount} sibling record(s) failed.`, 'warning');
-      } else if (siblingIds.length > 0) {
-        showToast(`Government employment saved for ${totalSaved} applicant record(s).`, 'success');
-      } else {
-        showToast('Government employment details saved.', 'success');
-      }
+      showToast('Government employment details saved.', 'success');
       closeGovtEmpModal();
     } catch (err) {
       showToast('Failed to save: ' + (err.response?.data?.message || err.message), 'error');
     } finally {
       setGovtEmpLoading(false);
     }
-  }, [govtEmpCandidate, govtEmpForm, pendingGovtEmpData, closeGovtEmpModal, showToast]);
+  }, [govtEmpCandidate, govtEmpForm, closeGovtEmpModal, showToast]);
 
   const handleExportCSV = useCallback(async () => {
     try {
@@ -1449,20 +1387,38 @@ const SecretariatView = ({ user }) => {
                                   ARCHIVED
                                 </span>
                               )}
-                              {/* Pending propagated govt employment — show Review badge */}
-                              {pendingGovtEmpData[candidate._id] && (
-                                <button
-                                  type="button"
-                                  onClick={() => openGovtEmpModal(candidate)}
-                                  title="Govt employment details were filled in for another application by this same applicant — click to review before saving"
-                                  className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold hover:bg-amber-200 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400 animate-pulse"
-                                >
-                                  <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-                                  </svg>
-                                  Review
-                                </button>
-                              )}
+                              {/* Review badge: sibling in same list has govt emp data this one lacks */}
+                              {(() => {
+                                const thisHasData = candidate.governmentEmployment &&
+                                  (candidate.governmentEmployment.agency ||
+                                   candidate.governmentEmployment.position ||
+                                   candidate.governmentEmployment.status ||
+                                   candidate.governmentEmployment.preAssessmentExam);
+                                if (thisHasData) return null;
+                                const siblingWithData = candidates.find(c =>
+                                  c._id !== candidate._id &&
+                                  c.fullName === candidate.fullName &&
+                                  c.governmentEmployment &&
+                                  (c.governmentEmployment.agency ||
+                                   c.governmentEmployment.position ||
+                                   c.governmentEmployment.status ||
+                                   c.governmentEmployment.preAssessmentExam)
+                                );
+                                if (!siblingWithData) return null;
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={() => openGovtEmpModal(candidate)}
+                                    title="A sibling application has govt employment data - open to review and optionally apply it"
+                                    className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold hover:bg-amber-200 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400 animate-pulse"
+                                  >
+                                    <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                                    </svg>
+                                    Review
+                                  </button>
+                                );
+                              })()}
                               {/* Government Employee indicator */}
                               {(() => {
                                 const ge = candidate.governmentEmployment;
@@ -2566,6 +2522,9 @@ const SecretariatView = ({ user }) => {
         const ge = govtEmpCandidate.governmentEmployment;
         const isGovtEmp = ge && (ge.agency || ge.position || ge.status);
         const hasInput = govtEmpForm.agency || govtEmpForm.position || govtEmpForm.status;
+        const formIsEmpty = !govtEmpForm.agency && !govtEmpForm.position && !govtEmpForm.status &&
+                            !govtEmpForm.employmentPeriod && !govtEmpForm.employmentEndDate &&
+                            !govtEmpForm.preAssessmentExam && !govtEmpForm.remarks;
         const isWithin2Years = govtEmpForm.employmentPeriod === 'within_2_years';
 
         // ── Audit: check employmentEndDate against the publication range's endDate ──
@@ -2648,41 +2607,126 @@ const SecretariatView = ({ user }) => {
                    hasInput ? 'Government employee (period not set)' : 'No government employment details set'}
                 </div>
 
-                {/* Propagation notice — same applicant appears under other items */}
-                {govtEmpSiblings.length > 0 && (
-                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <svg className="w-4 h-4 shrink-0 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      <p className="text-xs font-semibold text-amber-800">
-                        This applicant has {govtEmpSiblings.length} other item{govtEmpSiblings.length > 1 ? 's' : ''} in your list — saving will update {govtEmpSiblings.length > 1 ? 'all of them' : 'it'} too.
-                      </p>
+                {/* Sibling panel: same applicant under other item numbers */}
+                {govtEmpSiblings.length > 0 && (() => {
+                  const sibsWithData = govtEmpSiblings.filter(s =>
+                    s.governmentEmployment &&
+                    (s.governmentEmployment.agency || s.governmentEmployment.position ||
+                     s.governmentEmployment.status || s.governmentEmployment.preAssessmentExam)
+                  );
+                  const sibsWithout = govtEmpSiblings.filter(s =>
+                    !s.governmentEmployment ||
+                    (!s.governmentEmployment.agency && !s.governmentEmployment.position &&
+                     !s.governmentEmployment.status && !s.governmentEmployment.preAssessmentExam)
+                  );
+                  return (
+                    <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 space-y-3">
+                      {/* Header */}
+                      <div className="flex items-start gap-2">
+                        <svg className="w-4 h-4 shrink-0 mt-0.5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <div>
+                          <p className="text-xs font-bold text-blue-900">
+                            {govtEmpCandidate.fullName} applied to {govtEmpSiblings.length} other item{govtEmpSiblings.length > 1 ? 's' : ''}.
+                          </p>
+                          <p className="text-[10px] text-blue-600 mt-0.5">
+                            This save applies ONLY to this record. Open each sibling separately to set their data.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Siblings WITH existing data - show suggestion cards */}
+                      {sibsWithData.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-[10px] font-bold text-blue-700 uppercase tracking-wide">Data already saved on other applications:</p>
+                          {sibsWithData.map(sib => {
+                            const sibVacancy = vacancies.find(v => v.itemNumber === sib.itemNumber);
+                            const ge = sib.governmentEmployment;
+                            const enteredBy = ge?.lastUpdatedBy?.name;
+                            const isCurrentUser = ge?.lastUpdatedBy?._id === user._id ||
+                                                  ge?.lastUpdatedBy === user._id;
+                            return (
+                              <div key={sib._id} className="bg-white rounded-lg border border-blue-200 px-3 py-2.5 space-y-1.5">
+                                {/* Item + position row */}
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    <svg className="w-3 h-3 shrink-0 text-blue-400" fill="currentColor" viewBox="0 0 24 24">
+                                      <path d="M12 3L2 9h2v10h3v-6h3v6h4v-6h3v6h3V9h2L12 3z" />
+                                    </svg>
+                                    <span className="text-xs font-bold text-blue-800">{sib.itemNumber}</span>
+                                    {sibVacancy?.position && (
+                                      <span className="text-[10px] text-blue-500 truncate">{sibVacancy.position}</span>
+                                    )}
+                                  </div>
+                                  {/* Who entered the data */}
+                                  {enteredBy ? (
+                                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${
+                                      isCurrentUser ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
+                                    }`}>
+                                      {isCurrentUser ? 'You' : enteredBy}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                {/* Data preview */}
+                                <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-gray-600">
+                                  {ge.agency    && <span><span className="font-semibold text-gray-700">Agency:</span> {ge.agency}</span>}
+                                  {ge.position  && <span><span className="font-semibold text-gray-700">Position:</span> {ge.position}</span>}
+                                  {ge.status    && <span><span className="font-semibold text-gray-700">Status:</span> {ge.status}</span>}
+                                  {ge.employmentPeriod && (
+                                    <span><span className="font-semibold text-gray-700">Period:</span> {
+                                      ge.employmentPeriod === 'present' ? 'Present' : 'Within Last 2 Yrs'
+                                    }</span>
+                                  )}
+                                  {ge.preAssessmentExam && (
+                                    <span><span className="font-semibold text-gray-700">Pre-Exam:</span> {
+                                      ge.preAssessmentExam === 'more_than_6_months' ? '>6 months' : '<6 months'
+                                    }</span>
+                                  )}
+                                </div>
+                                {/* Use this data button */}
+                                <button
+                                  type="button"
+                                  onClick={() => setGovtEmpForm({
+                                    agency:            ge.agency            || '',
+                                    position:          ge.position          || '',
+                                    status:            ge.status            || '',
+                                    employmentPeriod:  ge.employmentPeriod  || '',
+                                    employmentEndDate: ge.employmentEndDate
+                                      ? ge.employmentEndDate.toString().slice(0, 10)
+                                      : '',
+                                    preAssessmentExam: ge.preAssessmentExam || '',
+                                    remarks:           ge.remarks           || ''
+                                  })}
+                                  className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2 py-1 rounded-lg border border-indigo-200 transition-colors"
+                                >
+                                  Use this data
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* Siblings WITHOUT data - info only */}
+                      {sibsWithout.length > 0 && (
+                        <div>
+                          <p className="text-[10px] font-bold text-blue-700 uppercase tracking-wide mb-1">Other items with no data yet:</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {sibsWithout.map(sib => {
+                              const sibVacancy = vacancies.find(v => v.itemNumber === sib.itemNumber);
+                              return (
+                                <span key={sib._id} className="text-[10px] bg-white border border-blue-100 text-blue-600 px-2 py-1 rounded-lg font-semibold">
+                                  {sib.itemNumber}{sibVacancy?.position ? ` – ${sibVacancy.position}` : ''}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    <ul className="space-y-1 pl-6">
-                      {govtEmpSiblings.map(sib => {
-                        const sibVacancy = vacancies.find(v => v.itemNumber === sib.itemNumber);
-                        return (
-                          <li key={sib._id} className="flex items-center gap-2 text-xs text-amber-700">
-                            <svg className="w-3 h-3 shrink-0 text-amber-500" fill="currentColor" viewBox="0 0 24 24">
-                              <path d="M12 3L2 9h2v10h3v-6h3v6h4v-6h3v6h3V9h2L12 3z" />
-                            </svg>
-                            <span className="font-semibold">{sib.itemNumber}</span>
-                            {sibVacancy?.position && (
-                              <span className="text-amber-600">— {sibVacancy.position}</span>
-                            )}
-                            {sib.governmentEmployment?.agency && (
-                              <span className="ml-auto text-amber-400 italic text-[10px]">has existing data</span>
-                            )}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                    <p className="text-[10px] text-amber-500 pl-6">
-                      Click the <span className="font-semibold">Review</span> badge beside any applicant row to inspect or override individually before saving.
-                    </p>
-                  </div>
-                )}
+                  );
+                })()}
 
                 {/* Row 1: Agency + Position */}
                 <div className="grid grid-cols-2 gap-4">
@@ -2851,9 +2895,14 @@ const SecretariatView = ({ user }) => {
                 </div>
 
                 {/* Clear hint */}
-                {hasInput && (
+                {hasInput ? (
                   <p className="text-xs text-gray-400">
-                    Clear all fields and save to mark applicant as not a government employee.
+                    Clear all fields and save to remove this applicant's government employment record entirely.
+                  </p>
+                ) : (
+                  <p className="text-xs text-amber-600 font-medium flex items-center gap-1">
+                    <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    All fields are empty — saving now will clear any existing government employment record for this applicant.
                   </p>
                 )}
               </div>
@@ -2885,16 +2934,18 @@ const SecretariatView = ({ user }) => {
                     disabled={
                       govtEmpLoading ||
                       endDateAudit?.type === 'error' ||
-                      !govtEmpForm.preAssessmentExam ||
+                      (!formIsEmpty && !govtEmpForm.preAssessmentExam) ||
                       (govtEmpForm.employmentPeriod === 'within_2_years' && !govtEmpForm.employmentEndDate)
                     }
                     title={
                       endDateAudit?.type === 'error'
                         ? 'Fix the employment end date error before saving.'
-                        : !govtEmpForm.preAssessmentExam
+                        : (!formIsEmpty && !govtEmpForm.preAssessmentExam)
                         ? 'Select an option for "In Consideration of Pre-Assessment Examination" before saving.'
                         : (govtEmpForm.employmentPeriod === 'within_2_years' && !govtEmpForm.employmentEndDate)
                         ? 'Employment End Date is required when "Within Last 2 Years" is selected.'
+                        : formIsEmpty
+                        ? 'Save empty form to remove government employment record for this applicant.'
                         : undefined
                     }
                     className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold text-white transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -2905,7 +2956,7 @@ const SecretariatView = ({ user }) => {
                     ) : (
                       <>
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                        {govtEmpSiblings.length > 0 ? `Save for ${govtEmpSiblings.length + 1} records` : 'Save'}
+                        Save
                       </>
                     )}
                   </button>

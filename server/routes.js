@@ -1092,6 +1092,7 @@ router.get('/candidates/siblings', authMiddleware, async (req, res) => {
     if (excludeId) query._id = { $ne: excludeId };
     const siblings = await Candidate.find(query)
       .select('_id fullName itemNumber governmentEmployment')
+      .populate('governmentEmployment.lastUpdatedBy', 'name')
       .sort({ itemNumber: 1 });
     res.json(siblings);
   } catch (error) {
@@ -1197,7 +1198,9 @@ router.put('/candidates/:id', authMiddleware, async (req, res) => {
         employmentPeriod:  req.body.governmentEmployment?.employmentPeriod  || '',
         employmentEndDate: req.body.governmentEmployment?.employmentEndDate || null,
         preAssessmentExam: req.body.governmentEmployment?.preAssessmentExam || '',
-        remarks:           req.body.governmentEmployment?.remarks           || ''
+        remarks:           req.body.governmentEmployment?.remarks           || '',
+        lastUpdatedBy:     req.user._id,
+        lastUpdatedAt:     new Date()
       };
     }
 
