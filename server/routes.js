@@ -1091,9 +1091,9 @@ router.get('/candidates/siblings', authMiddleware, async (req, res) => {
     };
     if (excludeId) query._id = { $ne: excludeId };
     const siblings = await Candidate.find(query)
-      .select('_id fullName itemNumber governmentEmployment comments lastUpdatedBy')
+      .select('_id fullName itemNumber governmentEmployment comments commentsHistory')
       .populate('governmentEmployment.lastUpdatedBy', 'name')
-      .populate('lastUpdatedBy', 'name')
+      .populate('commentsHistory.commentedBy', 'name')
       .sort({ itemNumber: 1 });
     res.json(siblings);
   } catch (error) {

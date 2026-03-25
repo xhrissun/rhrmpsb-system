@@ -1991,9 +1991,13 @@ const SecretariatView = ({ user }) => {
                         <p className="text-[10px] font-bold text-blue-700 uppercase tracking-wide">Comments saved on other applications:</p>
                         {sibsWithData.map(sib => {
                           const sibVacancy = vacancies.find(v => v.itemNumber === sib.itemNumber);
-                          const enteredBy = sib.lastUpdatedBy?.name;
-                          const isCurrentUser = sib.lastUpdatedBy?._id === user._id ||
-                                                sib.lastUpdatedBy === user._id;
+                          // Derive who last touched comments from commentsHistory (most recent entry)
+                          const lastCommentEntry = sib.commentsHistory?.length
+                            ? sib.commentsHistory[sib.commentsHistory.length - 1]
+                            : null;
+                          const enteredBy = lastCommentEntry?.commentedBy?.name;
+                          const isCurrentUser = lastCommentEntry?.commentedBy?._id === user._id ||
+                                                lastCommentEntry?.commentedBy === user._id;
                           return (
                             <div key={sib._id} className="bg-white rounded-lg border border-blue-200 px-3 py-2.5 space-y-1.5">
                               {/* Item + position + who */}
