@@ -158,9 +158,9 @@ const SecretariatView = ({ user }) => {
   const [govtEmpSiblings, setGovtEmpSiblings] = useState([]);
 
   // Keep pendingGovtEmpData for siblings in sync with every keystroke in the modal.
-  // Siblings are always pre-populated as soon as they are fetched (govtEmpSiblings changes),
-  // so their Review badges appear in the table immediately — not only after the secretariat
-  // starts typing. Pending entries are only removed when ALL fields are deliberately cleared.
+  // Also writes the PRIMARY candidate's own _id so their table row shows the Review
+  // badge even when filtered to a single item number (where sibling rows aren't visible).
+  // The primary candidate's _id is filtered out during save so it is never double-saved.
   useEffect(() => {
     if (!showGovtEmpModal || !govtEmpCandidate || govtEmpSiblings.length === 0) return;
     const hasAnyInput = govtEmpForm.agency || govtEmpForm.position || govtEmpForm.status ||
@@ -168,16 +168,21 @@ const SecretariatView = ({ user }) => {
                         govtEmpForm.remarks;
     setPendingGovtEmpData(prev => {
       const next = { ...prev };
+      // Write all siblings
       govtEmpSiblings.forEach(sib => {
-        // Always write a pending entry for every sibling so the Review badge
-        // appears immediately when siblings load — even when the form is blank.
-        // Only remove when every field is deliberately cleared.
         if (hasAnyInput || !prev[sib._id]) {
           next[sib._id] = { ...govtEmpForm };
         } else {
           delete next[sib._id];
         }
       });
+      // Also mark the primary candidate so their own row shows the Review badge.
+      // handleSaveGovtEmp already filters this id out before saving siblings.
+      if (hasAnyInput || !prev[govtEmpCandidate._id]) {
+        next[govtEmpCandidate._id] = { ...govtEmpForm };
+      } else {
+        delete next[govtEmpCandidate._id];
+      }
       return next;
     });
   }, [govtEmpForm, showGovtEmpModal, govtEmpCandidate, govtEmpSiblings]);
@@ -667,9 +672,8 @@ const SecretariatView = ({ user }) => {
       return prev; // no mutation — just reading
     });
     setShowGovtEmpModal(true);
-    // Fetch siblings via the shared axios instance (correct baseURL + authToken interceptor).
-    // Using candidatesAPI.getSiblings avoids hardcoding the backend URL and ensures the
-    // same token/baseURL logic used everywhere else in the app.
+    // Use candidatesAPI.getSiblings (shared axios instance — correct baseURL + authToken).
+    // Fall back to selectedPublicationRangeRef if candidate.publicationRangeId is absent.
     const pubRangeId = candidate.publicationRangeId || selectedPublicationRangeRef.current;
     if (pubRangeId) {
       try {
@@ -1640,6 +1644,7 @@ const SecretariatView = ({ user }) => {
                         { key: 'proofOfEligibility', label: 'POE', color: 'bg-yellow-100 text-yellow-800' },
                         { key: 'professionalLicense', label: 'P. License', color: 'bg-teal-100 text-teal-800' },
                         { key: 'certificates', label: 'Certs', color: 'bg-indigo-100 text-indigo-800' },
+                        { key: 'certificateOfEmployment', label: 'COE', color: 'bg-cyan-100 text-cyan-800' },
                         { key: 'diploma', label: 'Diploma', color: 'bg-pink-100 text-pink-800' },
                         { key: 'transcriptOfRecords', label: 'TOR', color: 'bg-red-100 text-red-800' },
                         { key: 'ipcr', label: 'IPCR', color: 'bg-orange-100 text-orange-800' }
@@ -1912,6 +1917,7 @@ const SecretariatView = ({ user }) => {
                       { key: 'proofOfEligibility', label: 'Proof of Eligibility', color: 'bg-yellow-100 text-yellow-800' },
                       { key: 'professionalLicense', label: 'Professional License', color: 'bg-teal-100 text-teal-800' },
                       { key: 'certificates', label: 'Certificates', color: 'bg-indigo-100 text-indigo-800' },
+                      { key: 'certificateOfEmployment', label: 'Certificate of Employment', color: 'bg-cyan-100 text-cyan-800' },
                       { key: 'diploma', label: 'Diploma', color: 'bg-pink-100 text-pink-800' },
                       { key: 'transcriptOfRecords', label: 'Transcript of Records', color: 'bg-red-100 text-red-800' },
                       { key: 'ipcr', label: 'IPCR', color: 'bg-orange-100 text-orange-800' }
