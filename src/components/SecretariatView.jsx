@@ -151,6 +151,10 @@ const SecretariatView = ({ user }) => {
   // propagates to siblings -- each must be opened and saved individually.
   const [govtEmpSiblings, setGovtEmpSiblings] = useState([]);
 
+  // Same sibling concept for the Comment modal. Each field has its own individual
+  // "Use" button — clicking it copies only that one field, leaving others untouched.
+  const [commentSiblings, setCommentSiblings] = useState([]);
+
   // Set of candidate _ids that should show the Review badge in the table.
   // Computed after every candidates load + whenever a save clears data.
   // Stored separately so the badge persists even when siblings are outside
@@ -608,6 +612,7 @@ const SecretariatView = ({ user }) => {
 
   const closeCommentModal = useCallback(() => {
     setShowCommentModal(false);
+    setCommentSiblings([]);
     setSelectedCandidate('');
     setCandidateDetails(null);
     setComments({
@@ -1529,11 +1534,26 @@ const SecretariatView = ({ user }) => {
                           {/* Only show Update button for non-archived candidates */}
                           {!candidate.isArchived && (
                             <button
-                              onClick={() => {
+                              onClick={async () => {
                                 setSelectedCandidate(candidate._id);
                                 loadCandidateDetails(candidate._id);
                                 loadCommentSuggestions();
+                                setCommentSiblings([]); // clear while loading
                                 setShowCommentModal(true);
+                                // Fetch siblings for propagation panel
+                                const pubRangeId = candidate.publicationRangeId || selectedPublicationRangeRef.current;
+                                if (pubRangeId) {
+                                  try {
+                                    const siblings = await candidatesAPI.getSiblings(
+                                      candidate.fullName,
+                                      candidate._id,
+                                      pubRangeId
+                                    );
+                                    setCommentSiblings(siblings);
+                                  } catch {
+                                    // Non-fatal: modal still works, propagation panel just stays empty
+                                  }
+                                }
                               }}
                               aria-label={`Update status for ${candidate.fullName}`}
                               className="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-xs transition-colors duration-200"
@@ -1939,6 +1959,108 @@ const SecretariatView = ({ user }) => {
             </div>
 
             <div className="space-y-4">
+              {/* Sibling propagation panel */}
+              {commentSiblings.length > 0 && (() => {
+                const FIELDS = ['education', 'training', 'experience', 'eligibility'];
+                const sibsWithData = commentSiblings.filter(s =>
+                  s.comments && FIELDS.some(f => s.comments[f]?.trim())
+                );
+                const sibsWithout = commentSiblings.filter(s =>
+                  !s.comments || FIELDS.every(f => !s.comments[f]?.trim())
+                );
+                return (
+                  <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 space-y-3">
+                    {/* Header */}
+                    <div className="flex items-start gap-2">
+                      <svg className="w-4 h-4 shrink-0 mt-0.5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <div>
+                        <p className="text-xs font-bold text-blue-900">
+                          {candidateDetails?.fullName} applied to {commentSiblings.length} other item{commentSiblings.length > 1 ? 's' : ''}.
+                        </p>
+                        <p className="text-[10px] text-blue-600 mt-0.5">
+                          Each field can be copied individually. This save applies ONLY to this record.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Siblings WITH comment data */}
+                    {sibsWithData.length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-[10px] font-bold text-blue-700 uppercase tracking-wide">Comments saved on other applications:</p>
+                        {sibsWithData.map(sib => {
+                          const sibVacancy = vacancies.find(v => v.itemNumber === sib.itemNumber);
+                          const enteredBy = sib.lastUpdatedBy?.name;
+                          const isCurrentUser = sib.lastUpdatedBy?._id === user._id ||
+                                                sib.lastUpdatedBy === user._id;
+                          return (
+                            <div key={sib._id} className="bg-white rounded-lg border border-blue-200 px-3 py-2.5 space-y-1.5">
+                              {/* Item + position + who */}
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <svg className="w-3 h-3 shrink-0 text-blue-400" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M12 3L2 9h2v10h3v-6h3v6h4v-6h3v6h3V9h2L12 3z" />
+                                  </svg>
+                                  <span className="text-xs font-bold text-blue-800">{sib.itemNumber}</span>
+                                  {sibVacancy?.position && (
+                                    <span className="text-[10px] text-blue-500 truncate">{sibVacancy.position}</span>
+                                  )}
+                                </div>
+                                {enteredBy && (
+                                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${
+                                    isCurrentUser ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
+                                  }`}>
+                                    {isCurrentUser ? 'You' : enteredBy}
+                                  </span>
+                                )}
+                              </div>
+                              {/* Per-field rows */}
+                              {FIELDS.map(field => {
+                                const val = sib.comments?.[field]?.trim();
+                                if (!val) return null;
+                                return (
+                                  <div key={field} className="flex items-start justify-between gap-2">
+                                    <div className="min-w-0 flex-1">
+                                      <span className="text-[10px] font-bold text-gray-500 uppercase">{field}: </span>
+                                      <span className="text-[10px] text-gray-700 break-words line-clamp-2">{val}</span>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => setComments(prev => ({ ...prev, [field]: val }))}
+                                      className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2 py-1 rounded-lg border border-indigo-200 transition-colors shrink-0"
+                                    >
+                                      Use
+                                    </button>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Siblings WITHOUT comment data */}
+                    {sibsWithout.length > 0 && (
+                      <div>
+                        <p className="text-[10px] font-bold text-blue-700 uppercase tracking-wide mb-1">Other items with no comments yet:</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {sibsWithout.map(sib => {
+                            const sibVacancy = vacancies.find(v => v.itemNumber === sib.itemNumber);
+                            return (
+                              <span key={sib._id} className="text-[10px] bg-white border border-blue-100 text-blue-600 px-2 py-1 rounded-lg font-semibold">
+                                {sib.itemNumber}{sibVacancy?.position ? ` – ${sibVacancy.position}` : ''}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
               <CommentInput
                 label="Education Comments"
                 value={comments.education}
