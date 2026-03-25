@@ -16821,7 +16821,7 @@ function(t2) {
  */
 function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-345cf701.js"), true ? ["assets/index.es-345cf701.js","assets/vendor-05345498.js","assets/pdfjs-3a644b6e.js"] : void 0)).catch(function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-0edb3a59.js"), true ? ["assets/index.es-0edb3a59.js","assets/vendor-05345498.js","assets/pdfjs-3a644b6e.js"] : void 0)).catch(function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     }).then(function(t3) {
       return t3.default ? t3.default : t3;
@@ -20629,6 +20629,8 @@ const SecretariatView = ({ user }) => {
   );
   const [govtEmpSiblings, setGovtEmpSiblings] = reactExports.useState([]);
   const [commentSiblings, setCommentSiblings] = reactExports.useState([]);
+  const [govtEmpSiblingsLoading, setGovtEmpSiblingsLoading] = reactExports.useState(false);
+  const [commentSiblingsLoading, setCommentSiblingsLoading] = reactExports.useState(false);
   const [reviewBadgeIds, setReviewBadgeIds] = reactExports.useState(/* @__PURE__ */ new Set());
   const [statusFilter, setStatusFilter] = reactExports.useState(null);
   const [showAssignmentSummary, setShowAssignmentSummary] = reactExports.useState(false);
@@ -21053,6 +21055,7 @@ const SecretariatView = ({ user }) => {
   const closeCommentModal = reactExports.useCallback(() => {
     setShowCommentModal(false);
     setCommentSiblings([]);
+    setCommentSiblingsLoading(false);
     setSelectedCandidate("");
     setCandidateDetails(null);
     setComments({
@@ -21105,6 +21108,7 @@ const SecretariatView = ({ user }) => {
     setShowGovtEmpModal(true);
     const pubRangeId = candidate.publicationRangeId || selectedPublicationRangeRef.current;
     if (pubRangeId) {
+      setGovtEmpSiblingsLoading(true);
       try {
         const siblings = await candidatesAPI.getSiblings(
           candidate.fullName,
@@ -21113,6 +21117,8 @@ const SecretariatView = ({ user }) => {
         );
         setGovtEmpSiblings(siblings);
       } catch {
+      } finally {
+        setGovtEmpSiblingsLoading(false);
       }
     }
   }, []);
@@ -21120,6 +21126,7 @@ const SecretariatView = ({ user }) => {
     setShowGovtEmpModal(false);
     setGovtEmpCandidate(null);
     setGovtEmpSiblings([]);
+    setGovtEmpSiblingsLoading(false);
     setGovtEmpForm({ agency: "", position: "", status: "", employmentPeriod: "", employmentEndDate: "", preAssessmentExam: "", remarks: "" });
   }, []);
   const handleSaveGovtEmp = reactExports.useCallback(async () => {
@@ -21854,6 +21861,7 @@ const SecretariatView = ({ user }) => {
                         setShowCommentModal(true);
                         const pubRangeId = candidate.publicationRangeId || selectedPublicationRangeRef.current;
                         if (pubRangeId) {
+                          setCommentSiblingsLoading(true);
                           try {
                             const siblings = await candidatesAPI.getSiblings(
                               candidate.fullName,
@@ -21862,6 +21870,8 @@ const SecretariatView = ({ user }) => {
                             );
                             setCommentSiblings(siblings);
                           } catch {
+                          } finally {
+                            setCommentSiblingsLoading(false);
                           }
                         }
                       },
@@ -22196,7 +22206,16 @@ const SecretariatView = ({ user }) => {
         ] })
       ] }),
       /* @__PURE__ */ jsxs("div", { className: "space-y-4", children: [
-        commentSiblings.length > 0 && (() => {
+        (commentSiblingsLoading || commentSiblings.length > 0) && (() => {
+          if (commentSiblingsLoading) {
+            return /* @__PURE__ */ jsxs("div", { className: "rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 flex items-center gap-2", children: [
+              /* @__PURE__ */ jsxs("svg", { className: "w-4 h-4 text-blue-400 animate-spin shrink-0", fill: "none", viewBox: "0 0 24 24", children: [
+                /* @__PURE__ */ jsx("circle", { className: "opacity-25", cx: "12", cy: "12", r: "10", stroke: "currentColor", strokeWidth: "4" }),
+                /* @__PURE__ */ jsx("path", { className: "opacity-75", fill: "currentColor", d: "M4 12a8 8 0 018-8v8z" })
+              ] }),
+              /* @__PURE__ */ jsx("p", { className: "text-xs text-blue-600", children: "Checking for related applications…" })
+            ] });
+          }
           const FIELDS = ["education", "training", "experience", "eligibility"];
           const sibsWithData = commentSiblings.filter(
             (s2) => s2.comments && FIELDS.some((f2) => {
@@ -22228,32 +22247,34 @@ const SecretariatView = ({ user }) => {
             sibsWithData.length > 0 && /* @__PURE__ */ jsxs("div", { className: "space-y-2", children: [
               /* @__PURE__ */ jsx("p", { className: "text-[10px] font-bold text-blue-700 uppercase tracking-wide", children: "Comments saved on other applications:" }),
               sibsWithData.map((sib) => {
-                var _a2, _b2, _c;
                 const sibVacancy = vacancies.find((v2) => v2.itemNumber === sib.itemNumber);
-                const lastCommentEntry = ((_a2 = sib.commentsHistory) == null ? void 0 : _a2.length) ? sib.commentsHistory[sib.commentsHistory.length - 1] : null;
-                const enteredBy = (_b2 = lastCommentEntry == null ? void 0 : lastCommentEntry.commentedBy) == null ? void 0 : _b2.name;
-                const isCurrentUser = ((_c = lastCommentEntry == null ? void 0 : lastCommentEntry.commentedBy) == null ? void 0 : _c._id) === user._id || (lastCommentEntry == null ? void 0 : lastCommentEntry.commentedBy) === user._id;
+                const getFieldAuthor = (field) => {
+                  var _a2;
+                  if (!((_a2 = sib.commentsHistory) == null ? void 0 : _a2.length))
+                    return null;
+                  const entries = sib.commentsHistory.filter((e) => e.field === field);
+                  return entries.length ? entries[entries.length - 1].commentedBy : null;
+                };
                 return /* @__PURE__ */ jsxs("div", { className: "bg-white rounded-lg border border-blue-200 px-3 py-2.5 space-y-1.5", children: [
-                  /* @__PURE__ */ jsxs("div", { className: "flex items-center justify-between gap-2", children: [
-                    /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-1.5 min-w-0", children: [
-                      /* @__PURE__ */ jsx("svg", { className: "w-3 h-3 shrink-0 text-blue-400", fill: "currentColor", viewBox: "0 0 24 24", children: /* @__PURE__ */ jsx("path", { d: "M12 3L2 9h2v10h3v-6h3v6h4v-6h3v6h3V9h2L12 3z" }) }),
-                      /* @__PURE__ */ jsx("span", { className: "text-xs font-bold text-blue-800", children: sib.itemNumber }),
-                      (sibVacancy == null ? void 0 : sibVacancy.position) && /* @__PURE__ */ jsx("span", { className: "text-[10px] text-blue-500 truncate", children: sibVacancy.position })
-                    ] }),
-                    enteredBy && /* @__PURE__ */ jsx("span", { className: `text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${isCurrentUser ? "bg-green-100 text-green-700" : "bg-orange-100 text-orange-700"}`, children: isCurrentUser ? "You" : enteredBy })
+                  /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-1.5 min-w-0", children: [
+                    /* @__PURE__ */ jsx("svg", { className: "w-3 h-3 shrink-0 text-blue-400", fill: "currentColor", viewBox: "0 0 24 24", children: /* @__PURE__ */ jsx("path", { d: "M12 3L2 9h2v10h3v-6h3v6h4v-6h3v6h3V9h2L12 3z" }) }),
+                    /* @__PURE__ */ jsx("span", { className: "text-xs font-bold text-blue-800", children: sib.itemNumber }),
+                    (sibVacancy == null ? void 0 : sibVacancy.position) && /* @__PURE__ */ jsx("span", { className: "text-[10px] text-blue-500 truncate", children: sibVacancy.position })
                   ] }),
                   FIELDS.map((field) => {
-                    var _a3, _b3;
-                    const val = (_b3 = (_a3 = sib.comments) == null ? void 0 : _a3[field]) == null ? void 0 : _b3.trim();
+                    var _a2, _b2;
+                    const val = (_b2 = (_a2 = sib.comments) == null ? void 0 : _a2[field]) == null ? void 0 : _b2.trim();
                     if (!val)
                       return null;
-                    return /* @__PURE__ */ jsxs("div", { className: "flex items-start justify-between gap-2", children: [
-                      /* @__PURE__ */ jsxs("div", { className: "min-w-0 flex-1", children: [
-                        /* @__PURE__ */ jsxs("span", { className: "text-[10px] font-bold text-gray-500 uppercase", children: [
-                          field,
-                          ": "
+                    const author = getFieldAuthor(field);
+                    const isCurrentUser = (author == null ? void 0 : author._id) === user._id || author === user._id;
+                    return /* @__PURE__ */ jsxs("div", { className: "flex items-start justify-between gap-2 pl-1 border-l-2 border-blue-100", children: [
+                      /* @__PURE__ */ jsxs("div", { className: "min-w-0 flex-1 space-y-0.5", children: [
+                        /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-1.5", children: [
+                          /* @__PURE__ */ jsx("span", { className: "text-[10px] font-bold text-gray-500 uppercase", children: field }),
+                          (author == null ? void 0 : author.name) && /* @__PURE__ */ jsx("span", { className: `text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${isCurrentUser ? "bg-green-100 text-green-700" : "bg-orange-100 text-orange-700"}`, children: isCurrentUser ? "You" : author.name })
                         ] }),
-                        /* @__PURE__ */ jsx("span", { className: "text-[10px] text-gray-700 break-words line-clamp-2", children: val })
+                        /* @__PURE__ */ jsx("p", { className: "text-[10px] text-gray-700 break-words line-clamp-2", children: val })
                       ] }),
                       /* @__PURE__ */ jsx(
                         "button",
@@ -22839,7 +22860,16 @@ const SecretariatView = ({ user }) => {
             /* @__PURE__ */ jsx("span", { className: `w-2 h-2 rounded-full shrink-0 ${hasInput && govtEmpForm.employmentPeriod === "present" ? "bg-emerald-500" : hasInput && govtEmpForm.employmentPeriod === "within_2_years" ? "bg-amber-500" : hasInput ? "bg-indigo-500" : "bg-gray-300"}` }),
             hasInput && govtEmpForm.employmentPeriod === "present" ? "Present government employee" : hasInput && govtEmpForm.employmentPeriod === "within_2_years" ? "Government employee within last 2 years" : hasInput ? "Government employee (period not set)" : "No government employment details set"
           ] }),
-          govtEmpSiblings.length > 0 && (() => {
+          (govtEmpSiblingsLoading || govtEmpSiblings.length > 0) && (() => {
+            if (govtEmpSiblingsLoading) {
+              return /* @__PURE__ */ jsxs("div", { className: "rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 flex items-center gap-2", children: [
+                /* @__PURE__ */ jsxs("svg", { className: "w-4 h-4 text-blue-400 animate-spin shrink-0", fill: "none", viewBox: "0 0 24 24", children: [
+                  /* @__PURE__ */ jsx("circle", { className: "opacity-25", cx: "12", cy: "12", r: "10", stroke: "currentColor", strokeWidth: "4" }),
+                  /* @__PURE__ */ jsx("path", { className: "opacity-75", fill: "currentColor", d: "M4 12a8 8 0 018-8v8z" })
+                ] }),
+                /* @__PURE__ */ jsx("p", { className: "text-xs text-blue-600", children: "Checking for related applications…" })
+              ] });
+            }
             const sibsWithData = govtEmpSiblings.filter(
               (s2) => s2.governmentEmployment && (s2.governmentEmployment.agency || s2.governmentEmployment.position || s2.governmentEmployment.status || s2.governmentEmployment.preAssessmentExam)
             );
@@ -31313,4 +31343,4 @@ client.createRoot(document.getElementById("root")).render(
 export {
   _typeof as _
 };
-//# sourceMappingURL=index-f34806de.js.map
+//# sourceMappingURL=index-0448c15a.js.map
