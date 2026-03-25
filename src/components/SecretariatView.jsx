@@ -158,17 +158,25 @@ const SecretariatView = ({ user }) => {
   const [govtEmpSiblings, setGovtEmpSiblings] = useState([]);
 
   // Keep pendingGovtEmpData for siblings in sync with every keystroke in the modal.
+  // Siblings are always pre-populated as soon as they are fetched (govtEmpSiblings changes),
+  // so their Review badges appear in the table immediately — not only after the secretariat
+  // starts typing. Pending entries are only removed when the secretariat explicitly clears
+  // ALL fields (Clear All button).
   useEffect(() => {
     if (!showGovtEmpModal || !govtEmpCandidate || govtEmpSiblings.length === 0) return;
     const hasAnyInput = govtEmpForm.agency || govtEmpForm.position || govtEmpForm.status ||
-                        govtEmpForm.employmentPeriod || govtEmpForm.preAssessmentExam;
+                        govtEmpForm.employmentPeriod || govtEmpForm.preAssessmentExam ||
+                        govtEmpForm.remarks;
     setPendingGovtEmpData(prev => {
       const next = { ...prev };
       govtEmpSiblings.forEach(sib => {
-        if (hasAnyInput) {
+        // Always write a pending entry for every sibling so the Review badge
+        // appears immediately when siblings are loaded. Only remove it when
+        // every field has been deliberately cleared.
+        if (hasAnyInput || !prev[sib._id]) {
           next[sib._id] = { ...govtEmpForm };
         } else {
-          delete next[sib._id]; // form cleared — remove pending for siblings
+          delete next[sib._id];
         }
       });
       return next;
@@ -662,21 +670,15 @@ const SecretariatView = ({ user }) => {
     setShowGovtEmpModal(true);
     // Fetch siblings from the API so we find ALL candidates with the same name
     // across every item number — not just those loaded in the current filtered view.
-    // Use the candidate's own publicationRangeId if present, otherwise fall back
-    // to the secretariat's currently selected publication range.
-    const pubRangeId = candidate.publicationRangeId || selectedPublicationRangeRef.current;
-    if (pubRangeId) {
+    if (candidate.publicationRangeId) {
       try {
-        const token = localStorage.getItem('authToken');
-        const API_BASE = import.meta.env.PROD
-          ? 'https://rhrmpsb-system.onrender.com/api'
-          : 'http://localhost:5001/api';
+        const token = localStorage.getItem('token');
         const params = new URLSearchParams({
           fullName: candidate.fullName,
           excludeId: candidate._id,
-          publicationRangeId: pubRangeId
+          publicationRangeId: candidate.publicationRangeId
         });
-        const res = await fetch(`${API_BASE}/candidates/siblings?${params}`, {
+        const res = await fetch(`/api/candidates/siblings?${params}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         if (res.ok) {
