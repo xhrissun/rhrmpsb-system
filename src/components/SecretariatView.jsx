@@ -155,6 +155,11 @@ const SecretariatView = ({ user }) => {
   // "Use" button — clicking it copies only that one field, leaving others untouched.
   const [commentSiblings, setCommentSiblings] = useState([]);
 
+  // Loading states for sibling fetch — shows a spinner in the panel while the
+  // API call is in flight so the user isn't startled by content appearing abruptly.
+  const [govtEmpSiblingsLoading, setGovtEmpSiblingsLoading] = useState(false);
+  const [commentSiblingsLoading, setCommentSiblingsLoading] = useState(false);
+
   // Set of candidate _ids that should show the Review badge in the table.
   // Computed after every candidates load + whenever a save clears data.
   // Stored separately so the badge persists even when siblings are outside
@@ -613,6 +618,7 @@ const SecretariatView = ({ user }) => {
   const closeCommentModal = useCallback(() => {
     setShowCommentModal(false);
     setCommentSiblings([]);
+    setCommentSiblingsLoading(false);
     setSelectedCandidate('');
     setCandidateDetails(null);
     setComments({
@@ -676,6 +682,7 @@ const SecretariatView = ({ user }) => {
     // Fall back to selectedPublicationRangeRef if candidate.publicationRangeId is absent.
     const pubRangeId = candidate.publicationRangeId || selectedPublicationRangeRef.current;
     if (pubRangeId) {
+      setGovtEmpSiblingsLoading(true);
       try {
         const siblings = await candidatesAPI.getSiblings(
           candidate.fullName,
@@ -685,6 +692,8 @@ const SecretariatView = ({ user }) => {
         setGovtEmpSiblings(siblings);
       } catch {
         // Non-fatal: modal still works, propagation panel just stays empty
+      } finally {
+        setGovtEmpSiblingsLoading(false);
       }
     }
   }, []);
@@ -693,6 +702,7 @@ const SecretariatView = ({ user }) => {
     setShowGovtEmpModal(false);
     setGovtEmpCandidate(null);
     setGovtEmpSiblings([]);
+    setGovtEmpSiblingsLoading(false);
     setGovtEmpForm({ agency: '', position: '', status: '', employmentPeriod: '', employmentEndDate: '', preAssessmentExam: '', remarks: '' });
   }, []);
 
@@ -1543,6 +1553,7 @@ const SecretariatView = ({ user }) => {
                                 // Fetch siblings for propagation panel
                                 const pubRangeId = candidate.publicationRangeId || selectedPublicationRangeRef.current;
                                 if (pubRangeId) {
+                                  setCommentSiblingsLoading(true);
                                   try {
                                     const siblings = await candidatesAPI.getSiblings(
                                       candidate.fullName,
@@ -1552,6 +1563,8 @@ const SecretariatView = ({ user }) => {
                                     setCommentSiblings(siblings);
                                   } catch {
                                     // Non-fatal: modal still works, propagation panel just stays empty
+                                  } finally {
+                                    setCommentSiblingsLoading(false);
                                   }
                                 }
                               }}
@@ -1960,7 +1973,18 @@ const SecretariatView = ({ user }) => {
 
             <div className="space-y-4">
               {/* Sibling propagation panel */}
-              {commentSiblings.length > 0 && (() => {
+              {(commentSiblingsLoading || commentSiblings.length > 0) && (() => {
+                if (commentSiblingsLoading) {
+                  return (
+                    <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 flex items-center gap-2">
+                      <svg className="w-4 h-4 text-blue-400 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                      </svg>
+                      <p className="text-xs text-blue-600">Checking for related applications…</p>
+                    </div>
+                  );
+                }
                 const FIELDS = ['education', 'training', 'experience', 'eligibility'];
                 const sibsWithData = commentSiblings.filter(s =>
                   s.comments && FIELDS.some(f => s.comments[f]?.trim())
@@ -1991,43 +2015,45 @@ const SecretariatView = ({ user }) => {
                         <p className="text-[10px] font-bold text-blue-700 uppercase tracking-wide">Comments saved on other applications:</p>
                         {sibsWithData.map(sib => {
                           const sibVacancy = vacancies.find(v => v.itemNumber === sib.itemNumber);
-                          // Derive who last touched comments from commentsHistory (most recent entry)
-                          const lastCommentEntry = sib.commentsHistory?.length
-                            ? sib.commentsHistory[sib.commentsHistory.length - 1]
-                            : null;
-                          const enteredBy = lastCommentEntry?.commentedBy?.name;
-                          const isCurrentUser = lastCommentEntry?.commentedBy?._id === user._id ||
-                                                lastCommentEntry?.commentedBy === user._id;
+                          // For each field, find the last commentsHistory entry for that field
+                          // to show exactly who entered that specific comment.
+                          const getFieldAuthor = (field) => {
+                            if (!sib.commentsHistory?.length) return null;
+                            const entries = sib.commentsHistory.filter(e => e.field === field);
+                            return entries.length ? entries[entries.length - 1].commentedBy : null;
+                          };
                           return (
                             <div key={sib._id} className="bg-white rounded-lg border border-blue-200 px-3 py-2.5 space-y-1.5">
-                              {/* Item + position + who */}
-                              <div className="flex items-center justify-between gap-2">
-                                <div className="flex items-center gap-1.5 min-w-0">
-                                  <svg className="w-3 h-3 shrink-0 text-blue-400" fill="currentColor" viewBox="0 0 24 24">
-                                    <path d="M12 3L2 9h2v10h3v-6h3v6h4v-6h3v6h3V9h2L12 3z" />
-                                  </svg>
-                                  <span className="text-xs font-bold text-blue-800">{sib.itemNumber}</span>
-                                  {sibVacancy?.position && (
-                                    <span className="text-[10px] text-blue-500 truncate">{sibVacancy.position}</span>
-                                  )}
-                                </div>
-                                {enteredBy && (
-                                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${
-                                    isCurrentUser ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
-                                  }`}>
-                                    {isCurrentUser ? 'You' : enteredBy}
-                                  </span>
+                              {/* Item + position */}
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <svg className="w-3 h-3 shrink-0 text-blue-400" fill="currentColor" viewBox="0 0 24 24">
+                                  <path d="M12 3L2 9h2v10h3v-6h3v6h4v-6h3v6h3V9h2L12 3z" />
+                                </svg>
+                                <span className="text-xs font-bold text-blue-800">{sib.itemNumber}</span>
+                                {sibVacancy?.position && (
+                                  <span className="text-[10px] text-blue-500 truncate">{sibVacancy.position}</span>
                                 )}
                               </div>
                               {/* Per-field rows */}
                               {FIELDS.map(field => {
                                 const val = sib.comments?.[field]?.trim();
                                 if (!val) return null;
+                                const author = getFieldAuthor(field);
+                                const isCurrentUser = author?._id === user._id || author === user._id;
                                 return (
-                                  <div key={field} className="flex items-start justify-between gap-2">
-                                    <div className="min-w-0 flex-1">
-                                      <span className="text-[10px] font-bold text-gray-500 uppercase">{field}: </span>
-                                      <span className="text-[10px] text-gray-700 break-words line-clamp-2">{val}</span>
+                                  <div key={field} className="flex items-start justify-between gap-2 pl-1 border-l-2 border-blue-100">
+                                    <div className="min-w-0 flex-1 space-y-0.5">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-[10px] font-bold text-gray-500 uppercase">{field}</span>
+                                        {author?.name && (
+                                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
+                                            isCurrentUser ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
+                                          }`}>
+                                            {isCurrentUser ? 'You' : author.name}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p className="text-[10px] text-gray-700 break-words line-clamp-2">{val}</p>
                                     </div>
                                     <button
                                       type="button"
@@ -2764,7 +2790,18 @@ const SecretariatView = ({ user }) => {
                 </div>
 
                 {/* Sibling panel: same applicant under other item numbers */}
-                {govtEmpSiblings.length > 0 && (() => {
+                {(govtEmpSiblingsLoading || govtEmpSiblings.length > 0) && (() => {
+                  if (govtEmpSiblingsLoading) {
+                    return (
+                      <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 flex items-center gap-2">
+                        <svg className="w-4 h-4 text-blue-400 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                        </svg>
+                        <p className="text-xs text-blue-600">Checking for related applications…</p>
+                      </div>
+                    );
+                  }
                   const sibsWithData = govtEmpSiblings.filter(s =>
                     s.governmentEmployment &&
                     (s.governmentEmployment.agency || s.governmentEmployment.position ||
