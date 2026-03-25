@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "homepage": "https://xhrissun.github.io/rater-system/",
+  "homepage": "https://xhrissun.github.io/rhrmpsb-system/",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
