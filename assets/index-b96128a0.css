@@ -1030,9 +1030,6 @@ video {
 .top-20 {
   top: 5rem;
 }
-.top-4 {
-  top: 1rem;
-}
 .top-8 {
   top: 2rem;
 }
@@ -1268,8 +1265,8 @@ video {
 .max-h-\[90vh\] {
   max-height: 90vh;
 }
-.max-h-\[95vh\] {
-  max-height: 95vh;
+.max-h-\[92vh\] {
+  max-height: 92vh;
 }
 .max-h-full {
   max-height: 100%;
@@ -1345,9 +1342,6 @@ video {
 }
 .w-9 {
   width: 2.25rem;
-}
-.w-\[95\%\] {
-  width: 95%;
 }
 .w-full {
   width: 100%;
