@@ -151,6 +151,12 @@ const SecretariatView = ({ user }) => {
   // propagates to siblings -- each must be opened and saved individually.
   const [govtEmpSiblings, setGovtEmpSiblings] = useState([]);
 
+  // Set of candidate _ids that should show the Review badge in the table.
+  // Computed after every candidates load + whenever a save clears data.
+  // Stored separately so the badge persists even when siblings are outside
+  // the current item-number filter and not present in the candidates list.
+  const [reviewBadgeIds, setReviewBadgeIds] = useState(new Set());
+
   const [statusFilter, setStatusFilter] = useState(null);
   const [showAssignmentSummary, setShowAssignmentSummary] = useState(false);
   const [showCBSManual, setShowCBSManual] = useState(false);
@@ -437,6 +443,35 @@ const SecretariatView = ({ user }) => {
       const unique = Array.from(new Map(filteredCandidates.map(c => [c._id, c])).values());
       unique.sort((a, b) => a.fullName.localeCompare(b.fullName));
       setCandidates(unique);
+
+      // Compute Review badge IDs.
+      // When a single itemNumber is filtered, siblings from other items are not in
+      // `unique`. Fetch all candidates for the pub range so we can cross-reference.
+      try {
+        const pubRange = selectedPublicationRangeRef.current;
+        let allForBadge = unique;
+        if (currentFilters.itemNumber && pubRange) {
+          const allInRange = await candidatesAPI.getByPublicationRange(pubRange, includeArchived);
+          allForBadge = Array.from(new Map([...unique, ...allInRange].map(c => [c._id, c])).values());
+        }
+        const byName = {};
+        allForBadge.forEach(c => {
+          if (!byName[c.fullName]) byName[c.fullName] = [];
+          byName[c.fullName].push(c);
+        });
+        const hasGovtData = c => c.governmentEmployment &&
+          (c.governmentEmployment.agency || c.governmentEmployment.position ||
+           c.governmentEmployment.status || c.governmentEmployment.preAssessmentExam);
+        const badgeIds = new Set();
+        Object.values(byName).forEach(group => {
+          if (group.length < 2) return;
+          if (!group.some(hasGovtData)) return;
+          group.forEach(c => { if (!hasGovtData(c)) badgeIds.add(c._id); });
+        });
+        setReviewBadgeIds(badgeIds);
+      } catch {
+        setReviewBadgeIds(new Set());
+      }
     } catch (err) {
       console.error('Failed to load candidates:', err);
       setError('Failed to load candidates.');
@@ -687,6 +722,19 @@ const SecretariatView = ({ user }) => {
             : c
         )
       );
+      // If data was saved (non-empty), remove this candidate from the Review badge set
+      // since they now have their own govt emp record. If cleared (empty save), the
+      // badge would re-appear on next load if siblings still have data -- which is correct.
+      const savedHasData = updated.governmentEmployment &&
+        (updated.governmentEmployment.agency || updated.governmentEmployment.position ||
+         updated.governmentEmployment.status || updated.governmentEmployment.preAssessmentExam);
+      if (savedHasData) {
+        setReviewBadgeIds(prev => {
+          const next = new Set(prev);
+          next.delete(govtEmpCandidate._id);
+          return next;
+        });
+      }
       showToast('Government employment details saved.', 'success');
       closeGovtEmpModal();
     } catch (err) {
@@ -1387,38 +1435,20 @@ const SecretariatView = ({ user }) => {
                                   ARCHIVED
                                 </span>
                               )}
-                              {/* Review badge: sibling in same list has govt emp data this one lacks */}
-                              {(() => {
-                                const thisHasData = candidate.governmentEmployment &&
-                                  (candidate.governmentEmployment.agency ||
-                                   candidate.governmentEmployment.position ||
-                                   candidate.governmentEmployment.status ||
-                                   candidate.governmentEmployment.preAssessmentExam);
-                                if (thisHasData) return null;
-                                const siblingWithData = candidates.find(c =>
-                                  c._id !== candidate._id &&
-                                  c.fullName === candidate.fullName &&
-                                  c.governmentEmployment &&
-                                  (c.governmentEmployment.agency ||
-                                   c.governmentEmployment.position ||
-                                   c.governmentEmployment.status ||
-                                   c.governmentEmployment.preAssessmentExam)
-                                );
-                                if (!siblingWithData) return null;
-                                return (
-                                  <button
-                                    type="button"
-                                    onClick={() => openGovtEmpModal(candidate)}
-                                    title="A sibling application has govt employment data - open to review and optionally apply it"
-                                    className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold hover:bg-amber-200 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400 animate-pulse"
-                                  >
-                                    <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-                                    </svg>
-                                    Review
-                                  </button>
-                                );
-                              })()}
+                              {/* Review badge: driven by reviewBadgeIds computed on load, works across all filter levels */}
+                              {reviewBadgeIds.has(candidate._id) && (
+                                <button
+                                  type="button"
+                                  onClick={() => openGovtEmpModal(candidate)}
+                                  title="A sibling application has govt employment data - open to review and optionally apply it"
+                                  className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold hover:bg-amber-200 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400 animate-pulse"
+                                >
+                                  <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                                  </svg>
+                                  Review
+                                </button>
+                              )}
                               {/* Government Employee indicator */}
                               {(() => {
                                 const ge = candidate.governmentEmployment;
