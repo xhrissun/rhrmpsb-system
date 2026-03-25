@@ -1620,6 +1620,7 @@ const SecretariatView = ({ user }) => {
                         { key: 'proofOfEligibility', label: 'POE', color: 'bg-yellow-100 text-yellow-800' },
                         { key: 'professionalLicense', label: 'P. License', color: 'bg-teal-100 text-teal-800' },
                         { key: 'certificates', label: 'Certs', color: 'bg-indigo-100 text-indigo-800' },
+                        { key: 'certificateOfEmployment', label: 'COE', color: 'bg-cyan-100 text-cyan-800' },
                         { key: 'diploma', label: 'Diploma', color: 'bg-pink-100 text-pink-800' },
                         { key: 'transcriptOfRecords', label: 'TOR', color: 'bg-red-100 text-red-800' },
                         { key: 'ipcr', label: 'IPCR', color: 'bg-orange-100 text-orange-800' }
@@ -1892,6 +1893,7 @@ const SecretariatView = ({ user }) => {
                       { key: 'proofOfEligibility', label: 'Proof of Eligibility', color: 'bg-yellow-100 text-yellow-800' },
                       { key: 'professionalLicense', label: 'Professional License', color: 'bg-teal-100 text-teal-800' },
                       { key: 'certificates', label: 'Certificates', color: 'bg-indigo-100 text-indigo-800' },
+                      { key: 'certificateOfEmployment', label: 'Certificate of Employment', color: 'bg-cyan-100 text-cyan-800' },
                       { key: 'diploma', label: 'Diploma', color: 'bg-pink-100 text-pink-800' },
                       { key: 'transcriptOfRecords', label: 'Transcript of Records', color: 'bg-red-100 text-red-800' },
                       { key: 'ipcr', label: 'IPCR', color: 'bg-orange-100 text-orange-800' }

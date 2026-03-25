@@ -1068,6 +1068,38 @@ router.post('/candidates/undo-import/:publicationRangeId', authMiddleware, async
   }
 });
 
+// Returns all non-archived candidates that share the same fullName (case-insensitive)
+// within a given publication range, excluding the requesting candidate itself.
+// Used by the Gov Employment modal to find siblings across item numbers that may
+// not be loaded in the secretariat's current filtered view.
+router.get('/candidates/siblings', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin' && req.user.userType !== 'secretariat') {
+    return res.status(403).json({ message: 'Access denied' });
+  }
+  const { fullName, excludeId, publicationRangeId } = req.query;
+  if (!fullName || !fullName.trim()) {
+    return res.status(400).json({ message: 'fullName query parameter is required' });
+  }
+  if (!publicationRangeId) {
+    return res.status(400).json({ message: 'publicationRangeId query parameter is required' });
+  }
+  try {
+    const query = {
+      publicationRangeId,
+      isArchived: false,
+      fullName: { $regex: `^${fullName.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' }
+    };
+    if (excludeId) query._id = { $ne: excludeId };
+    const siblings = await Candidate.find(query)
+      .select('_id fullName itemNumber governmentEmployment')
+      .sort({ itemNumber: 1 });
+    res.json(siblings);
+  } catch (error) {
+    console.error('[GET /candidates/siblings]', error);
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
+  }
+});
+
 // /:id routes LAST for candidates
 router.get('/candidates/:id', authMiddleware, async (req, res) => {
   try {
