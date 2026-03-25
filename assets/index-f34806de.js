@@ -16821,7 +16821,7 @@ function(t2) {
  */
 function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-9e864c5b.js"), true ? ["assets/index.es-9e864c5b.js","assets/vendor-05345498.js","assets/pdfjs-3a644b6e.js"] : void 0)).catch(function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-345cf701.js"), true ? ["assets/index.es-345cf701.js","assets/vendor-05345498.js","assets/pdfjs-3a644b6e.js"] : void 0)).catch(function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     }).then(function(t3) {
       return t3.default ? t3.default : t3;
@@ -22228,10 +22228,11 @@ const SecretariatView = ({ user }) => {
             sibsWithData.length > 0 && /* @__PURE__ */ jsxs("div", { className: "space-y-2", children: [
               /* @__PURE__ */ jsx("p", { className: "text-[10px] font-bold text-blue-700 uppercase tracking-wide", children: "Comments saved on other applications:" }),
               sibsWithData.map((sib) => {
-                var _a2, _b2;
+                var _a2, _b2, _c;
                 const sibVacancy = vacancies.find((v2) => v2.itemNumber === sib.itemNumber);
-                const enteredBy = (_a2 = sib.lastUpdatedBy) == null ? void 0 : _a2.name;
-                const isCurrentUser = ((_b2 = sib.lastUpdatedBy) == null ? void 0 : _b2._id) === user._id || sib.lastUpdatedBy === user._id;
+                const lastCommentEntry = ((_a2 = sib.commentsHistory) == null ? void 0 : _a2.length) ? sib.commentsHistory[sib.commentsHistory.length - 1] : null;
+                const enteredBy = (_b2 = lastCommentEntry == null ? void 0 : lastCommentEntry.commentedBy) == null ? void 0 : _b2.name;
+                const isCurrentUser = ((_c = lastCommentEntry == null ? void 0 : lastCommentEntry.commentedBy) == null ? void 0 : _c._id) === user._id || (lastCommentEntry == null ? void 0 : lastCommentEntry.commentedBy) === user._id;
                 return /* @__PURE__ */ jsxs("div", { className: "bg-white rounded-lg border border-blue-200 px-3 py-2.5 space-y-1.5", children: [
                   /* @__PURE__ */ jsxs("div", { className: "flex items-center justify-between gap-2", children: [
                     /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-1.5 min-w-0", children: [
@@ -31312,4 +31313,4 @@ client.createRoot(document.getElementById("root")).render(
 export {
   _typeof as _
 };
-//# sourceMappingURL=index-9ff2876a.js.map
+//# sourceMappingURL=index-f34806de.js.map
