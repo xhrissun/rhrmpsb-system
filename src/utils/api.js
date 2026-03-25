@@ -326,6 +326,12 @@ export const candidatesAPI = {
     );
     return response.data;
   },
+
+  getSiblings: async (fullName, excludeId, publicationRangeId) => {
+    const params = new URLSearchParams({ fullName, excludeId, publicationRangeId });
+    const response = await api.get(`/candidates/siblings?${params}`);
+    return response.data;
+  },
 };
 
 // Ratings API

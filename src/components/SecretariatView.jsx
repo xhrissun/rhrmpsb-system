@@ -160,8 +160,7 @@ const SecretariatView = ({ user }) => {
   // Keep pendingGovtEmpData for siblings in sync with every keystroke in the modal.
   // Siblings are always pre-populated as soon as they are fetched (govtEmpSiblings changes),
   // so their Review badges appear in the table immediately — not only after the secretariat
-  // starts typing. Pending entries are only removed when the secretariat explicitly clears
-  // ALL fields (Clear All button).
+  // starts typing. Pending entries are only removed when ALL fields are deliberately cleared.
   useEffect(() => {
     if (!showGovtEmpModal || !govtEmpCandidate || govtEmpSiblings.length === 0) return;
     const hasAnyInput = govtEmpForm.agency || govtEmpForm.position || govtEmpForm.status ||
@@ -171,8 +170,8 @@ const SecretariatView = ({ user }) => {
       const next = { ...prev };
       govtEmpSiblings.forEach(sib => {
         // Always write a pending entry for every sibling so the Review badge
-        // appears immediately when siblings are loaded. Only remove it when
-        // every field has been deliberately cleared.
+        // appears immediately when siblings load — even when the form is blank.
+        // Only remove when every field is deliberately cleared.
         if (hasAnyInput || !prev[sib._id]) {
           next[sib._id] = { ...govtEmpForm };
         } else {
@@ -668,23 +667,18 @@ const SecretariatView = ({ user }) => {
       return prev; // no mutation — just reading
     });
     setShowGovtEmpModal(true);
-    // Fetch siblings from the API so we find ALL candidates with the same name
-    // across every item number — not just those loaded in the current filtered view.
-    if (candidate.publicationRangeId) {
+    // Fetch siblings via the shared axios instance (correct baseURL + authToken interceptor).
+    // Using candidatesAPI.getSiblings avoids hardcoding the backend URL and ensures the
+    // same token/baseURL logic used everywhere else in the app.
+    const pubRangeId = candidate.publicationRangeId || selectedPublicationRangeRef.current;
+    if (pubRangeId) {
       try {
-        const token = localStorage.getItem('token');
-        const params = new URLSearchParams({
-          fullName: candidate.fullName,
-          excludeId: candidate._id,
-          publicationRangeId: candidate.publicationRangeId
-        });
-        const res = await fetch(`/api/candidates/siblings?${params}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        if (res.ok) {
-          const siblings = await res.json();
-          setGovtEmpSiblings(siblings);
-        }
+        const siblings = await candidatesAPI.getSiblings(
+          candidate.fullName,
+          candidate._id,
+          pubRangeId
+        );
+        setGovtEmpSiblings(siblings);
       } catch {
         // Non-fatal: modal still works, propagation panel just stays empty
       }
