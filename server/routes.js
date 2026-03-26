@@ -225,6 +225,28 @@ router.get('/users/raters', authMiddleware, async (req, res) => {
   }
 });
 
+// Returns all secretariat users with their vacancy assignment metadata.
+// Accessible to both secretariat and admin so the Position Statistics panel
+// can map item numbers back to the secretariat responsible for them.
+router.get('/users/secretariats', authMiddleware, async (req, res) => {
+  try {
+    const secretariats = await User.findSecretariats();
+    // Return safe subset — no passwords, no internal ids exposed to non-admins
+    const safeFields = secretariats.map(s => ({
+      _id:                s._id,
+      name:               s.name,
+      assignedVacancies:  s.assignedVacancies,
+      assignedAssignment: s.assignedAssignment,
+      assignedItemNumbers: s.assignedItemNumbers,
+      administrativePrivilege: s.administrativePrivilege,
+    }));
+    res.json(safeFields);
+  } catch (error) {
+    console.error('[GET /users/secretariats]', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 router.post('/users', authMiddleware, async (req, res) => {
   if (req.user.userType !== 'admin') return res.status(403).json({ message: 'Access denied' });
   try {

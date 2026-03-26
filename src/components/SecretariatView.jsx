@@ -82,11 +82,25 @@ const SecretariatView = ({ user }) => {
   // Government Employment table filters
   const [govtEmpFilter, setGovtEmpFilter] = useState(null); // null | 'has_data' | 'present' | 'within_2_years' | 'more_than_6_months' | 'less_than_6_months' | 'no_data'
 
-  // Position Statistics panel
+  // Position Statistics panel — fully independent from main table filters
   const [showPositionStats, setShowPositionStats] = useState(false);
-  const [posStatsPublicationRange, setPosStatsPublicationRange] = useState('');
-  const [posStatsAssignment, setPosStatsAssignment] = useState('');
-  const [posStatsSalaryGrade, setPosStatsSalaryGrade] = useState('');
+  const [posStatsLoading, setPosStatsLoading] = useState(false);
+  const [posStatsError, setPosStatsError] = useState('');
+  // Raw data fetched independently when the modal opens
+  const [posStatsAllVacancies, setPosStatsAllVacancies] = useState([]);
+  const [posStatsAllCandidates, setPosStatsAllCandidates] = useState([]);
+  const [posStatsSecretariats, setPosStatsSecretariats] = useState([]);
+  const [posStatsPubRanges, setPosStatsPubRanges] = useState([]);
+  // Filter state inside the modal
+  const [posStatsFilterPubRange, setPosStatsFilterPubRange] = useState('');
+  const [posStatsFilterAssignment, setPosStatsFilterAssignment] = useState('');
+  const [posStatsFilterSalaryGrade, setPosStatsFilterSalaryGrade] = useState('');
+  const [posStatsFilterSecretariat, setPosStatsFilterSecretariat] = useState('');
+  // Sort state
+  const [posStatsSortKey, setPosStatsSortKey] = useState('position');
+  const [posStatsSortDir, setPosStatsSortDir] = useState('asc');
+  // Expanded positions (for per-item breakdown)
+  const [posStatsExpanded, setPosStatsExpanded] = useState(new Set());
 
   // Collapsible filter panel
   const [isFiltersExpanded, setIsFiltersExpanded] = useState(true);
@@ -886,7 +900,36 @@ const SecretariatView = ({ user }) => {
     }
   }, [filterVacanciesByAssignment, user, showToast]);
 
-  // STEP 6: useEffect Hooks
+  // ─── Position Statistics: fully independent system-wide data fetch ──────────
+  // Fetches ALL active vacancies, ALL active candidates, ALL secretariat users,
+  // and ALL publication ranges in one go. Completely decoupled from the main
+  // table filters so it always reflects the live state of the whole system.
+  const loadPositionStats = useCallback(async () => {
+    setPosStatsLoading(true);
+    setPosStatsError('');
+    try {
+      // Parallel fetch: all active vacancies, all non-archived pub ranges,
+      // all secretariat users, and all candidates system-wide.
+      const [allVacanciesRaw, allPubRanges, allSecretariats, allCandidatesRaw] = await Promise.all([
+        vacanciesAPI.getAll(),
+        publicationRangesAPI.getAll(false), // active only
+        usersAPI.getSecretariats(),
+        candidatesAPI.getAll(),
+      ]);
+      // Only non-archived vacancies matter for active positions
+      const activeVacancies = allVacanciesRaw.filter(v => !v.isArchived);
+      const activeCandidates = allCandidatesRaw.filter(c => !c.isArchived);
+      setPosStatsAllVacancies(activeVacancies);
+      setPosStatsAllCandidates(activeCandidates);
+      setPosStatsSecretariats(allSecretariats);
+      setPosStatsPubRanges(allPubRanges);
+    } catch (err) {
+      console.error('Failed to load position statistics:', err);
+      setPosStatsError('Failed to load statistics. Please try again.');
+    } finally {
+      setPosStatsLoading(false);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // ─── Initial load + showArchivedRanges toggle ────────────────────────────
   // All three load callbacks are stable ([] deps) so this effect only ever
   // re-runs when showArchivedRanges genuinely toggles — never after a
@@ -1110,7 +1153,7 @@ const SecretariatView = ({ user }) => {
                 Export All
               </button>
 
-              <button onClick={() => setShowPositionStats(true)} aria-label="Position Statistics"
+              <button onClick={() => { setShowPositionStats(true); loadPositionStats(); }} aria-label="Position Statistics"
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-all hover:opacity-90 active:scale-95"
                 style={{ background: 'linear-gradient(135deg,#0f766e,#14b8a6)' }}>
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
@@ -2850,46 +2893,59 @@ const SecretariatView = ({ user }) => {
         </div>
       )}
 
-      {/* Position Statistics Modal */}
+
+      {/* Position Statistics Modal — system-wide, fully independent of main table filters */}
       {showPositionStats && (() => {
-        // Derive filtered vacancies for the stats panel independently of the main table filters
-        const statsVacancies = vacancies.filter(v => {
-          if (posStatsAssignment && v.assignment !== posStatsAssignment) return false;
-          if (posStatsSalaryGrade && String(v.salaryGrade) !== String(posStatsSalaryGrade)) return false;
+
+        // ── Helper: resolve which secretariat(s) are responsible for an item number ──
+        const getSecretariatsForItem = (itemNumber, vacancyAssignment) => {
+          return posStatsSecretariats.filter(s => {
+            if (s.assignedVacancies === 'all') return true;
+            if (s.assignedVacancies === 'assignment') return s.assignedAssignment === vacancyAssignment;
+            if (s.assignedVacancies === 'specific') return (s.assignedItemNumbers || []).includes(itemNumber);
+            return false;
+          });
+        };
+
+        // ── Filter vacancies by modal filters ──────────────────────────────────────
+        const filteredVacancies = posStatsAllVacancies.filter(v => {
+          if (posStatsFilterPubRange && v.publicationRangeId !== posStatsFilterPubRange &&
+              String(v.publicationRangeId) !== posStatsFilterPubRange) return false;
+          if (posStatsFilterAssignment && v.assignment !== posStatsFilterAssignment) return false;
+          if (posStatsFilterSalaryGrade && String(v.salaryGrade) !== posStatsFilterSalaryGrade) return false;
+          if (posStatsFilterSecretariat) {
+            const s = posStatsSecretariats.find(sec => sec._id === posStatsFilterSecretariat || String(sec._id) === posStatsFilterSecretariat);
+            if (!s) return false;
+            if (s.assignedVacancies === 'all') { /* include */ }
+            else if (s.assignedVacancies === 'assignment') { if (v.assignment !== s.assignedAssignment) return false; }
+            else if (s.assignedVacancies === 'specific') { if (!(s.assignedItemNumbers || []).includes(v.itemNumber)) return false; }
+            else return false;
+          }
           return true;
         });
 
-        // Group by position name
-        const positionMap = {};
-        statsVacancies.forEach(v => {
-          const key = v.position;
-          if (!positionMap[key]) {
-            positionMap[key] = {
-              position: v.position,
-              salaryGrade: v.salaryGrade,
-              assignment: v.assignment,
-              itemNumbers: [],
-              totalCandidates: 0,
-              generalList: 0,
-              longListed: 0,
-              forReview: 0,
-              disqualified: 0,
-              govtPresent: 0,
-              govtWithin2Yrs: 0,
-              govtMoreThan6Mo: 0,
-              govtLessThan6Mo: 0,
-            };
-          }
-          positionMap[key].itemNumbers.push(v.itemNumber);
+        const filteredItemNumbers = new Set(filteredVacancies.map(v => v.itemNumber));
+
+        // ── Build per-item stats ───────────────────────────────────────────────────
+        const itemStatsMap = {};
+        filteredVacancies.forEach(v => {
+          const responsible = getSecretariatsForItem(v.itemNumber, v.assignment);
+          itemStatsMap[v.itemNumber] = {
+            itemNumber: v.itemNumber,
+            position: v.position,
+            assignment: v.assignment,
+            salaryGrade: v.salaryGrade,
+            pubRangeId: String(v.publicationRangeId),
+            secretariats: responsible.map(s => s.name),
+            totalCandidates: 0, generalList: 0, longListed: 0,
+            forReview: 0, disqualified: 0,
+            govtPresent: 0, govtWithin2Yrs: 0, govtMoreThan6Mo: 0, govtLessThan6Mo: 0,
+          };
         });
 
-        // Count candidates per position
-        const statsItemNumbers = new Set(statsVacancies.map(v => v.itemNumber));
-        candidates.forEach(c => {
-          if (!statsItemNumbers.has(c.itemNumber)) return;
-          const vacancy = vacancies.find(v => v.itemNumber === c.itemNumber);
-          if (!vacancy) return;
-          const row = positionMap[vacancy.position];
+        posStatsAllCandidates.forEach(c => {
+          if (!filteredItemNumbers.has(c.itemNumber)) return;
+          const row = itemStatsMap[c.itemNumber];
           if (!row) return;
           row.totalCandidates++;
           if (c.status === 'general_list')  row.generalList++;
@@ -2898,17 +2954,62 @@ const SecretariatView = ({ user }) => {
           if (c.status === 'disqualified')  row.disqualified++;
           const ge = c.governmentEmployment;
           if (ge) {
-            if (ge.employmentPeriod === 'present')        row.govtPresent++;
-            if (ge.employmentPeriod === 'within_2_years') row.govtWithin2Yrs++;
+            if (ge.employmentPeriod === 'present')             row.govtPresent++;
+            if (ge.employmentPeriod === 'within_2_years')      row.govtWithin2Yrs++;
             if (ge.preAssessmentExam === 'more_than_6_months') row.govtMoreThan6Mo++;
             if (ge.preAssessmentExam === 'less_than_6_months') row.govtLessThan6Mo++;
           }
         });
 
-        const statsRows = Object.values(positionMap).sort((a, b) => a.position.localeCompare(b.position));
+        // ── Group items by position ────────────────────────────────────────────────
+        const positionMap = {};
+        Object.values(itemStatsMap).forEach(item => {
+          const key = `${item.position}||${item.assignment}`;
+          if (!positionMap[key]) {
+            positionMap[key] = {
+              position: item.position,
+              assignment: item.assignment,
+              salaryGrade: item.salaryGrade,
+              itemCount: 0,
+              items: [],
+              totalCandidates: 0, generalList: 0, longListed: 0,
+              forReview: 0, disqualified: 0,
+              govtPresent: 0, govtWithin2Yrs: 0, govtMoreThan6Mo: 0, govtLessThan6Mo: 0,
+              secretariats: new Set(),
+            };
+          }
+          const p = positionMap[key];
+          p.itemCount++;
+          p.items.push(item);
+          p.totalCandidates += item.totalCandidates;
+          p.generalList     += item.generalList;
+          p.longListed      += item.longListed;
+          p.forReview       += item.forReview;
+          p.disqualified    += item.disqualified;
+          p.govtPresent     += item.govtPresent;
+          p.govtWithin2Yrs  += item.govtWithin2Yrs;
+          p.govtMoreThan6Mo += item.govtMoreThan6Mo;
+          p.govtLessThan6Mo += item.govtLessThan6Mo;
+          item.secretariats.forEach(s => p.secretariats.add(s));
+        });
 
-        // Totals
-        const totals = statsRows.reduce((acc, r) => ({
+        // Convert secretariat sets to arrays
+        Object.values(positionMap).forEach(p => { p.secretariats = Array.from(p.secretariats).sort(); });
+
+        // ── Sort ──────────────────────────────────────────────────────────────────
+        const sortMultiplier = posStatsSortDir === 'asc' ? 1 : -1;
+        const sortedRows = Object.values(positionMap).sort((a, b) => {
+          let aVal = a[posStatsSortKey];
+          let bVal = b[posStatsSortKey];
+          if (posStatsSortKey === 'salaryGrade') return (aVal - bVal) * sortMultiplier;
+          if (posStatsSortKey === 'itemCount') return (aVal - bVal) * sortMultiplier;
+          if (typeof aVal === 'number') return (aVal - bVal) * sortMultiplier;
+          return String(aVal || '').localeCompare(String(bVal || '')) * sortMultiplier;
+        });
+
+        // ── Totals ────────────────────────────────────────────────────────────────
+        const totals = sortedRows.reduce((acc, r) => ({
+          itemCount:       acc.itemCount       + r.itemCount,
           totalCandidates: acc.totalCandidates + r.totalCandidates,
           generalList:     acc.generalList     + r.generalList,
           longListed:      acc.longListed      + r.longListed,
@@ -2918,18 +3019,49 @@ const SecretariatView = ({ user }) => {
           govtWithin2Yrs:  acc.govtWithin2Yrs  + r.govtWithin2Yrs,
           govtMoreThan6Mo: acc.govtMoreThan6Mo + r.govtMoreThan6Mo,
           govtLessThan6Mo: acc.govtLessThan6Mo + r.govtLessThan6Mo,
-        }), { totalCandidates: 0, generalList: 0, longListed: 0, forReview: 0, disqualified: 0, govtPresent: 0, govtWithin2Yrs: 0, govtMoreThan6Mo: 0, govtLessThan6Mo: 0 });
+        }), { itemCount: 0, totalCandidates: 0, generalList: 0, longListed: 0, forReview: 0, disqualified: 0, govtPresent: 0, govtWithin2Yrs: 0, govtMoreThan6Mo: 0, govtLessThan6Mo: 0 });
 
-        // Unique salary grades from all available vacancies (for dropdown)
-        const allSalaryGrades = [...new Set(vacancies.map(v => v.salaryGrade))].filter(Boolean).sort((a, b) => a - b);
-        const allAssignments  = [...new Set(vacancies.map(v => v.assignment))].filter(Boolean).sort();
+        // ── Sort helper for column headers ────────────────────────────────────────
+        const SortTh = ({ label, sortKey, className = '' }) => {
+          const active = posStatsSortKey === sortKey;
+          return (
+            <th
+              onClick={() => {
+                if (active) setPosStatsSortDir(d => d === 'asc' ? 'desc' : 'asc');
+                else { setPosStatsSortKey(sortKey); setPosStatsSortDir('asc'); }
+              }}
+              className={`px-3 py-3 text-xs font-bold uppercase tracking-wider cursor-pointer select-none whitespace-nowrap border-b border-gray-200 transition-colors hover:bg-teal-100 ${active ? 'bg-teal-100 text-teal-800' : 'bg-gray-50 text-gray-500'} ${className}`}
+            >
+              <span className="flex items-center gap-1">
+                {label}
+                <span className="text-[10px] opacity-60">
+                  {active ? (posStatsSortDir === 'asc' ? '▲' : '▼') : '⇅'}
+                </span>
+              </span>
+            </th>
+          );
+        };
+
+        // ── Badge helper ──────────────────────────────────────────────────────────
+        const StatBadge = ({ val, cls }) =>
+          val > 0
+            ? <span className={`inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full text-xs font-bold ${cls}`}>{val}</span>
+            : <span className="text-gray-300 text-xs">—</span>;
+
+        // ── Dropdown options ──────────────────────────────────────────────────────
+        const allSalaryGrades = [...new Set(posStatsAllVacancies.map(v => v.salaryGrade))].filter(Boolean).sort((a, b) => a - b);
+        const allAssignments  = [...new Set(posStatsAllVacancies.map(v => v.assignment))].filter(Boolean).sort();
 
         return (
-          <div className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-10" style={{ backgroundColor: 'rgba(15,23,42,0.65)', backdropFilter: 'blur(4px)' }} role="dialog" aria-modal="true" aria-labelledby="pos-stats-title">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl flex flex-col max-h-[88vh]">
+          <div
+            className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-8"
+            style={{ backgroundColor: 'rgba(15,23,42,0.70)', backdropFilter: 'blur(4px)' }}
+            role="dialog" aria-modal="true" aria-labelledby="pos-stats-title"
+          >
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-7xl flex flex-col max-h-[92vh]">
 
-              {/* Header */}
-              <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between shrink-0">
+              {/* ── Header ─────────────────────────────────────────────────────── */}
+              <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg,#0f766e,#14b8a6)' }}>
                     <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2939,33 +3071,56 @@ const SecretariatView = ({ user }) => {
                   <div>
                     <h2 id="pos-stats-title" className="text-base font-bold text-gray-900">Position Statistics</h2>
                     <p className="text-xs text-gray-400">
-                      {currentPublicationRange ? currentPublicationRange.name : 'All Active Ranges'} · {statsRows.length} position{statsRows.length !== 1 ? 's' : ''}
+                      System-wide · all active items · {posStatsAllVacancies.length} vacancies · {posStatsAllCandidates.length} candidates
                     </p>
                   </div>
                 </div>
-                <button onClick={() => setShowPositionStats(false)} className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-all" aria-label="Close position statistics">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={loadPositionStats}
+                    disabled={posStatsLoading}
+                    title="Refresh stats"
+                    className="w-8 h-8 rounded-lg flex items-center justify-center text-teal-600 hover:bg-teal-50 transition-all disabled:opacity-40"
+                  >
+                    <svg className={`w-4 h-4 ${posStatsLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={() => setShowPositionStats(false)}
+                    className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-all"
+                    aria-label="Close position statistics"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
               </div>
 
-              {/* Filter bar */}
+              {/* ── Filter bar ─────────────────────────────────────────────────── */}
               <div className="px-6 py-3 bg-teal-50 border-b border-teal-100 flex items-center gap-3 flex-wrap shrink-0">
-                <span className="text-xs font-bold text-teal-700 uppercase tracking-wide">Filters:</span>
+                <span className="text-xs font-bold text-teal-700 uppercase tracking-wide shrink-0">Filters:</span>
 
-                {/* Publication Range label (read-only — reflects main filter) */}
+                {/* Publication Range */}
                 <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-teal-600 font-semibold">Range:</span>
-                  <span className="px-2.5 py-1 bg-white border border-teal-200 rounded-lg text-xs font-semibold text-teal-800">
-                    {currentPublicationRange ? currentPublicationRange.name : 'All Active'}
-                  </span>
+                  <span className="text-xs text-teal-600 font-semibold shrink-0">Range:</span>
+                  <select
+                    value={posStatsFilterPubRange}
+                    onChange={e => setPosStatsFilterPubRange(e.target.value)}
+                    className="px-2.5 py-1 bg-white border border-teal-200 rounded-lg text-xs font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-400 transition-all"
+                  >
+                    <option value="">All Active Ranges</option>
+                    {posStatsPubRanges.map(r => <option key={r._id} value={String(r._id)}>{r.name}</option>)}
+                  </select>
                 </div>
 
-                {/* Assignment filter */}
+                {/* Assignment */}
                 <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-teal-600 font-semibold">Assignment:</span>
+                  <span className="text-xs text-teal-600 font-semibold shrink-0">Assignment:</span>
                   <select
-                    value={posStatsAssignment}
-                    onChange={e => setPosStatsAssignment(e.target.value)}
+                    value={posStatsFilterAssignment}
+                    onChange={e => setPosStatsFilterAssignment(e.target.value)}
                     className="px-2.5 py-1 bg-white border border-teal-200 rounded-lg text-xs font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-400 transition-all"
                   >
                     <option value="">All Assignments</option>
@@ -2973,12 +3128,12 @@ const SecretariatView = ({ user }) => {
                   </select>
                 </div>
 
-                {/* Salary Grade filter */}
+                {/* Salary Grade */}
                 <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-teal-600 font-semibold">Salary Grade:</span>
+                  <span className="text-xs text-teal-600 font-semibold shrink-0">Salary Grade:</span>
                   <select
-                    value={posStatsSalaryGrade}
-                    onChange={e => setPosStatsSalaryGrade(e.target.value)}
+                    value={posStatsFilterSalaryGrade}
+                    onChange={e => setPosStatsFilterSalaryGrade(e.target.value)}
                     className="px-2.5 py-1 bg-white border border-teal-200 rounded-lg text-xs font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-400 transition-all"
                   >
                     <option value="">All Grades</option>
@@ -2986,33 +3141,62 @@ const SecretariatView = ({ user }) => {
                   </select>
                 </div>
 
-                {/* Clear filters */}
-                {(posStatsAssignment || posStatsSalaryGrade) && (
+                {/* Secretariat */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-teal-600 font-semibold shrink-0">Secretariat:</span>
+                  <select
+                    value={posStatsFilterSecretariat}
+                    onChange={e => setPosStatsFilterSecretariat(e.target.value)}
+                    className="px-2.5 py-1 bg-white border border-teal-200 rounded-lg text-xs font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-400 transition-all"
+                  >
+                    <option value="">All Secretariats</option>
+                    {posStatsSecretariats.map(s => <option key={String(s._id)} value={String(s._id)}>{s.name}</option>)}
+                  </select>
+                </div>
+
+                {/* Clear */}
+                {(posStatsFilterPubRange || posStatsFilterAssignment || posStatsFilterSalaryGrade || posStatsFilterSecretariat) && (
                   <button
-                    onClick={() => { setPosStatsAssignment(''); setPosStatsSalaryGrade(''); }}
+                    onClick={() => { setPosStatsFilterPubRange(''); setPosStatsFilterAssignment(''); setPosStatsFilterSalaryGrade(''); setPosStatsFilterSecretariat(''); }}
                     className="px-2.5 py-1 rounded-lg text-xs font-semibold text-red-500 border border-red-200 bg-white hover:bg-red-50 transition-all"
                   >
-                    Clear Filters
+                    Clear All
                   </button>
                 )}
 
-                {/* Summary totals chips */}
-                <div className="ml-auto flex items-center gap-1.5 flex-wrap">
+                {/* Live summary chips */}
+                <div className="ml-auto flex items-center gap-1.5 flex-wrap shrink-0">
                   {[
-                    { label: `${statsRows.length} Positions`,           cls: 'bg-teal-100 text-teal-800' },
-                    { label: `${totals.totalCandidates} Applicants`,    cls: 'bg-blue-100 text-blue-800' },
-                    { label: `${totals.longListed} Long Listed`,        cls: 'bg-green-100 text-green-800' },
-                    { label: `${totals.forReview} For Review`,          cls: 'bg-yellow-100 text-yellow-800' },
-                    { label: `${totals.disqualified} Disqualified`,     cls: 'bg-red-100 text-red-800' },
+                    { label: `${sortedRows.length} Positions`,        cls: 'bg-teal-100 text-teal-800' },
+                    { label: `${totals.itemCount} Items`,             cls: 'bg-slate-100 text-slate-700' },
+                    { label: `${totals.totalCandidates} Applicants`,  cls: 'bg-blue-100 text-blue-800' },
+                    { label: `${totals.longListed} Long Listed`,      cls: 'bg-green-100 text-green-800' },
+                    { label: `${totals.forReview} For Review`,        cls: 'bg-yellow-100 text-yellow-800' },
+                    { label: `${totals.disqualified} Disqualified`,   cls: 'bg-red-100 text-red-800' },
                   ].map(({ label, cls }) => (
                     <span key={label} className={`px-2.5 py-1 rounded-full text-xs font-bold ${cls}`}>{label}</span>
                   ))}
                 </div>
               </div>
 
-              {/* Table */}
+              {/* ── Body ───────────────────────────────────────────────────────── */}
               <div className="flex-1 overflow-auto">
-                {statsRows.length === 0 ? (
+                {posStatsLoading ? (
+                  <div className="flex flex-col items-center justify-center py-24 gap-3 text-gray-400">
+                    <div className="w-10 h-10 border-4 border-teal-200 border-t-teal-500 rounded-full animate-spin" />
+                    <p className="text-sm font-medium">Loading system-wide statistics…</p>
+                  </div>
+                ) : posStatsError ? (
+                  <div className="flex flex-col items-center justify-center py-16 gap-3">
+                    <svg className="w-10 h-10 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                    </svg>
+                    <p className="text-sm text-red-600 font-medium">{posStatsError}</p>
+                    <button onClick={loadPositionStats} className="px-4 py-2 rounded-lg bg-teal-600 text-white text-xs font-bold hover:bg-teal-700 transition-colors">
+                      Retry
+                    </button>
+                  </div>
+                ) : sortedRows.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-20 text-gray-400">
                     <svg className="w-12 h-12 mb-3 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
@@ -3021,72 +3205,132 @@ const SecretariatView = ({ user }) => {
                   </div>
                 ) : (
                   <table className="w-full text-sm border-collapse">
-                    <thead className="bg-gray-50 sticky top-0 z-10">
+                    <thead>
                       <tr>
-                        <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider border-b border-gray-200">Position</th>
-                        <th className="text-center px-3 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider border-b border-gray-200">SG</th>
-                        <th className="text-left px-3 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider border-b border-gray-200">Assignment</th>
-                        <th className="text-center px-3 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider border-b border-gray-200">Item Nos</th>
-                        <th className="text-center px-3 py-3 text-xs font-bold text-blue-500 uppercase tracking-wider border-b border-gray-200">Total</th>
-                        <th className="text-center px-3 py-3 text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-200">General</th>
-                        <th className="text-center px-3 py-3 text-xs font-bold text-green-600 uppercase tracking-wider border-b border-gray-200">Long List</th>
-                        <th className="text-center px-3 py-3 text-xs font-bold text-yellow-600 uppercase tracking-wider border-b border-gray-200">Review</th>
-                        <th className="text-center px-3 py-3 text-xs font-bold text-red-500 uppercase tracking-wider border-b border-gray-200">DQ</th>
-                        <th className="text-center px-3 py-3 text-xs font-bold text-emerald-600 uppercase tracking-wider border-b border-gray-200 whitespace-nowrap">Govt Present</th>
-                        <th className="text-center px-3 py-3 text-xs font-bold text-amber-600 uppercase tracking-wider border-b border-gray-200 whitespace-nowrap">Within 2 Yrs</th>
-                        <th className="text-center px-3 py-3 text-xs font-bold text-indigo-600 uppercase tracking-wider border-b border-gray-200 whitespace-nowrap">&gt;6 Mos</th>
-                        <th className="text-center px-3 py-3 text-xs font-bold text-violet-600 uppercase tracking-wider border-b border-gray-200 whitespace-nowrap">&lt;6 Mos</th>
+                        {/* expand toggle col */}
+                        <th className="w-8 bg-gray-50 border-b border-gray-200" />
+                        <SortTh label="Position"   sortKey="position"        className="text-left" />
+                        <SortTh label="SG"         sortKey="salaryGrade"     className="text-center" />
+                        <SortTh label="Assignment" sortKey="assignment"       className="text-left" />
+                        <th className="px-3 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-50 border-b border-gray-200 text-left whitespace-nowrap">Secretariats</th>
+                        <SortTh label="Items"      sortKey="itemCount"       className="text-center" />
+                        <SortTh label="Total"      sortKey="totalCandidates" className="text-center text-blue-600" />
+                        <SortTh label="General"    sortKey="generalList"     className="text-center text-gray-500" />
+                        <SortTh label="Long List"  sortKey="longListed"      className="text-center text-green-600" />
+                        <SortTh label="Review"     sortKey="forReview"       className="text-center text-yellow-600" />
+                        <SortTh label="DQ"         sortKey="disqualified"    className="text-center text-red-500" />
+                        <SortTh label="Govt Present"    sortKey="govtPresent"     className="text-center text-emerald-600" />
+                        <SortTh label="Within 2 Yrs"    sortKey="govtWithin2Yrs"  className="text-center text-amber-600" />
+                        <SortTh label=">6 Mos"          sortKey="govtMoreThan6Mo" className="text-center text-indigo-600" />
+                        <SortTh label="<6 Mos"          sortKey="govtLessThan6Mo" className="text-center text-violet-600" />
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {statsRows.map((row, idx) => (
-                        <tr key={row.position} className={`transition-colors hover:bg-teal-50 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}`}>
-                          <td className="px-4 py-3 font-semibold text-gray-800 max-w-[200px]">
-                            <div className="truncate" title={row.position}>{row.position}</div>
-                          </td>
-                          <td className="px-3 py-3 text-center">
-                            <span className="inline-flex items-center justify-center w-8 h-6 rounded bg-teal-100 text-teal-800 text-xs font-bold">
-                              {row.salaryGrade}
-                            </span>
-                          </td>
-                          <td className="px-3 py-3 text-xs text-gray-500 max-w-[140px]">
-                            <div className="truncate" title={row.assignment}>{row.assignment}</div>
-                          </td>
-                          <td className="px-3 py-3 text-center text-[10px] text-gray-400 max-w-[100px]">
-                            <div className="truncate" title={row.itemNumbers.join(', ')}>{row.itemNumbers.join(', ')}</div>
-                          </td>
-                          <td className="px-3 py-3 text-center">
-                            <span className="font-bold text-blue-700 text-sm">{row.totalCandidates}</span>
-                          </td>
-                          <td className="px-3 py-3 text-center text-gray-500 text-xs font-semibold">{row.generalList}</td>
-                          <td className="px-3 py-3 text-center">
-                            {row.longListed > 0 ? <span className="inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-bold">{row.longListed}</span> : <span className="text-gray-300 text-xs">—</span>}
-                          </td>
-                          <td className="px-3 py-3 text-center">
-                            {row.forReview > 0 ? <span className="inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full bg-yellow-100 text-yellow-700 text-xs font-bold">{row.forReview}</span> : <span className="text-gray-300 text-xs">—</span>}
-                          </td>
-                          <td className="px-3 py-3 text-center">
-                            {row.disqualified > 0 ? <span className="inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 text-xs font-bold">{row.disqualified}</span> : <span className="text-gray-300 text-xs">—</span>}
-                          </td>
-                          <td className="px-3 py-3 text-center">
-                            {row.govtPresent > 0 ? <span className="inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">{row.govtPresent}</span> : <span className="text-gray-300 text-xs">—</span>}
-                          </td>
-                          <td className="px-3 py-3 text-center">
-                            {row.govtWithin2Yrs > 0 ? <span className="inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-bold">{row.govtWithin2Yrs}</span> : <span className="text-gray-300 text-xs">—</span>}
-                          </td>
-                          <td className="px-3 py-3 text-center">
-                            {row.govtMoreThan6Mo > 0 ? <span className="inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold">{row.govtMoreThan6Mo}</span> : <span className="text-gray-300 text-xs">—</span>}
-                          </td>
-                          <td className="px-3 py-3 text-center">
-                            {row.govtLessThan6Mo > 0 ? <span className="inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 text-xs font-bold">{row.govtLessThan6Mo}</span> : <span className="text-gray-300 text-xs">—</span>}
-                          </td>
-                        </tr>
-                      ))}
+                    <tbody>
+                      {sortedRows.map((row, idx) => {
+                        const key = `${row.position}||${row.assignment}`;
+                        const expanded = posStatsExpanded.has(key);
+                        // sort items inside position by item number
+                        const sortedItems = [...row.items].sort((a, b) => a.itemNumber.localeCompare(b.itemNumber));
+                        return (
+                          <React.Fragment key={key}>
+                            {/* ── Position row ── */}
+                            <tr
+                              className={`transition-colors ${expanded ? 'bg-teal-50' : idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'} hover:bg-teal-50 cursor-pointer`}
+                              onClick={() => setPosStatsExpanded(prev => {
+                                const next = new Set(prev);
+                                next.has(key) ? next.delete(key) : next.add(key);
+                                return next;
+                              })}
+                            >
+                              {/* Expand chevron */}
+                              <td className="pl-3 text-gray-400">
+                                <svg className={`w-3.5 h-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                                </svg>
+                              </td>
+                              <td className="px-3 py-3 font-semibold text-gray-800 max-w-[180px]">
+                                <div className="truncate" title={row.position}>{row.position}</div>
+                              </td>
+                              <td className="px-3 py-3 text-center">
+                                <span className="inline-flex items-center justify-center w-8 h-6 rounded bg-teal-100 text-teal-800 text-xs font-bold">{row.salaryGrade}</span>
+                              </td>
+                              <td className="px-3 py-3 text-xs text-gray-500 max-w-[140px]">
+                                <div className="truncate" title={row.assignment}>{row.assignment}</div>
+                              </td>
+                              <td className="px-3 py-3 max-w-[140px]">
+                                {row.secretariats.length > 0 ? (
+                                  <div className="flex flex-wrap gap-1">
+                                    {row.secretariats.map(s => (
+                                      <span key={s} className="inline-flex px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-700 text-[10px] font-semibold whitespace-nowrap">{s}</span>
+                                    ))}
+                                  </div>
+                                ) : <span className="text-gray-300 text-xs">—</span>}
+                              </td>
+                              <td className="px-3 py-3 text-center">
+                                <span className="inline-flex items-center justify-center w-7 h-6 rounded bg-slate-100 text-slate-700 text-xs font-bold">{row.itemCount}</span>
+                              </td>
+                              <td className="px-3 py-3 text-center"><span className="font-bold text-blue-700">{row.totalCandidates}</span></td>
+                              <td className="px-3 py-3 text-center text-gray-500 text-xs font-semibold">{row.generalList || <span className="text-gray-300">—</span>}</td>
+                              <td className="px-3 py-3 text-center"><StatBadge val={row.longListed}      cls="bg-green-100 text-green-700" /></td>
+                              <td className="px-3 py-3 text-center"><StatBadge val={row.forReview}       cls="bg-yellow-100 text-yellow-700" /></td>
+                              <td className="px-3 py-3 text-center"><StatBadge val={row.disqualified}    cls="bg-red-100 text-red-700" /></td>
+                              <td className="px-3 py-3 text-center"><StatBadge val={row.govtPresent}     cls="bg-emerald-100 text-emerald-700" /></td>
+                              <td className="px-3 py-3 text-center"><StatBadge val={row.govtWithin2Yrs}  cls="bg-amber-100 text-amber-700" /></td>
+                              <td className="px-3 py-3 text-center"><StatBadge val={row.govtMoreThan6Mo} cls="bg-indigo-100 text-indigo-700" /></td>
+                              <td className="px-3 py-3 text-center"><StatBadge val={row.govtLessThan6Mo} cls="bg-violet-100 text-violet-700" /></td>
+                            </tr>
+
+                            {/* ── Per-item breakdown rows (expanded) ── */}
+                            {expanded && sortedItems.map(item => (
+                              <tr key={item.itemNumber} className="bg-teal-50/60 border-l-4 border-teal-400">
+                                <td className="pl-6 pr-2 py-2" />
+                                <td className="px-3 py-2" colSpan={1}>
+                                  <div className="flex items-center gap-2">
+                                    <svg className="w-3 h-3 text-teal-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                                    </svg>
+                                    <span className="text-xs font-bold text-teal-800">{item.itemNumber}</span>
+                                  </div>
+                                </td>
+                                <td className="px-3 py-2 text-center">
+                                  <span className="text-[10px] text-gray-400 font-semibold">SG {item.salaryGrade}</span>
+                                </td>
+                                <td className="px-3 py-2 text-xs text-gray-400" />
+                                <td className="px-3 py-2">
+                                  {item.secretariats.length > 0 ? (
+                                    <div className="flex flex-wrap gap-1">
+                                      {item.secretariats.map(s => (
+                                        <span key={s} className="inline-flex px-1.5 py-0.5 rounded-full bg-sky-50 text-sky-600 text-[10px] font-semibold border border-sky-100 whitespace-nowrap">{s}</span>
+                                      ))}
+                                    </div>
+                                  ) : <span className="text-gray-300 text-[10px]">unassigned</span>}
+                                </td>
+                                <td className="px-3 py-2 text-center text-[10px] text-gray-400">1</td>
+                                <td className="px-3 py-2 text-center"><span className="font-bold text-blue-600 text-xs">{item.totalCandidates}</span></td>
+                                <td className="px-3 py-2 text-center text-[10px] text-gray-400 font-semibold">{item.generalList || '—'}</td>
+                                <td className="px-3 py-2 text-center"><StatBadge val={item.longListed}      cls="bg-green-100 text-green-700" /></td>
+                                <td className="px-3 py-2 text-center"><StatBadge val={item.forReview}       cls="bg-yellow-100 text-yellow-700" /></td>
+                                <td className="px-3 py-2 text-center"><StatBadge val={item.disqualified}    cls="bg-red-100 text-red-700" /></td>
+                                <td className="px-3 py-2 text-center"><StatBadge val={item.govtPresent}     cls="bg-emerald-100 text-emerald-700" /></td>
+                                <td className="px-3 py-2 text-center"><StatBadge val={item.govtWithin2Yrs}  cls="bg-amber-100 text-amber-700" /></td>
+                                <td className="px-3 py-2 text-center"><StatBadge val={item.govtMoreThan6Mo} cls="bg-indigo-100 text-indigo-700" /></td>
+                                <td className="px-3 py-2 text-center"><StatBadge val={item.govtLessThan6Mo} cls="bg-violet-100 text-violet-700" /></td>
+                              </tr>
+                            ))}
+                          </React.Fragment>
+                        );
+                      })}
                     </tbody>
-                    {/* Totals footer */}
-                    <tfoot className="bg-teal-50 border-t-2 border-teal-200 sticky bottom-0">
+
+                    {/* ── Sticky totals footer ── */}
+                    <tfoot className="bg-teal-50 border-t-2 border-teal-300 sticky bottom-0 shadow-[0_-2px_4px_rgba(0,0,0,0.06)]">
                       <tr>
-                        <td className="px-4 py-3 font-bold text-teal-800 text-xs uppercase tracking-wide" colSpan={4}>Totals ({statsRows.length} positions)</td>
+                        <td />
+                        <td className="px-3 py-3 font-bold text-teal-800 text-xs uppercase tracking-wide" colSpan={3}>
+                          Totals — {sortedRows.length} position{sortedRows.length !== 1 ? 's' : ''}
+                        </td>
+                        <td className="px-3 py-3" />
+                        <td className="px-3 py-3 text-center font-bold text-slate-700">{totals.itemCount}</td>
                         <td className="px-3 py-3 text-center font-bold text-blue-700">{totals.totalCandidates}</td>
                         <td className="px-3 py-3 text-center font-bold text-gray-600">{totals.generalList}</td>
                         <td className="px-3 py-3 text-center font-bold text-green-700">{totals.longListed}</td>
@@ -3102,10 +3346,11 @@ const SecretariatView = ({ user }) => {
                 )}
               </div>
 
-              {/* Footer */}
-              <div className="px-6 py-4 border-t border-gray-100 flex justify-between items-center shrink-0">
+              {/* ── Footer ─────────────────────────────────────────────────────── */}
+              <div className="px-6 py-3 border-t border-gray-100 flex justify-between items-center shrink-0">
                 <p className="text-xs text-gray-400">
-                  Statistics computed from <span className="font-semibold text-gray-600">{candidates.length}</span> currently-loaded candidates. Adjust the main filters to change the data set.
+                  Data fetched system-wide — independent of main table filters. Click a row to expand per-item breakdown.
+                  {posStatsLoading && <span className="ml-2 text-teal-500 font-semibold animate-pulse">Refreshing…</span>}
                 </p>
                 <button
                   onClick={() => setShowPositionStats(false)}

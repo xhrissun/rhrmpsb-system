@@ -290,6 +290,10 @@ userSchema.statics.findRaters = function() {
   return this.find({ userType: 'rater' }).select('-password');
 };
 
+userSchema.statics.findSecretariats = function() {
+  return this.find({ userType: 'secretariat' }).select('-password');
+};
+
 userSchema.statics.findByVacancyAssignment = function(itemNumber, assignment) {
   return this.find({
     assignedVacancies: { $ne: 'none' },

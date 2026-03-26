@@ -100,6 +100,10 @@ export const usersAPI = {
     const response = await api.get('/users/raters');
     return response.data;
   },
+  getSecretariats: async () => {
+    const response = await api.get('/users/secretariats');
+    return response.data;
+  },
   exportCSV: async () => {
     const response = await api.get('/users/export-csv', {
       responseType: 'blob'
