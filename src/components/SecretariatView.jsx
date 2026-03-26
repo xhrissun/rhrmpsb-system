@@ -79,6 +79,15 @@ const SecretariatView = ({ user }) => {
   const [commentHistoryData, setCommentHistoryData] = useState(null);
   const [genderFilter, setGenderFilter] = useState(null);
 
+  // Government Employment table filters
+  const [govtEmpFilter, setGovtEmpFilter] = useState(null); // null | 'has_data' | 'present' | 'within_2_years' | 'more_than_6_months' | 'less_than_6_months' | 'no_data'
+
+  // Position Statistics panel
+  const [showPositionStats, setShowPositionStats] = useState(false);
+  const [posStatsPublicationRange, setPosStatsPublicationRange] = useState('');
+  const [posStatsAssignment, setPosStatsAssignment] = useState('');
+  const [posStatsSalaryGrade, setPosStatsSalaryGrade] = useState('');
+
   // Collapsible filter panel
   const [isFiltersExpanded, setIsFiltersExpanded] = useState(true);
 
@@ -255,9 +264,23 @@ const SecretariatView = ({ user }) => {
         filtered = filtered.filter(c => c.gender === 'LGBTQI+');
       }
     }
+
+    if (govtEmpFilter) {
+      filtered = filtered.filter(c => {
+        const ge = c.governmentEmployment;
+        const hasData = ge && (ge.agency || ge.position || ge.status);
+        if (govtEmpFilter === 'has_data')            return hasData;
+        if (govtEmpFilter === 'no_data')             return !hasData;
+        if (govtEmpFilter === 'present')             return hasData && ge.employmentPeriod === 'present';
+        if (govtEmpFilter === 'within_2_years')      return hasData && ge.employmentPeriod === 'within_2_years';
+        if (govtEmpFilter === 'more_than_6_months')  return hasData && ge.preAssessmentExam === 'more_than_6_months';
+        if (govtEmpFilter === 'less_than_6_months')  return hasData && ge.preAssessmentExam === 'less_than_6_months';
+        return true;
+      });
+    }
     
     return filtered;
-  }, [candidates, statusFilter, genderFilter]);
+  }, [candidates, statusFilter, genderFilter, govtEmpFilter]);
 
   const loadCandidateDetails = useCallback(async (candidateId) => {
     try {
@@ -1087,6 +1110,13 @@ const SecretariatView = ({ user }) => {
                 Export All
               </button>
 
+              <button onClick={() => setShowPositionStats(true)} aria-label="Position Statistics"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-all hover:opacity-90 active:scale-95"
+                style={{ background: 'linear-gradient(135deg,#0f766e,#14b8a6)' }}>
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                Position Stats
+              </button>
+
               <button onClick={() => setShowCBSManual(true)} aria-label="CBS Manual"
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-all hover:opacity-90 active:scale-95"
                 style={{ background: 'linear-gradient(135deg,#d97706,#f59e0b)' }}>
@@ -1300,6 +1330,33 @@ const SecretariatView = ({ user }) => {
                     {label}
                   </button>
                 ))}
+
+                {/* Divider */}
+                <div className="w-px h-8 bg-gray-200 shrink-0" />
+
+                {/* Govt Employment filter pills */}
+                <span className="text-xs font-bold text-gray-600 whitespace-nowrap">Govt Emp:</span>
+                {[
+                  { label: 'All', value: null,                  active: 'bg-gradient-to-r from-gray-600 to-slate-600 text-white shadow-md' },
+                  { label: 'Present',       value: 'present',              active: 'bg-gradient-to-r from-emerald-600 to-green-600 text-white shadow-md' },
+                  { label: 'Within 2 Yrs', value: 'within_2_years',       active: 'bg-gradient-to-r from-amber-500 to-yellow-500 text-white shadow-md' },
+                  { label: '>6 Months',    value: 'more_than_6_months',   active: 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md' },
+                  { label: '<6 Months',    value: 'less_than_6_months',   active: 'bg-gradient-to-r from-violet-600 to-purple-600 text-white shadow-md' },
+                  { label: 'Has Data',     value: 'has_data',             active: 'bg-gradient-to-r from-teal-600 to-cyan-600 text-white shadow-md' },
+                  { label: 'No Data',      value: 'no_data',              active: 'bg-gradient-to-r from-red-500 to-rose-500 text-white shadow-md' },
+                ].map(({ label, value, active }) => (
+                  <button
+                    key={label}
+                    onClick={() => setGovtEmpFilter(value)}
+                    aria-pressed={govtEmpFilter === value}
+                    aria-label={`Filter by govt employment: ${label}`}
+                    className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all ${
+                      govtEmpFilter === value ? active : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
             </div>
           </div>
@@ -1384,6 +1441,19 @@ const SecretariatView = ({ user }) => {
                 </button>
               ))}
             </div>
+            {/* Mini govt emp filter */}
+            {govtEmpFilter && (
+              <>
+                <div className="w-px h-5 bg-gray-200 shrink-0" />
+                <button
+                  onClick={() => setGovtEmpFilter(null)}
+                  className="flex items-center gap-1 px-2 py-1 rounded text-xs font-bold bg-teal-100 text-teal-700 hover:bg-teal-200 transition-all"
+                  title="Clear govt employment filter"
+                >
+                  🏛️ {govtEmpFilter.replace(/_/g, ' ')} ×
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -1398,6 +1468,7 @@ const SecretariatView = ({ user }) => {
                 Showing {filteredCandidates.length} candidate{filteredCandidates.length !== 1 ? 's' : ''}
                 {statusFilter && ` (${getStatusLabel(statusFilter)})`}
                 {genderFilter && ` (${genderFilter})`}
+                {govtEmpFilter && ` (Govt: ${govtEmpFilter.replace(/_/g, ' ')})`}
                 {currentPublicationRange && ` from ${currentPublicationRange.name}`}
               </p>
             </div>
@@ -1464,6 +1535,28 @@ const SecretariatView = ({ user }) => {
                                   Review
                                 </button>
                               )}
+                              {/* 6-months tenure badge */}
+                              {(() => {
+                                const ge = candidate.governmentEmployment;
+                                const hasData = ge && (ge.agency || ge.position || ge.status);
+                                if (!hasData || !ge.preAssessmentExam) return null;
+                                const isMore = ge.preAssessmentExam === 'more_than_6_months';
+                                return (
+                                  <span
+                                    title={isMore ? 'Pre-assessment: More than 6 months in govt service' : 'Pre-assessment: Less than 6 months in govt service'}
+                                    className={`shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                                      isMore
+                                        ? 'bg-indigo-100 text-indigo-700 border border-indigo-200'
+                                        : 'bg-violet-100 text-violet-700 border border-violet-200'
+                                    }`}
+                                  >
+                                    <svg className="w-2.5 h-2.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    {isMore ? '>6 mos' : '<6 mos'}
+                                  </span>
+                                );
+                              })()}
                               {/* Government Employee indicator */}
                               {(() => {
                                 const ge = candidate.governmentEmployment;
@@ -2756,6 +2849,276 @@ const SecretariatView = ({ user }) => {
           </div>
         </div>
       )}
+
+      {/* Position Statistics Modal */}
+      {showPositionStats && (() => {
+        // Derive filtered vacancies for the stats panel independently of the main table filters
+        const statsVacancies = vacancies.filter(v => {
+          if (posStatsAssignment && v.assignment !== posStatsAssignment) return false;
+          if (posStatsSalaryGrade && String(v.salaryGrade) !== String(posStatsSalaryGrade)) return false;
+          return true;
+        });
+
+        // Group by position name
+        const positionMap = {};
+        statsVacancies.forEach(v => {
+          const key = v.position;
+          if (!positionMap[key]) {
+            positionMap[key] = {
+              position: v.position,
+              salaryGrade: v.salaryGrade,
+              assignment: v.assignment,
+              itemNumbers: [],
+              totalCandidates: 0,
+              generalList: 0,
+              longListed: 0,
+              forReview: 0,
+              disqualified: 0,
+              govtPresent: 0,
+              govtWithin2Yrs: 0,
+              govtMoreThan6Mo: 0,
+              govtLessThan6Mo: 0,
+            };
+          }
+          positionMap[key].itemNumbers.push(v.itemNumber);
+        });
+
+        // Count candidates per position
+        const statsItemNumbers = new Set(statsVacancies.map(v => v.itemNumber));
+        candidates.forEach(c => {
+          if (!statsItemNumbers.has(c.itemNumber)) return;
+          const vacancy = vacancies.find(v => v.itemNumber === c.itemNumber);
+          if (!vacancy) return;
+          const row = positionMap[vacancy.position];
+          if (!row) return;
+          row.totalCandidates++;
+          if (c.status === 'general_list')  row.generalList++;
+          if (c.status === 'long_list')     row.longListed++;
+          if (c.status === 'for_review')    row.forReview++;
+          if (c.status === 'disqualified')  row.disqualified++;
+          const ge = c.governmentEmployment;
+          if (ge) {
+            if (ge.employmentPeriod === 'present')        row.govtPresent++;
+            if (ge.employmentPeriod === 'within_2_years') row.govtWithin2Yrs++;
+            if (ge.preAssessmentExam === 'more_than_6_months') row.govtMoreThan6Mo++;
+            if (ge.preAssessmentExam === 'less_than_6_months') row.govtLessThan6Mo++;
+          }
+        });
+
+        const statsRows = Object.values(positionMap).sort((a, b) => a.position.localeCompare(b.position));
+
+        // Totals
+        const totals = statsRows.reduce((acc, r) => ({
+          totalCandidates: acc.totalCandidates + r.totalCandidates,
+          generalList:     acc.generalList     + r.generalList,
+          longListed:      acc.longListed      + r.longListed,
+          forReview:       acc.forReview       + r.forReview,
+          disqualified:    acc.disqualified    + r.disqualified,
+          govtPresent:     acc.govtPresent     + r.govtPresent,
+          govtWithin2Yrs:  acc.govtWithin2Yrs  + r.govtWithin2Yrs,
+          govtMoreThan6Mo: acc.govtMoreThan6Mo + r.govtMoreThan6Mo,
+          govtLessThan6Mo: acc.govtLessThan6Mo + r.govtLessThan6Mo,
+        }), { totalCandidates: 0, generalList: 0, longListed: 0, forReview: 0, disqualified: 0, govtPresent: 0, govtWithin2Yrs: 0, govtMoreThan6Mo: 0, govtLessThan6Mo: 0 });
+
+        // Unique salary grades from all available vacancies (for dropdown)
+        const allSalaryGrades = [...new Set(vacancies.map(v => v.salaryGrade))].filter(Boolean).sort((a, b) => a - b);
+        const allAssignments  = [...new Set(vacancies.map(v => v.assignment))].filter(Boolean).sort();
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-10" style={{ backgroundColor: 'rgba(15,23,42,0.65)', backdropFilter: 'blur(4px)' }} role="dialog" aria-modal="true" aria-labelledby="pos-stats-title">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl flex flex-col max-h-[88vh]">
+
+              {/* Header */}
+              <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg,#0f766e,#14b8a6)' }}>
+                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h2 id="pos-stats-title" className="text-base font-bold text-gray-900">Position Statistics</h2>
+                    <p className="text-xs text-gray-400">
+                      {currentPublicationRange ? currentPublicationRange.name : 'All Active Ranges'} · {statsRows.length} position{statsRows.length !== 1 ? 's' : ''}
+                    </p>
+                  </div>
+                </div>
+                <button onClick={() => setShowPositionStats(false)} className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-all" aria-label="Close position statistics">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+
+              {/* Filter bar */}
+              <div className="px-6 py-3 bg-teal-50 border-b border-teal-100 flex items-center gap-3 flex-wrap shrink-0">
+                <span className="text-xs font-bold text-teal-700 uppercase tracking-wide">Filters:</span>
+
+                {/* Publication Range label (read-only — reflects main filter) */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-teal-600 font-semibold">Range:</span>
+                  <span className="px-2.5 py-1 bg-white border border-teal-200 rounded-lg text-xs font-semibold text-teal-800">
+                    {currentPublicationRange ? currentPublicationRange.name : 'All Active'}
+                  </span>
+                </div>
+
+                {/* Assignment filter */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-teal-600 font-semibold">Assignment:</span>
+                  <select
+                    value={posStatsAssignment}
+                    onChange={e => setPosStatsAssignment(e.target.value)}
+                    className="px-2.5 py-1 bg-white border border-teal-200 rounded-lg text-xs font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-400 transition-all"
+                  >
+                    <option value="">All Assignments</option>
+                    {allAssignments.map(a => <option key={a} value={a}>{a}</option>)}
+                  </select>
+                </div>
+
+                {/* Salary Grade filter */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-teal-600 font-semibold">Salary Grade:</span>
+                  <select
+                    value={posStatsSalaryGrade}
+                    onChange={e => setPosStatsSalaryGrade(e.target.value)}
+                    className="px-2.5 py-1 bg-white border border-teal-200 rounded-lg text-xs font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-400 transition-all"
+                  >
+                    <option value="">All Grades</option>
+                    {allSalaryGrades.map(sg => <option key={sg} value={sg}>SG {sg}</option>)}
+                  </select>
+                </div>
+
+                {/* Clear filters */}
+                {(posStatsAssignment || posStatsSalaryGrade) && (
+                  <button
+                    onClick={() => { setPosStatsAssignment(''); setPosStatsSalaryGrade(''); }}
+                    className="px-2.5 py-1 rounded-lg text-xs font-semibold text-red-500 border border-red-200 bg-white hover:bg-red-50 transition-all"
+                  >
+                    Clear Filters
+                  </button>
+                )}
+
+                {/* Summary totals chips */}
+                <div className="ml-auto flex items-center gap-1.5 flex-wrap">
+                  {[
+                    { label: `${statsRows.length} Positions`,           cls: 'bg-teal-100 text-teal-800' },
+                    { label: `${totals.totalCandidates} Applicants`,    cls: 'bg-blue-100 text-blue-800' },
+                    { label: `${totals.longListed} Long Listed`,        cls: 'bg-green-100 text-green-800' },
+                    { label: `${totals.forReview} For Review`,          cls: 'bg-yellow-100 text-yellow-800' },
+                    { label: `${totals.disqualified} Disqualified`,     cls: 'bg-red-100 text-red-800' },
+                  ].map(({ label, cls }) => (
+                    <span key={label} className={`px-2.5 py-1 rounded-full text-xs font-bold ${cls}`}>{label}</span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Table */}
+              <div className="flex-1 overflow-auto">
+                {statsRows.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+                    <svg className="w-12 h-12 mb-3 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                    <p className="text-sm font-medium">No positions match the selected filters.</p>
+                  </div>
+                ) : (
+                  <table className="w-full text-sm border-collapse">
+                    <thead className="bg-gray-50 sticky top-0 z-10">
+                      <tr>
+                        <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider border-b border-gray-200">Position</th>
+                        <th className="text-center px-3 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider border-b border-gray-200">SG</th>
+                        <th className="text-left px-3 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider border-b border-gray-200">Assignment</th>
+                        <th className="text-center px-3 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider border-b border-gray-200">Item Nos</th>
+                        <th className="text-center px-3 py-3 text-xs font-bold text-blue-500 uppercase tracking-wider border-b border-gray-200">Total</th>
+                        <th className="text-center px-3 py-3 text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-200">General</th>
+                        <th className="text-center px-3 py-3 text-xs font-bold text-green-600 uppercase tracking-wider border-b border-gray-200">Long List</th>
+                        <th className="text-center px-3 py-3 text-xs font-bold text-yellow-600 uppercase tracking-wider border-b border-gray-200">Review</th>
+                        <th className="text-center px-3 py-3 text-xs font-bold text-red-500 uppercase tracking-wider border-b border-gray-200">DQ</th>
+                        <th className="text-center px-3 py-3 text-xs font-bold text-emerald-600 uppercase tracking-wider border-b border-gray-200 whitespace-nowrap">Govt Present</th>
+                        <th className="text-center px-3 py-3 text-xs font-bold text-amber-600 uppercase tracking-wider border-b border-gray-200 whitespace-nowrap">Within 2 Yrs</th>
+                        <th className="text-center px-3 py-3 text-xs font-bold text-indigo-600 uppercase tracking-wider border-b border-gray-200 whitespace-nowrap">&gt;6 Mos</th>
+                        <th className="text-center px-3 py-3 text-xs font-bold text-violet-600 uppercase tracking-wider border-b border-gray-200 whitespace-nowrap">&lt;6 Mos</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {statsRows.map((row, idx) => (
+                        <tr key={row.position} className={`transition-colors hover:bg-teal-50 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}`}>
+                          <td className="px-4 py-3 font-semibold text-gray-800 max-w-[200px]">
+                            <div className="truncate" title={row.position}>{row.position}</div>
+                          </td>
+                          <td className="px-3 py-3 text-center">
+                            <span className="inline-flex items-center justify-center w-8 h-6 rounded bg-teal-100 text-teal-800 text-xs font-bold">
+                              {row.salaryGrade}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3 text-xs text-gray-500 max-w-[140px]">
+                            <div className="truncate" title={row.assignment}>{row.assignment}</div>
+                          </td>
+                          <td className="px-3 py-3 text-center text-[10px] text-gray-400 max-w-[100px]">
+                            <div className="truncate" title={row.itemNumbers.join(', ')}>{row.itemNumbers.join(', ')}</div>
+                          </td>
+                          <td className="px-3 py-3 text-center">
+                            <span className="font-bold text-blue-700 text-sm">{row.totalCandidates}</span>
+                          </td>
+                          <td className="px-3 py-3 text-center text-gray-500 text-xs font-semibold">{row.generalList}</td>
+                          <td className="px-3 py-3 text-center">
+                            {row.longListed > 0 ? <span className="inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-bold">{row.longListed}</span> : <span className="text-gray-300 text-xs">—</span>}
+                          </td>
+                          <td className="px-3 py-3 text-center">
+                            {row.forReview > 0 ? <span className="inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full bg-yellow-100 text-yellow-700 text-xs font-bold">{row.forReview}</span> : <span className="text-gray-300 text-xs">—</span>}
+                          </td>
+                          <td className="px-3 py-3 text-center">
+                            {row.disqualified > 0 ? <span className="inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 text-xs font-bold">{row.disqualified}</span> : <span className="text-gray-300 text-xs">—</span>}
+                          </td>
+                          <td className="px-3 py-3 text-center">
+                            {row.govtPresent > 0 ? <span className="inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">{row.govtPresent}</span> : <span className="text-gray-300 text-xs">—</span>}
+                          </td>
+                          <td className="px-3 py-3 text-center">
+                            {row.govtWithin2Yrs > 0 ? <span className="inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-bold">{row.govtWithin2Yrs}</span> : <span className="text-gray-300 text-xs">—</span>}
+                          </td>
+                          <td className="px-3 py-3 text-center">
+                            {row.govtMoreThan6Mo > 0 ? <span className="inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold">{row.govtMoreThan6Mo}</span> : <span className="text-gray-300 text-xs">—</span>}
+                          </td>
+                          <td className="px-3 py-3 text-center">
+                            {row.govtLessThan6Mo > 0 ? <span className="inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 text-xs font-bold">{row.govtLessThan6Mo}</span> : <span className="text-gray-300 text-xs">—</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    {/* Totals footer */}
+                    <tfoot className="bg-teal-50 border-t-2 border-teal-200 sticky bottom-0">
+                      <tr>
+                        <td className="px-4 py-3 font-bold text-teal-800 text-xs uppercase tracking-wide" colSpan={4}>Totals ({statsRows.length} positions)</td>
+                        <td className="px-3 py-3 text-center font-bold text-blue-700">{totals.totalCandidates}</td>
+                        <td className="px-3 py-3 text-center font-bold text-gray-600">{totals.generalList}</td>
+                        <td className="px-3 py-3 text-center font-bold text-green-700">{totals.longListed}</td>
+                        <td className="px-3 py-3 text-center font-bold text-yellow-700">{totals.forReview}</td>
+                        <td className="px-3 py-3 text-center font-bold text-red-700">{totals.disqualified}</td>
+                        <td className="px-3 py-3 text-center font-bold text-emerald-700">{totals.govtPresent}</td>
+                        <td className="px-3 py-3 text-center font-bold text-amber-700">{totals.govtWithin2Yrs}</td>
+                        <td className="px-3 py-3 text-center font-bold text-indigo-700">{totals.govtMoreThan6Mo}</td>
+                        <td className="px-3 py-3 text-center font-bold text-violet-700">{totals.govtLessThan6Mo}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="px-6 py-4 border-t border-gray-100 flex justify-between items-center shrink-0">
+                <p className="text-xs text-gray-400">
+                  Statistics computed from <span className="font-semibold text-gray-600">{candidates.length}</span> currently-loaded candidates. Adjust the main filters to change the data set.
+                </p>
+                <button
+                  onClick={() => setShowPositionStats(false)}
+                  className="px-5 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+
+            </div>
+          </div>
+        );
+      })()}
 
       {/* CBS Manual Modal — browse mode */}
       {showCBSManual && (
