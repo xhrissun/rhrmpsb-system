@@ -2724,6 +2724,10 @@ const usersAPI = {
     const response = await api.get("/users/raters");
     return response.data;
   },
+  getSecretariats: async () => {
+    const response = await api.get("/users/secretariats");
+    return response.data;
+  },
   exportCSV: async () => {
     const response = await api.get("/users/export-csv", {
       responseType: "blob"
@@ -16821,7 +16825,7 @@ function(t2) {
  */
 function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-0c011e32.js"), true ? ["assets/index.es-0c011e32.js","assets/vendor-05345498.js","assets/pdfjs-3a644b6e.js"] : void 0)).catch(function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-4ea70f4d.js"), true ? ["assets/index.es-4ea70f4d.js","assets/vendor-05345498.js","assets/pdfjs-3a644b6e.js"] : void 0)).catch(function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     }).then(function(t3) {
       return t3.default ? t3.default : t3;
@@ -20581,9 +20585,19 @@ const SecretariatView = ({ user }) => {
   const [genderFilter, setGenderFilter] = reactExports.useState(null);
   const [govtEmpFilter, setGovtEmpFilter] = reactExports.useState(null);
   const [showPositionStats, setShowPositionStats] = reactExports.useState(false);
-  reactExports.useState("");
-  const [posStatsAssignment, setPosStatsAssignment] = reactExports.useState("");
-  const [posStatsSalaryGrade, setPosStatsSalaryGrade] = reactExports.useState("");
+  const [posStatsLoading, setPosStatsLoading] = reactExports.useState(false);
+  const [posStatsError, setPosStatsError] = reactExports.useState("");
+  const [posStatsAllVacancies, setPosStatsAllVacancies] = reactExports.useState([]);
+  const [posStatsAllCandidates, setPosStatsAllCandidates] = reactExports.useState([]);
+  const [posStatsSecretariats, setPosStatsSecretariats] = reactExports.useState([]);
+  const [posStatsPubRanges, setPosStatsPubRanges] = reactExports.useState([]);
+  const [posStatsFilterPubRange, setPosStatsFilterPubRange] = reactExports.useState("");
+  const [posStatsFilterAssignment, setPosStatsFilterAssignment] = reactExports.useState("");
+  const [posStatsFilterSalaryGrade, setPosStatsFilterSalaryGrade] = reactExports.useState("");
+  const [posStatsFilterSecretariat, setPosStatsFilterSecretariat] = reactExports.useState("");
+  const [posStatsSortKey, setPosStatsSortKey] = reactExports.useState("position");
+  const [posStatsSortDir, setPosStatsSortDir] = reactExports.useState("asc");
+  const [posStatsExpanded, setPosStatsExpanded] = reactExports.useState(/* @__PURE__ */ new Set());
   const [isFiltersExpanded, setIsFiltersExpanded] = reactExports.useState(true);
   const [publicationRanges, setPublicationRanges] = reactExports.useState([]);
   const [selectedPublicationRange, setSelectedPublicationRange] = usePersistedState(
@@ -21279,6 +21293,30 @@ const SecretariatView = ({ user }) => {
       setSummaryLoading(false);
     }
   }, [filterVacanciesByAssignment, user, showToast]);
+  const loadPositionStats = reactExports.useCallback(async () => {
+    setPosStatsLoading(true);
+    setPosStatsError("");
+    try {
+      const [allVacanciesRaw, allPubRanges, allSecretariats, allCandidatesRaw] = await Promise.all([
+        vacanciesAPI.getAll(),
+        publicationRangesAPI.getAll(false),
+        // active only
+        usersAPI.getSecretariats(),
+        candidatesAPI.getAll()
+      ]);
+      const activeVacancies = allVacanciesRaw.filter((v2) => !v2.isArchived);
+      const activeCandidates = allCandidatesRaw.filter((c2) => !c2.isArchived);
+      setPosStatsAllVacancies(activeVacancies);
+      setPosStatsAllCandidates(activeCandidates);
+      setPosStatsSecretariats(allSecretariats);
+      setPosStatsPubRanges(allPubRanges);
+    } catch (err2) {
+      console.error("Failed to load position statistics:", err2);
+      setPosStatsError("Failed to load statistics. Please try again.");
+    } finally {
+      setPosStatsLoading(false);
+    }
+  }, []);
   reactExports.useEffect(() => {
     const init = async () => {
       await loadPublicationRanges();
@@ -21482,7 +21520,10 @@ const SecretariatView = ({ user }) => {
         /* @__PURE__ */ jsxs(
           "button",
           {
-            onClick: () => setShowPositionStats(true),
+            onClick: () => {
+              setShowPositionStats(true);
+              loadPositionStats();
+            },
             "aria-label": "Position Statistics",
             className: "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-all hover:opacity-90 active:scale-95",
             style: { background: "linear-gradient(135deg,#0f766e,#14b8a6)" },
@@ -22867,43 +22908,67 @@ const SecretariatView = ({ user }) => {
       ] })
     ] }) }),
     showPositionStats && (() => {
-      const statsVacancies = vacancies.filter((v2) => {
-        if (posStatsAssignment && v2.assignment !== posStatsAssignment)
+      const getSecretariatsForItem = (itemNumber, vacancyAssignment) => {
+        return posStatsSecretariats.filter((s2) => {
+          if (s2.assignedVacancies === "all")
+            return true;
+          if (s2.assignedVacancies === "assignment")
+            return s2.assignedAssignment === vacancyAssignment;
+          if (s2.assignedVacancies === "specific")
+            return (s2.assignedItemNumbers || []).includes(itemNumber);
           return false;
-        if (posStatsSalaryGrade && String(v2.salaryGrade) !== String(posStatsSalaryGrade))
+        });
+      };
+      const filteredVacancies = posStatsAllVacancies.filter((v2) => {
+        if (posStatsFilterPubRange && v2.publicationRangeId !== posStatsFilterPubRange && String(v2.publicationRangeId) !== posStatsFilterPubRange)
           return false;
+        if (posStatsFilterAssignment && v2.assignment !== posStatsFilterAssignment)
+          return false;
+        if (posStatsFilterSalaryGrade && String(v2.salaryGrade) !== posStatsFilterSalaryGrade)
+          return false;
+        if (posStatsFilterSecretariat) {
+          const s2 = posStatsSecretariats.find((sec) => sec._id === posStatsFilterSecretariat || String(sec._id) === posStatsFilterSecretariat);
+          if (!s2)
+            return false;
+          if (s2.assignedVacancies === "all")
+            ;
+          else if (s2.assignedVacancies === "assignment") {
+            if (v2.assignment !== s2.assignedAssignment)
+              return false;
+          } else if (s2.assignedVacancies === "specific") {
+            if (!(s2.assignedItemNumbers || []).includes(v2.itemNumber))
+              return false;
+          } else
+            return false;
+        }
         return true;
       });
-      const positionMap = {};
-      statsVacancies.forEach((v2) => {
-        const key = v2.position;
-        if (!positionMap[key]) {
-          positionMap[key] = {
-            position: v2.position,
-            salaryGrade: v2.salaryGrade,
-            assignment: v2.assignment,
-            itemNumbers: [],
-            totalCandidates: 0,
-            generalList: 0,
-            longListed: 0,
-            forReview: 0,
-            disqualified: 0,
-            govtPresent: 0,
-            govtWithin2Yrs: 0,
-            govtMoreThan6Mo: 0,
-            govtLessThan6Mo: 0
-          };
-        }
-        positionMap[key].itemNumbers.push(v2.itemNumber);
+      const filteredItemNumbers = new Set(filteredVacancies.map((v2) => v2.itemNumber));
+      const itemStatsMap = {};
+      filteredVacancies.forEach((v2) => {
+        const responsible = getSecretariatsForItem(v2.itemNumber, v2.assignment);
+        itemStatsMap[v2.itemNumber] = {
+          itemNumber: v2.itemNumber,
+          position: v2.position,
+          assignment: v2.assignment,
+          salaryGrade: v2.salaryGrade,
+          pubRangeId: String(v2.publicationRangeId),
+          secretariats: responsible.map((s2) => s2.name),
+          totalCandidates: 0,
+          generalList: 0,
+          longListed: 0,
+          forReview: 0,
+          disqualified: 0,
+          govtPresent: 0,
+          govtWithin2Yrs: 0,
+          govtMoreThan6Mo: 0,
+          govtLessThan6Mo: 0
+        };
       });
-      const statsItemNumbers = new Set(statsVacancies.map((v2) => v2.itemNumber));
-      candidates.forEach((c2) => {
-        if (!statsItemNumbers.has(c2.itemNumber))
+      posStatsAllCandidates.forEach((c2) => {
+        if (!filteredItemNumbers.has(c2.itemNumber))
           return;
-        const vacancy = vacancies.find((v2) => v2.itemNumber === c2.itemNumber);
-        if (!vacancy)
-          return;
-        const row = positionMap[vacancy.position];
+        const row = itemStatsMap[c2.itemNumber];
         if (!row)
           return;
         row.totalCandidates++;
@@ -22927,8 +22992,59 @@ const SecretariatView = ({ user }) => {
             row.govtLessThan6Mo++;
         }
       });
-      const statsRows = Object.values(positionMap).sort((a2, b2) => a2.position.localeCompare(b2.position));
-      const totals = statsRows.reduce((acc, r) => ({
+      const positionMap = {};
+      Object.values(itemStatsMap).forEach((item) => {
+        const key = `${item.position}||${item.assignment}`;
+        if (!positionMap[key]) {
+          positionMap[key] = {
+            position: item.position,
+            assignment: item.assignment,
+            salaryGrade: item.salaryGrade,
+            itemCount: 0,
+            items: [],
+            totalCandidates: 0,
+            generalList: 0,
+            longListed: 0,
+            forReview: 0,
+            disqualified: 0,
+            govtPresent: 0,
+            govtWithin2Yrs: 0,
+            govtMoreThan6Mo: 0,
+            govtLessThan6Mo: 0,
+            secretariats: /* @__PURE__ */ new Set()
+          };
+        }
+        const p2 = positionMap[key];
+        p2.itemCount++;
+        p2.items.push(item);
+        p2.totalCandidates += item.totalCandidates;
+        p2.generalList += item.generalList;
+        p2.longListed += item.longListed;
+        p2.forReview += item.forReview;
+        p2.disqualified += item.disqualified;
+        p2.govtPresent += item.govtPresent;
+        p2.govtWithin2Yrs += item.govtWithin2Yrs;
+        p2.govtMoreThan6Mo += item.govtMoreThan6Mo;
+        p2.govtLessThan6Mo += item.govtLessThan6Mo;
+        item.secretariats.forEach((s2) => p2.secretariats.add(s2));
+      });
+      Object.values(positionMap).forEach((p2) => {
+        p2.secretariats = Array.from(p2.secretariats).sort();
+      });
+      const sortMultiplier = posStatsSortDir === "asc" ? 1 : -1;
+      const sortedRows = Object.values(positionMap).sort((a2, b2) => {
+        let aVal = a2[posStatsSortKey];
+        let bVal = b2[posStatsSortKey];
+        if (posStatsSortKey === "salaryGrade")
+          return (aVal - bVal) * sortMultiplier;
+        if (posStatsSortKey === "itemCount")
+          return (aVal - bVal) * sortMultiplier;
+        if (typeof aVal === "number")
+          return (aVal - bVal) * sortMultiplier;
+        return String(aVal || "").localeCompare(String(bVal || "")) * sortMultiplier;
+      });
+      const totals = sortedRows.reduce((acc, r) => ({
+        itemCount: acc.itemCount + r.itemCount,
         totalCandidates: acc.totalCandidates + r.totalCandidates,
         generalList: acc.generalList + r.generalList,
         longListed: acc.longListed + r.longListed,
@@ -22938,151 +23054,287 @@ const SecretariatView = ({ user }) => {
         govtWithin2Yrs: acc.govtWithin2Yrs + r.govtWithin2Yrs,
         govtMoreThan6Mo: acc.govtMoreThan6Mo + r.govtMoreThan6Mo,
         govtLessThan6Mo: acc.govtLessThan6Mo + r.govtLessThan6Mo
-      }), { totalCandidates: 0, generalList: 0, longListed: 0, forReview: 0, disqualified: 0, govtPresent: 0, govtWithin2Yrs: 0, govtMoreThan6Mo: 0, govtLessThan6Mo: 0 });
-      const allSalaryGrades = [...new Set(vacancies.map((v2) => v2.salaryGrade))].filter(Boolean).sort((a2, b2) => a2 - b2);
-      const allAssignments = [...new Set(vacancies.map((v2) => v2.assignment))].filter(Boolean).sort();
-      return /* @__PURE__ */ jsx("div", { className: "fixed inset-0 z-50 flex items-start justify-center p-4 pt-10", style: { backgroundColor: "rgba(15,23,42,0.65)", backdropFilter: "blur(4px)" }, role: "dialog", "aria-modal": "true", "aria-labelledby": "pos-stats-title", children: /* @__PURE__ */ jsxs("div", { className: "bg-white rounded-2xl shadow-2xl w-full max-w-6xl flex flex-col max-h-[88vh]", children: [
-        /* @__PURE__ */ jsxs("div", { className: "px-6 py-5 border-b border-gray-100 flex items-center justify-between shrink-0", children: [
-          /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-3", children: [
-            /* @__PURE__ */ jsx("div", { className: "w-10 h-10 rounded-xl flex items-center justify-center", style: { background: "linear-gradient(135deg,#0f766e,#14b8a6)" }, children: /* @__PURE__ */ jsx("svg", { className: "w-5 h-5 text-white", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24", children: /* @__PURE__ */ jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" }) }) }),
-            /* @__PURE__ */ jsxs("div", { children: [
-              /* @__PURE__ */ jsx("h2", { id: "pos-stats-title", className: "text-base font-bold text-gray-900", children: "Position Statistics" }),
-              /* @__PURE__ */ jsxs("p", { className: "text-xs text-gray-400", children: [
-                currentPublicationRange ? currentPublicationRange.name : "All Active Ranges",
-                " · ",
-                statsRows.length,
-                " position",
-                statsRows.length !== 1 ? "s" : ""
-              ] })
+      }), { itemCount: 0, totalCandidates: 0, generalList: 0, longListed: 0, forReview: 0, disqualified: 0, govtPresent: 0, govtWithin2Yrs: 0, govtMoreThan6Mo: 0, govtLessThan6Mo: 0 });
+      const SortTh = ({ label, sortKey, className = "" }) => {
+        const active = posStatsSortKey === sortKey;
+        return /* @__PURE__ */ jsx(
+          "th",
+          {
+            onClick: () => {
+              if (active)
+                setPosStatsSortDir((d2) => d2 === "asc" ? "desc" : "asc");
+              else {
+                setPosStatsSortKey(sortKey);
+                setPosStatsSortDir("asc");
+              }
+            },
+            className: `px-3 py-3 text-xs font-bold uppercase tracking-wider cursor-pointer select-none whitespace-nowrap border-b border-gray-200 transition-colors hover:bg-teal-100 ${active ? "bg-teal-100 text-teal-800" : "bg-gray-50 text-gray-500"} ${className}`,
+            children: /* @__PURE__ */ jsxs("span", { className: "flex items-center gap-1", children: [
+              label,
+              /* @__PURE__ */ jsx("span", { className: "text-[10px] opacity-60", children: active ? posStatsSortDir === "asc" ? "▲" : "▼" : "⇅" })
             ] })
-          ] }),
-          /* @__PURE__ */ jsx("button", { onClick: () => setShowPositionStats(false), className: "w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-all", "aria-label": "Close position statistics", children: /* @__PURE__ */ jsx("svg", { className: "w-4 h-4", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24", children: /* @__PURE__ */ jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M6 18L18 6M6 6l12 12" }) }) })
-        ] }),
-        /* @__PURE__ */ jsxs("div", { className: "px-6 py-3 bg-teal-50 border-b border-teal-100 flex items-center gap-3 flex-wrap shrink-0", children: [
-          /* @__PURE__ */ jsx("span", { className: "text-xs font-bold text-teal-700 uppercase tracking-wide", children: "Filters:" }),
-          /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-1.5", children: [
-            /* @__PURE__ */ jsx("span", { className: "text-xs text-teal-600 font-semibold", children: "Range:" }),
-            /* @__PURE__ */ jsx("span", { className: "px-2.5 py-1 bg-white border border-teal-200 rounded-lg text-xs font-semibold text-teal-800", children: currentPublicationRange ? currentPublicationRange.name : "All Active" })
-          ] }),
-          /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-1.5", children: [
-            /* @__PURE__ */ jsx("span", { className: "text-xs text-teal-600 font-semibold", children: "Assignment:" }),
-            /* @__PURE__ */ jsxs(
-              "select",
-              {
-                value: posStatsAssignment,
-                onChange: (e) => setPosStatsAssignment(e.target.value),
-                className: "px-2.5 py-1 bg-white border border-teal-200 rounded-lg text-xs font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-400 transition-all",
-                children: [
-                  /* @__PURE__ */ jsx("option", { value: "", children: "All Assignments" }),
-                  allAssignments.map((a2) => /* @__PURE__ */ jsx("option", { value: a2, children: a2 }, a2))
-                ]
-              }
-            )
-          ] }),
-          /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-1.5", children: [
-            /* @__PURE__ */ jsx("span", { className: "text-xs text-teal-600 font-semibold", children: "Salary Grade:" }),
-            /* @__PURE__ */ jsxs(
-              "select",
-              {
-                value: posStatsSalaryGrade,
-                onChange: (e) => setPosStatsSalaryGrade(e.target.value),
-                className: "px-2.5 py-1 bg-white border border-teal-200 rounded-lg text-xs font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-400 transition-all",
-                children: [
-                  /* @__PURE__ */ jsx("option", { value: "", children: "All Grades" }),
-                  allSalaryGrades.map((sg) => /* @__PURE__ */ jsxs("option", { value: sg, children: [
-                    "SG ",
-                    sg
-                  ] }, sg))
-                ]
-              }
-            )
-          ] }),
-          (posStatsAssignment || posStatsSalaryGrade) && /* @__PURE__ */ jsx(
-            "button",
-            {
-              onClick: () => {
-                setPosStatsAssignment("");
-                setPosStatsSalaryGrade("");
-              },
-              className: "px-2.5 py-1 rounded-lg text-xs font-semibold text-red-500 border border-red-200 bg-white hover:bg-red-50 transition-all",
-              children: "Clear Filters"
-            }
-          ),
-          /* @__PURE__ */ jsx("div", { className: "ml-auto flex items-center gap-1.5 flex-wrap", children: [
-            { label: `${statsRows.length} Positions`, cls: "bg-teal-100 text-teal-800" },
-            { label: `${totals.totalCandidates} Applicants`, cls: "bg-blue-100 text-blue-800" },
-            { label: `${totals.longListed} Long Listed`, cls: "bg-green-100 text-green-800" },
-            { label: `${totals.forReview} For Review`, cls: "bg-yellow-100 text-yellow-800" },
-            { label: `${totals.disqualified} Disqualified`, cls: "bg-red-100 text-red-800" }
-          ].map(({ label, cls }) => /* @__PURE__ */ jsx("span", { className: `px-2.5 py-1 rounded-full text-xs font-bold ${cls}`, children: label }, label)) })
-        ] }),
-        /* @__PURE__ */ jsx("div", { className: "flex-1 overflow-auto", children: statsRows.length === 0 ? /* @__PURE__ */ jsxs("div", { className: "flex flex-col items-center justify-center py-20 text-gray-400", children: [
-          /* @__PURE__ */ jsx("svg", { className: "w-12 h-12 mb-3 opacity-30", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24", children: /* @__PURE__ */ jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 1.5, d: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" }) }),
-          /* @__PURE__ */ jsx("p", { className: "text-sm font-medium", children: "No positions match the selected filters." })
-        ] }) : /* @__PURE__ */ jsxs("table", { className: "w-full text-sm border-collapse", children: [
-          /* @__PURE__ */ jsx("thead", { className: "bg-gray-50 sticky top-0 z-10", children: /* @__PURE__ */ jsxs("tr", { children: [
-            /* @__PURE__ */ jsx("th", { className: "text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider border-b border-gray-200", children: "Position" }),
-            /* @__PURE__ */ jsx("th", { className: "text-center px-3 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider border-b border-gray-200", children: "SG" }),
-            /* @__PURE__ */ jsx("th", { className: "text-left px-3 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider border-b border-gray-200", children: "Assignment" }),
-            /* @__PURE__ */ jsx("th", { className: "text-center px-3 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider border-b border-gray-200", children: "Item Nos" }),
-            /* @__PURE__ */ jsx("th", { className: "text-center px-3 py-3 text-xs font-bold text-blue-500 uppercase tracking-wider border-b border-gray-200", children: "Total" }),
-            /* @__PURE__ */ jsx("th", { className: "text-center px-3 py-3 text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-200", children: "General" }),
-            /* @__PURE__ */ jsx("th", { className: "text-center px-3 py-3 text-xs font-bold text-green-600 uppercase tracking-wider border-b border-gray-200", children: "Long List" }),
-            /* @__PURE__ */ jsx("th", { className: "text-center px-3 py-3 text-xs font-bold text-yellow-600 uppercase tracking-wider border-b border-gray-200", children: "Review" }),
-            /* @__PURE__ */ jsx("th", { className: "text-center px-3 py-3 text-xs font-bold text-red-500 uppercase tracking-wider border-b border-gray-200", children: "DQ" }),
-            /* @__PURE__ */ jsx("th", { className: "text-center px-3 py-3 text-xs font-bold text-emerald-600 uppercase tracking-wider border-b border-gray-200 whitespace-nowrap", children: "Govt Present" }),
-            /* @__PURE__ */ jsx("th", { className: "text-center px-3 py-3 text-xs font-bold text-amber-600 uppercase tracking-wider border-b border-gray-200 whitespace-nowrap", children: "Within 2 Yrs" }),
-            /* @__PURE__ */ jsx("th", { className: "text-center px-3 py-3 text-xs font-bold text-indigo-600 uppercase tracking-wider border-b border-gray-200 whitespace-nowrap", children: ">6 Mos" }),
-            /* @__PURE__ */ jsx("th", { className: "text-center px-3 py-3 text-xs font-bold text-violet-600 uppercase tracking-wider border-b border-gray-200 whitespace-nowrap", children: "<6 Mos" })
-          ] }) }),
-          /* @__PURE__ */ jsx("tbody", { className: "divide-y divide-gray-100", children: statsRows.map((row, idx) => /* @__PURE__ */ jsxs("tr", { className: `transition-colors hover:bg-teal-50 ${idx % 2 === 0 ? "bg-white" : "bg-gray-50/40"}`, children: [
-            /* @__PURE__ */ jsx("td", { className: "px-4 py-3 font-semibold text-gray-800 max-w-[200px]", children: /* @__PURE__ */ jsx("div", { className: "truncate", title: row.position, children: row.position }) }),
-            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: /* @__PURE__ */ jsx("span", { className: "inline-flex items-center justify-center w-8 h-6 rounded bg-teal-100 text-teal-800 text-xs font-bold", children: row.salaryGrade }) }),
-            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-xs text-gray-500 max-w-[140px]", children: /* @__PURE__ */ jsx("div", { className: "truncate", title: row.assignment, children: row.assignment }) }),
-            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center text-[10px] text-gray-400 max-w-[100px]", children: /* @__PURE__ */ jsx("div", { className: "truncate", title: row.itemNumbers.join(", "), children: row.itemNumbers.join(", ") }) }),
-            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: /* @__PURE__ */ jsx("span", { className: "font-bold text-blue-700 text-sm", children: row.totalCandidates }) }),
-            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center text-gray-500 text-xs font-semibold", children: row.generalList }),
-            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: row.longListed > 0 ? /* @__PURE__ */ jsx("span", { className: "inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-bold", children: row.longListed }) : /* @__PURE__ */ jsx("span", { className: "text-gray-300 text-xs", children: "—" }) }),
-            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: row.forReview > 0 ? /* @__PURE__ */ jsx("span", { className: "inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full bg-yellow-100 text-yellow-700 text-xs font-bold", children: row.forReview }) : /* @__PURE__ */ jsx("span", { className: "text-gray-300 text-xs", children: "—" }) }),
-            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: row.disqualified > 0 ? /* @__PURE__ */ jsx("span", { className: "inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 text-xs font-bold", children: row.disqualified }) : /* @__PURE__ */ jsx("span", { className: "text-gray-300 text-xs", children: "—" }) }),
-            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: row.govtPresent > 0 ? /* @__PURE__ */ jsx("span", { className: "inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold", children: row.govtPresent }) : /* @__PURE__ */ jsx("span", { className: "text-gray-300 text-xs", children: "—" }) }),
-            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: row.govtWithin2Yrs > 0 ? /* @__PURE__ */ jsx("span", { className: "inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-bold", children: row.govtWithin2Yrs }) : /* @__PURE__ */ jsx("span", { className: "text-gray-300 text-xs", children: "—" }) }),
-            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: row.govtMoreThan6Mo > 0 ? /* @__PURE__ */ jsx("span", { className: "inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold", children: row.govtMoreThan6Mo }) : /* @__PURE__ */ jsx("span", { className: "text-gray-300 text-xs", children: "—" }) }),
-            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: row.govtLessThan6Mo > 0 ? /* @__PURE__ */ jsx("span", { className: "inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 text-xs font-bold", children: row.govtLessThan6Mo }) : /* @__PURE__ */ jsx("span", { className: "text-gray-300 text-xs", children: "—" }) })
-          ] }, row.position)) }),
-          /* @__PURE__ */ jsx("tfoot", { className: "bg-teal-50 border-t-2 border-teal-200 sticky bottom-0", children: /* @__PURE__ */ jsxs("tr", { children: [
-            /* @__PURE__ */ jsxs("td", { className: "px-4 py-3 font-bold text-teal-800 text-xs uppercase tracking-wide", colSpan: 4, children: [
-              "Totals (",
-              statsRows.length,
-              " positions)"
+          }
+        );
+      };
+      const StatBadge = ({ val, cls }) => val > 0 ? /* @__PURE__ */ jsx("span", { className: `inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full text-xs font-bold ${cls}`, children: val }) : /* @__PURE__ */ jsx("span", { className: "text-gray-300 text-xs", children: "—" });
+      const allSalaryGrades = [...new Set(posStatsAllVacancies.map((v2) => v2.salaryGrade))].filter(Boolean).sort((a2, b2) => a2 - b2);
+      const allAssignments = [...new Set(posStatsAllVacancies.map((v2) => v2.assignment))].filter(Boolean).sort();
+      return /* @__PURE__ */ jsx(
+        "div",
+        {
+          className: "fixed inset-0 z-50 flex items-start justify-center p-4 pt-8",
+          style: { backgroundColor: "rgba(15,23,42,0.70)", backdropFilter: "blur(4px)" },
+          role: "dialog",
+          "aria-modal": "true",
+          "aria-labelledby": "pos-stats-title",
+          children: /* @__PURE__ */ jsxs("div", { className: "bg-white rounded-2xl shadow-2xl w-full max-w-7xl flex flex-col max-h-[92vh]", children: [
+            /* @__PURE__ */ jsxs("div", { className: "px-6 py-4 border-b border-gray-100 flex items-center justify-between shrink-0", children: [
+              /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-3", children: [
+                /* @__PURE__ */ jsx("div", { className: "w-10 h-10 rounded-xl flex items-center justify-center", style: { background: "linear-gradient(135deg,#0f766e,#14b8a6)" }, children: /* @__PURE__ */ jsx("svg", { className: "w-5 h-5 text-white", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24", children: /* @__PURE__ */ jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" }) }) }),
+                /* @__PURE__ */ jsxs("div", { children: [
+                  /* @__PURE__ */ jsx("h2", { id: "pos-stats-title", className: "text-base font-bold text-gray-900", children: "Position Statistics" }),
+                  /* @__PURE__ */ jsxs("p", { className: "text-xs text-gray-400", children: [
+                    "System-wide · all active items · ",
+                    posStatsAllVacancies.length,
+                    " vacancies · ",
+                    posStatsAllCandidates.length,
+                    " candidates"
+                  ] })
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-2", children: [
+                /* @__PURE__ */ jsx(
+                  "button",
+                  {
+                    onClick: loadPositionStats,
+                    disabled: posStatsLoading,
+                    title: "Refresh stats",
+                    className: "w-8 h-8 rounded-lg flex items-center justify-center text-teal-600 hover:bg-teal-50 transition-all disabled:opacity-40",
+                    children: /* @__PURE__ */ jsx("svg", { className: `w-4 h-4 ${posStatsLoading ? "animate-spin" : ""}`, fill: "none", stroke: "currentColor", viewBox: "0 0 24 24", children: /* @__PURE__ */ jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" }) })
+                  }
+                ),
+                /* @__PURE__ */ jsx(
+                  "button",
+                  {
+                    onClick: () => setShowPositionStats(false),
+                    className: "w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-all",
+                    "aria-label": "Close position statistics",
+                    children: /* @__PURE__ */ jsx("svg", { className: "w-4 h-4", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24", children: /* @__PURE__ */ jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M6 18L18 6M6 6l12 12" }) })
+                  }
+                )
+              ] })
             ] }),
-            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-blue-700", children: totals.totalCandidates }),
-            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-gray-600", children: totals.generalList }),
-            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-green-700", children: totals.longListed }),
-            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-yellow-700", children: totals.forReview }),
-            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-red-700", children: totals.disqualified }),
-            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-emerald-700", children: totals.govtPresent }),
-            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-amber-700", children: totals.govtWithin2Yrs }),
-            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-indigo-700", children: totals.govtMoreThan6Mo }),
-            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-violet-700", children: totals.govtLessThan6Mo })
-          ] }) })
-        ] }) }),
-        /* @__PURE__ */ jsxs("div", { className: "px-6 py-4 border-t border-gray-100 flex justify-between items-center shrink-0", children: [
-          /* @__PURE__ */ jsxs("p", { className: "text-xs text-gray-400", children: [
-            "Statistics computed from ",
-            /* @__PURE__ */ jsx("span", { className: "font-semibold text-gray-600", children: candidates.length }),
-            " currently-loaded candidates. Adjust the main filters to change the data set."
-          ] }),
-          /* @__PURE__ */ jsx(
-            "button",
-            {
-              onClick: () => setShowPositionStats(false),
-              className: "px-5 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold transition-colors",
-              children: "Close"
-            }
-          )
-        ] })
-      ] }) });
+            /* @__PURE__ */ jsxs("div", { className: "px-6 py-3 bg-teal-50 border-b border-teal-100 flex items-center gap-3 flex-wrap shrink-0", children: [
+              /* @__PURE__ */ jsx("span", { className: "text-xs font-bold text-teal-700 uppercase tracking-wide shrink-0", children: "Filters:" }),
+              /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-1.5", children: [
+                /* @__PURE__ */ jsx("span", { className: "text-xs text-teal-600 font-semibold shrink-0", children: "Range:" }),
+                /* @__PURE__ */ jsxs(
+                  "select",
+                  {
+                    value: posStatsFilterPubRange,
+                    onChange: (e) => setPosStatsFilterPubRange(e.target.value),
+                    className: "px-2.5 py-1 bg-white border border-teal-200 rounded-lg text-xs font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-400 transition-all",
+                    children: [
+                      /* @__PURE__ */ jsx("option", { value: "", children: "All Active Ranges" }),
+                      posStatsPubRanges.map((r) => /* @__PURE__ */ jsx("option", { value: String(r._id), children: r.name }, r._id))
+                    ]
+                  }
+                )
+              ] }),
+              /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-1.5", children: [
+                /* @__PURE__ */ jsx("span", { className: "text-xs text-teal-600 font-semibold shrink-0", children: "Assignment:" }),
+                /* @__PURE__ */ jsxs(
+                  "select",
+                  {
+                    value: posStatsFilterAssignment,
+                    onChange: (e) => setPosStatsFilterAssignment(e.target.value),
+                    className: "px-2.5 py-1 bg-white border border-teal-200 rounded-lg text-xs font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-400 transition-all",
+                    children: [
+                      /* @__PURE__ */ jsx("option", { value: "", children: "All Assignments" }),
+                      allAssignments.map((a2) => /* @__PURE__ */ jsx("option", { value: a2, children: a2 }, a2))
+                    ]
+                  }
+                )
+              ] }),
+              /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-1.5", children: [
+                /* @__PURE__ */ jsx("span", { className: "text-xs text-teal-600 font-semibold shrink-0", children: "Salary Grade:" }),
+                /* @__PURE__ */ jsxs(
+                  "select",
+                  {
+                    value: posStatsFilterSalaryGrade,
+                    onChange: (e) => setPosStatsFilterSalaryGrade(e.target.value),
+                    className: "px-2.5 py-1 bg-white border border-teal-200 rounded-lg text-xs font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-400 transition-all",
+                    children: [
+                      /* @__PURE__ */ jsx("option", { value: "", children: "All Grades" }),
+                      allSalaryGrades.map((sg) => /* @__PURE__ */ jsxs("option", { value: sg, children: [
+                        "SG ",
+                        sg
+                      ] }, sg))
+                    ]
+                  }
+                )
+              ] }),
+              /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-1.5", children: [
+                /* @__PURE__ */ jsx("span", { className: "text-xs text-teal-600 font-semibold shrink-0", children: "Secretariat:" }),
+                /* @__PURE__ */ jsxs(
+                  "select",
+                  {
+                    value: posStatsFilterSecretariat,
+                    onChange: (e) => setPosStatsFilterSecretariat(e.target.value),
+                    className: "px-2.5 py-1 bg-white border border-teal-200 rounded-lg text-xs font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-400 transition-all",
+                    children: [
+                      /* @__PURE__ */ jsx("option", { value: "", children: "All Secretariats" }),
+                      posStatsSecretariats.map((s2) => /* @__PURE__ */ jsx("option", { value: String(s2._id), children: s2.name }, String(s2._id)))
+                    ]
+                  }
+                )
+              ] }),
+              (posStatsFilterPubRange || posStatsFilterAssignment || posStatsFilterSalaryGrade || posStatsFilterSecretariat) && /* @__PURE__ */ jsx(
+                "button",
+                {
+                  onClick: () => {
+                    setPosStatsFilterPubRange("");
+                    setPosStatsFilterAssignment("");
+                    setPosStatsFilterSalaryGrade("");
+                    setPosStatsFilterSecretariat("");
+                  },
+                  className: "px-2.5 py-1 rounded-lg text-xs font-semibold text-red-500 border border-red-200 bg-white hover:bg-red-50 transition-all",
+                  children: "Clear All"
+                }
+              ),
+              /* @__PURE__ */ jsx("div", { className: "ml-auto flex items-center gap-1.5 flex-wrap shrink-0", children: [
+                { label: `${sortedRows.length} Positions`, cls: "bg-teal-100 text-teal-800" },
+                { label: `${totals.itemCount} Items`, cls: "bg-slate-100 text-slate-700" },
+                { label: `${totals.totalCandidates} Applicants`, cls: "bg-blue-100 text-blue-800" },
+                { label: `${totals.longListed} Long Listed`, cls: "bg-green-100 text-green-800" },
+                { label: `${totals.forReview} For Review`, cls: "bg-yellow-100 text-yellow-800" },
+                { label: `${totals.disqualified} Disqualified`, cls: "bg-red-100 text-red-800" }
+              ].map(({ label, cls }) => /* @__PURE__ */ jsx("span", { className: `px-2.5 py-1 rounded-full text-xs font-bold ${cls}`, children: label }, label)) })
+            ] }),
+            /* @__PURE__ */ jsx("div", { className: "flex-1 overflow-auto", children: posStatsLoading ? /* @__PURE__ */ jsxs("div", { className: "flex flex-col items-center justify-center py-24 gap-3 text-gray-400", children: [
+              /* @__PURE__ */ jsx("div", { className: "w-10 h-10 border-4 border-teal-200 border-t-teal-500 rounded-full animate-spin" }),
+              /* @__PURE__ */ jsx("p", { className: "text-sm font-medium", children: "Loading system-wide statistics…" })
+            ] }) : posStatsError ? /* @__PURE__ */ jsxs("div", { className: "flex flex-col items-center justify-center py-16 gap-3", children: [
+              /* @__PURE__ */ jsx("svg", { className: "w-10 h-10 text-red-400", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24", children: /* @__PURE__ */ jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 1.5, d: "M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" }) }),
+              /* @__PURE__ */ jsx("p", { className: "text-sm text-red-600 font-medium", children: posStatsError }),
+              /* @__PURE__ */ jsx("button", { onClick: loadPositionStats, className: "px-4 py-2 rounded-lg bg-teal-600 text-white text-xs font-bold hover:bg-teal-700 transition-colors", children: "Retry" })
+            ] }) : sortedRows.length === 0 ? /* @__PURE__ */ jsxs("div", { className: "flex flex-col items-center justify-center py-20 text-gray-400", children: [
+              /* @__PURE__ */ jsx("svg", { className: "w-12 h-12 mb-3 opacity-30", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24", children: /* @__PURE__ */ jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 1.5, d: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" }) }),
+              /* @__PURE__ */ jsx("p", { className: "text-sm font-medium", children: "No positions match the selected filters." })
+            ] }) : /* @__PURE__ */ jsxs("table", { className: "w-full text-sm border-collapse", children: [
+              /* @__PURE__ */ jsx("thead", { children: /* @__PURE__ */ jsxs("tr", { children: [
+                /* @__PURE__ */ jsx("th", { className: "w-8 bg-gray-50 border-b border-gray-200" }),
+                /* @__PURE__ */ jsx(SortTh, { label: "Position", sortKey: "position", className: "text-left" }),
+                /* @__PURE__ */ jsx(SortTh, { label: "SG", sortKey: "salaryGrade", className: "text-center" }),
+                /* @__PURE__ */ jsx(SortTh, { label: "Assignment", sortKey: "assignment", className: "text-left" }),
+                /* @__PURE__ */ jsx("th", { className: "px-3 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-50 border-b border-gray-200 text-left whitespace-nowrap", children: "Secretariats" }),
+                /* @__PURE__ */ jsx(SortTh, { label: "Items", sortKey: "itemCount", className: "text-center" }),
+                /* @__PURE__ */ jsx(SortTh, { label: "Total", sortKey: "totalCandidates", className: "text-center text-blue-600" }),
+                /* @__PURE__ */ jsx(SortTh, { label: "General", sortKey: "generalList", className: "text-center text-gray-500" }),
+                /* @__PURE__ */ jsx(SortTh, { label: "Long List", sortKey: "longListed", className: "text-center text-green-600" }),
+                /* @__PURE__ */ jsx(SortTh, { label: "Review", sortKey: "forReview", className: "text-center text-yellow-600" }),
+                /* @__PURE__ */ jsx(SortTh, { label: "DQ", sortKey: "disqualified", className: "text-center text-red-500" }),
+                /* @__PURE__ */ jsx(SortTh, { label: "Govt Present", sortKey: "govtPresent", className: "text-center text-emerald-600" }),
+                /* @__PURE__ */ jsx(SortTh, { label: "Within 2 Yrs", sortKey: "govtWithin2Yrs", className: "text-center text-amber-600" }),
+                /* @__PURE__ */ jsx(SortTh, { label: ">6 Mos", sortKey: "govtMoreThan6Mo", className: "text-center text-indigo-600" }),
+                /* @__PURE__ */ jsx(SortTh, { label: "<6 Mos", sortKey: "govtLessThan6Mo", className: "text-center text-violet-600" })
+              ] }) }),
+              /* @__PURE__ */ jsx("tbody", { children: sortedRows.map((row, idx) => {
+                const key = `${row.position}||${row.assignment}`;
+                const expanded = posStatsExpanded.has(key);
+                const sortedItems = [...row.items].sort((a2, b2) => a2.itemNumber.localeCompare(b2.itemNumber));
+                return /* @__PURE__ */ jsxs(React.Fragment, { children: [
+                  /* @__PURE__ */ jsxs(
+                    "tr",
+                    {
+                      className: `transition-colors ${expanded ? "bg-teal-50" : idx % 2 === 0 ? "bg-white" : "bg-gray-50/40"} hover:bg-teal-50 cursor-pointer`,
+                      onClick: () => setPosStatsExpanded((prev) => {
+                        const next = new Set(prev);
+                        next.has(key) ? next.delete(key) : next.add(key);
+                        return next;
+                      }),
+                      children: [
+                        /* @__PURE__ */ jsx("td", { className: "pl-3 text-gray-400", children: /* @__PURE__ */ jsx("svg", { className: `w-3.5 h-3.5 transition-transform ${expanded ? "rotate-90" : ""}`, fill: "none", stroke: "currentColor", viewBox: "0 0 24 24", children: /* @__PURE__ */ jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2.5, d: "M9 5l7 7-7 7" }) }) }),
+                        /* @__PURE__ */ jsx("td", { className: "px-3 py-3 font-semibold text-gray-800 max-w-[180px]", children: /* @__PURE__ */ jsx("div", { className: "truncate", title: row.position, children: row.position }) }),
+                        /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: /* @__PURE__ */ jsx("span", { className: "inline-flex items-center justify-center w-8 h-6 rounded bg-teal-100 text-teal-800 text-xs font-bold", children: row.salaryGrade }) }),
+                        /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-xs text-gray-500 max-w-[140px]", children: /* @__PURE__ */ jsx("div", { className: "truncate", title: row.assignment, children: row.assignment }) }),
+                        /* @__PURE__ */ jsx("td", { className: "px-3 py-3 max-w-[140px]", children: row.secretariats.length > 0 ? /* @__PURE__ */ jsx("div", { className: "flex flex-wrap gap-1", children: row.secretariats.map((s2) => /* @__PURE__ */ jsx("span", { className: "inline-flex px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-700 text-[10px] font-semibold whitespace-nowrap", children: s2 }, s2)) }) : /* @__PURE__ */ jsx("span", { className: "text-gray-300 text-xs", children: "—" }) }),
+                        /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: /* @__PURE__ */ jsx("span", { className: "inline-flex items-center justify-center w-7 h-6 rounded bg-slate-100 text-slate-700 text-xs font-bold", children: row.itemCount }) }),
+                        /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: /* @__PURE__ */ jsx("span", { className: "font-bold text-blue-700", children: row.totalCandidates }) }),
+                        /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center text-gray-500 text-xs font-semibold", children: row.generalList || /* @__PURE__ */ jsx("span", { className: "text-gray-300", children: "—" }) }),
+                        /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: /* @__PURE__ */ jsx(StatBadge, { val: row.longListed, cls: "bg-green-100 text-green-700" }) }),
+                        /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: /* @__PURE__ */ jsx(StatBadge, { val: row.forReview, cls: "bg-yellow-100 text-yellow-700" }) }),
+                        /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: /* @__PURE__ */ jsx(StatBadge, { val: row.disqualified, cls: "bg-red-100 text-red-700" }) }),
+                        /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: /* @__PURE__ */ jsx(StatBadge, { val: row.govtPresent, cls: "bg-emerald-100 text-emerald-700" }) }),
+                        /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: /* @__PURE__ */ jsx(StatBadge, { val: row.govtWithin2Yrs, cls: "bg-amber-100 text-amber-700" }) }),
+                        /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: /* @__PURE__ */ jsx(StatBadge, { val: row.govtMoreThan6Mo, cls: "bg-indigo-100 text-indigo-700" }) }),
+                        /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: /* @__PURE__ */ jsx(StatBadge, { val: row.govtLessThan6Mo, cls: "bg-violet-100 text-violet-700" }) })
+                      ]
+                    }
+                  ),
+                  expanded && sortedItems.map((item) => /* @__PURE__ */ jsxs("tr", { className: "bg-teal-50/60 border-l-4 border-teal-400", children: [
+                    /* @__PURE__ */ jsx("td", { className: "pl-6 pr-2 py-2" }),
+                    /* @__PURE__ */ jsx("td", { className: "px-3 py-2", colSpan: 1, children: /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-2", children: [
+                      /* @__PURE__ */ jsx("svg", { className: "w-3 h-3 text-teal-400 shrink-0", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24", children: /* @__PURE__ */ jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" }) }),
+                      /* @__PURE__ */ jsx("span", { className: "text-xs font-bold text-teal-800", children: item.itemNumber })
+                    ] }) }),
+                    /* @__PURE__ */ jsx("td", { className: "px-3 py-2 text-center", children: /* @__PURE__ */ jsxs("span", { className: "text-[10px] text-gray-400 font-semibold", children: [
+                      "SG ",
+                      item.salaryGrade
+                    ] }) }),
+                    /* @__PURE__ */ jsx("td", { className: "px-3 py-2 text-xs text-gray-400" }),
+                    /* @__PURE__ */ jsx("td", { className: "px-3 py-2", children: item.secretariats.length > 0 ? /* @__PURE__ */ jsx("div", { className: "flex flex-wrap gap-1", children: item.secretariats.map((s2) => /* @__PURE__ */ jsx("span", { className: "inline-flex px-1.5 py-0.5 rounded-full bg-sky-50 text-sky-600 text-[10px] font-semibold border border-sky-100 whitespace-nowrap", children: s2 }, s2)) }) : /* @__PURE__ */ jsx("span", { className: "text-gray-300 text-[10px]", children: "unassigned" }) }),
+                    /* @__PURE__ */ jsx("td", { className: "px-3 py-2 text-center text-[10px] text-gray-400", children: "1" }),
+                    /* @__PURE__ */ jsx("td", { className: "px-3 py-2 text-center", children: /* @__PURE__ */ jsx("span", { className: "font-bold text-blue-600 text-xs", children: item.totalCandidates }) }),
+                    /* @__PURE__ */ jsx("td", { className: "px-3 py-2 text-center text-[10px] text-gray-400 font-semibold", children: item.generalList || "—" }),
+                    /* @__PURE__ */ jsx("td", { className: "px-3 py-2 text-center", children: /* @__PURE__ */ jsx(StatBadge, { val: item.longListed, cls: "bg-green-100 text-green-700" }) }),
+                    /* @__PURE__ */ jsx("td", { className: "px-3 py-2 text-center", children: /* @__PURE__ */ jsx(StatBadge, { val: item.forReview, cls: "bg-yellow-100 text-yellow-700" }) }),
+                    /* @__PURE__ */ jsx("td", { className: "px-3 py-2 text-center", children: /* @__PURE__ */ jsx(StatBadge, { val: item.disqualified, cls: "bg-red-100 text-red-700" }) }),
+                    /* @__PURE__ */ jsx("td", { className: "px-3 py-2 text-center", children: /* @__PURE__ */ jsx(StatBadge, { val: item.govtPresent, cls: "bg-emerald-100 text-emerald-700" }) }),
+                    /* @__PURE__ */ jsx("td", { className: "px-3 py-2 text-center", children: /* @__PURE__ */ jsx(StatBadge, { val: item.govtWithin2Yrs, cls: "bg-amber-100 text-amber-700" }) }),
+                    /* @__PURE__ */ jsx("td", { className: "px-3 py-2 text-center", children: /* @__PURE__ */ jsx(StatBadge, { val: item.govtMoreThan6Mo, cls: "bg-indigo-100 text-indigo-700" }) }),
+                    /* @__PURE__ */ jsx("td", { className: "px-3 py-2 text-center", children: /* @__PURE__ */ jsx(StatBadge, { val: item.govtLessThan6Mo, cls: "bg-violet-100 text-violet-700" }) })
+                  ] }, item.itemNumber))
+                ] }, key);
+              }) }),
+              /* @__PURE__ */ jsx("tfoot", { className: "bg-teal-50 border-t-2 border-teal-300 sticky bottom-0 shadow-[0_-2px_4px_rgba(0,0,0,0.06)]", children: /* @__PURE__ */ jsxs("tr", { children: [
+                /* @__PURE__ */ jsx("td", {}),
+                /* @__PURE__ */ jsxs("td", { className: "px-3 py-3 font-bold text-teal-800 text-xs uppercase tracking-wide", colSpan: 3, children: [
+                  "Totals — ",
+                  sortedRows.length,
+                  " position",
+                  sortedRows.length !== 1 ? "s" : ""
+                ] }),
+                /* @__PURE__ */ jsx("td", { className: "px-3 py-3" }),
+                /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-slate-700", children: totals.itemCount }),
+                /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-blue-700", children: totals.totalCandidates }),
+                /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-gray-600", children: totals.generalList }),
+                /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-green-700", children: totals.longListed }),
+                /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-yellow-700", children: totals.forReview }),
+                /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-red-700", children: totals.disqualified }),
+                /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-emerald-700", children: totals.govtPresent }),
+                /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-amber-700", children: totals.govtWithin2Yrs }),
+                /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-indigo-700", children: totals.govtMoreThan6Mo }),
+                /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-violet-700", children: totals.govtLessThan6Mo })
+              ] }) })
+            ] }) }),
+            /* @__PURE__ */ jsxs("div", { className: "px-6 py-3 border-t border-gray-100 flex justify-between items-center shrink-0", children: [
+              /* @__PURE__ */ jsxs("p", { className: "text-xs text-gray-400", children: [
+                "Data fetched system-wide — independent of main table filters. Click a row to expand per-item breakdown.",
+                posStatsLoading && /* @__PURE__ */ jsx("span", { className: "ml-2 text-teal-500 font-semibold animate-pulse", children: "Refreshing…" })
+              ] }),
+              /* @__PURE__ */ jsx(
+                "button",
+                {
+                  onClick: () => setShowPositionStats(false),
+                  className: "px-5 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold transition-colors",
+                  children: "Close"
+                }
+              )
+            ] })
+          ] })
+        }
+      );
     })(),
     showCBSManual && /* @__PURE__ */ jsx(
       CompetencyDetailModal,
@@ -31631,4 +31883,4 @@ client.createRoot(document.getElementById("root")).render(
 export {
   _typeof as _
 };
-//# sourceMappingURL=index-fa9575d5.js.map
+//# sourceMappingURL=index-b58eac66.js.map
