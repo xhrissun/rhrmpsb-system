@@ -16821,7 +16821,7 @@ function(t2) {
  */
 function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-4d50c48f.js"), true ? ["assets/index.es-4d50c48f.js","assets/vendor-05345498.js","assets/pdfjs-3a644b6e.js"] : void 0)).catch(function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-0c011e32.js"), true ? ["assets/index.es-0c011e32.js","assets/vendor-05345498.js","assets/pdfjs-3a644b6e.js"] : void 0)).catch(function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     }).then(function(t3) {
       return t3.default ? t3.default : t3;
@@ -20579,6 +20579,11 @@ const SecretariatView = ({ user }) => {
   const [showCommentHistoryModal, setShowCommentHistoryModal] = reactExports.useState(false);
   const [commentHistoryData, setCommentHistoryData] = reactExports.useState(null);
   const [genderFilter, setGenderFilter] = reactExports.useState(null);
+  const [govtEmpFilter, setGovtEmpFilter] = reactExports.useState(null);
+  const [showPositionStats, setShowPositionStats] = reactExports.useState(false);
+  reactExports.useState("");
+  const [posStatsAssignment, setPosStatsAssignment] = reactExports.useState("");
+  const [posStatsSalaryGrade, setPosStatsSalaryGrade] = reactExports.useState("");
   const [isFiltersExpanded, setIsFiltersExpanded] = reactExports.useState(true);
   const [publicationRanges, setPublicationRanges] = reactExports.useState([]);
   const [selectedPublicationRange, setSelectedPublicationRange] = usePersistedState(
@@ -20710,8 +20715,27 @@ const SecretariatView = ({ user }) => {
         filtered = filtered.filter((c2) => c2.gender === "LGBTQI+");
       }
     }
+    if (govtEmpFilter) {
+      filtered = filtered.filter((c2) => {
+        const ge2 = c2.governmentEmployment;
+        const hasData = ge2 && (ge2.agency || ge2.position || ge2.status);
+        if (govtEmpFilter === "has_data")
+          return hasData;
+        if (govtEmpFilter === "no_data")
+          return !hasData;
+        if (govtEmpFilter === "present")
+          return hasData && ge2.employmentPeriod === "present";
+        if (govtEmpFilter === "within_2_years")
+          return hasData && ge2.employmentPeriod === "within_2_years";
+        if (govtEmpFilter === "more_than_6_months")
+          return hasData && ge2.preAssessmentExam === "more_than_6_months";
+        if (govtEmpFilter === "less_than_6_months")
+          return hasData && ge2.preAssessmentExam === "less_than_6_months";
+        return true;
+      });
+    }
     return filtered;
-  }, [candidates, statusFilter, genderFilter]);
+  }, [candidates, statusFilter, genderFilter, govtEmpFilter]);
   const loadCandidateDetails = reactExports.useCallback(async (candidateId) => {
     try {
       const candidate = await candidatesAPI.getById(candidateId);
@@ -21458,6 +21482,19 @@ const SecretariatView = ({ user }) => {
         /* @__PURE__ */ jsxs(
           "button",
           {
+            onClick: () => setShowPositionStats(true),
+            "aria-label": "Position Statistics",
+            className: "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-all hover:opacity-90 active:scale-95",
+            style: { background: "linear-gradient(135deg,#0f766e,#14b8a6)" },
+            children: [
+              /* @__PURE__ */ jsx("svg", { className: "w-3.5 h-3.5", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24", children: /* @__PURE__ */ jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" }) }),
+              "Position Stats"
+            ]
+          }
+        ),
+        /* @__PURE__ */ jsxs(
+          "button",
+          {
             onClick: () => setShowCBSManual(true),
             "aria-label": "CBS Manual",
             className: "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-all hover:opacity-90 active:scale-95",
@@ -21654,6 +21691,27 @@ const SecretariatView = ({ user }) => {
                   children: label
                 },
                 label
+              )),
+              /* @__PURE__ */ jsx("div", { className: "w-px h-8 bg-gray-200 shrink-0" }),
+              /* @__PURE__ */ jsx("span", { className: "text-xs font-bold text-gray-600 whitespace-nowrap", children: "Govt Emp:" }),
+              [
+                { label: "All", value: null, active: "bg-gradient-to-r from-gray-600 to-slate-600 text-white shadow-md" },
+                { label: "Present", value: "present", active: "bg-gradient-to-r from-emerald-600 to-green-600 text-white shadow-md" },
+                { label: "Within 2 Yrs", value: "within_2_years", active: "bg-gradient-to-r from-amber-500 to-yellow-500 text-white shadow-md" },
+                { label: ">6 Months", value: "more_than_6_months", active: "bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md" },
+                { label: "<6 Months", value: "less_than_6_months", active: "bg-gradient-to-r from-violet-600 to-purple-600 text-white shadow-md" },
+                { label: "Has Data", value: "has_data", active: "bg-gradient-to-r from-teal-600 to-cyan-600 text-white shadow-md" },
+                { label: "No Data", value: "no_data", active: "bg-gradient-to-r from-red-500 to-rose-500 text-white shadow-md" }
+              ].map(({ label, value, active }) => /* @__PURE__ */ jsx(
+                "button",
+                {
+                  onClick: () => setGovtEmpFilter(value),
+                  "aria-pressed": govtEmpFilter === value,
+                  "aria-label": `Filter by govt employment: ${label}`,
+                  className: `px-3 py-1.5 rounded-lg font-medium text-xs transition-all ${govtEmpFilter === value ? active : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`,
+                  children: label
+                },
+                label
               ))
             ] })
           ] })
@@ -21711,7 +21769,23 @@ const SecretariatView = ({ user }) => {
               children: label
             },
             label
-          )) })
+          )) }),
+          govtEmpFilter && /* @__PURE__ */ jsxs(Fragment, { children: [
+            /* @__PURE__ */ jsx("div", { className: "w-px h-5 bg-gray-200 shrink-0" }),
+            /* @__PURE__ */ jsxs(
+              "button",
+              {
+                onClick: () => setGovtEmpFilter(null),
+                className: "flex items-center gap-1 px-2 py-1 rounded text-xs font-bold bg-teal-100 text-teal-700 hover:bg-teal-200 transition-all",
+                title: "Clear govt employment filter",
+                children: [
+                  "🏛️ ",
+                  govtEmpFilter.replace(/_/g, " "),
+                  " ×"
+                ]
+              }
+            )
+          ] })
         ] })
       ] }),
       /* @__PURE__ */ jsxs("div", { className: "bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden", children: [
@@ -21725,6 +21799,7 @@ const SecretariatView = ({ user }) => {
               filteredCandidates.length !== 1 ? "s" : "",
               statusFilter && ` (${getStatusLabel(statusFilter)})`,
               genderFilter && ` (${genderFilter})`,
+              govtEmpFilter && ` (Govt: ${govtEmpFilter.replace(/_/g, " ")})`,
               currentPublicationRange && ` from ${currentPublicationRange.name}`
             ] })
           ] }),
@@ -21774,6 +21849,24 @@ const SecretariatView = ({ user }) => {
                           ]
                         }
                       ),
+                      (() => {
+                        const ge2 = candidate.governmentEmployment;
+                        const hasData = ge2 && (ge2.agency || ge2.position || ge2.status);
+                        if (!hasData || !ge2.preAssessmentExam)
+                          return null;
+                        const isMore = ge2.preAssessmentExam === "more_than_6_months";
+                        return /* @__PURE__ */ jsxs(
+                          "span",
+                          {
+                            title: isMore ? "Pre-assessment: More than 6 months in govt service" : "Pre-assessment: Less than 6 months in govt service",
+                            className: `shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${isMore ? "bg-indigo-100 text-indigo-700 border border-indigo-200" : "bg-violet-100 text-violet-700 border border-violet-200"}`,
+                            children: [
+                              /* @__PURE__ */ jsx("svg", { className: "w-2.5 h-2.5 shrink-0", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24", children: /* @__PURE__ */ jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" }) }),
+                              isMore ? ">6 mos" : "<6 mos"
+                            ]
+                          }
+                        );
+                      })(),
                       (() => {
                         const ge2 = candidate.governmentEmployment;
                         const isGovtEmp = ge2 && (ge2.agency || ge2.position || ge2.status);
@@ -21895,116 +21988,118 @@ const SecretariatView = ({ user }) => {
     showViewCommentsModal && viewCandidateData && (() => {
       const { candidate, vacancy } = viewCandidateData;
       const comments2 = candidate.comments || {};
-      let headerStyle = "";
       let displayStatus = getStatusLabel(candidate.status);
-      if (candidate.status === CANDIDATE_STATUS.FOR_REVIEW) {
-        headerStyle = "bg-amber-500 text-gray-900";
-      } else if (candidate.status === CANDIDATE_STATUS.DISQUALIFIED) {
-        headerStyle = "bg-red-500 text-white";
-      } else if (candidate.status === CANDIDATE_STATUS.LONG_LIST) {
-        headerStyle = "bg-green-500 text-white";
-      } else {
-        headerStyle = "bg-gray-500 text-white";
-      }
-      return /* @__PURE__ */ jsx("div", { className: "fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50", role: "dialog", "aria-modal": "true", "aria-labelledby": "view-comments-title", children: /* @__PURE__ */ jsxs("div", { className: "relative top-8 mx-auto border w-11/12 max-w-6xl shadow-lg rounded-lg bg-white", children: [
-        /* @__PURE__ */ jsxs("div", { className: `${headerStyle} px-6 py-4 rounded-t-lg text-center`, children: [
-          /* @__PURE__ */ jsx("h2", { id: "view-comments-title", className: "text-2xl font-bold", children: candidate.fullName }),
-          /* @__PURE__ */ jsx("p", { className: "text-base font-medium mt-1 uppercase tracking-wide", children: displayStatus }),
-          candidate.isArchived && /* @__PURE__ */ jsx("p", { className: "text-sm mt-1 bg-orange-200 text-orange-900 px-3 py-1 rounded inline-block", children: "ARCHIVED" })
-        ] }),
-        /* @__PURE__ */ jsxs("div", { className: "p-5", children: [
-          /* @__PURE__ */ jsxs("div", { className: "grid grid-cols-1 lg:grid-cols-3 gap-4 mb-5", children: [
-            /* @__PURE__ */ jsxs("div", { className: "bg-gray-50 p-3 rounded", children: [
-              /* @__PURE__ */ jsx("h4", { className: "text-sm font-medium text-gray-700 mb-2", children: "Candidate Info" }),
-              /* @__PURE__ */ jsxs("div", { className: "text-xs space-y-1", children: [
-                /* @__PURE__ */ jsxs("p", { children: [
-                  /* @__PURE__ */ jsx("span", { className: "font-medium", children: "Gender:" }),
-                  " ",
-                  candidate.gender
-                ] }),
-                /* @__PURE__ */ jsxs("p", { children: [
-                  /* @__PURE__ */ jsx("span", { className: "font-medium", children: "Age:" }),
-                  " ",
-                  candidate.age || "N/A"
-                ] }),
-                /* @__PURE__ */ jsxs("p", { children: [
-                  /* @__PURE__ */ jsx("span", { className: "font-medium", children: "Item Number:" }),
-                  " ",
+      if (candidate.status === CANDIDATE_STATUS.FOR_REVIEW)
+        ;
+      else if (candidate.status === CANDIDATE_STATUS.DISQUALIFIED)
+        ;
+      else if (candidate.status === CANDIDATE_STATUS.LONG_LIST)
+        ;
+      else
+        ;
+      const statusAccent = candidate.status === CANDIDATE_STATUS.LONG_LIST ? { ring: "ring-green-500", dot: "bg-green-500", badge: "bg-green-100 text-green-800", label: "text-green-700" } : candidate.status === CANDIDATE_STATUS.FOR_REVIEW ? { ring: "ring-amber-400", dot: "bg-amber-400", badge: "bg-amber-100 text-amber-800", label: "text-amber-700" } : candidate.status === CANDIDATE_STATUS.DISQUALIFIED ? { ring: "ring-red-500", dot: "bg-red-500", badge: "bg-red-100 text-red-800", label: "text-red-700" } : { ring: "ring-gray-400", dot: "bg-gray-400", badge: "bg-gray-100 text-gray-700", label: "text-gray-600" };
+      const COMMENT_FIELDS = [
+        { key: "education", label: "Education", icon: "M12 14l9-5-9-5-9 5 9 5z M12 14l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14z" },
+        { key: "training", label: "Training", icon: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" },
+        { key: "experience", label: "Experience", icon: "M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" },
+        { key: "eligibility", label: "Eligibility", icon: "M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" }
+      ];
+      const DOCS = [
+        { key: "letterOfIntent", label: "Letter of Intent", abbr: "LOI", color: "bg-blue-50 text-blue-700 border-blue-200" },
+        { key: "personalDataSheet", label: "Personal Data Sheet", abbr: "PDS", color: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+        { key: "workExperienceSheet", label: "Work Experience Sheet", abbr: "WES", color: "bg-violet-50 text-violet-700 border-violet-200" },
+        { key: "proofOfEligibility", label: "Proof of Eligibility", abbr: "POE", color: "bg-yellow-50 text-yellow-700 border-yellow-200" },
+        { key: "professionalLicense", label: "Professional License", abbr: "LIC", color: "bg-teal-50 text-teal-700 border-teal-200" },
+        { key: "certificates", label: "Certificates", abbr: "CERT", color: "bg-indigo-50 text-indigo-700 border-indigo-200" },
+        { key: "certificateOfEmployment", label: "Certificate of Employment", abbr: "COE", color: "bg-cyan-50 text-cyan-700 border-cyan-200" },
+        { key: "diploma", label: "Diploma", abbr: "DIP", color: "bg-pink-50 text-pink-700 border-pink-200" },
+        { key: "transcriptOfRecords", label: "Transcript of Records", abbr: "TOR", color: "bg-rose-50 text-rose-700 border-rose-200" },
+        { key: "ipcr", label: "IPCR", abbr: "IPCR", color: "bg-orange-50 text-orange-700 border-orange-200" }
+      ];
+      return /* @__PURE__ */ jsx("div", { className: "fixed inset-0 bg-black bg-opacity-40 backdrop-blur-sm flex items-center justify-center z-50 p-4", role: "dialog", "aria-modal": "true", "aria-labelledby": "view-comments-title", children: /* @__PURE__ */ jsxs("div", { className: "bg-white rounded-2xl shadow-2xl w-full max-w-4xl flex flex-col max-h-[92vh]", children: [
+        /* @__PURE__ */ jsx("div", { className: "px-6 pt-6 pb-4 border-b border-gray-100 shrink-0", children: /* @__PURE__ */ jsxs("div", { className: "flex items-start justify-between gap-4", children: [
+          /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-3 min-w-0", children: [
+            /* @__PURE__ */ jsx("span", { className: `w-3 h-3 rounded-full shrink-0 mt-1 ${statusAccent.dot}` }),
+            /* @__PURE__ */ jsxs("div", { className: "min-w-0", children: [
+              /* @__PURE__ */ jsx("h2", { id: "view-comments-title", className: "text-xl font-bold text-gray-900 leading-tight truncate", children: candidate.fullName }),
+              /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-2 mt-1 flex-wrap", children: [
+                /* @__PURE__ */ jsx("span", { className: `text-xs font-semibold px-2.5 py-0.5 rounded-full ${statusAccent.badge}`, children: displayStatus }),
+                candidate.isArchived && /* @__PURE__ */ jsx("span", { className: "text-xs font-semibold px-2.5 py-0.5 rounded-full bg-orange-100 text-orange-700", children: "Archived" }),
+                vacancy && /* @__PURE__ */ jsxs("span", { className: "text-xs text-gray-500", children: [
+                  vacancy.position,
+                  " · SG ",
+                  vacancy.salaryGrade,
+                  " · ",
                   candidate.itemNumber
                 ] })
               ] })
-            ] }),
-            vacancy && /* @__PURE__ */ jsxs("div", { className: "bg-blue-50 p-3 rounded", children: [
-              /* @__PURE__ */ jsx("h4", { className: "text-sm font-medium text-gray-700 mb-2", children: "Position Info" }),
-              /* @__PURE__ */ jsxs("div", { className: "text-xs space-y-1", children: [
-                /* @__PURE__ */ jsxs("p", { children: [
-                  /* @__PURE__ */ jsx("span", { className: "font-medium", children: "Position:" }),
-                  " ",
-                  vacancy.position
-                ] }),
-                /* @__PURE__ */ jsxs("p", { children: [
-                  /* @__PURE__ */ jsx("span", { className: "font-medium", children: "Assignment:" }),
-                  " ",
-                  vacancy.assignment
-                ] }),
-                /* @__PURE__ */ jsxs("p", { children: [
-                  /* @__PURE__ */ jsx("span", { className: "font-medium", children: "Salary Grade:" }),
-                  " SG ",
-                  vacancy.salaryGrade
-                ] })
-              ] })
-            ] }),
-            /* @__PURE__ */ jsxs("div", { className: "bg-green-50 p-3 rounded", children: [
-              /* @__PURE__ */ jsx("h4", { className: "text-sm font-medium text-gray-700 mb-2", children: "Documents" }),
-              /* @__PURE__ */ jsx("div", { className: "grid grid-cols-2 gap-1", children: [
-                { key: "letterOfIntent", label: "LOI", color: "bg-blue-100 text-blue-800" },
-                { key: "personalDataSheet", label: "PDS", color: "bg-green-100 text-green-800" },
-                { key: "workExperienceSheet", label: "WES", color: "bg-purple-100 text-purple-800" },
-                { key: "proofOfEligibility", label: "POE", color: "bg-yellow-100 text-yellow-800" },
-                { key: "professionalLicense", label: "P. License", color: "bg-teal-100 text-teal-800" },
-                { key: "certificates", label: "Certs", color: "bg-indigo-100 text-indigo-800" },
-                { key: "certificateOfEmployment", label: "COE", color: "bg-cyan-100 text-cyan-800" },
-                { key: "diploma", label: "Diploma", color: "bg-pink-100 text-pink-800" },
-                { key: "transcriptOfRecords", label: "TOR", color: "bg-red-100 text-red-800" },
-                { key: "ipcr", label: "IPCR", color: "bg-orange-100 text-orange-800" }
-              ].map((doc) => /* @__PURE__ */ jsx(
-                "button",
-                {
-                  onClick: () => candidate[doc.key] && openDocumentLink(candidate[doc.key]),
-                  "aria-label": `Open ${doc.label} document`,
-                  className: `inline-flex items-center justify-center px-2 py-1 rounded text-xs font-medium ${doc.color} ${candidate[doc.key] ? "hover:opacity-75 transition-opacity cursor-pointer" : "opacity-50 cursor-not-allowed"}`,
-                  disabled: !candidate[doc.key],
-                  children: doc.label
-                },
-                doc.key
-              )) })
             ] })
           ] }),
-          /* @__PURE__ */ jsxs("div", { className: "grid grid-cols-1 lg:grid-cols-2 gap-5", children: [
+          /* @__PURE__ */ jsx(
+            "button",
+            {
+              onClick: closeViewCommentsModal,
+              "aria-label": "Close comments modal",
+              className: "shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors",
+              children: /* @__PURE__ */ jsx("svg", { className: "w-4 h-4", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24", children: /* @__PURE__ */ jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M6 18L18 6M6 6l12 12" }) })
+            }
+          )
+        ] }) }),
+        /* @__PURE__ */ jsxs("div", { className: "flex-1 overflow-y-auto", children: [
+          /* @__PURE__ */ jsxs("div", { className: "px-6 py-4 bg-gray-50 border-b border-gray-100 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm", children: [
             /* @__PURE__ */ jsxs("div", { children: [
-              /* @__PURE__ */ jsx("h3", { className: "text-base font-semibold text-gray-700 uppercase tracking-wide border-b border-gray-200 pb-1 mb-3", children: "Education" }),
-              /* @__PURE__ */ jsx("p", { className: "text-gray-800 text-base leading-relaxed", children: comments2.education || "No comment provided." })
+              /* @__PURE__ */ jsx("p", { className: "text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5", children: "Gender" }),
+              /* @__PURE__ */ jsx("p", { className: "font-semibold text-gray-800", children: candidate.gender || "—" })
             ] }),
             /* @__PURE__ */ jsxs("div", { children: [
-              /* @__PURE__ */ jsx("h3", { className: "text-base font-semibold text-gray-700 uppercase tracking-wide border-b border-gray-200 pb-1 mb-3", children: "Training" }),
-              /* @__PURE__ */ jsx("p", { className: "text-gray-800 text-base leading-relaxed", children: comments2.training || "No comment provided." })
+              /* @__PURE__ */ jsx("p", { className: "text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5", children: "Age" }),
+              /* @__PURE__ */ jsx("p", { className: "font-semibold text-gray-800", children: candidate.age || "—" })
+            ] }),
+            vacancy && /* @__PURE__ */ jsxs("div", { children: [
+              /* @__PURE__ */ jsx("p", { className: "text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5", children: "Assignment" }),
+              /* @__PURE__ */ jsx("p", { className: "font-semibold text-gray-800 truncate", children: vacancy.assignment })
             ] }),
             /* @__PURE__ */ jsxs("div", { children: [
-              /* @__PURE__ */ jsx("h3", { className: "text-base font-semibold text-gray-700 uppercase tracking-wide border-b border-gray-200 pb-1 mb-3", children: "Experience" }),
-              /* @__PURE__ */ jsx("p", { className: "text-gray-800 text-base leading-relaxed", children: comments2.experience || "No comment provided." })
-            ] }),
-            /* @__PURE__ */ jsxs("div", { children: [
-              /* @__PURE__ */ jsx("h3", { className: "text-base font-semibold text-gray-700 uppercase tracking-wide border-b border-gray-200 pb-1 mb-3", children: "Eligibility" }),
-              /* @__PURE__ */ jsx("p", { className: "text-gray-800 text-base leading-relaxed", children: comments2.eligibility || "No comment provided." })
+              /* @__PURE__ */ jsx("p", { className: "text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5", children: "Eligibility" }),
+              /* @__PURE__ */ jsx("p", { className: "font-semibold text-gray-800 truncate", children: candidate.eligibility || "—" })
             ] })
-          ] })
+          ] }),
+          /* @__PURE__ */ jsxs("div", { className: "px-6 py-4 border-b border-gray-100", children: [
+            /* @__PURE__ */ jsx("p", { className: "text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2", children: "Documents" }),
+            /* @__PURE__ */ jsx("div", { className: "flex flex-wrap gap-1.5", children: DOCS.map((doc) => /* @__PURE__ */ jsxs(
+              "button",
+              {
+                onClick: () => candidate[doc.key] && openDocumentLink(candidate[doc.key]),
+                "aria-label": `Open ${doc.label}`,
+                disabled: !candidate[doc.key],
+                title: doc.label,
+                className: `inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-semibold transition-all
+                          ${candidate[doc.key] ? `${doc.color} hover:shadow-sm hover:scale-105 cursor-pointer` : "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed"}`,
+                children: [
+                  candidate[doc.key] && /* @__PURE__ */ jsx("svg", { className: "w-3 h-3", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24", children: /* @__PURE__ */ jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" }) }),
+                  doc.abbr
+                ]
+              },
+              doc.key
+            )) })
+          ] }),
+          /* @__PURE__ */ jsx("div", { className: "px-6 py-5 grid grid-cols-1 md:grid-cols-2 gap-4", children: COMMENT_FIELDS.map((field) => {
+            const hasContent = !!comments2[field.key];
+            return /* @__PURE__ */ jsxs("div", { className: `rounded-xl border p-4 ${hasContent ? "bg-white border-gray-200" : "bg-gray-50 border-gray-100"}`, children: [
+              /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-2 mb-2", children: [
+                /* @__PURE__ */ jsx("div", { className: `w-6 h-6 rounded-md flex items-center justify-center ${hasContent ? "bg-indigo-100" : "bg-gray-100"}`, children: /* @__PURE__ */ jsx("svg", { className: `w-3.5 h-3.5 ${hasContent ? "text-indigo-600" : "text-gray-400"}`, fill: "none", stroke: "currentColor", viewBox: "0 0 24 24", children: /* @__PURE__ */ jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: field.icon }) }) }),
+                /* @__PURE__ */ jsx("span", { className: `text-xs font-bold uppercase tracking-wide ${hasContent ? "text-gray-700" : "text-gray-400"}`, children: field.label })
+              ] }),
+              hasContent ? /* @__PURE__ */ jsx("p", { className: "text-sm text-gray-800 leading-relaxed", children: comments2[field.key] }) : /* @__PURE__ */ jsx("p", { className: "text-xs text-gray-400 italic", children: "No comment provided." })
+            ] }, field.key);
+          }) })
         ] }),
-        /* @__PURE__ */ jsx("div", { className: "px-5 py-4 border-t bg-gray-50 rounded-b-lg", children: /* @__PURE__ */ jsx(
+        /* @__PURE__ */ jsx("div", { className: "px-6 py-4 border-t border-gray-100 flex justify-end shrink-0", children: /* @__PURE__ */ jsx(
           "button",
           {
             onClick: closeViewCommentsModal,
             "aria-label": "Close comments modal",
-            className: "bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded text-sm transition-colors duration-200",
+            className: "px-5 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold transition-colors",
             children: "Close"
           }
         ) })
@@ -22105,105 +22200,78 @@ const SecretariatView = ({ user }) => {
       ) })
     ] }) }),
     showCommentModal && candidateDetails && /* @__PURE__ */ jsx("div", { className: "fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50 p-4", role: "dialog", "aria-modal": "true", "aria-labelledby": "update-status-title", children: /* @__PURE__ */ jsxs("div", { className: "bg-white rounded-xl shadow-2xl w-full max-w-5xl flex flex-col max-h-[92vh]", children: [
-      /* @__PURE__ */ jsxs("div", { className: "flex justify-between items-center px-6 py-4 border-b border-gray-100 shrink-0", children: [
-        /* @__PURE__ */ jsxs("h2", { id: "update-status-title", className: "text-xl font-bold text-gray-900", children: [
-          "Update Status: ",
-          candidateDetails.fullName,
-          candidateDetails.isArchived && /* @__PURE__ */ jsx("span", { className: "ml-3 px-3 py-1 bg-orange-100 text-orange-800 text-sm font-bold rounded", children: "ARCHIVED" })
+      /* @__PURE__ */ jsxs("div", { className: "px-6 py-4 border-b border-gray-100 shrink-0 flex items-center justify-between gap-4", children: [
+        /* @__PURE__ */ jsxs("div", { className: "min-w-0", children: [
+          /* @__PURE__ */ jsx("p", { className: "text-xs font-semibold text-indigo-500 uppercase tracking-wide mb-0.5", children: "Update Status" }),
+          /* @__PURE__ */ jsx("h2", { id: "update-status-title", className: "text-lg font-bold text-gray-900 leading-tight truncate", children: candidateDetails.fullName }),
+          candidateDetails.isArchived && /* @__PURE__ */ jsx("span", { className: "mt-1 inline-block text-xs font-semibold px-2.5 py-0.5 rounded-full bg-orange-100 text-orange-700", children: "Archived" })
         ] }),
         /* @__PURE__ */ jsx(
           "button",
           {
             onClick: closeCommentModal,
             "aria-label": "Close update status modal",
-            className: "text-gray-500 hover:text-gray-700 text-xl font-bold",
-            children: "×"
+            className: "shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors",
+            children: /* @__PURE__ */ jsx("svg", { className: "w-4 h-4", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24", children: /* @__PURE__ */ jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M6 18L18 6M6 6l12 12" }) })
           }
         )
       ] }),
-      candidateDetails.isArchived && /* @__PURE__ */ jsx("div", { className: "mx-6 mt-4 bg-orange-100 border-l-4 border-orange-500 p-3 rounded shrink-0", children: /* @__PURE__ */ jsxs("p", { className: "text-sm text-orange-800", children: [
-        /* @__PURE__ */ jsx("strong", { children: "Note:" }),
-        " This candidate is archived. Updates can still be made for historical record purposes."
-      ] }) }),
+      candidateDetails.isArchived && /* @__PURE__ */ jsxs("div", { className: "mx-6 mt-4 flex items-start gap-2 bg-orange-50 border border-orange-200 p-3 rounded-lg shrink-0", children: [
+        /* @__PURE__ */ jsx("svg", { className: "w-4 h-4 text-orange-500 shrink-0 mt-0.5", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24", children: /* @__PURE__ */ jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-1.963-1.333-2.732 0L3.732 16c-.77 1.333.192 3 1.732 3z" }) }),
+        /* @__PURE__ */ jsxs("p", { className: "text-xs text-orange-700", children: [
+          /* @__PURE__ */ jsx("strong", { children: "Archived record." }),
+          " Updates can still be made for historical purposes."
+        ] })
+      ] }),
       /* @__PURE__ */ jsxs("div", { className: "flex-1 overflow-y-auto px-6 py-4 space-y-4", children: [
-        /* @__PURE__ */ jsxs("div", { className: "grid grid-cols-1 md:grid-cols-2 gap-6 mb-6", children: [
-          /* @__PURE__ */ jsxs("div", { className: "bg-gray-50 p-4 rounded-lg", children: [
-            /* @__PURE__ */ jsx("h3", { className: "font-semibold text-gray-900 mb-2", children: "Candidate Information" }),
-            /* @__PURE__ */ jsxs("div", { className: "space-y-1 text-sm", children: [
-              /* @__PURE__ */ jsxs("p", { children: [
-                /* @__PURE__ */ jsx("span", { className: "font-medium", children: "Name:" }),
-                " ",
-                candidateDetails.fullName
-              ] }),
-              /* @__PURE__ */ jsxs("p", { children: [
-                /* @__PURE__ */ jsx("span", { className: "font-medium", children: "Gender:" }),
-                " ",
-                candidateDetails.gender
-              ] }),
-              /* @__PURE__ */ jsxs("p", { children: [
-                /* @__PURE__ */ jsx("span", { className: "font-medium", children: "Age:" }),
-                " ",
-                candidateDetails.age || "N/A"
-              ] }),
-              /* @__PURE__ */ jsxs("p", { children: [
-                /* @__PURE__ */ jsx("span", { className: "font-medium", children: "Eligibility:" }),
-                " ",
-                candidateDetails.eligibility || "N/A"
-              ] })
-            ] }),
-            /* @__PURE__ */ jsxs("div", { className: "mt-4", children: [
-              /* @__PURE__ */ jsx("h4", { className: "text-sm font-medium text-gray-700 mb-2", children: "Documents" }),
-              /* @__PURE__ */ jsx("div", { className: "flex flex-wrap gap-2", children: [
-                { key: "letterOfIntent", label: "Letter of Intent", color: "bg-blue-100 text-blue-800" },
-                { key: "personalDataSheet", label: "Personal Data Sheet", color: "bg-green-100 text-green-800" },
-                { key: "workExperienceSheet", label: "Work Experience Sheet", color: "bg-purple-100 text-purple-800" },
-                { key: "proofOfEligibility", label: "Proof of Eligibility", color: "bg-yellow-100 text-yellow-800" },
-                { key: "professionalLicense", label: "Professional License", color: "bg-teal-100 text-teal-800" },
-                { key: "certificates", label: "Certificates", color: "bg-indigo-100 text-indigo-800" },
-                { key: "certificateOfEmployment", label: "Certificate of Employment", color: "bg-cyan-100 text-cyan-800" },
-                { key: "diploma", label: "Diploma", color: "bg-pink-100 text-pink-800" },
-                { key: "transcriptOfRecords", label: "Transcript of Records", color: "bg-red-100 text-red-800" },
-                { key: "ipcr", label: "IPCR", color: "bg-orange-100 text-orange-800" }
-              ].map((doc) => /* @__PURE__ */ jsxs(
-                "button",
-                {
-                  onClick: () => candidateDetails[doc.key] && openDocumentLink(candidateDetails[doc.key]),
-                  "aria-label": `Open ${doc.label} document`,
-                  className: `inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${doc.color} ${candidateDetails[doc.key] ? "hover:opacity-75 transition-opacity cursor-pointer" : "opacity-50 cursor-not-allowed"}`,
-                  disabled: !candidateDetails[doc.key],
-                  children: [
-                    /* @__PURE__ */ jsx("svg", { className: "w-3 h-3 mr-1", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24", children: /* @__PURE__ */ jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" }) }),
-                    doc.label
-                  ]
-                },
-                doc.key
-              )) })
+        /* @__PURE__ */ jsx("div", { className: "grid grid-cols-2 md:grid-cols-4 gap-3", children: [
+          { label: "Gender", value: candidateDetails.gender },
+          { label: "Age", value: candidateDetails.age || "—" },
+          { label: "Eligibility", value: candidateDetails.eligibility || "—" },
+          { label: "Item No.", value: (vacancyDetails == null ? void 0 : vacancyDetails.itemNumber) || "—" }
+        ].map((item) => /* @__PURE__ */ jsxs("div", { className: "bg-gray-50 rounded-lg px-3 py-2.5", children: [
+          /* @__PURE__ */ jsx("p", { className: "text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5", children: item.label }),
+          /* @__PURE__ */ jsx("p", { className: "text-sm font-semibold text-gray-800 truncate", children: item.value })
+        ] }, item.label)) }),
+        /* @__PURE__ */ jsxs("div", { className: "grid grid-cols-1 md:grid-cols-2 gap-3", children: [
+          vacancyDetails && /* @__PURE__ */ jsxs("div", { className: "bg-indigo-50 rounded-lg px-4 py-3 border border-indigo-100", children: [
+            /* @__PURE__ */ jsx("p", { className: "text-[10px] font-semibold text-indigo-400 uppercase tracking-wide mb-1.5", children: "Position" }),
+            /* @__PURE__ */ jsx("p", { className: "text-sm font-bold text-indigo-900", children: vacancyDetails.position }),
+            /* @__PURE__ */ jsxs("p", { className: "text-xs text-indigo-600 mt-0.5", children: [
+              vacancyDetails.assignment,
+              " · SG ",
+              vacancyDetails.salaryGrade
             ] })
           ] }),
-          vacancyDetails && /* @__PURE__ */ jsxs("div", { className: "bg-blue-50 p-4 rounded-lg", children: [
-            /* @__PURE__ */ jsx("h3", { className: "font-semibold text-gray-900 mb-2", children: "Position Information" }),
-            /* @__PURE__ */ jsxs("div", { className: "space-y-1 text-sm", children: [
-              /* @__PURE__ */ jsxs("p", { children: [
-                /* @__PURE__ */ jsx("span", { className: "font-medium", children: "Position:" }),
-                " ",
-                vacancyDetails.position
-              ] }),
-              /* @__PURE__ */ jsxs("p", { children: [
-                /* @__PURE__ */ jsx("span", { className: "font-medium", children: "Assignment:" }),
-                " ",
-                vacancyDetails.assignment
-              ] }),
-              /* @__PURE__ */ jsxs("p", { children: [
-                /* @__PURE__ */ jsx("span", { className: "font-medium", children: "Salary Grade:" }),
-                " SG ",
-                vacancyDetails.salaryGrade
-              ] }),
-              /* @__PURE__ */ jsxs("p", { children: [
-                /* @__PURE__ */ jsx("span", { className: "font-medium", children: "Item Number:" }),
-                " ",
-                vacancyDetails.itemNumber
-              ] })
-            ] })
+          /* @__PURE__ */ jsxs("div", { className: "bg-gray-50 rounded-lg px-4 py-3 border border-gray-100", children: [
+            /* @__PURE__ */ jsx("p", { className: "text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5", children: "Documents" }),
+            /* @__PURE__ */ jsx("div", { className: "flex flex-wrap gap-1.5", children: [
+              { key: "letterOfIntent", label: "Letter of Intent", abbr: "LOI", color: "bg-blue-50 text-blue-700 border-blue-200" },
+              { key: "personalDataSheet", label: "Personal Data Sheet", abbr: "PDS", color: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+              { key: "workExperienceSheet", label: "Work Experience Sheet", abbr: "WES", color: "bg-violet-50 text-violet-700 border-violet-200" },
+              { key: "proofOfEligibility", label: "Proof of Eligibility", abbr: "POE", color: "bg-yellow-50 text-yellow-700 border-yellow-200" },
+              { key: "professionalLicense", label: "Professional License", abbr: "LIC", color: "bg-teal-50 text-teal-700 border-teal-200" },
+              { key: "certificates", label: "Certificates", abbr: "CERT", color: "bg-indigo-50 text-indigo-700 border-indigo-200" },
+              { key: "certificateOfEmployment", label: "Certificate of Employment", abbr: "COE", color: "bg-cyan-50 text-cyan-700 border-cyan-200" },
+              { key: "diploma", label: "Diploma", abbr: "DIP", color: "bg-pink-50 text-pink-700 border-pink-200" },
+              { key: "transcriptOfRecords", label: "Transcript of Records", abbr: "TOR", color: "bg-rose-50 text-rose-700 border-rose-200" },
+              { key: "ipcr", label: "IPCR", abbr: "IPCR", color: "bg-orange-50 text-orange-700 border-orange-200" }
+            ].map((doc) => /* @__PURE__ */ jsxs(
+              "button",
+              {
+                onClick: () => candidateDetails[doc.key] && openDocumentLink(candidateDetails[doc.key]),
+                "aria-label": `Open ${doc.label}`,
+                disabled: !candidateDetails[doc.key],
+                title: doc.label,
+                className: `inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-bold transition-all
+                        ${candidateDetails[doc.key] ? `${doc.color} hover:shadow-sm hover:scale-105 cursor-pointer` : "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed"}`,
+                children: [
+                  candidateDetails[doc.key] && /* @__PURE__ */ jsx("svg", { className: "w-2.5 h-2.5", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24", children: /* @__PURE__ */ jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" }) }),
+                  doc.abbr
+                ]
+              },
+              doc.key
+            )) })
           ] })
         ] }),
         /* @__PURE__ */ jsxs("div", { className: "space-y-4", children: [
@@ -22345,13 +22413,13 @@ const SecretariatView = ({ user }) => {
           )
         ] })
       ] }),
-      /* @__PURE__ */ jsxs("div", { className: "flex justify-end space-x-3 px-6 py-4 border-t border-gray-100 shrink-0", children: [
+      /* @__PURE__ */ jsxs("div", { className: "flex justify-end gap-2 px-6 py-4 border-t border-gray-100 shrink-0", children: [
         /* @__PURE__ */ jsx(
           "button",
           {
             onClick: () => handleStatusUpdate(CANDIDATE_STATUS.LONG_LIST),
             "aria-label": "Mark candidate as long listed",
-            className: "bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded transition-colors duration-200",
+            className: "px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-colors",
             children: "Long List"
           }
         ),
@@ -22360,7 +22428,7 @@ const SecretariatView = ({ user }) => {
           {
             onClick: () => handleStatusUpdate(CANDIDATE_STATUS.FOR_REVIEW),
             "aria-label": "Mark candidate for review",
-            className: "bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-2 rounded transition-colors duration-200",
+            className: "px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold transition-colors",
             children: "For Review"
           }
         ),
@@ -22369,7 +22437,7 @@ const SecretariatView = ({ user }) => {
           {
             onClick: () => handleStatusUpdate(CANDIDATE_STATUS.DISQUALIFIED),
             "aria-label": "Disqualify candidate",
-            className: "bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded transition-colors duration-200",
+            className: "px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-semibold transition-colors",
             children: "Disqualify"
           }
         )
@@ -22798,6 +22866,224 @@ const SecretariatView = ({ user }) => {
         )
       ] })
     ] }) }),
+    showPositionStats && (() => {
+      const statsVacancies = vacancies.filter((v2) => {
+        if (posStatsAssignment && v2.assignment !== posStatsAssignment)
+          return false;
+        if (posStatsSalaryGrade && String(v2.salaryGrade) !== String(posStatsSalaryGrade))
+          return false;
+        return true;
+      });
+      const positionMap = {};
+      statsVacancies.forEach((v2) => {
+        const key = v2.position;
+        if (!positionMap[key]) {
+          positionMap[key] = {
+            position: v2.position,
+            salaryGrade: v2.salaryGrade,
+            assignment: v2.assignment,
+            itemNumbers: [],
+            totalCandidates: 0,
+            generalList: 0,
+            longListed: 0,
+            forReview: 0,
+            disqualified: 0,
+            govtPresent: 0,
+            govtWithin2Yrs: 0,
+            govtMoreThan6Mo: 0,
+            govtLessThan6Mo: 0
+          };
+        }
+        positionMap[key].itemNumbers.push(v2.itemNumber);
+      });
+      const statsItemNumbers = new Set(statsVacancies.map((v2) => v2.itemNumber));
+      candidates.forEach((c2) => {
+        if (!statsItemNumbers.has(c2.itemNumber))
+          return;
+        const vacancy = vacancies.find((v2) => v2.itemNumber === c2.itemNumber);
+        if (!vacancy)
+          return;
+        const row = positionMap[vacancy.position];
+        if (!row)
+          return;
+        row.totalCandidates++;
+        if (c2.status === "general_list")
+          row.generalList++;
+        if (c2.status === "long_list")
+          row.longListed++;
+        if (c2.status === "for_review")
+          row.forReview++;
+        if (c2.status === "disqualified")
+          row.disqualified++;
+        const ge2 = c2.governmentEmployment;
+        if (ge2) {
+          if (ge2.employmentPeriod === "present")
+            row.govtPresent++;
+          if (ge2.employmentPeriod === "within_2_years")
+            row.govtWithin2Yrs++;
+          if (ge2.preAssessmentExam === "more_than_6_months")
+            row.govtMoreThan6Mo++;
+          if (ge2.preAssessmentExam === "less_than_6_months")
+            row.govtLessThan6Mo++;
+        }
+      });
+      const statsRows = Object.values(positionMap).sort((a2, b2) => a2.position.localeCompare(b2.position));
+      const totals = statsRows.reduce((acc, r) => ({
+        totalCandidates: acc.totalCandidates + r.totalCandidates,
+        generalList: acc.generalList + r.generalList,
+        longListed: acc.longListed + r.longListed,
+        forReview: acc.forReview + r.forReview,
+        disqualified: acc.disqualified + r.disqualified,
+        govtPresent: acc.govtPresent + r.govtPresent,
+        govtWithin2Yrs: acc.govtWithin2Yrs + r.govtWithin2Yrs,
+        govtMoreThan6Mo: acc.govtMoreThan6Mo + r.govtMoreThan6Mo,
+        govtLessThan6Mo: acc.govtLessThan6Mo + r.govtLessThan6Mo
+      }), { totalCandidates: 0, generalList: 0, longListed: 0, forReview: 0, disqualified: 0, govtPresent: 0, govtWithin2Yrs: 0, govtMoreThan6Mo: 0, govtLessThan6Mo: 0 });
+      const allSalaryGrades = [...new Set(vacancies.map((v2) => v2.salaryGrade))].filter(Boolean).sort((a2, b2) => a2 - b2);
+      const allAssignments = [...new Set(vacancies.map((v2) => v2.assignment))].filter(Boolean).sort();
+      return /* @__PURE__ */ jsx("div", { className: "fixed inset-0 z-50 flex items-start justify-center p-4 pt-10", style: { backgroundColor: "rgba(15,23,42,0.65)", backdropFilter: "blur(4px)" }, role: "dialog", "aria-modal": "true", "aria-labelledby": "pos-stats-title", children: /* @__PURE__ */ jsxs("div", { className: "bg-white rounded-2xl shadow-2xl w-full max-w-6xl flex flex-col max-h-[88vh]", children: [
+        /* @__PURE__ */ jsxs("div", { className: "px-6 py-5 border-b border-gray-100 flex items-center justify-between shrink-0", children: [
+          /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-3", children: [
+            /* @__PURE__ */ jsx("div", { className: "w-10 h-10 rounded-xl flex items-center justify-center", style: { background: "linear-gradient(135deg,#0f766e,#14b8a6)" }, children: /* @__PURE__ */ jsx("svg", { className: "w-5 h-5 text-white", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24", children: /* @__PURE__ */ jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" }) }) }),
+            /* @__PURE__ */ jsxs("div", { children: [
+              /* @__PURE__ */ jsx("h2", { id: "pos-stats-title", className: "text-base font-bold text-gray-900", children: "Position Statistics" }),
+              /* @__PURE__ */ jsxs("p", { className: "text-xs text-gray-400", children: [
+                currentPublicationRange ? currentPublicationRange.name : "All Active Ranges",
+                " · ",
+                statsRows.length,
+                " position",
+                statsRows.length !== 1 ? "s" : ""
+              ] })
+            ] })
+          ] }),
+          /* @__PURE__ */ jsx("button", { onClick: () => setShowPositionStats(false), className: "w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-all", "aria-label": "Close position statistics", children: /* @__PURE__ */ jsx("svg", { className: "w-4 h-4", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24", children: /* @__PURE__ */ jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M6 18L18 6M6 6l12 12" }) }) })
+        ] }),
+        /* @__PURE__ */ jsxs("div", { className: "px-6 py-3 bg-teal-50 border-b border-teal-100 flex items-center gap-3 flex-wrap shrink-0", children: [
+          /* @__PURE__ */ jsx("span", { className: "text-xs font-bold text-teal-700 uppercase tracking-wide", children: "Filters:" }),
+          /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-1.5", children: [
+            /* @__PURE__ */ jsx("span", { className: "text-xs text-teal-600 font-semibold", children: "Range:" }),
+            /* @__PURE__ */ jsx("span", { className: "px-2.5 py-1 bg-white border border-teal-200 rounded-lg text-xs font-semibold text-teal-800", children: currentPublicationRange ? currentPublicationRange.name : "All Active" })
+          ] }),
+          /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-1.5", children: [
+            /* @__PURE__ */ jsx("span", { className: "text-xs text-teal-600 font-semibold", children: "Assignment:" }),
+            /* @__PURE__ */ jsxs(
+              "select",
+              {
+                value: posStatsAssignment,
+                onChange: (e) => setPosStatsAssignment(e.target.value),
+                className: "px-2.5 py-1 bg-white border border-teal-200 rounded-lg text-xs font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-400 transition-all",
+                children: [
+                  /* @__PURE__ */ jsx("option", { value: "", children: "All Assignments" }),
+                  allAssignments.map((a2) => /* @__PURE__ */ jsx("option", { value: a2, children: a2 }, a2))
+                ]
+              }
+            )
+          ] }),
+          /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-1.5", children: [
+            /* @__PURE__ */ jsx("span", { className: "text-xs text-teal-600 font-semibold", children: "Salary Grade:" }),
+            /* @__PURE__ */ jsxs(
+              "select",
+              {
+                value: posStatsSalaryGrade,
+                onChange: (e) => setPosStatsSalaryGrade(e.target.value),
+                className: "px-2.5 py-1 bg-white border border-teal-200 rounded-lg text-xs font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-400 transition-all",
+                children: [
+                  /* @__PURE__ */ jsx("option", { value: "", children: "All Grades" }),
+                  allSalaryGrades.map((sg) => /* @__PURE__ */ jsxs("option", { value: sg, children: [
+                    "SG ",
+                    sg
+                  ] }, sg))
+                ]
+              }
+            )
+          ] }),
+          (posStatsAssignment || posStatsSalaryGrade) && /* @__PURE__ */ jsx(
+            "button",
+            {
+              onClick: () => {
+                setPosStatsAssignment("");
+                setPosStatsSalaryGrade("");
+              },
+              className: "px-2.5 py-1 rounded-lg text-xs font-semibold text-red-500 border border-red-200 bg-white hover:bg-red-50 transition-all",
+              children: "Clear Filters"
+            }
+          ),
+          /* @__PURE__ */ jsx("div", { className: "ml-auto flex items-center gap-1.5 flex-wrap", children: [
+            { label: `${statsRows.length} Positions`, cls: "bg-teal-100 text-teal-800" },
+            { label: `${totals.totalCandidates} Applicants`, cls: "bg-blue-100 text-blue-800" },
+            { label: `${totals.longListed} Long Listed`, cls: "bg-green-100 text-green-800" },
+            { label: `${totals.forReview} For Review`, cls: "bg-yellow-100 text-yellow-800" },
+            { label: `${totals.disqualified} Disqualified`, cls: "bg-red-100 text-red-800" }
+          ].map(({ label, cls }) => /* @__PURE__ */ jsx("span", { className: `px-2.5 py-1 rounded-full text-xs font-bold ${cls}`, children: label }, label)) })
+        ] }),
+        /* @__PURE__ */ jsx("div", { className: "flex-1 overflow-auto", children: statsRows.length === 0 ? /* @__PURE__ */ jsxs("div", { className: "flex flex-col items-center justify-center py-20 text-gray-400", children: [
+          /* @__PURE__ */ jsx("svg", { className: "w-12 h-12 mb-3 opacity-30", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24", children: /* @__PURE__ */ jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 1.5, d: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" }) }),
+          /* @__PURE__ */ jsx("p", { className: "text-sm font-medium", children: "No positions match the selected filters." })
+        ] }) : /* @__PURE__ */ jsxs("table", { className: "w-full text-sm border-collapse", children: [
+          /* @__PURE__ */ jsx("thead", { className: "bg-gray-50 sticky top-0 z-10", children: /* @__PURE__ */ jsxs("tr", { children: [
+            /* @__PURE__ */ jsx("th", { className: "text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider border-b border-gray-200", children: "Position" }),
+            /* @__PURE__ */ jsx("th", { className: "text-center px-3 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider border-b border-gray-200", children: "SG" }),
+            /* @__PURE__ */ jsx("th", { className: "text-left px-3 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider border-b border-gray-200", children: "Assignment" }),
+            /* @__PURE__ */ jsx("th", { className: "text-center px-3 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider border-b border-gray-200", children: "Item Nos" }),
+            /* @__PURE__ */ jsx("th", { className: "text-center px-3 py-3 text-xs font-bold text-blue-500 uppercase tracking-wider border-b border-gray-200", children: "Total" }),
+            /* @__PURE__ */ jsx("th", { className: "text-center px-3 py-3 text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-200", children: "General" }),
+            /* @__PURE__ */ jsx("th", { className: "text-center px-3 py-3 text-xs font-bold text-green-600 uppercase tracking-wider border-b border-gray-200", children: "Long List" }),
+            /* @__PURE__ */ jsx("th", { className: "text-center px-3 py-3 text-xs font-bold text-yellow-600 uppercase tracking-wider border-b border-gray-200", children: "Review" }),
+            /* @__PURE__ */ jsx("th", { className: "text-center px-3 py-3 text-xs font-bold text-red-500 uppercase tracking-wider border-b border-gray-200", children: "DQ" }),
+            /* @__PURE__ */ jsx("th", { className: "text-center px-3 py-3 text-xs font-bold text-emerald-600 uppercase tracking-wider border-b border-gray-200 whitespace-nowrap", children: "Govt Present" }),
+            /* @__PURE__ */ jsx("th", { className: "text-center px-3 py-3 text-xs font-bold text-amber-600 uppercase tracking-wider border-b border-gray-200 whitespace-nowrap", children: "Within 2 Yrs" }),
+            /* @__PURE__ */ jsx("th", { className: "text-center px-3 py-3 text-xs font-bold text-indigo-600 uppercase tracking-wider border-b border-gray-200 whitespace-nowrap", children: ">6 Mos" }),
+            /* @__PURE__ */ jsx("th", { className: "text-center px-3 py-3 text-xs font-bold text-violet-600 uppercase tracking-wider border-b border-gray-200 whitespace-nowrap", children: "<6 Mos" })
+          ] }) }),
+          /* @__PURE__ */ jsx("tbody", { className: "divide-y divide-gray-100", children: statsRows.map((row, idx) => /* @__PURE__ */ jsxs("tr", { className: `transition-colors hover:bg-teal-50 ${idx % 2 === 0 ? "bg-white" : "bg-gray-50/40"}`, children: [
+            /* @__PURE__ */ jsx("td", { className: "px-4 py-3 font-semibold text-gray-800 max-w-[200px]", children: /* @__PURE__ */ jsx("div", { className: "truncate", title: row.position, children: row.position }) }),
+            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: /* @__PURE__ */ jsx("span", { className: "inline-flex items-center justify-center w-8 h-6 rounded bg-teal-100 text-teal-800 text-xs font-bold", children: row.salaryGrade }) }),
+            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-xs text-gray-500 max-w-[140px]", children: /* @__PURE__ */ jsx("div", { className: "truncate", title: row.assignment, children: row.assignment }) }),
+            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center text-[10px] text-gray-400 max-w-[100px]", children: /* @__PURE__ */ jsx("div", { className: "truncate", title: row.itemNumbers.join(", "), children: row.itemNumbers.join(", ") }) }),
+            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: /* @__PURE__ */ jsx("span", { className: "font-bold text-blue-700 text-sm", children: row.totalCandidates }) }),
+            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center text-gray-500 text-xs font-semibold", children: row.generalList }),
+            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: row.longListed > 0 ? /* @__PURE__ */ jsx("span", { className: "inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-bold", children: row.longListed }) : /* @__PURE__ */ jsx("span", { className: "text-gray-300 text-xs", children: "—" }) }),
+            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: row.forReview > 0 ? /* @__PURE__ */ jsx("span", { className: "inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full bg-yellow-100 text-yellow-700 text-xs font-bold", children: row.forReview }) : /* @__PURE__ */ jsx("span", { className: "text-gray-300 text-xs", children: "—" }) }),
+            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: row.disqualified > 0 ? /* @__PURE__ */ jsx("span", { className: "inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 text-xs font-bold", children: row.disqualified }) : /* @__PURE__ */ jsx("span", { className: "text-gray-300 text-xs", children: "—" }) }),
+            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: row.govtPresent > 0 ? /* @__PURE__ */ jsx("span", { className: "inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold", children: row.govtPresent }) : /* @__PURE__ */ jsx("span", { className: "text-gray-300 text-xs", children: "—" }) }),
+            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: row.govtWithin2Yrs > 0 ? /* @__PURE__ */ jsx("span", { className: "inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-bold", children: row.govtWithin2Yrs }) : /* @__PURE__ */ jsx("span", { className: "text-gray-300 text-xs", children: "—" }) }),
+            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: row.govtMoreThan6Mo > 0 ? /* @__PURE__ */ jsx("span", { className: "inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold", children: row.govtMoreThan6Mo }) : /* @__PURE__ */ jsx("span", { className: "text-gray-300 text-xs", children: "—" }) }),
+            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: row.govtLessThan6Mo > 0 ? /* @__PURE__ */ jsx("span", { className: "inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 text-xs font-bold", children: row.govtLessThan6Mo }) : /* @__PURE__ */ jsx("span", { className: "text-gray-300 text-xs", children: "—" }) })
+          ] }, row.position)) }),
+          /* @__PURE__ */ jsx("tfoot", { className: "bg-teal-50 border-t-2 border-teal-200 sticky bottom-0", children: /* @__PURE__ */ jsxs("tr", { children: [
+            /* @__PURE__ */ jsxs("td", { className: "px-4 py-3 font-bold text-teal-800 text-xs uppercase tracking-wide", colSpan: 4, children: [
+              "Totals (",
+              statsRows.length,
+              " positions)"
+            ] }),
+            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-blue-700", children: totals.totalCandidates }),
+            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-gray-600", children: totals.generalList }),
+            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-green-700", children: totals.longListed }),
+            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-yellow-700", children: totals.forReview }),
+            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-red-700", children: totals.disqualified }),
+            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-emerald-700", children: totals.govtPresent }),
+            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-amber-700", children: totals.govtWithin2Yrs }),
+            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-indigo-700", children: totals.govtMoreThan6Mo }),
+            /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-violet-700", children: totals.govtLessThan6Mo })
+          ] }) })
+        ] }) }),
+        /* @__PURE__ */ jsxs("div", { className: "px-6 py-4 border-t border-gray-100 flex justify-between items-center shrink-0", children: [
+          /* @__PURE__ */ jsxs("p", { className: "text-xs text-gray-400", children: [
+            "Statistics computed from ",
+            /* @__PURE__ */ jsx("span", { className: "font-semibold text-gray-600", children: candidates.length }),
+            " currently-loaded candidates. Adjust the main filters to change the data set."
+          ] }),
+          /* @__PURE__ */ jsx(
+            "button",
+            {
+              onClick: () => setShowPositionStats(false),
+              className: "px-5 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold transition-colors",
+              children: "Close"
+            }
+          )
+        ] })
+      ] }) });
+    })(),
     showCBSManual && /* @__PURE__ */ jsx(
       CompetencyDetailModal,
       {
@@ -31345,4 +31631,4 @@ client.createRoot(document.getElementById("root")).render(
 export {
   _typeof as _
 };
-//# sourceMappingURL=index-3cad6c97.js.map
+//# sourceMappingURL=index-fa9575d5.js.map
