@@ -1,50 +1,370 @@
 import React, { useState, useEffect } from 'react';
-import { candidatesAPI, vacanciesAPI, usersAPI } from '../utils/api';
-import { getStatusLabel, CANDIDATE_STATUS } from '../utils/constants';
-import { formatDate } from '../utils/helpers';
+import { candidatesAPI, vacanciesAPI } from '../utils/api';
+import { CANDIDATE_STATUS } from '../utils/constants';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 
+// ─── Core PDF builder ────────────────────────────────────────────────────────
+// Accepts all data + a flag `includSignatories` so the same logic serves both
+// the full deliberation report and the secretariat "Longlist Only" export.
+function buildDeliberationPDF({ vacancy, candidates, raters, includeSignatories = true }) {
+  const doc = new jsPDF({
+    format: [576, 936], // 8 × 13 inches in points
+    unit: 'pt',
+  });
 
+  doc.setFont('helvetica');
+
+  const pageWidth  = doc.internal.pageSize.width;
+  const pageHeight = doc.internal.pageSize.height;
+  const margin     = 50;
+
+  const now = new Date();
+  const shortDT = now.toLocaleString('en-US', {
+    year: 'numeric', month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: true,
+  });
+  const footerLeft = `Item: ${vacancy.itemNumber} | Generated: ${shortDT}`;
+
+  // ── Footer drawing (called in the final pass once total pages are known) ──
+  function drawFooter(pageNum, totalPages) {
+    const savedSize  = doc.getFontSize();
+    const savedFont  = doc.getFont();
+
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.5);
+    doc.line(margin, pageHeight - 30, pageWidth - margin, pageHeight - 30);
+    doc.text(footerLeft, margin, pageHeight - 18);
+    doc.text(`Page ${pageNum} of ${totalPages}`, pageWidth - margin, pageHeight - 18, { align: 'right' });
+
+    doc.setFontSize(savedSize);
+    doc.setFont(savedFont.fontName, savedFont.fontStyle);
+  }
+
+  // ── Safe page-break helper ────────────────────────────────────────────────
+  // Returns the Y to continue drawing from. Does NOT draw the footer here;
+  // footers are applied in a final pass so page count is always correct.
+  const FOOTER_SAFE_ZONE = 60; // points reserved at the bottom for the footer
+  function safeY(y, needed = 20) {
+    if (y + needed > pageHeight - margin - FOOTER_SAFE_ZONE) {
+      doc.addPage();
+      return margin + 5;
+    }
+    return y;
+  }
+
+  // ── Build page 1 header ───────────────────────────────────────────────────
+  let y = 60;
+
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.text(
+    'DEPARTMENT OF ENVIRONMENT AND NATURAL RESOURCES (CALABARZON)',
+    pageWidth / 2, y, { align: 'center' }
+  );
+  y += 15;
+
+  doc.setFontSize(10);
+  doc.text(
+    'REGIONAL HUMAN RESOURCE SELECTION AND PROMOTION BOARD',
+    pageWidth / 2, y, { align: 'center' }
+  );
+  y += 25;
+
+  doc.setFontSize(15);
+  doc.text(
+    'SUMMARY OF THE DELIBERATION OF CANDIDATES FOR LONG LIST',
+    pageWidth / 2, y, { align: 'center' }
+  );
+  doc.setFont('helvetica', 'normal');
+  y += 30;
+
+  // Position / Assignment / Item block
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+
+  // Fixed label column width so values align cleanly
+  const labelColW = 90; // pts — wide enough for "ASSIGNMENT:"
+  const valueX    = margin + labelColW + 6;
+
+  doc.text('POSITION:',   margin, y);
+  doc.setFont('helvetica', 'normal');
+  doc.text(vacancy.position   || 'N/A', valueX, y);
+  doc.setFont('helvetica', 'bold');
+  y += 15;
+
+  doc.text('ASSIGNMENT:', margin, y);
+  doc.setFont('helvetica', 'normal');
+  doc.text(vacancy.assignment || 'N/A', valueX, y);
+  doc.setFont('helvetica', 'bold');
+  y += 15;
+
+  doc.text('ITEM:',       margin, y);
+  doc.setFont('helvetica', 'normal');
+  doc.text(vacancy.itemNumber, valueX, y);
+  y += 20;
+
+  // Generated-on timestamp
+  doc.setFontSize(8);
+  const fullDT = now.toLocaleString('en-US', {
+    year: 'numeric', month: 'long', day: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true,
+  });
+  doc.text(`Generated on: ${fullDT}`, margin, y);
+  y += 30;
+
+  // ── Two-column list renderer ──────────────────────────────────────────────
+  // Draws entries row-by-row (left then right), so both columns advance in
+  // lockstep and page-breaks are always clean and symmetric.
+  function drawTwoColList(title, names) {
+    if (!names || names.length === 0) return y;
+
+    // Ensure room for the title + at least 2 rows before committing
+    y = safeY(y, 20 + 2 * 14 + 35);
+
+    // Section title
+    doc.setFontSize(13);
+    doc.setFont('helvetica', 'bold');
+    doc.text(title, margin, y);
+    doc.setFont('helvetica', 'normal');
+    y += 20;
+
+    doc.setFontSize(10);
+    const colW  = (pageWidth - 2 * margin - 30) / 2;
+    const col1X = margin;
+    const col2X = margin + colW + 30;
+    const lineH = doc.getFontSize() * 1.2 + 2;
+
+    const half = Math.ceil(names.length / 2);
+
+    for (let row = 0; row < half; row++) {
+      const leftIdx  = row;
+      const rightIdx = row + half;
+
+      const leftName  = names[leftIdx]  || null;
+      const rightName = names[rightIdx] || null;
+
+      // Calculate how tall this row will be (tallest of the two cells)
+      function cellLines(name, num) {
+        if (!name) return [];
+        const numStr    = `${num}. `;
+        const numW      = doc.getStringUnitWidth(numStr) * doc.getFontSize() / doc.internal.scaleFactor;
+        return doc.splitTextToSize(name, colW - numW);
+      }
+
+      const leftLines  = leftName  ? cellLines(leftName,  leftIdx  + 1) : [];
+      const rightLines = rightName ? cellLines(rightName, rightIdx + 1) : [];
+      const rowH       = Math.max(leftLines.length, rightLines.length) * lineH;
+
+      // Page break if needed, resetting y for both columns together
+      y = safeY(y, rowH + 10);
+
+      // Draw left cell
+      if (leftName) {
+        const numStr = `${leftIdx + 1}. `;
+        const numW   = doc.getStringUnitWidth(numStr) * doc.getFontSize() / doc.internal.scaleFactor;
+        doc.text(`${numStr}${leftLines[0]}`, col1X, y);
+        for (let li = 1; li < leftLines.length; li++) {
+          doc.text(leftLines[li], col1X + numW, y + li * lineH);
+        }
+      }
+
+      // Draw right cell
+      if (rightName) {
+        const numStr = `${rightIdx + 1}. `;
+        const numW   = doc.getStringUnitWidth(numStr) * doc.getFontSize() / doc.internal.scaleFactor;
+        doc.text(`${numStr}${rightLines[0]}`, col2X, y);
+        for (let li = 1; li < rightLines.length; li++) {
+          doc.text(rightLines[li], col2X + numW, y + li * lineH);
+        }
+      }
+
+      y += rowH;
+    }
+
+    // END OF LIST marker
+    y = safeY(y, 35);
+    y += 10;
+    doc.text('*** END OF LIST ***', pageWidth / 2, y, { align: 'center' });
+    y += 25;
+
+    return y;
+  }
+
+  // ── Filter candidates ─────────────────────────────────────────────────────
+  const sorted = [...candidates].sort((a, b) => (a.fullName || '').localeCompare(b.fullName));
+
+  const longList     = sorted.filter(c => c.status === CANDIDATE_STATUS.LONG_LIST)   .map(c => c.fullName || 'N/A');
+  const forReview    = sorted.filter(c => c.status === CANDIDATE_STATUS.FOR_REVIEW)  .map(c => c.fullName || 'N/A');
+  const disqualified = sorted.filter(c => c.status === CANDIDATE_STATUS.DISQUALIFIED).map(c => c.fullName || 'N/A');
+
+  // Draw candidate sections
+  y = drawTwoColList('LONG LIST CANDIDATES:', longList);
+  y = drawTwoColList('CANDIDATES FOR REVIEW:', forReview);
+  if (disqualified.length > 0) {
+    y = drawTwoColList('DISQUALIFIED CANDIDATES:', disqualified);
+  } else {
+    y += 10;
+  }
+
+  // ── Gender distribution ───────────────────────────────────────────────────
+  function genderCounts(list) {
+    const male   = list.filter(c => c.gender === 'Male'    || c.gender === 'MALE/LALAKI').length;
+    const female = list.filter(c => c.gender === 'Female'  || c.gender === 'FEMALE/BABAE').length;
+    const lgbtqi = list.filter(c => c.gender === 'LGBTQI+').length;
+    return { male, female, lgbtqi, total: list.length };
+  }
+
+  function drawGenderBlock(label, counts) {
+    const pct = (n) => counts.total > 0 ? ((n / counts.total) * 100).toFixed(1) : '0.0';
+    const blockH = 15 + 12 + 12 + (counts.lgbtqi > 0 ? 12 : 0) + 20;
+    y = safeY(y, blockH);
+
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.text(label, margin + 10, y);
+    doc.setFont('helvetica', 'normal');
+    y += 15;
+
+    doc.setFontSize(10);
+    doc.text(`Male: ${counts.male} (${pct(counts.male)}%)`,     margin + 30, y); y += 12;
+    doc.text(`Female: ${counts.female} (${pct(counts.female)}%)`, margin + 30, y); y += 12;
+    if (counts.lgbtqi > 0) {
+      doc.text(`LGBTQI+: ${counts.lgbtqi} (${pct(counts.lgbtqi)}%)`, margin + 30, y); y += 12;
+    }
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Total: ${counts.total}`, margin + 30, y);
+    doc.setFont('helvetica', 'normal');
+    y += 20;
+  }
+
+  y = safeY(y, 200);
+
+  doc.setFontSize(13);
+  doc.setFont('helvetica', 'bold');
+  doc.text('GENDER DISTRIBUTION:', margin, y);
+  doc.setFont('helvetica', 'normal');
+  y += 25;
+
+  drawGenderBlock('ALL CANDIDATES:', genderCounts(candidates));
+
+  const longListObjs = candidates.filter(c => c.status === CANDIDATE_STATUS.LONG_LIST);
+  if (longListObjs.length > 0) {
+    drawGenderBlock('LONG LIST CANDIDATES:', genderCounts(longListObjs));
+  }
+
+  // ── Signatories ───────────────────────────────────────────────────────────
+  if (includeSignatories && raters && raters.length > 0) {
+    y += 10;
+
+    const lineH11 = 11 * 1.2;
+    const lineH8  =  8 * 1.2;
+    const lineH9  =  9 * 1.2;
+    const sigColW = (pageWidth - 2 * margin - 40) / 2;
+    const sig1CX  = margin + sigColW / 2;
+    const sig2CX  = margin + sigColW + 40 + sigColW / 2;
+
+    // Certifying clause
+    y = safeY(y, 60);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.text(
+      'This certifies that the details contained herein have been thoroughly reviewed and validated.',
+      margin, y, { maxWidth: pageWidth - 2 * margin }
+    );
+    y += 25;
+
+    doc.setFontSize(11);
+    doc.text('Noted by:', margin, y);
+    y += 40;
+
+    for (let i = 0; i < raters.length; i += 2) {
+      const sig1 = raters[i];
+      const sig2 = raters[i + 1] || null;
+
+      function sigHeight(sig) {
+        if (!sig) return 0;
+        const posLines  = doc.splitTextToSize(sig.position    || '', sigColW);
+        const desgLines = doc.splitTextToSize(sig.designation || '', sigColW);
+        return lineH11 + posLines.length * lineH8 + 2 + desgLines.length * lineH9;
+      }
+
+      const blockH = Math.max(sigHeight(sig1), sigHeight(sig2));
+      y = safeY(y, blockH + 40);
+
+      function drawSig(sig, cx) {
+        if (!sig) return;
+        doc.setFontSize(11);
+        doc.setFont('helvetica', 'bold');
+        doc.text(sig.name || 'N/A', cx, y, { align: 'center', maxWidth: sigColW });
+        doc.setFont('helvetica', 'normal');
+
+        doc.setFontSize(8);
+        const posLines = doc.splitTextToSize(sig.position || '', sigColW);
+        let ty = y + lineH11;
+        doc.text(posLines, cx, ty, { align: 'center' });
+        ty += posLines.length * lineH8 + 2;
+
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'italic');
+        const desgLines = doc.splitTextToSize(sig.designation || '', sigColW);
+        doc.text(desgLines, cx, ty, { align: 'center' });
+        doc.setFont('helvetica', 'normal');
+      }
+
+      drawSig(sig1, sig1CX);
+      drawSig(sig2, sig2CX);
+
+      y += blockH + 40;
+    }
+  }
+
+  // ── Apply correct footers to every page in a single final pass ───────────
+  // This is the KEY fix: we only call drawFooter AFTER all pages exist,
+  // so "Page X of Y" is always accurate on every page.
+  const total = doc.internal.getNumberOfPages();
+  for (let p = 1; p <= total; p++) {
+    doc.setPage(p);
+    drawFooter(p, total);
+  }
+
+  return doc;
+}
+
+// ─── PDFReport component (full deliberation with signatories) ────────────────
 const PDFReport = ({ itemNumber, user, raters }) => {
-  const [vacancy, setVacancy] = useState(null);
+  const [vacancy,    setVacancy]    = useState(null);
   const [candidates, setCandidates] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [loading,    setLoading]    = useState(true);
+  const [error,      setError]      = useState('');
 
   useEffect(() => {
-    const loadReportData = async () => {
+    if (!itemNumber) return;
+    (async () => {
       try {
         setLoading(true);
         setError('');
-        
         const [vacanciesRes, candidatesRes] = await Promise.all([
           vacanciesAPI.getAll(),
           candidatesAPI.getAll(),
         ]);
-        
-        const vacancy = vacanciesRes.find(v => v.itemNumber === itemNumber);
-        if (!vacancy) {
-          throw new Error('VACANCY NOT FOUND FOR THE SPECIFIED ITEM NUMBER');
-        }
-        
-        const filteredCandidates = candidatesRes
-          .filter(c => c.itemNumber === itemNumber)
-          .sort((a, b) => a.fullName.localeCompare(b.fullName));
-        
-        setVacancy(vacancy);
-        setCandidates(filteredCandidates);
+        const found = vacanciesRes.find(v => v.itemNumber === itemNumber);
+        if (!found) throw new Error('VACANCY NOT FOUND FOR THE SPECIFIED ITEM NUMBER');
+        setVacancy(found);
+        setCandidates(
+          candidatesRes
+            .filter(c => c.itemNumber === itemNumber)
+            .sort((a, b) => (a.fullName || '').localeCompare(b.fullName))
+        );
       } catch (err) {
         console.error('FAILED TO LOAD REPORT DATA:', err);
         setError('FAILED TO LOAD REPORT DATA. PLEASE TRY AGAIN.');
       } finally {
         setLoading(false);
       }
-    };
-
-    if (itemNumber) {
-      loadReportData();
-    }
+    })();
   }, [itemNumber]);
 
   const generatePDF = () => {
@@ -53,490 +373,10 @@ const PDFReport = ({ itemNumber, user, raters }) => {
         setError('MISSING VACANCY OR CANDIDATE DATA FOR REPORT GENERATION.');
         return;
       }
-
-      // Define custom paper size: 8x13 inches in points (1 inch = 72 points)
-      const doc = new jsPDF({
-        format: [576, 936], // [width, height] in points
-        unit: 'pt' // Use points as the unit
-      });
-
-      // Set a professional font (Helvetica is standard and clean)
-      doc.setFont("helvetica");
-
-      // --- FOOTER INFORMATION ---
-      const now = new Date();
-      const dateTimeString = now.toLocaleString('en-US', {
-          year: 'numeric', month: 'short', day: 'numeric',
-          hour: '2-digit', minute: '2-digit',
-          hour12: true
-      });
-      const footerText = `Item: ${vacancy.itemNumber} | Generated: ${dateTimeString}`;
-
-      // --- FOOTER FUNCTION ---
-      function addFooter() {
-        const pageWidth = doc.internal.pageSize.width;
-        const pageHeight = doc.internal.pageSize.height;
-        const currentPage = doc.internal.getCurrentPageInfo().pageNumber;
-        const totalPages = doc.internal.getNumberOfPages();
-        
-        // Save current font settings
-        const currentFontSize = doc.getFontSize();
-        const currentFont = doc.getFont();
-        
-        // Set footer font
-        doc.setFontSize(8);
-        doc.setFont("helvetica", "normal");
-        
-        // Draw footer line
-        doc.setDrawColor(0, 0, 0);
-        doc.setLineWidth(0.5);
-        doc.line(50, pageHeight - 30, pageWidth - 50, pageHeight - 30);
-        
-        // Add footer text (left side)
-        doc.text(footerText, 50, pageHeight - 18);
-        
-        // Add page numbers (right side)
-        doc.text(`Page ${currentPage} of ${totalPages}`, pageWidth - 50, pageHeight - 18, { align: 'right' });
-        
-        // Restore original font settings
-        doc.setFontSize(currentFontSize);
-        doc.setFont(currentFont.fontName, currentFont.fontStyle);
-      }
-
-      // --- IMPORTANT MARGIN AND INITIAL Y-OFFSET ADJUSTMENTS ---
-      let yOffset = 60; 
-      const margin = 50; 
-      
-      const pageWidth = doc.internal.pageSize.width;
-      const pageHeight = doc.internal.pageSize.height;
-      
-      // Department header
-      doc.setFontSize(11);
-      doc.setFont("helvetica", "bold");
-      doc.text('DEPARTMENT OF ENVIRONMENT AND NATURAL RESOURCES (CALABARZON)', pageWidth / 2, yOffset, { align: 'center' });
-      yOffset += 15;
-      
-      doc.setFontSize(10);
-      doc.text('REGIONAL HUMAN RESOURCE SELECTION AND PROMOTION BOARD', pageWidth / 2, yOffset, { align: 'center' });
-      yOffset += 25;
-      
-      // Main Title of the Document
-      doc.setFontSize(15);
-      doc.setFont("helvetica", "bold");
-      doc.text('SUMMARY OF THE DELIBERATION OF CANDIDATES FOR LONG LIST', pageWidth / 2, yOffset, { align: 'center' });
-      doc.setFont("helvetica", "normal");
-      yOffset += 30;
-
-      // PDF HEADER: POSITION, ASSIGNMENT, ITEM (Aligned like tabs)
-      doc.setFontSize(11);
-      doc.setFont("helvetica", "bold");
-
-      // Calculate label width dynamically to ensure consistent alignment
-      const labelWidth = Math.max(
-          doc.getStringUnitWidth('POSITION:') * doc.getFontSize(),
-          doc.getStringUnitWidth('ASSIGNMENT:') * doc.getFontSize(),
-          doc.getStringUnitWidth('ITEM:') * doc.getFontSize()
-      ) / doc.internal.scaleFactor;
-      const valueX = margin + labelWidth + 5; 
-
-      doc.text(`POSITION:`, margin, yOffset);
-      doc.setFont("helvetica", "normal");
-      doc.text(`${vacancy.position || 'N/A'}`, valueX, yOffset);
-      doc.setFont("helvetica", "bold");
-      yOffset += 15; 
-
-      doc.text(`ASSIGNMENT:`, margin, yOffset);
-      doc.setFont("helvetica", "normal");
-      doc.text(`${vacancy.assignment || 'N/A'}`, valueX, yOffset);
-      doc.setFont("helvetica", "bold");
-      yOffset += 15; 
-
-      doc.text(`ITEM:`, margin, yOffset);
-      doc.setFont("helvetica", "normal");
-      doc.text(`${vacancy.itemNumber}`, valueX, yOffset);
-      yOffset += 20;
-
-      // PRESENT DATE AND TIME
-      doc.setFontSize(8);
-      const fullDateTimeString = now.toLocaleString('en-US', {
-          year: 'numeric', month: 'long', day: 'numeric',
-          hour: '2-digit', minute: '2-digit', second: '2-digit',
-          hour12: true
-      });
-      doc.text(`Generated on: ${fullDateTimeString}`, margin, yOffset);
-      yOffset += 30;
-
-      // Helper function for 2-column lists with vertical ordering
-      function drawTwoColumnList(title, candidatesList, currentY, isBoldTitle = true) {
-        // CRITICAL: Calculate the MINIMUM space needed for title + at least first few entries
-        const titleHeight = 20;
-        const minEntriesHeight = 60; // Space for at least 2-3 entries
-        const endOfListHeight = 35; // Space for "*** END OF LIST ***"
-        const minRequiredSpace = titleHeight + minEntriesHeight + endOfListHeight;
-        
-        // If not enough space for title + some entries, start on new page
-        if (currentY + minRequiredSpace > pageHeight - margin - 60) {
-          doc.addPage();
-          addFooter();
-          currentY = margin + 5;
-        }
-
-        // Draw title
-        doc.setFontSize(13);
-        doc.setFont("helvetica", isBoldTitle ? "bold" : "normal");
-        doc.text(title, margin, currentY);
-        doc.setFont("helvetica", "normal");
-        currentY += 20;
-
-        doc.setFontSize(10);
-        const colWidth = (pageWidth - (2 * margin) - 30) / 2;
-        const col1X = margin; 
-        const col2X = margin + colWidth + 30; 
-
-        const halfCount = Math.ceil(candidatesList.length / 2);
-        let col1CurrentY = currentY;
-        let col2CurrentY = currentY;
-
-        // NEW: Track if we need a page break mid-list
-        let pageBreakOccurred = false;
-
-        // Draw first column (items 1, 3, 5...)
-        for (let i = 0; i < halfCount; i++) {
-          // Check if we need page break BEFORE drawing this entry
-          const estimatedEntryHeight = 20; // Rough estimate for one entry
-          
-          if (col1CurrentY + estimatedEntryHeight > pageHeight - margin - 80) {
-            // Need page break - but this splits the list!
-            // Move to new page and reset BOTH columns
-            doc.addPage();
-            addFooter();
-            col1CurrentY = margin + 5;
-            col2CurrentY = margin + 5;
-            doc.setFontSize(10);
-            pageBreakOccurred = true;
-          }
-          
-          const itemNumber = `${i + 1}. `;
-          const candidateName = candidatesList[i];
-          const nameLines = doc.splitTextToSize(candidateName, colWidth - doc.getStringUnitWidth(itemNumber) * doc.getFontSize() / doc.internal.scaleFactor);
-          
-          const indentWidth = doc.getStringUnitWidth(itemNumber) * doc.getFontSize() / doc.internal.scaleFactor;
-          
-          // Draw first line with number
-          doc.text(`${itemNumber}${nameLines[0]}`, col1X, col1CurrentY);
-          
-          // Draw continuation lines with indent
-          for (let lineIndex = 1; lineIndex < nameLines.length; lineIndex++) {
-            col1CurrentY += doc.getFontSize() * 1.2;
-            doc.text(nameLines[lineIndex], col1X + indentWidth, col1CurrentY);
-          }
-          
-          col1CurrentY += doc.getFontSize() * 1.2 + 2;
-        }
-
-        // Draw second column (items 2, 4, 6...)
-        for (let i = halfCount; i < candidatesList.length; i++) {
-          // Check if we need page break BEFORE drawing this entry
-          const estimatedEntryHeight = 20;
-          
-          if (col2CurrentY + estimatedEntryHeight > pageHeight - margin - 80) {
-            // If column 2 needs a break but column 1 already had one, 
-            // we need another new page
-            doc.addPage();
-            addFooter();
-            col1CurrentY = margin + 5;
-            col2CurrentY = margin + 5;
-            doc.setFontSize(10);
-            pageBreakOccurred = true;
-          }
-          
-          const itemNumber = `${i + 1}. `;
-          const candidateName = candidatesList[i];
-          const nameLines = doc.splitTextToSize(candidateName, colWidth - doc.getStringUnitWidth(itemNumber) * doc.getFontSize() / doc.internal.scaleFactor);
-          
-          const indentWidth = doc.getStringUnitWidth(itemNumber) * doc.getFontSize() / doc.internal.scaleFactor;
-          
-          // Draw first line with number
-          doc.text(`${itemNumber}${nameLines[0]}`, col2X, col2CurrentY);
-          
-          // Draw continuation lines with indent
-          for (let lineIndex = 1; lineIndex < nameLines.length; lineIndex++) {
-            col2CurrentY += doc.getFontSize() * 1.2;
-            doc.text(nameLines[lineIndex], col2X + indentWidth, col2CurrentY);
-          }
-          
-          col2CurrentY += doc.getFontSize() * 1.2 + 2;
-        }
-        
-        let finalY = Math.max(col1CurrentY, col2CurrentY);
-        
-        // Check if "END OF LIST" marker will fit, if not, add page
-        if (finalY + 35 > pageHeight - margin - 60) {
-          doc.addPage();
-          addFooter();
-          finalY = margin + 5;
-        }
-        
-        finalY += 10;
-        doc.text('*** END OF LIST ***', pageWidth / 2, finalY, { align: 'center' });
-        finalY += 25;
-        
-        return finalY;
-      }
-
-      // Filter candidates by status
-      const longListCandidates = candidates
-        .filter(c => c.status === CANDIDATE_STATUS.LONG_LIST)
-        .map(c => c.fullName || 'N/A');
-      const forReviewCandidates = candidates
-        .filter(c => c.status === CANDIDATE_STATUS.FOR_REVIEW)
-        .map(c => c.fullName || 'N/A');
-      const disqualifiedCandidates = candidates
-        .filter(c => c.status === CANDIDATE_STATUS.DISQUALIFIED)
-        .map(c => c.fullName || 'N/A');
-
-      // Long List Candidates
-      if (longListCandidates.length > 0) {
-        yOffset = drawTwoColumnList('LONG LIST CANDIDATES:', longListCandidates, yOffset);
-      }
-
-      // For Review Candidates
-      if (forReviewCandidates.length > 0) {
-        yOffset = drawTwoColumnList('CANDIDATES FOR REVIEW:', forReviewCandidates, yOffset);
-      }
-
-      // Disqualified Candidates
-      if (disqualifiedCandidates.length > 0) {
-        yOffset = drawTwoColumnList('DISQUALIFIED CANDIDATES:', disqualifiedCandidates, yOffset);
-      } else {
-          yOffset += 20;
-      }
-
-      // Gender Statistics Section - OVERALL AND LONG LIST
-      if (yOffset + 180 > pageHeight - margin - 60) {
-          doc.addPage();
-          addFooter();
-          yOffset = margin + 10;
-      }
-
-      doc.setFontSize(13);
-      doc.setFont("helvetica", "bold");
-      doc.text('GENDER DISTRIBUTION:', margin, yOffset);
-      doc.setFont("helvetica", "normal");
-      yOffset += 25;
-
-      // === OVERALL STATISTICS (ALL CANDIDATES) ===
-      doc.setFontSize(11);
-      doc.setFont("helvetica", "bold");
-      doc.text('ALL CANDIDATES:', margin + 10, yOffset);
-      doc.setFont("helvetica", "normal");
-      yOffset += 15;
-
-      // Calculate overall gender counts
-      const allMaleCount = candidates.filter(c => 
-        c.gender === 'Male' || c.gender === 'MALE/LALAKI'
-      ).length;
-      const allFemaleCount = candidates.filter(c => 
-        c.gender === 'Female' || c.gender === 'FEMALE/BABAE'
-      ).length;
-      const allLgbtqiCount = candidates.filter(c => 
-        c.gender === 'LGBTQI+'
-      ).length;
-      const allTotalCandidates = candidates.length;
-
-      // Calculate overall percentages
-      const allMalePercentage = allTotalCandidates > 0 ? ((allMaleCount / allTotalCandidates) * 100).toFixed(1) : 0;
-      const allFemalePercentage = allTotalCandidates > 0 ? ((allFemaleCount / allTotalCandidates) * 100).toFixed(1) : 0;
-      const allLgbtqiPercentage = allTotalCandidates > 0 ? ((allLgbtqiCount / allTotalCandidates) * 100).toFixed(1) : 0;
-
-      doc.setFontSize(10);
-      doc.text(`Male: ${allMaleCount} (${allMalePercentage}%)`, margin + 30, yOffset);
-      yOffset += 12;
-      doc.text(`Female: ${allFemaleCount} (${allFemalePercentage}%)`, margin + 30, yOffset);
-      yOffset += 12;
-      if (allLgbtqiCount > 0) {
-        doc.text(`LGBTQI+: ${allLgbtqiCount} (${allLgbtqiPercentage}%)`, margin + 30, yOffset);
-        yOffset += 12;
-      }
-      doc.setFont("helvetica", "bold");
-      doc.text(`Total: ${allTotalCandidates}`, margin + 30, yOffset);
-      doc.setFont("helvetica", "normal");
-      yOffset += 20;
-
-      // === LONG LIST STATISTICS ===
-      const longListCandidatesData = candidates.filter(c => c.status === CANDIDATE_STATUS.LONG_LIST);
-
-      if (longListCandidatesData.length > 0) {
-        doc.setFontSize(11);
-        doc.setFont("helvetica", "bold");
-        doc.text('LONG LIST CANDIDATES:', margin + 10, yOffset);
-        doc.setFont("helvetica", "normal");
-        yOffset += 15;
-
-        // Calculate long list gender counts
-        const longMaleCount = longListCandidatesData.filter(c => 
-          c.gender === 'Male' || c.gender === 'MALE/LALAKI'
-        ).length;
-        const longFemaleCount = longListCandidatesData.filter(c => 
-          c.gender === 'Female' || c.gender === 'FEMALE/BABAE'
-        ).length;
-        const longLgbtqiCount = longListCandidatesData.filter(c => 
-          c.gender === 'LGBTQI+'
-        ).length;
-        const longTotalCandidates = longListCandidatesData.length;
-
-        // Calculate long list percentages
-        const longMalePercentage = longTotalCandidates > 0 ? ((longMaleCount / longTotalCandidates) * 100).toFixed(1) : 0;
-        const longFemalePercentage = longTotalCandidates > 0 ? ((longFemaleCount / longTotalCandidates) * 100).toFixed(1) : 0;
-        const longLgbtqiPercentage = longTotalCandidates > 0 ? ((longLgbtqiCount / longTotalCandidates) * 100).toFixed(1) : 0;
-
-        doc.setFontSize(10);
-        doc.text(`Male: ${longMaleCount} (${longMalePercentage}%)`, margin + 30, yOffset);
-        yOffset += 12;
-        doc.text(`Female: ${longFemaleCount} (${longFemalePercentage}%)`, margin + 30, yOffset);
-        yOffset += 12;
-        if (longLgbtqiCount > 0) {
-          doc.text(`LGBTQI+: ${longLgbtqiCount} (${longLgbtqiPercentage}%)`, margin + 30, yOffset);
-          yOffset += 12;
-        }
-        doc.setFont("helvetica", "bold");
-        doc.text(`Total: ${longTotalCandidates}`, margin + 30, yOffset);
-        doc.setFont("helvetica", "normal");
-        yOffset += 20;
-      }
-
-      yOffset += 10; // Extra spacing before signatories
-
-      // Signatories (dynamic with lines and assignment)
-      if (raters && raters.length > 0) {
-          const avgSignatoryHeightEstimate = 80; 
-          const totalEstimatedSignatoryHeight = (Math.ceil(raters.length / 2) * avgSignatoryHeightEstimate) + 50; 
-
-          if (yOffset + totalEstimatedSignatoryHeight > pageHeight - margin - 60) {
-              doc.addPage();
-              addFooter();
-              yOffset = margin + 10; 
-          }
-
-          // CERTIFYING CLAUSE
-          doc.setFontSize(9);
-          const certifyingClause = "This certifies that the details contained herein have been thoroughly reviewed and validated.";
-          doc.text(certifyingClause, margin, yOffset, { maxWidth: pageWidth - (2 * margin) });
-          yOffset += 25; 
-
-          doc.setFontSize(11);
-          doc.text("Noted by:", margin, yOffset);
-          yOffset += 40;
-
-          const sigColWidth = (pageWidth - (2 * margin) - 40) / 2; 
-          const sigCol1X = margin + sigColWidth / 2;
-          const sigCol2X = margin + sigColWidth + 40 + sigColWidth / 2; 
-
-          let currentSigY = yOffset;
-          const nameToPositionStartGap = 0;
-          const positionToEndOfLineGap = 2;
-
-          // Define line heights for specific font sizes
-          const lineHeightFor8pt = 8 * 1.2; 
-          const lineHeightFor9pt = 9 * 1.2; 
-          const lineHeightFor11pt = 11 * 1.2;
-
-          for (let i = 0; i < raters.length; i += 2) {
-              let maxSignatoryBlockHeight = 0; 
-
-              const sig1 = raters[i];
-              const sig2 = raters[i+1];
-
-              // Calculate height for Signatory 1
-              let sig1DynamicHeight = 0;
-              if (sig1) {
-                  const positionLines1 = doc.splitTextToSize(sig1.position || '', sigColWidth);
-                  const assignmentLines1 = doc.splitTextToSize(sig1.designation || '', sigColWidth);
-                  sig1DynamicHeight = lineHeightFor11pt + 
-                                      nameToPositionStartGap + 
-                                      (positionLines1.length * lineHeightFor8pt) + 
-                                      positionToEndOfLineGap + 
-                                      (assignmentLines1.length * lineHeightFor9pt);
-              }
-
-              // Calculate height for Signatory 2
-              let sig2DynamicHeight = 0;
-              if (sig2) {
-                  const positionLines2 = doc.splitTextToSize(sig2.position || '', sigColWidth);
-                  const assignmentLines2 = doc.splitTextToSize(sig2.designation || '', sigColWidth);
-                  sig2DynamicHeight = lineHeightFor11pt + 
-                                      nameToPositionStartGap + 
-                                      (positionLines2.length * lineHeightFor8pt) + 
-                                      positionToEndOfLineGap + 
-                                      (assignmentLines2.length * lineHeightFor9pt);
-              }
-              
-              maxSignatoryBlockHeight = Math.max(sig1DynamicHeight, sig2DynamicHeight);
-
-              if (currentSigY + maxSignatoryBlockHeight + 30 > pageHeight - margin - 60) {
-                  doc.addPage();
-                  addFooter();
-                  currentSigY = margin + 10; 
-              }
-
-              // Draw Signatory 1
-              if (sig1) {
-                  doc.setFont("helvetica", "bold");
-                  doc.setFontSize(11);
-                  doc.text(sig1.name || 'N/A', sigCol1X, currentSigY, { align: 'center', maxWidth: sigColWidth });
-                  doc.setFont("helvetica", "normal");
-                  
-                  doc.setFontSize(8);
-                  const positionLines1 = doc.splitTextToSize(sig1.position || '', sigColWidth);
-                  let currentTextY1 = currentSigY + lineHeightFor11pt + nameToPositionStartGap;
-                  doc.text(positionLines1, sigCol1X, currentTextY1, { align: 'center' });
-                  
-                  currentTextY1 += (positionLines1.length * lineHeightFor8pt) + positionToEndOfLineGap; 
-
-                  doc.setFontSize(9);
-                  doc.setFont("helvetica", "italic");
-                  const assignmentLines1 = doc.splitTextToSize(sig1.designation || '', sigColWidth);
-                  doc.text(assignmentLines1, sigCol1X, currentTextY1, { align: 'center' });
-                  doc.setFont("helvetica", "normal");
-              }
-
-              // Draw Signatory 2
-              if (sig2) {
-                  doc.setFont("helvetica", "bold");
-                  doc.setFontSize(11);
-                  doc.text(sig2.name || 'N/A', sigCol2X, currentSigY, { align: 'center', maxWidth: sigColWidth });
-                  doc.setFont("helvetica", "normal");
-                  
-                  doc.setFontSize(8);
-                  const positionLines2 = doc.splitTextToSize(sig2.position || '', sigColWidth);
-                  let currentTextY2 = currentSigY + lineHeightFor11pt + nameToPositionStartGap;
-                  doc.text(positionLines2, sigCol2X, currentTextY2, { align: 'center' });
-                  
-                  currentTextY2 += (positionLines2.length * lineHeightFor8pt) + positionToEndOfLineGap;
-
-                  doc.setFontSize(9);
-                  doc.setFont("helvetica", "italic");
-                  const assignmentLines2 = doc.splitTextToSize(sig2.designation || '', sigColWidth);
-                  doc.text(assignmentLines2, sigCol2X, currentTextY2, { align: 'center' });
-                  doc.setFont("helvetica", "normal");
-              }
-              
-              currentSigY += maxSignatoryBlockHeight + 40;
-          }
-          yOffset = currentSigY;
-      }
-
-      // Add footer to ALL pages
-      const totalPages = doc.internal.getNumberOfPages();
-      for (let i = 1; i <= totalPages; i++) {
-          doc.setPage(i);
-          addFooter();
-      }
-
+      const doc = buildDeliberationPDF({ vacancy, candidates, raters, includeSignatories: true });
       doc.save(`Summary_${vacancy.itemNumber}.pdf`);
-      
-    } catch (error) {
-      console.error('FAILED TO GENERATE PDF:', error.message, error.stack);
+    } catch (err) {
+      console.error('FAILED TO GENERATE PDF:', err.message, err.stack);
       setError('FAILED TO GENERATE PDF REPORT. PLEASE TRY AGAIN.');
     }
   };
@@ -544,7 +384,7 @@ const PDFReport = ({ itemNumber, user, raters }) => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-gray-900"></div>
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-gray-900" />
       </div>
     );
   }
@@ -563,7 +403,6 @@ const PDFReport = ({ itemNumber, user, raters }) => {
         <h2 className="text-2xl font-bold text-gray-900 mb-4">GENERATE POSITION REPORT</h2>
         {vacancy ? (
           <div className="space-y-4">
-            {/* Vacancy Information Display */}
             <div className="p-4">
               <h3 className="text-lg font-semibold text-gray-900 mb-2">POSITION DETAILS</h3>
               <div className="space-y-2 text-sm">
@@ -573,8 +412,6 @@ const PDFReport = ({ itemNumber, user, raters }) => {
                 <div><span className="font-medium">SALARY GRADE:</span> SG {vacancy.salaryGrade != null ? String(vacancy.salaryGrade) : 'N/A'}</div>
               </div>
             </div>
-            
-            {/* Candidate Summary */}
             <div className="p-4">
               <h4 className="text-md font-medium text-gray-800 mb-3">CANDIDATE SUMMARY</h4>
               <div className="space-y-2 text-sm">
@@ -584,23 +421,13 @@ const PDFReport = ({ itemNumber, user, raters }) => {
                 <div><span className="font-medium">DISQUALIFIED:</span> {candidates.filter(c => c.status === CANDIDATE_STATUS.DISQUALIFIED).length}</div>
               </div>
             </div>
-            
-            {/* Generate Button */}
             <div className="text-center pt-4">
               <button
                 onClick={generatePDF}
                 className="px-6 py-3 text-white font-medium rounded transition-all duration-200"
-                style={{ 
-                  backgroundColor: '#333', 
-                  border: '2px solid #333',
-                  fontSize: '16px'
-                }}
-                onMouseOver={(e) => {
-                  e.target.style.backgroundColor = '#000';
-                }}
-                onMouseOut={(e) => {
-                  e.target.style.backgroundColor = '#333';
-                }}
+                style={{ backgroundColor: '#333', border: '2px solid #333', fontSize: '16px' }}
+                onMouseOver={e => { e.target.style.backgroundColor = '#000'; }}
+                onMouseOut={e  => { e.target.style.backgroundColor = '#333'; }}
               >
                 DOWNLOAD PDF REPORT
               </button>
@@ -614,4 +441,23 @@ const PDFReport = ({ itemNumber, user, raters }) => {
   );
 };
 
+// ─── Standalone helper called from SecretariatView ───────────────────────────
+// Generates the longlist PDF (no signatories) without opening a modal.
+// Pass the already-loaded vacancy + candidates arrays to avoid a second fetch.
+export async function generateLongListPDF(itemNumber) {
+  const [vacanciesRes, candidatesRes] = await Promise.all([
+    vacanciesAPI.getAll(),
+    candidatesAPI.getAll(),
+  ]);
+  const vacancy = vacanciesRes.find(v => v.itemNumber === itemNumber);
+  if (!vacancy) throw new Error('Vacancy not found for item number: ' + itemNumber);
+  const candidates = candidatesRes
+    .filter(c => c.itemNumber === itemNumber)
+    .sort((a, b) => (a.fullName || '').localeCompare(b.fullName));
+
+  const doc = buildDeliberationPDF({ vacancy, candidates, raters: [], includeSignatories: false });
+  doc.save(`Longlist_${vacancy.itemNumber}.pdf`);
+}
+
+export { buildDeliberationPDF };
 export default PDFReport;
