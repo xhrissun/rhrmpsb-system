@@ -16825,7 +16825,7 @@ function(t2) {
  */
 function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-e4edc2df.js"), true ? ["assets/index.es-e4edc2df.js","assets/vendor-05345498.js","assets/pdfjs-3a644b6e.js"] : void 0)).catch(function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-9c47c22f.js"), true ? ["assets/index.es-9c47c22f.js","assets/vendor-05345498.js","assets/pdfjs-3a644b6e.js"] : void 0)).catch(function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     }).then(function(t3) {
       return t3.default ? t3.default : t3;
@@ -23126,7 +23126,7 @@ const SecretariatView = ({ user }) => {
           role: "dialog",
           "aria-modal": "true",
           "aria-labelledby": "pos-stats-title",
-          children: /* @__PURE__ */ jsxs("div", { className: "bg-white rounded-2xl shadow-2xl w-full max-w-7xl flex flex-col max-h-[92vh]", children: [
+          children: /* @__PURE__ */ jsxs("div", { className: "bg-white rounded-2xl shadow-2xl flex flex-col max-h-[92vh]", style: { width: "95vw" }, children: [
             /* @__PURE__ */ jsxs("div", { className: "px-6 py-4 border-b border-gray-100 flex items-center justify-between shrink-0", children: [
               /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-3", children: [
                 /* @__PURE__ */ jsx("div", { className: "w-10 h-10 rounded-xl flex items-center justify-center", style: { background: "linear-gradient(135deg,#0f766e,#14b8a6)" }, children: /* @__PURE__ */ jsx("svg", { className: "w-5 h-5 text-white", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24", children: /* @__PURE__ */ jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" }) }) }),
@@ -23260,13 +23260,45 @@ const SecretariatView = ({ user }) => {
             ] }) : sortedRows.length === 0 ? /* @__PURE__ */ jsxs("div", { className: "flex flex-col items-center justify-center py-20 text-gray-400", children: [
               /* @__PURE__ */ jsx("svg", { className: "w-12 h-12 mb-3 opacity-30", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24", children: /* @__PURE__ */ jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 1.5, d: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" }) }),
               /* @__PURE__ */ jsx("p", { className: "text-sm font-medium", children: "No positions match the selected filters." })
-            ] }) : /* @__PURE__ */ jsxs("table", { className: "w-full text-sm border-collapse", children: [
+            ] }) : /* @__PURE__ */ jsxs("table", { className: "text-sm border-collapse", style: { minWidth: "1100px", width: "100%" }, children: [
+              /* @__PURE__ */ jsxs("colgroup", { children: [
+                /* @__PURE__ */ jsx("col", { style: { width: "32px" } }),
+                "         ",
+                /* @__PURE__ */ jsx("col", { style: { width: "220px" } }),
+                "        ",
+                /* @__PURE__ */ jsx("col", { style: { width: "52px" } }),
+                "         ",
+                /* @__PURE__ */ jsx("col", { style: { width: "220px" } }),
+                "        ",
+                /* @__PURE__ */ jsx("col", { style: { width: "160px" } }),
+                "        ",
+                /* @__PURE__ */ jsx("col", { style: { width: "60px" } }),
+                "         ",
+                /* @__PURE__ */ jsx("col", { style: { width: "68px" } }),
+                "         ",
+                /* @__PURE__ */ jsx("col", { style: { width: "68px" } }),
+                "         ",
+                /* @__PURE__ */ jsx("col", { style: { width: "78px" } }),
+                "         ",
+                /* @__PURE__ */ jsx("col", { style: { width: "68px" } }),
+                "         ",
+                /* @__PURE__ */ jsx("col", { style: { width: "60px" } }),
+                "         ",
+                /* @__PURE__ */ jsx("col", { style: { width: "88px" } }),
+                "         ",
+                /* @__PURE__ */ jsx("col", { style: { width: "88px" } }),
+                "         ",
+                /* @__PURE__ */ jsx("col", { style: { width: "68px" } }),
+                "         ",
+                /* @__PURE__ */ jsx("col", { style: { width: "68px" } }),
+                "         "
+              ] }),
               /* @__PURE__ */ jsx("thead", { children: /* @__PURE__ */ jsxs("tr", { children: [
-                /* @__PURE__ */ jsx("th", { className: "w-8 bg-gray-50 border-b border-gray-200" }),
-                /* @__PURE__ */ jsx(SortTh, { label: "Position", sortKey: "position", className: "text-left" }),
-                /* @__PURE__ */ jsx(SortTh, { label: "SG", sortKey: "salaryGrade", className: "text-center" }),
-                /* @__PURE__ */ jsx(SortTh, { label: "Assignment", sortKey: "assignment", className: "text-left" }),
-                /* @__PURE__ */ jsx("th", { className: "px-3 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-50 border-b border-gray-200 text-left whitespace-nowrap", children: "Secretariats" }),
+                /* @__PURE__ */ jsx("th", { className: "w-8 bg-gray-50 border-b border-gray-200 sticky left-0 z-20" }),
+                /* @__PURE__ */ jsx(SortTh, { label: "Position", sortKey: "position", className: "text-left sticky left-8 z-20 bg-gray-50 shadow-[2px_0_4px_rgba(0,0,0,0.06)]" }),
+                /* @__PURE__ */ jsx(SortTh, { label: "SG", sortKey: "salaryGrade", className: "text-center sticky left-[240px] z-20 bg-gray-50 shadow-[2px_0_4px_rgba(0,0,0,0.06)]" }),
+                /* @__PURE__ */ jsx(SortTh, { label: "Assignment", sortKey: "assignment", className: "text-left sticky left-[292px] z-20 bg-gray-50 shadow-[2px_0_4px_rgba(0,0,0,0.06)]" }),
+                /* @__PURE__ */ jsx("th", { className: "px-3 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-50 border-b border-gray-200 text-left whitespace-nowrap sticky left-[512px] z-20 shadow-[4px_0_8px_rgba(0,0,0,0.08)]", children: "Secretariats" }),
                 /* @__PURE__ */ jsx(SortTh, { label: "Items", sortKey: "itemCount", className: "text-center" }),
                 /* @__PURE__ */ jsx(SortTh, { label: "Total", sortKey: "totalCandidates", className: "text-center text-blue-600" }),
                 /* @__PURE__ */ jsx(SortTh, { label: "General", sortKey: "generalList", className: "text-center text-gray-500" }),
@@ -23293,11 +23325,11 @@ const SecretariatView = ({ user }) => {
                         return next;
                       }),
                       children: [
-                        /* @__PURE__ */ jsx("td", { className: "pl-3 text-gray-400", children: /* @__PURE__ */ jsx("svg", { className: `w-3.5 h-3.5 transition-transform ${expanded ? "rotate-90" : ""}`, fill: "none", stroke: "currentColor", viewBox: "0 0 24 24", children: /* @__PURE__ */ jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2.5, d: "M9 5l7 7-7 7" }) }) }),
-                        /* @__PURE__ */ jsx("td", { className: "px-3 py-3 font-semibold text-gray-800 max-w-[180px]", children: /* @__PURE__ */ jsx("div", { className: "truncate", title: row.position, children: row.position }) }),
-                        /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: /* @__PURE__ */ jsx("span", { className: "inline-flex items-center justify-center w-8 h-6 rounded bg-teal-100 text-teal-800 text-xs font-bold", children: row.salaryGrade }) }),
-                        /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-xs text-gray-500 max-w-[140px]", children: /* @__PURE__ */ jsx("div", { className: "truncate", title: row.assignment, children: row.assignment }) }),
-                        /* @__PURE__ */ jsx("td", { className: "px-3 py-3 max-w-[140px]", children: row.secretariats.length > 0 ? /* @__PURE__ */ jsx("div", { className: "flex flex-wrap gap-1", children: row.secretariats.map((s2) => /* @__PURE__ */ jsx("span", { className: "inline-flex px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-700 text-[10px] font-semibold whitespace-nowrap", children: s2 }, s2)) }) : /* @__PURE__ */ jsx("span", { className: "text-gray-300 text-xs", children: "—" }) }),
+                        /* @__PURE__ */ jsx("td", { className: "pl-3 text-gray-400 sticky left-0 z-10 bg-inherit", children: /* @__PURE__ */ jsx("svg", { className: `w-3.5 h-3.5 transition-transform ${expanded ? "rotate-90" : ""}`, fill: "none", stroke: "currentColor", viewBox: "0 0 24 24", children: /* @__PURE__ */ jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2.5, d: "M9 5l7 7-7 7" }) }) }),
+                        /* @__PURE__ */ jsx("td", { className: "px-3 py-3 font-semibold text-gray-800 sticky left-8 z-10 bg-inherit shadow-[2px_0_4px_rgba(0,0,0,0.06)]", children: /* @__PURE__ */ jsx("div", { className: "whitespace-normal break-words", children: row.position }) }),
+                        /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center sticky left-[240px] z-10 bg-inherit shadow-[2px_0_4px_rgba(0,0,0,0.06)]", children: /* @__PURE__ */ jsx("span", { className: "inline-flex items-center justify-center w-8 h-6 rounded bg-teal-100 text-teal-800 text-xs font-bold", children: row.salaryGrade }) }),
+                        /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-xs text-gray-600 sticky left-[292px] z-10 bg-inherit shadow-[2px_0_4px_rgba(0,0,0,0.06)]", children: /* @__PURE__ */ jsx("div", { className: "whitespace-normal break-words", children: row.assignment }) }),
+                        /* @__PURE__ */ jsx("td", { className: "px-3 py-3 sticky left-[512px] z-10 bg-inherit shadow-[4px_0_8px_rgba(0,0,0,0.08)]", children: row.secretariats.length > 0 ? /* @__PURE__ */ jsx("div", { className: "flex flex-wrap gap-1", children: row.secretariats.map((s2) => /* @__PURE__ */ jsx("span", { className: "inline-flex px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-700 text-[10px] font-semibold whitespace-nowrap", children: s2 }, s2)) }) : /* @__PURE__ */ jsx("span", { className: "text-gray-300 text-xs", children: "—" }) }),
                         /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: /* @__PURE__ */ jsx("span", { className: "inline-flex items-center justify-center w-7 h-6 rounded bg-slate-100 text-slate-700 text-xs font-bold", children: row.itemCount }) }),
                         /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: /* @__PURE__ */ jsx("span", { className: "font-bold text-blue-700", children: row.totalCandidates }) }),
                         /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center text-gray-500 text-xs font-semibold", children: row.generalList || /* @__PURE__ */ jsx("span", { className: "text-gray-300", children: "—" }) }),
@@ -23312,17 +23344,17 @@ const SecretariatView = ({ user }) => {
                     }
                   ),
                   expanded && sortedItems.map((item) => /* @__PURE__ */ jsxs("tr", { className: "bg-teal-50/60 border-l-4 border-teal-400", children: [
-                    /* @__PURE__ */ jsx("td", { className: "pl-6 pr-2 py-2" }),
-                    /* @__PURE__ */ jsx("td", { className: "px-3 py-2", colSpan: 1, children: /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-2", children: [
+                    /* @__PURE__ */ jsx("td", { className: "pl-6 pr-2 py-2 sticky left-0 z-10 bg-teal-50/60" }),
+                    /* @__PURE__ */ jsx("td", { className: "px-3 py-2 sticky left-8 z-10 bg-teal-50/60 shadow-[2px_0_4px_rgba(0,0,0,0.06)]", colSpan: 1, children: /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-2", children: [
                       /* @__PURE__ */ jsx("svg", { className: "w-3 h-3 text-teal-400 shrink-0", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24", children: /* @__PURE__ */ jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" }) }),
                       /* @__PURE__ */ jsx("span", { className: "text-xs font-bold text-teal-800", children: item.itemNumber })
                     ] }) }),
-                    /* @__PURE__ */ jsx("td", { className: "px-3 py-2 text-center", children: /* @__PURE__ */ jsxs("span", { className: "text-[10px] text-gray-400 font-semibold", children: [
+                    /* @__PURE__ */ jsx("td", { className: "px-3 py-2 text-center sticky left-[240px] z-10 bg-teal-50/60 shadow-[2px_0_4px_rgba(0,0,0,0.06)]", children: /* @__PURE__ */ jsxs("span", { className: "text-[10px] text-gray-400 font-semibold", children: [
                       "SG ",
                       item.salaryGrade
                     ] }) }),
-                    /* @__PURE__ */ jsx("td", { className: "px-3 py-2 text-xs text-gray-400" }),
-                    /* @__PURE__ */ jsx("td", { className: "px-3 py-2", children: item.secretariats.length > 0 ? /* @__PURE__ */ jsx("div", { className: "flex flex-wrap gap-1", children: item.secretariats.map((s2) => /* @__PURE__ */ jsx("span", { className: "inline-flex px-1.5 py-0.5 rounded-full bg-sky-50 text-sky-600 text-[10px] font-semibold border border-sky-100 whitespace-nowrap", children: s2 }, s2)) }) : /* @__PURE__ */ jsx("span", { className: "text-gray-300 text-[10px]", children: "unassigned" }) }),
+                    /* @__PURE__ */ jsx("td", { className: "px-3 py-2 text-xs text-gray-400 sticky left-[292px] z-10 bg-teal-50/60 shadow-[2px_0_4px_rgba(0,0,0,0.06)]" }),
+                    /* @__PURE__ */ jsx("td", { className: "px-3 py-2 sticky left-[512px] z-10 bg-teal-50/60 shadow-[4px_0_8px_rgba(0,0,0,0.08)]", children: item.secretariats.length > 0 ? /* @__PURE__ */ jsx("div", { className: "flex flex-wrap gap-1", children: item.secretariats.map((s2) => /* @__PURE__ */ jsx("span", { className: "inline-flex px-1.5 py-0.5 rounded-full bg-sky-50 text-sky-600 text-[10px] font-semibold border border-sky-100 whitespace-nowrap", children: s2 }, s2)) }) : /* @__PURE__ */ jsx("span", { className: "text-gray-300 text-[10px]", children: "unassigned" }) }),
                     /* @__PURE__ */ jsx("td", { className: "px-3 py-2 text-center text-[10px] text-gray-400", children: "1" }),
                     /* @__PURE__ */ jsx("td", { className: "px-3 py-2 text-center", children: /* @__PURE__ */ jsx("span", { className: "font-bold text-blue-600 text-xs", children: item.totalCandidates }) }),
                     /* @__PURE__ */ jsx("td", { className: "px-3 py-2 text-center text-[10px] text-gray-400 font-semibold", children: item.generalList || "—" }),
@@ -23337,14 +23369,15 @@ const SecretariatView = ({ user }) => {
                 ] }, key);
               }) }),
               /* @__PURE__ */ jsx("tfoot", { className: "bg-teal-50 border-t-2 border-teal-300 sticky bottom-0 shadow-[0_-2px_4px_rgba(0,0,0,0.06)]", children: /* @__PURE__ */ jsxs("tr", { children: [
-                /* @__PURE__ */ jsx("td", {}),
-                /* @__PURE__ */ jsxs("td", { className: "px-3 py-3 font-bold text-teal-800 text-xs uppercase tracking-wide", colSpan: 3, children: [
+                /* @__PURE__ */ jsx("td", { className: "sticky left-0 z-10 bg-teal-50" }),
+                /* @__PURE__ */ jsxs("td", { className: "px-3 py-3 font-bold text-teal-800 text-xs uppercase tracking-wide sticky left-8 z-10 bg-teal-50 shadow-[2px_0_4px_rgba(0,0,0,0.06)]", colSpan: 2, children: [
                   "Totals — ",
                   sortedRows.length,
                   " position",
                   sortedRows.length !== 1 ? "s" : ""
                 ] }),
-                /* @__PURE__ */ jsx("td", { className: "px-3 py-3" }),
+                /* @__PURE__ */ jsx("td", { className: "px-3 py-3 sticky left-[292px] z-10 bg-teal-50 shadow-[2px_0_4px_rgba(0,0,0,0.06)]" }),
+                /* @__PURE__ */ jsx("td", { className: "px-3 py-3 sticky left-[512px] z-10 bg-teal-50 shadow-[4px_0_8px_rgba(0,0,0,0.08)]" }),
                 /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-slate-700", children: totals.itemCount }),
                 /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-blue-700", children: totals.totalCandidates }),
                 /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-gray-600", children: totals.generalList }),
@@ -31922,4 +31955,4 @@ client.createRoot(document.getElementById("root")).render(
 export {
   _typeof as _
 };
-//# sourceMappingURL=index-0baa4cd1.js.map
+//# sourceMappingURL=index-85958f13.js.map
