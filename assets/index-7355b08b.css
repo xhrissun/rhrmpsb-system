@@ -1536,8 +1536,8 @@ video {
 .grid-cols-5 {
   grid-template-columns: repeat(5, minmax(0, 1fr));
 }
-.grid-cols-6 {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+.grid-cols-7 {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
 }
 .flex-col {
   flex-direction: column;
@@ -2153,6 +2153,10 @@ video {
 .bg-red-100 {
   --tw-bg-opacity: 1;
   background-color: rgb(254 226 226 / var(--tw-bg-opacity, 1));
+}
+.bg-red-200 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(254 202 202 / var(--tw-bg-opacity, 1));
 }
 .bg-red-50 {
   --tw-bg-opacity: 1;
@@ -2948,6 +2952,10 @@ video {
 .text-red-800 {
   --tw-text-opacity: 1;
   color: rgb(153 27 27 / var(--tw-text-opacity, 1));
+}
+.text-red-900 {
+  --tw-text-opacity: 1;
+  color: rgb(127 29 29 / var(--tw-text-opacity, 1));
 }
 .text-rose-700 {
   --tw-text-opacity: 1;

@@ -16829,7 +16829,7 @@ function(t2) {
  */
 function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-12642eed.js"), true ? ["assets/index.es-12642eed.js","assets/vendor-05345498.js","assets/pdfjs-3a644b6e.js"] : void 0)).catch(function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-1917566c.js"), true ? ["assets/index.es-1917566c.js","assets/vendor-05345498.js","assets/pdfjs-3a644b6e.js"] : void 0)).catch(function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     }).then(function(t3) {
       return t3.default ? t3.default : t3;
@@ -20728,7 +20728,8 @@ const SecretariatView = ({ user }) => {
     const longListed = candidates.filter((c2) => c2.status === CANDIDATE_STATUS.LONG_LIST).length;
     const forReview = candidates.filter((c2) => c2.status === CANDIDATE_STATUS.FOR_REVIEW).length;
     const disqualified = candidates.filter((c2) => c2.status === CANDIDATE_STATUS.DISQUALIFIED).length;
-    return { total, longListed, forReview, disqualified };
+    const lateCount = candidates.filter((c2) => c2.isLateApplicant).length;
+    return { total, longListed, forReview, disqualified, lateCount };
   }, [candidates]);
   const getGenderStatistics = reactExports.useCallback(() => {
     let baseFiltered = candidates;
@@ -21303,6 +21304,7 @@ const SecretariatView = ({ user }) => {
           longListed: groupCandidates.filter((c2) => c2.status === CANDIDATE_STATUS.LONG_LIST).length,
           forReview: groupCandidates.filter((c2) => c2.status === CANDIDATE_STATUS.FOR_REVIEW).length,
           disqualified: groupCandidates.filter((c2) => c2.status === CANDIDATE_STATUS.DISQUALIFIED).length,
+          lateApplicant: groupCandidates.filter((c2) => c2.isLateApplicant).length,
           positions: Object.values(group.positions).map((pos) => {
             const posCandidates = allCandidates.filter((c2) => pos.itemNumbers.includes(c2.itemNumber));
             return {
@@ -21311,7 +21313,8 @@ const SecretariatView = ({ user }) => {
               generalList: posCandidates.filter((c2) => c2.status === CANDIDATE_STATUS.GENERAL_LIST).length,
               longListed: posCandidates.filter((c2) => c2.status === CANDIDATE_STATUS.LONG_LIST).length,
               forReview: posCandidates.filter((c2) => c2.status === CANDIDATE_STATUS.FOR_REVIEW).length,
-              disqualified: posCandidates.filter((c2) => c2.status === CANDIDATE_STATUS.DISQUALIFIED).length
+              disqualified: posCandidates.filter((c2) => c2.status === CANDIDATE_STATUS.DISQUALIFIED).length,
+              lateApplicant: posCandidates.filter((c2) => c2.isLateApplicant).length
             };
           })
         };
@@ -21747,6 +21750,10 @@ const SecretariatView = ({ user }) => {
                 },
                 label
               )),
+              /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-2 px-3 py-2 rounded-lg border-2 border-red-300 bg-red-50 text-red-800", children: [
+                /* @__PURE__ */ jsx("span", { className: "text-xl font-bold leading-none", children: stats.lateCount }),
+                /* @__PURE__ */ jsx("span", { className: "text-xs font-semibold leading-tight", children: "Late" })
+              ] }),
               /* @__PURE__ */ jsx("div", { className: "w-px h-8 bg-gray-200 shrink-0" }),
               /* @__PURE__ */ jsx("span", { className: "text-xs font-bold text-gray-600 whitespace-nowrap", children: "Gender:" }),
               [
@@ -22781,8 +22788,9 @@ const SecretariatView = ({ user }) => {
         generalList: acc.generalList + g2.generalList,
         longListed: acc.longListed + g2.longListed,
         forReview: acc.forReview + g2.forReview,
-        disqualified: acc.disqualified + g2.disqualified
-      }), { vacancies: 0, candidates: 0, generalList: 0, longListed: 0, forReview: 0, disqualified: 0 });
+        disqualified: acc.disqualified + g2.disqualified,
+        lateApplicant: acc.lateApplicant + g2.lateApplicant
+      }), { vacancies: 0, candidates: 0, generalList: 0, longListed: 0, forReview: 0, disqualified: 0, lateApplicant: 0 });
       return /* @__PURE__ */ jsx("div", { className: "fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4", children: /* @__PURE__ */ jsxs("div", { className: "bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col", children: [
         /* @__PURE__ */ jsxs("div", { className: "bg-gradient-to-r from-teal-600 to-cyan-600 px-6 py-4 rounded-t-2xl flex items-center justify-between", children: [
           /* @__PURE__ */ jsxs("div", { className: "flex items-center space-x-3", children: [
@@ -22802,13 +22810,14 @@ const SecretariatView = ({ user }) => {
             }
           )
         ] }),
-        !summaryLoading && /* @__PURE__ */ jsx("div", { className: "bg-gray-50 border-b border-gray-200 px-6 py-3 grid grid-cols-6 gap-3", children: [
+        !summaryLoading && /* @__PURE__ */ jsx("div", { className: "bg-gray-50 border-b border-gray-200 px-6 py-3 grid grid-cols-7 gap-3", children: [
           { label: "Total Vacancies", value: grandTotal.vacancies, color: "text-gray-800" },
           { label: "Total Applicants", value: grandTotal.candidates, color: "text-blue-700" },
           { label: "General List", value: grandTotal.generalList, color: "text-gray-600" },
           { label: "Long Listed", value: grandTotal.longListed, color: "text-green-700" },
           { label: "For Review", value: grandTotal.forReview, color: "text-yellow-700" },
-          { label: "Disqualified", value: grandTotal.disqualified, color: "text-red-700" }
+          { label: "Disqualified", value: grandTotal.disqualified, color: "text-red-700" },
+          { label: "Late Applicants", value: grandTotal.lateApplicant, color: "text-red-900" }
         ].map((stat) => /* @__PURE__ */ jsxs("div", { className: "text-center", children: [
           /* @__PURE__ */ jsx("div", { className: `text-2xl font-extrabold ${stat.color}`, children: stat.value }),
           /* @__PURE__ */ jsx("div", { className: "text-xs text-gray-500 font-medium", children: stat.label })
@@ -22840,6 +22849,10 @@ const SecretariatView = ({ user }) => {
               group.disqualified > 0 && /* @__PURE__ */ jsxs("span", { className: "bg-red-100 text-red-700 px-2 py-1 rounded-md", children: [
                 group.disqualified,
                 " Disqualified"
+              ] }),
+              group.lateApplicant > 0 && /* @__PURE__ */ jsxs("span", { className: "bg-red-200 text-red-900 font-bold px-2 py-1 rounded-md", children: [
+                group.lateApplicant,
+                " Late"
               ] })
             ] })
           ] }),
@@ -22851,7 +22864,8 @@ const SecretariatView = ({ user }) => {
               /* @__PURE__ */ jsx("th", { className: "text-center px-3 py-2 font-semibold", children: "General" }),
               /* @__PURE__ */ jsx("th", { className: "text-center px-3 py-2 font-semibold", children: "Long Listed" }),
               /* @__PURE__ */ jsx("th", { className: "text-center px-3 py-2 font-semibold", children: "For Review" }),
-              /* @__PURE__ */ jsx("th", { className: "text-center px-3 py-2 font-semibold", children: "Disqualified" })
+              /* @__PURE__ */ jsx("th", { className: "text-center px-3 py-2 font-semibold", children: "Disqualified" }),
+              /* @__PURE__ */ jsx("th", { className: "text-center px-3 py-2 font-semibold text-red-700", children: "Late" })
             ] }) }),
             /* @__PURE__ */ jsx("tbody", { className: "divide-y divide-gray-100", children: group.positions.map((pos) => /* @__PURE__ */ jsxs("tr", { className: "hover:bg-gray-50 transition-colors", children: [
               /* @__PURE__ */ jsx("td", { className: "px-4 py-2.5 font-medium text-gray-800", children: pos.position }),
@@ -22860,7 +22874,8 @@ const SecretariatView = ({ user }) => {
               /* @__PURE__ */ jsx("td", { className: "px-3 py-2.5 text-center text-gray-600", children: pos.generalList }),
               /* @__PURE__ */ jsx("td", { className: "px-3 py-2.5 text-center text-green-700 font-semibold", children: pos.longListed }),
               /* @__PURE__ */ jsx("td", { className: "px-3 py-2.5 text-center text-yellow-700 font-semibold", children: pos.forReview }),
-              /* @__PURE__ */ jsx("td", { className: "px-3 py-2.5 text-center text-red-700 font-semibold", children: pos.disqualified })
+              /* @__PURE__ */ jsx("td", { className: "px-3 py-2.5 text-center text-red-700 font-semibold", children: pos.disqualified }),
+              /* @__PURE__ */ jsx("td", { className: "px-3 py-2.5 text-center text-red-900 font-bold", children: pos.lateApplicant || "—" })
             ] }, pos.position)) })
           ] })
         ] }, group.assignment)) }),
@@ -23019,6 +23034,7 @@ const SecretariatView = ({ user }) => {
           longListed: 0,
           forReview: 0,
           disqualified: 0,
+          lateApplicant: 0,
           govtPresent: 0,
           govtWithin2Yrs: 0,
           govtMoreThan6Mo: 0,
@@ -23040,6 +23056,8 @@ const SecretariatView = ({ user }) => {
           row.forReview++;
         if (c2.status === "disqualified")
           row.disqualified++;
+        if (c2.isLateApplicant)
+          row.lateApplicant++;
         const ge2 = c2.governmentEmployment;
         if (ge2) {
           if (ge2.employmentPeriod === "present")
@@ -23067,6 +23085,7 @@ const SecretariatView = ({ user }) => {
             longListed: 0,
             forReview: 0,
             disqualified: 0,
+            lateApplicant: 0,
             govtPresent: 0,
             govtWithin2Yrs: 0,
             govtMoreThan6Mo: 0,
@@ -23082,6 +23101,7 @@ const SecretariatView = ({ user }) => {
         p2.longListed += item.longListed;
         p2.forReview += item.forReview;
         p2.disqualified += item.disqualified;
+        p2.lateApplicant += item.lateApplicant;
         p2.govtPresent += item.govtPresent;
         p2.govtWithin2Yrs += item.govtWithin2Yrs;
         p2.govtMoreThan6Mo += item.govtMoreThan6Mo;
@@ -23110,11 +23130,12 @@ const SecretariatView = ({ user }) => {
         longListed: acc.longListed + r.longListed,
         forReview: acc.forReview + r.forReview,
         disqualified: acc.disqualified + r.disqualified,
+        lateApplicant: acc.lateApplicant + r.lateApplicant,
         govtPresent: acc.govtPresent + r.govtPresent,
         govtWithin2Yrs: acc.govtWithin2Yrs + r.govtWithin2Yrs,
         govtMoreThan6Mo: acc.govtMoreThan6Mo + r.govtMoreThan6Mo,
         govtLessThan6Mo: acc.govtLessThan6Mo + r.govtLessThan6Mo
-      }), { itemCount: 0, totalCandidates: 0, generalList: 0, longListed: 0, forReview: 0, disqualified: 0, govtPresent: 0, govtWithin2Yrs: 0, govtMoreThan6Mo: 0, govtLessThan6Mo: 0 });
+      }), { itemCount: 0, totalCandidates: 0, generalList: 0, longListed: 0, forReview: 0, disqualified: 0, lateApplicant: 0, govtPresent: 0, govtWithin2Yrs: 0, govtMoreThan6Mo: 0, govtLessThan6Mo: 0 });
       const SortTh = ({ label, sortKey, className = "" }) => {
         const active = posStatsSortKey === sortKey;
         return /* @__PURE__ */ jsx(
@@ -23268,7 +23289,8 @@ const SecretariatView = ({ user }) => {
                 { label: `${totals.totalCandidates} Applicants`, cls: "bg-blue-100 text-blue-800" },
                 { label: `${totals.longListed} Long Listed`, cls: "bg-green-100 text-green-800" },
                 { label: `${totals.forReview} For Review`, cls: "bg-yellow-100 text-yellow-800" },
-                { label: `${totals.disqualified} Disqualified`, cls: "bg-red-100 text-red-800" }
+                { label: `${totals.disqualified} Disqualified`, cls: "bg-red-100 text-red-800" },
+                { label: `${totals.lateApplicant} Late`, cls: "bg-red-200 text-red-900 font-extrabold" }
               ].map(({ label, cls }) => /* @__PURE__ */ jsx("span", { className: `px-2.5 py-1 rounded-full text-xs font-bold ${cls}`, children: label }, label)) })
             ] }),
             /* @__PURE__ */ jsx("div", { className: "flex-1 overflow-auto", children: posStatsLoading ? /* @__PURE__ */ jsxs("div", { className: "flex flex-col items-center justify-center py-24 gap-3 text-gray-400", children: [
@@ -23305,6 +23327,8 @@ const SecretariatView = ({ user }) => {
                 "         ",
                 /* @__PURE__ */ jsx("col", { style: { width: "60px" } }),
                 "         ",
+                /* @__PURE__ */ jsx("col", { style: { width: "60px" } }),
+                "         ",
                 /* @__PURE__ */ jsx("col", { style: { width: "88px" } }),
                 "         ",
                 /* @__PURE__ */ jsx("col", { style: { width: "88px" } }),
@@ -23326,6 +23350,7 @@ const SecretariatView = ({ user }) => {
                 /* @__PURE__ */ jsx(SortTh, { label: "Long List", sortKey: "longListed", className: "text-center text-green-600" }),
                 /* @__PURE__ */ jsx(SortTh, { label: "Review", sortKey: "forReview", className: "text-center text-yellow-600" }),
                 /* @__PURE__ */ jsx(SortTh, { label: "DQ", sortKey: "disqualified", className: "text-center text-red-500" }),
+                /* @__PURE__ */ jsx(SortTh, { label: "Late", sortKey: "lateApplicant", className: "text-center text-red-700" }),
                 /* @__PURE__ */ jsx(SortTh, { label: "Govt Present", sortKey: "govtPresent", className: "text-center text-emerald-600" }),
                 /* @__PURE__ */ jsx(SortTh, { label: "Within 2 Yrs", sortKey: "govtWithin2Yrs", className: "text-center text-amber-600" }),
                 /* @__PURE__ */ jsx(SortTh, { label: ">6 Mos", sortKey: "govtMoreThan6Mo", className: "text-center text-indigo-600" }),
@@ -23357,6 +23382,7 @@ const SecretariatView = ({ user }) => {
                         /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: /* @__PURE__ */ jsx(StatBadge, { val: row.longListed, cls: "bg-green-100 text-green-700" }) }),
                         /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: /* @__PURE__ */ jsx(StatBadge, { val: row.forReview, cls: "bg-yellow-100 text-yellow-700" }) }),
                         /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: /* @__PURE__ */ jsx(StatBadge, { val: row.disqualified, cls: "bg-red-100 text-red-700" }) }),
+                        /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: /* @__PURE__ */ jsx(StatBadge, { val: row.lateApplicant, cls: "bg-red-200 text-red-900" }) }),
                         /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: /* @__PURE__ */ jsx(StatBadge, { val: row.govtPresent, cls: "bg-emerald-100 text-emerald-700" }) }),
                         /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: /* @__PURE__ */ jsx(StatBadge, { val: row.govtWithin2Yrs, cls: "bg-amber-100 text-amber-700" }) }),
                         /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center", children: /* @__PURE__ */ jsx(StatBadge, { val: row.govtMoreThan6Mo, cls: "bg-indigo-100 text-indigo-700" }) }),
@@ -23382,6 +23408,7 @@ const SecretariatView = ({ user }) => {
                     /* @__PURE__ */ jsx("td", { className: "px-3 py-2 text-center", children: /* @__PURE__ */ jsx(StatBadge, { val: item.longListed, cls: "bg-green-100 text-green-700" }) }),
                     /* @__PURE__ */ jsx("td", { className: "px-3 py-2 text-center", children: /* @__PURE__ */ jsx(StatBadge, { val: item.forReview, cls: "bg-yellow-100 text-yellow-700" }) }),
                     /* @__PURE__ */ jsx("td", { className: "px-3 py-2 text-center", children: /* @__PURE__ */ jsx(StatBadge, { val: item.disqualified, cls: "bg-red-100 text-red-700" }) }),
+                    /* @__PURE__ */ jsx("td", { className: "px-3 py-2 text-center", children: /* @__PURE__ */ jsx(StatBadge, { val: item.lateApplicant, cls: "bg-red-200 text-red-900" }) }),
                     /* @__PURE__ */ jsx("td", { className: "px-3 py-2 text-center", children: /* @__PURE__ */ jsx(StatBadge, { val: item.govtPresent, cls: "bg-emerald-100 text-emerald-700" }) }),
                     /* @__PURE__ */ jsx("td", { className: "px-3 py-2 text-center", children: /* @__PURE__ */ jsx(StatBadge, { val: item.govtWithin2Yrs, cls: "bg-amber-100 text-amber-700" }) }),
                     /* @__PURE__ */ jsx("td", { className: "px-3 py-2 text-center", children: /* @__PURE__ */ jsx(StatBadge, { val: item.govtMoreThan6Mo, cls: "bg-indigo-100 text-indigo-700" }) }),
@@ -23405,6 +23432,7 @@ const SecretariatView = ({ user }) => {
                 /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-green-700", children: totals.longListed }),
                 /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-yellow-700", children: totals.forReview }),
                 /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-red-700", children: totals.disqualified }),
+                /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-red-900", children: totals.lateApplicant }),
                 /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-emerald-700", children: totals.govtPresent }),
                 /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-amber-700", children: totals.govtWithin2Yrs }),
                 /* @__PURE__ */ jsx("td", { className: "px-3 py-3 text-center font-bold text-indigo-700", children: totals.govtMoreThan6Mo }),
@@ -31976,4 +32004,4 @@ client.createRoot(document.getElementById("root")).render(
 export {
   _typeof as _
 };
-//# sourceMappingURL=index-13415b86.js.map
+//# sourceMappingURL=index-58dda578.js.map

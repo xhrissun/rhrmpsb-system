@@ -1,5 +1,5 @@
 import { c as commonjsGlobal, e as getDefaultExportFromCjs } from "./vendor-05345498.js";
-import { _ as _typeof$1 } from "./index-13415b86.js";
+import { _ as _typeof$1 } from "./index-58dda578.js";
 import "./pdfjs-3a644b6e.js";
 var check = function(it) {
   return it && it.Math === Math && it;
@@ -9474,4 +9474,4 @@ export {
   vectorsAngle,
   vectorsRatio
 };
-//# sourceMappingURL=index.es-12642eed.js.map
+//# sourceMappingURL=index.es-1917566c.js.map
