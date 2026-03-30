@@ -16825,7 +16825,7 @@ function(t2) {
  */
 function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-4ea70f4d.js"), true ? ["assets/index.es-4ea70f4d.js","assets/vendor-05345498.js","assets/pdfjs-3a644b6e.js"] : void 0)).catch(function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-e4edc2df.js"), true ? ["assets/index.es-e4edc2df.js","assets/vendor-05345498.js","assets/pdfjs-3a644b6e.js"] : void 0)).catch(function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     }).then(function(t3) {
       return t3.default ? t3.default : t3;
@@ -20651,6 +20651,17 @@ const SecretariatView = ({ user }) => {
   const [govtEmpSiblingsLoading, setGovtEmpSiblingsLoading] = reactExports.useState(false);
   const [commentSiblingsLoading, setCommentSiblingsLoading] = reactExports.useState(false);
   const [reviewBadgeIds, setReviewBadgeIds] = reactExports.useState(/* @__PURE__ */ new Set());
+  const [lateApplicants, setLateApplicants] = reactExports.useState(/* @__PURE__ */ new Set());
+  const toggleLateApplicant = reactExports.useCallback((id) => {
+    setLateApplicants((prev) => {
+      const next = new Set(prev);
+      if (next.has(id))
+        next.delete(id);
+      else
+        next.add(id);
+      return next;
+    });
+  }, []);
   const [statusFilter, setStatusFilter] = reactExports.useState(null);
   const [showAssignmentSummary, setShowAssignmentSummary] = reactExports.useState(false);
   const [showCBSManual, setShowCBSManual] = reactExports.useState(false);
@@ -21856,11 +21867,13 @@ const SecretariatView = ({ user }) => {
               /* @__PURE__ */ jsx("th", { className: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider", children: "Name" }),
               /* @__PURE__ */ jsx("th", { className: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider", children: "Position" }),
               /* @__PURE__ */ jsx("th", { className: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-28", children: "Status" }),
+              /* @__PURE__ */ jsx("th", { className: "px-6 py-3 text-center text-xs font-medium text-red-500 uppercase tracking-wider w-24", children: "Late" }),
               /* @__PURE__ */ jsx("th", { className: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32", children: "Actions" })
             ] }) }),
             /* @__PURE__ */ jsx("tbody", { className: "bg-white divide-y divide-gray-200", children: filteredCandidates.map((candidate, index2) => {
               const vacancy = vacancies.find((v2) => v2.itemNumber === candidate.itemNumber);
-              return /* @__PURE__ */ jsxs("tr", { className: `hover:bg-gradient-to-r hover:from-blue-50 hover:to-indigo-50 transition-all duration-150 ${candidate.isArchived ? "bg-gray-100 opacity-60" : ""}`, children: [
+              const isLate = lateApplicants.has(candidate._id);
+              return /* @__PURE__ */ jsxs("tr", { className: `transition-all duration-150 ${isLate ? "bg-red-50 hover:bg-red-100 border-l-4 border-red-500" : candidate.isArchived ? "bg-gray-100 opacity-60 hover:bg-gray-200" : "hover:bg-gradient-to-r hover:from-blue-50 hover:to-indigo-50"}`, children: [
                 /* @__PURE__ */ jsx("td", { className: "px-6 py-4 whitespace-nowrap text-sm text-gray-500", children: index2 + 1 }),
                 /* @__PURE__ */ jsx("td", { className: "px-6 py-4 max-w-[220px]", children: /* @__PURE__ */ jsxs("div", { className: "flex items-center", children: [
                   /* @__PURE__ */ jsx("div", { className: "flex-shrink-0 h-8 w-8", children: /* @__PURE__ */ jsx("div", { className: `h-8 w-8 rounded-full ${candidate.isArchived ? "bg-gray-400" : "bg-gradient-to-br from-blue-500 to-indigo-600"} flex items-center justify-center`, children: /* @__PURE__ */ jsx("span", { className: "text-xs font-medium text-white", children: candidate.fullName.charAt(0) }) }) }),
@@ -21973,6 +21986,33 @@ const SecretariatView = ({ user }) => {
                   }
                 ) }),
                 /* @__PURE__ */ jsx("td", { className: "px-6 py-4 whitespace-nowrap", children: /* @__PURE__ */ jsx("span", { className: `px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(candidate.status)}`, children: getStatusLabel(candidate.status) }) }),
+                /* @__PURE__ */ jsx("td", { className: "px-6 py-4 whitespace-nowrap text-center", children: /* @__PURE__ */ jsxs(
+                  "label",
+                  {
+                    className: "inline-flex flex-col items-center gap-1 cursor-pointer group",
+                    title: isLate ? "Marked as Late Applicant — click to remove" : "Mark as Late Applicant",
+                    children: [
+                      /* @__PURE__ */ jsx(
+                        "input",
+                        {
+                          type: "checkbox",
+                          checked: isLate,
+                          onChange: () => toggleLateApplicant(candidate._id),
+                          className: "sr-only"
+                        }
+                      ),
+                      /* @__PURE__ */ jsx(
+                        "span",
+                        {
+                          className: `w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all duration-150
+                            ${isLate ? "border-red-500 bg-red-500" : "border-gray-300 bg-white group-hover:border-red-400"}`,
+                          children: isLate && /* @__PURE__ */ jsx("svg", { className: "w-3 h-3 text-white", fill: "currentColor", viewBox: "0 0 24 24", children: /* @__PURE__ */ jsx("circle", { cx: "12", cy: "12", r: "6" }) })
+                        }
+                      ),
+                      isLate && /* @__PURE__ */ jsx("span", { className: "text-[10px] font-bold text-red-600 uppercase tracking-wide leading-none", children: "Late" })
+                    ]
+                  }
+                ) }),
                 /* @__PURE__ */ jsx("td", { className: "px-6 py-4 whitespace-nowrap text-sm font-medium", children: /* @__PURE__ */ jsxs("div", { className: "flex space-x-2", children: [
                   /* @__PURE__ */ jsx(
                     "button",
@@ -22038,7 +22078,7 @@ const SecretariatView = ({ user }) => {
         ;
       else
         ;
-      const statusAccent = candidate.status === CANDIDATE_STATUS.LONG_LIST ? { ring: "ring-green-500", dot: "bg-green-500", badge: "bg-green-100 text-green-800", label: "text-green-700" } : candidate.status === CANDIDATE_STATUS.FOR_REVIEW ? { ring: "ring-amber-400", dot: "bg-amber-400", badge: "bg-amber-100 text-amber-800", label: "text-amber-700" } : candidate.status === CANDIDATE_STATUS.DISQUALIFIED ? { ring: "ring-red-500", dot: "bg-red-500", badge: "bg-red-100 text-red-800", label: "text-red-700" } : { ring: "ring-gray-400", dot: "bg-gray-400", badge: "bg-gray-100 text-gray-700", label: "text-gray-600" };
+      candidate.status === CANDIDATE_STATUS.LONG_LIST ? { ring: "ring-green-500", dot: "bg-green-500", badge: "bg-green-100 text-green-800", label: "text-green-700" } : candidate.status === CANDIDATE_STATUS.FOR_REVIEW ? { ring: "ring-amber-400", dot: "bg-amber-400", badge: "bg-amber-100 text-amber-800", label: "text-amber-700" } : candidate.status === CANDIDATE_STATUS.DISQUALIFIED ? { ring: "ring-red-500", dot: "bg-red-500", badge: "bg-red-100 text-red-800", label: "text-red-700" } : { ring: "ring-gray-400", dot: "bg-gray-400", badge: "bg-gray-100 text-gray-700", label: "text-gray-600" };
       const COMMENT_FIELDS = [
         { key: "education", label: "Education", icon: "M12 14l9-5-9-5-9 5 9 5z M12 14l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14z" },
         { key: "training", label: "Training", icon: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" },
@@ -22057,52 +22097,51 @@ const SecretariatView = ({ user }) => {
         { key: "transcriptOfRecords", label: "Transcript of Records", abbr: "TOR", color: "bg-rose-50 text-rose-700 border-rose-200" },
         { key: "ipcr", label: "IPCR", abbr: "IPCR", color: "bg-orange-50 text-orange-700 border-orange-200" }
       ];
+      const bannerBg = candidate.status === CANDIDATE_STATUS.LONG_LIST ? "bg-green-600" : candidate.status === CANDIDATE_STATUS.FOR_REVIEW ? "bg-amber-500" : candidate.status === CANDIDATE_STATUS.DISQUALIFIED ? "bg-red-600" : "bg-gray-600";
+      const bannerText = candidate.status === CANDIDATE_STATUS.FOR_REVIEW ? "text-gray-900" : "text-white";
       return /* @__PURE__ */ jsx("div", { className: "fixed inset-0 bg-black bg-opacity-40 backdrop-blur-sm flex items-center justify-center z-50 p-4", role: "dialog", "aria-modal": "true", "aria-labelledby": "view-comments-title", children: /* @__PURE__ */ jsxs("div", { className: "bg-white rounded-2xl shadow-2xl w-full max-w-4xl flex flex-col max-h-[92vh]", children: [
-        /* @__PURE__ */ jsx("div", { className: "px-6 pt-6 pb-4 border-b border-gray-100 shrink-0", children: /* @__PURE__ */ jsxs("div", { className: "flex items-start justify-between gap-4", children: [
-          /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-3 min-w-0", children: [
-            /* @__PURE__ */ jsx("span", { className: `w-3 h-3 rounded-full shrink-0 mt-1 ${statusAccent.dot}` }),
-            /* @__PURE__ */ jsxs("div", { className: "min-w-0", children: [
-              /* @__PURE__ */ jsx("h2", { id: "view-comments-title", className: "text-xl font-bold text-gray-900 leading-tight truncate", children: candidate.fullName }),
-              /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-2 mt-1 flex-wrap", children: [
-                /* @__PURE__ */ jsx("span", { className: `text-xs font-semibold px-2.5 py-0.5 rounded-full ${statusAccent.badge}`, children: displayStatus }),
-                candidate.isArchived && /* @__PURE__ */ jsx("span", { className: "text-xs font-semibold px-2.5 py-0.5 rounded-full bg-orange-100 text-orange-700", children: "Archived" }),
-                vacancy && /* @__PURE__ */ jsxs("span", { className: "text-xs text-gray-500", children: [
-                  vacancy.position,
-                  " · SG ",
-                  vacancy.salaryGrade,
-                  " · ",
-                  candidate.itemNumber
-                ] })
-              ] })
-            ] })
-          ] }),
+        /* @__PURE__ */ jsxs("div", { className: `${bannerBg} ${bannerText} rounded-t-2xl px-6 pt-5 pb-4 shrink-0 relative`, children: [
           /* @__PURE__ */ jsx(
             "button",
             {
               onClick: closeViewCommentsModal,
               "aria-label": "Close comments modal",
-              className: "shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors",
+              className: `absolute top-3 right-3 w-8 h-8 flex items-center justify-center rounded-lg transition-colors
+                    ${candidate.status === CANDIDATE_STATUS.FOR_REVIEW ? "text-gray-700 hover:bg-amber-400" : "text-white/80 hover:text-white hover:bg-white/20"}`,
               children: /* @__PURE__ */ jsx("svg", { className: "w-4 h-4", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24", children: /* @__PURE__ */ jsx("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M6 18L18 6M6 6l12 12" }) })
             }
-          )
-        ] }) }),
+          ),
+          /* @__PURE__ */ jsxs("div", { className: "text-center pr-6", children: [
+            /* @__PURE__ */ jsx("h2", { id: "view-comments-title", className: "text-2xl font-extrabold leading-tight tracking-wide break-words", children: candidate.fullName }),
+            /* @__PURE__ */ jsxs("div", { className: "flex items-center justify-center gap-2 mt-2 flex-wrap", children: [
+              /* @__PURE__ */ jsx("span", { className: `text-xs font-bold px-3 py-0.5 rounded-full
+                      ${candidate.status === CANDIDATE_STATUS.FOR_REVIEW ? "bg-amber-700/20 text-gray-900" : "bg-white/20 text-white"}`, children: displayStatus }),
+              candidate.isArchived && /* @__PURE__ */ jsx("span", { className: "text-xs font-bold px-3 py-0.5 rounded-full bg-white/20", children: "Archived" })
+            ] }),
+            vacancy && /* @__PURE__ */ jsxs("p", { className: `text-sm font-medium mt-1.5 opacity-90 break-words leading-snug ${bannerText}`, children: [
+              vacancy.assignment,
+              " · ",
+              vacancy.position,
+              " · SG ",
+              vacancy.salaryGrade,
+              " · ",
+              candidate.itemNumber
+            ] })
+          ] })
+        ] }),
         /* @__PURE__ */ jsxs("div", { className: "flex-1 overflow-y-auto", children: [
-          /* @__PURE__ */ jsxs("div", { className: "px-6 py-4 bg-gray-50 border-b border-gray-100 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm", children: [
+          /* @__PURE__ */ jsxs("div", { className: "px-6 py-4 bg-gray-50 border-b border-gray-100 flex flex-wrap gap-x-10 gap-y-3 text-sm", children: [
             /* @__PURE__ */ jsxs("div", { children: [
               /* @__PURE__ */ jsx("p", { className: "text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5", children: "Gender" }),
-              /* @__PURE__ */ jsx("p", { className: "font-semibold text-gray-800", children: candidate.gender || "—" })
+              /* @__PURE__ */ jsx("p", { className: "font-semibold text-gray-800 whitespace-nowrap", children: candidate.gender || "—" })
             ] }),
             /* @__PURE__ */ jsxs("div", { children: [
               /* @__PURE__ */ jsx("p", { className: "text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5", children: "Age" }),
-              /* @__PURE__ */ jsx("p", { className: "font-semibold text-gray-800", children: candidate.age || "—" })
-            ] }),
-            vacancy && /* @__PURE__ */ jsxs("div", { children: [
-              /* @__PURE__ */ jsx("p", { className: "text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5", children: "Assignment" }),
-              /* @__PURE__ */ jsx("p", { className: "font-semibold text-gray-800 truncate", children: vacancy.assignment })
+              /* @__PURE__ */ jsx("p", { className: "font-semibold text-gray-800 whitespace-nowrap", children: candidate.age || "—" })
             ] }),
             /* @__PURE__ */ jsxs("div", { children: [
               /* @__PURE__ */ jsx("p", { className: "text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5", children: "Eligibility" }),
-              /* @__PURE__ */ jsx("p", { className: "font-semibold text-gray-800 truncate", children: candidate.eligibility || "—" })
+              /* @__PURE__ */ jsx("p", { className: "font-semibold text-gray-800 whitespace-nowrap", children: candidate.eligibility || "—" })
             ] })
           ] }),
           /* @__PURE__ */ jsxs("div", { className: "px-6 py-4 border-b border-gray-100", children: [
@@ -31883,4 +31922,4 @@ client.createRoot(document.getElementById("root")).render(
 export {
   _typeof as _
 };
-//# sourceMappingURL=index-b58eac66.js.map
+//# sourceMappingURL=index-0baa4cd1.js.map
