@@ -3319,79 +3319,58 @@ const SecretariatView = ({ user }) => {
                     <p className="text-sm font-medium">No positions match the selected filters.</p>
                   </div>
                 ) : (
-                  <table className="text-sm border-collapse" style={{ tableLayout: 'fixed', width: '1180px', minWidth: '1180px' }}>
-                    <colgroup>
-                      <col style={{ width: '32px' }} />         {/* chevron        left: 0 */}
-                      <col style={{ width: '200px' }} />        {/* position        left: 32 */}
-                      <col style={{ width: '52px' }} />         {/* SG             left: 232 */}
-                      <col style={{ width: '200px' }} />        {/* assignment      left: 284 */}
-                      <col style={{ width: '160px' }} />        {/* secretariats    left: 484 */}
-                      <col style={{ width: '56px' }} />         {/* items */}
-                      <col style={{ width: '64px' }} />         {/* total */}
-                      <col style={{ width: '64px' }} />         {/* general */}
-                      <col style={{ width: '76px' }} />         {/* long list */}
-                      <col style={{ width: '64px' }} />         {/* review */}
-                      <col style={{ width: '52px' }} />         {/* dq */}
-                      <col style={{ width: '52px' }} />         {/* late */}
-                      <col style={{ width: '84px' }} />         {/* govt present */}
-                      <col style={{ width: '84px' }} />         {/* within 2 yrs */}
-                      <col style={{ width: '60px' }} />         {/* >6 mos */}
-                      <col style={{ width: '60px' }} />         {/* <6 mos */}
-                    </colgroup>
-                    <thead className="sticky top-0 z-30">
+                  <table className="w-full text-sm border-collapse" style={{ minWidth: '1100px' }}>
+                    <thead className="sticky top-0 z-10">
                       <tr>
-                        {/* expand toggle col */}
-                        <th className="w-8 bg-gray-50 border-b border-gray-200 sticky left-0 z-40" />
-                        <SortTh label="Position"   sortKey="position"        className="text-left sticky left-[32px] z-40 bg-gray-50 shadow-[2px_0_4px_rgba(0,0,0,0.06)]" />
-                        <SortTh label="SG"         sortKey="salaryGrade"     className="text-center sticky left-[232px] z-40 bg-gray-50 shadow-[2px_0_4px_rgba(0,0,0,0.06)]" />
-                        <SortTh label="Assignment" sortKey="assignment"       className="text-left sticky left-[284px] z-40 bg-gray-50 shadow-[2px_0_4px_rgba(0,0,0,0.06)]" />
-                        <th className="px-3 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-50 border-b border-gray-200 text-left whitespace-nowrap sticky left-[484px] z-40 shadow-[4px_0_8px_rgba(0,0,0,0.08)]">Secretariats</th>
-                        <SortTh label="Items"      sortKey="itemCount"       className="text-center" />
-                        <SortTh label="Total"      sortKey="totalCandidates" className="text-center text-blue-600" />
-                        <SortTh label="General"    sortKey="generalList"     className="text-center text-gray-500" />
-                        <SortTh label="Long List"  sortKey="longListed"      className="text-center text-green-600" />
-                        <SortTh label="Review"     sortKey="forReview"       className="text-center text-yellow-600" />
-                        <SortTh label="DQ"         sortKey="disqualified"    className="text-center text-red-500" />
-                        <SortTh label="Late"        sortKey="lateApplicant"   className="text-center text-red-700" />
-                        <SortTh label="Govt Present"    sortKey="govtPresent"     className="text-center text-emerald-600" />
-                        <SortTh label="Within 2 Yrs"    sortKey="govtWithin2Yrs"  className="text-center text-amber-600" />
-                        <SortTh label=">6 Mos"          sortKey="govtMoreThan6Mo" className="text-center text-indigo-600" />
-                        <SortTh label="<6 Mos"          sortKey="govtLessThan6Mo" className="text-center text-violet-600" />
+                        <th className="w-8 bg-gray-50 border-b-2 border-gray-200" />
+                        <SortTh label="Position"      sortKey="position"        className="text-left bg-gray-50 min-w-[180px]" />
+                        <SortTh label="SG"            sortKey="salaryGrade"     className="text-center bg-gray-50 w-14" />
+                        <SortTh label="Assignment"    sortKey="assignment"      className="text-left bg-gray-50 min-w-[160px]" />
+                        <th className="px-3 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-50 border-b-2 border-gray-200 text-left whitespace-nowrap min-w-[140px]">Secretariats</th>
+                        <SortTh label="Items"         sortKey="itemCount"       className="text-center bg-gray-50 w-16" />
+                        <SortTh label="Total"         sortKey="totalCandidates" className="text-center bg-gray-50 w-16 text-blue-600" />
+                        <SortTh label="General"       sortKey="generalList"     className="text-center bg-gray-50 w-16 text-gray-500" />
+                        <SortTh label="Long List"     sortKey="longListed"      className="text-center bg-gray-50 w-20 text-green-600" />
+                        <SortTh label="Review"        sortKey="forReview"       className="text-center bg-gray-50 w-16 text-yellow-600" />
+                        <SortTh label="DQ"            sortKey="disqualified"    className="text-center bg-gray-50 w-14 text-red-500" />
+                        <SortTh label="Late"          sortKey="lateApplicant"   className="text-center bg-gray-50 w-14 text-red-700" />
+                        <SortTh label="Govt Present"  sortKey="govtPresent"     className="text-center bg-gray-50 w-24 text-emerald-600" />
+                        <SortTh label="Within 2 Yrs"  sortKey="govtWithin2Yrs"  className="text-center bg-gray-50 w-24 text-amber-600" />
+                        <SortTh label=">6 Mos"        sortKey="govtMoreThan6Mo" className="text-center bg-gray-50 w-16 text-indigo-600" />
+                        <SortTh label="<6 Mos"        sortKey="govtLessThan6Mo" className="text-center bg-gray-50 w-16 text-violet-600" />
                       </tr>
                     </thead>
                     <tbody>
                       {sortedRows.map((row, idx) => {
                         const key = `${row.position}||${row.assignment}`;
                         const expanded = posStatsExpanded.has(key);
-                        // sort items inside position by item number
                         const sortedItems = [...row.items].sort((a, b) => a.itemNumber.localeCompare(b.itemNumber));
                         return (
                           <React.Fragment key={key}>
                             {/* ── Position row ── */}
                             <tr
-                              className={`transition-colors ${expanded ? 'bg-teal-50' : idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'} hover:bg-teal-50 cursor-pointer`}
+                              className={`transition-colors border-b border-gray-100 ${expanded ? 'bg-teal-50' : idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'} hover:bg-teal-50 cursor-pointer`}
                               onClick={() => setPosStatsExpanded(prev => {
                                 const next = new Set(prev);
                                 next.has(key) ? next.delete(key) : next.add(key);
                                 return next;
                               })}
                             >
-                              {/* Expand chevron */}
-                              <td className="pl-3 text-gray-400 sticky left-0 z-10 bg-inherit">
+                              <td className="pl-3 py-3 text-gray-400">
                                 <svg className={`w-3.5 h-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
                                 </svg>
                               </td>
-                              <td className="px-3 py-3 font-semibold text-gray-800 sticky left-[32px] z-10 bg-inherit shadow-[2px_0_4px_rgba(0,0,0,0.06)]">
+                              <td className="px-3 py-3 font-semibold text-gray-800">
                                 <div className="whitespace-normal break-words">{row.position}</div>
                               </td>
-                              <td className="px-3 py-3 text-center sticky left-[232px] z-10 bg-inherit shadow-[2px_0_4px_rgba(0,0,0,0.06)]">
+                              <td className="px-3 py-3 text-center">
                                 <span className="inline-flex items-center justify-center w-8 h-6 rounded bg-teal-100 text-teal-800 text-xs font-bold">{row.salaryGrade}</span>
                               </td>
-                              <td className="px-3 py-3 text-xs text-gray-600 sticky left-[284px] z-10 bg-inherit shadow-[2px_0_4px_rgba(0,0,0,0.06)]">
+                              <td className="px-3 py-3 text-xs text-gray-600">
                                 <div className="whitespace-normal break-words">{row.assignment}</div>
                               </td>
-                              <td className="px-3 py-3 sticky left-[484px] z-10 bg-inherit shadow-[4px_0_8px_rgba(0,0,0,0.08)]">
+                              <td className="px-3 py-3">
                                 {row.secretariats.length > 0 ? (
                                   <div className="flex flex-wrap gap-1">
                                     {row.secretariats.map(s => (
@@ -3417,9 +3396,9 @@ const SecretariatView = ({ user }) => {
 
                             {/* ── Per-item breakdown rows (expanded) ── */}
                             {expanded && sortedItems.map(item => (
-                              <tr key={item.itemNumber} className="bg-teal-50/60 border-l-4 border-teal-400">
-                                <td className="pl-6 pr-2 py-2 sticky left-0 z-10 bg-teal-50/60" />
-                                <td className="px-3 py-2 sticky left-[32px] z-10 bg-teal-50/60 shadow-[2px_0_4px_rgba(0,0,0,0.06)]" colSpan={1}>
+                              <tr key={item.itemNumber} className="bg-teal-50/60 border-b border-teal-100 border-l-4 border-l-teal-400">
+                                <td className="pl-6 pr-2 py-2" />
+                                <td className="px-3 py-2">
                                   <div className="flex items-center gap-2">
                                     <svg className="w-3 h-3 text-teal-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
@@ -3427,11 +3406,11 @@ const SecretariatView = ({ user }) => {
                                     <span className="text-xs font-bold text-teal-800">{item.itemNumber}</span>
                                   </div>
                                 </td>
-                                <td className="px-3 py-2 text-center sticky left-[232px] z-10 bg-teal-50/60 shadow-[2px_0_4px_rgba(0,0,0,0.06)]">
+                                <td className="px-3 py-2 text-center">
                                   <span className="text-[10px] text-gray-400 font-semibold">SG {item.salaryGrade}</span>
                                 </td>
-                                <td className="px-3 py-2 text-xs text-gray-400 sticky left-[284px] z-10 bg-teal-50/60 shadow-[2px_0_4px_rgba(0,0,0,0.06)]" />
-                                <td className="px-3 py-2 sticky left-[484px] z-10 bg-teal-50/60 shadow-[4px_0_8px_rgba(0,0,0,0.08)]">
+                                <td className="px-3 py-2 text-xs text-gray-400" />
+                                <td className="px-3 py-2">
                                   {item.secretariats.length > 0 ? (
                                     <div className="flex flex-wrap gap-1">
                                       {item.secretariats.map(s => (
@@ -3458,15 +3437,13 @@ const SecretariatView = ({ user }) => {
                       })}
                     </tbody>
 
-                    {/* ── Sticky totals footer ── */}
-                    <tfoot className="bg-teal-50 border-t-2 border-teal-300 sticky bottom-0 z-20 shadow-[0_-2px_4px_rgba(0,0,0,0.06)]">
+                    {/* ── Totals footer ── */}
+                    <tfoot className="bg-teal-50 border-t-2 border-teal-300">
                       <tr>
-                        <td className="sticky left-0 z-30 bg-teal-50" />
-                        <td className="px-3 py-3 font-bold text-teal-800 text-xs uppercase tracking-wide sticky left-[32px] z-30 bg-teal-50 shadow-[2px_0_4px_rgba(0,0,0,0.06)]" colSpan={2}>
+                        <td />
+                        <td className="px-3 py-3 font-bold text-teal-800 text-xs uppercase tracking-wide" colSpan={4}>
                           Totals — {sortedRows.length} position{sortedRows.length !== 1 ? 's' : ''}
                         </td>
-                        <td className="px-3 py-3 sticky left-[284px] z-30 bg-teal-50 shadow-[2px_0_4px_rgba(0,0,0,0.06)]" />
-                        <td className="px-3 py-3 sticky left-[484px] z-30 bg-teal-50 shadow-[4px_0_8px_rgba(0,0,0,0.08)]" />
                         <td className="px-3 py-3 text-center font-bold text-slate-700">{totals.itemCount}</td>
                         <td className="px-3 py-3 text-center font-bold text-blue-700">{totals.totalCandidates}</td>
                         <td className="px-3 py-3 text-center font-bold text-gray-600">{totals.generalList}</td>
