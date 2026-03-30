@@ -1213,6 +1213,10 @@ router.put('/candidates/:id', authMiddleware, async (req, res) => {
       }
     }
 
+    if (req.body.hasOwnProperty('isLateApplicant')) {
+      updateData.isLateApplicant = Boolean(req.body.isLateApplicant);
+    }
+
     if (req.body.hasOwnProperty('governmentEmployment')) {
       updateData.governmentEmployment = {
         agency:            req.body.governmentEmployment?.agency            || '',

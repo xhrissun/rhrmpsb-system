@@ -189,15 +189,31 @@ const SecretariatView = ({ user }) => {
   // the current item-number filter and not present in the candidates list.
   const [reviewBadgeIds, setReviewBadgeIds] = useState(new Set());
 
-  // Late applicant marker — purely UI/local, toggled per row
+  // Late applicant marker — persisted to DB via PUT /candidates/:id
   const [lateApplicants, setLateApplicants] = useState(new Set());
-  const toggleLateApplicant = useCallback((id) => {
+  const toggleLateApplicant = useCallback(async (id) => {
+    // Optimistic update
     setLateApplicants(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
-  }, []);
+    try {
+      const isNowLate = !lateApplicants.has(id);
+      await candidatesAPI.markLate(id, isNowLate);
+      // Update the candidates list so re-renders reflect the saved value
+      setCandidates(prev => prev.map(c => c._id === id ? { ...c, isLateApplicant: isNowLate } : c));
+    } catch (err) {
+      // Rollback on failure
+      console.error('Failed to save late applicant marker:', err);
+      setLateApplicants(prev => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id); else next.add(id);
+        return next;
+      });
+      showToast('Failed to save late applicant marker.', 'error');
+    }
+  }, [lateApplicants, showToast]);
 
   const [statusFilter, setStatusFilter] = useState(null);
   const [showAssignmentSummary, setShowAssignmentSummary] = useState(false);
@@ -499,6 +515,9 @@ const SecretariatView = ({ user }) => {
       const unique = Array.from(new Map(filteredCandidates.map(c => [c._id, c])).values());
       unique.sort((a, b) => a.fullName.localeCompare(b.fullName));
       setCandidates(unique);
+
+      // Restore late applicant markers from DB
+      setLateApplicants(new Set(unique.filter(c => c.isLateApplicant).map(c => c._id)));
 
       // Compute Review badge IDs.
       // When a single itemNumber is filtered, siblings from other items are not in

@@ -331,6 +331,11 @@ export const candidatesAPI = {
     return response.data;
   },
 
+  markLate: async (id, isLateApplicant) => {
+    const response = await api.put(`/candidates/${id}`, { isLateApplicant });
+    return response.data;
+  },
+
   getSiblings: async (fullName, excludeId, publicationRangeId) => {
     const params = new URLSearchParams({ fullName, excludeId, publicationRangeId });
     const response = await api.get(`/candidates/siblings?${params}`);

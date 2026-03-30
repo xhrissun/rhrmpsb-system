@@ -154,6 +154,7 @@ const candidateSchema = new mongoose.Schema({
     lastUpdatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     lastUpdatedAt: { type: Date, default: null }
   },
+  isLateApplicant: { type: Boolean, default: false },
   isArchived: { type: Boolean, default: false },
   archivedAt: { type: Date },
   archivedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
