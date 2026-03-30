@@ -1783,38 +1783,58 @@ const SecretariatView = ({ user }) => {
           { key: 'ipcr',                    label: 'IPCR',                    abbr: 'IPCR', color: 'bg-orange-50 text-orange-700 border-orange-200'  },
         ];
 
+        // Derive banner bg color from status
+        const bannerBg =
+          candidate.status === CANDIDATE_STATUS.LONG_LIST    ? 'bg-green-600'  :
+          candidate.status === CANDIDATE_STATUS.FOR_REVIEW   ? 'bg-amber-500'  :
+          candidate.status === CANDIDATE_STATUS.DISQUALIFIED ? 'bg-red-600'    :
+                                                               'bg-gray-600';
+        const bannerText =
+          candidate.status === CANDIDATE_STATUS.FOR_REVIEW ? 'text-gray-900' : 'text-white';
+
         return (
           <div className="fixed inset-0 bg-black bg-opacity-40 backdrop-blur-sm flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true" aria-labelledby="view-comments-title">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl flex flex-col max-h-[92vh]">
 
-              {/* ── Header ── */}
-              <div className="px-6 pt-6 pb-4 border-b border-gray-100 shrink-0">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex items-center gap-3 min-w-0">
-                    {/* Status dot */}
-                    <span className={`w-3 h-3 rounded-full shrink-0 mt-1 ${statusAccent.dot}`} />
-                    <div className="min-w-0">
-                      <h2 id="view-comments-title" className="text-xl font-bold text-gray-900 leading-tight truncate">{candidate.fullName}</h2>
-                      <div className="flex items-center gap-2 mt-1 flex-wrap">
-                        <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${statusAccent.badge}`}>{displayStatus}</span>
-                        {candidate.isArchived && (
-                          <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-orange-100 text-orange-700">Archived</span>
-                        )}
-                        {vacancy && (
-                          <span className="text-xs text-gray-500">{vacancy.position} · SG {vacancy.salaryGrade} · {candidate.itemNumber}</span>
-                        )}
-                      </div>
-                    </div>
+              {/* ── Colored Banner Header ── */}
+              <div className={`${bannerBg} ${bannerText} rounded-t-2xl px-6 pt-5 pb-4 shrink-0 relative`}>
+                {/* Close button */}
+                <button
+                  onClick={closeViewCommentsModal}
+                  aria-label="Close comments modal"
+                  className={`absolute top-3 right-3 w-8 h-8 flex items-center justify-center rounded-lg transition-colors
+                    ${candidate.status === CANDIDATE_STATUS.FOR_REVIEW
+                      ? 'text-gray-700 hover:bg-amber-400'
+                      : 'text-white/80 hover:text-white hover:bg-white/20'}`}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+
+                {/* Centered name + subtitle */}
+                <div className="text-center pr-6">
+                  <h2 id="view-comments-title" className="text-2xl font-extrabold leading-tight tracking-wide break-words">
+                    {candidate.fullName}
+                  </h2>
+                  {/* Status badge + archived */}
+                  <div className="flex items-center justify-center gap-2 mt-2 flex-wrap">
+                    <span className={`text-xs font-bold px-3 py-0.5 rounded-full
+                      ${candidate.status === CANDIDATE_STATUS.FOR_REVIEW
+                        ? 'bg-amber-700/20 text-gray-900'
+                        : 'bg-white/20 text-white'}`}>
+                      {displayStatus}
+                    </span>
+                    {candidate.isArchived && (
+                      <span className="text-xs font-bold px-3 py-0.5 rounded-full bg-white/20">Archived</span>
+                    )}
                   </div>
-                  <button
-                    onClick={closeViewCommentsModal}
-                    aria-label="Close comments modal"
-                    className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
+                  {/* Assignment · Position · SG · Item Number — all in the banner, no truncation */}
+                  {vacancy && (
+                    <p className={`text-sm font-medium mt-1.5 opacity-90 break-words leading-snug ${bannerText}`}>
+                      {vacancy.assignment} · {vacancy.position} · SG {vacancy.salaryGrade} · {candidate.itemNumber}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -1831,15 +1851,10 @@ const SecretariatView = ({ user }) => {
                     <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">Age</p>
                     <p className="font-semibold text-gray-800">{candidate.age || '—'}</p>
                   </div>
-                  {vacancy && (
-                    <div>
-                      <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">Assignment</p>
-                      <p className="font-semibold text-gray-800 truncate">{vacancy.assignment}</p>
-                    </div>
-                  )}
+
                   <div>
                     <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">Eligibility</p>
-                    <p className="font-semibold text-gray-800 truncate">{candidate.eligibility || '—'}</p>
+                    <p className="font-semibold text-gray-800 break-words">{candidate.eligibility || '—'}</p>
                   </div>
                 </div>
 
