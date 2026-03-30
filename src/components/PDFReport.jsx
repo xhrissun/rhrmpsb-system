@@ -140,39 +140,39 @@ function buildDeliberationPDF({ vacancy, candidates, raters, includeSignatories 
     while (ei < entries.length) {
       // ── Fill left column ──────────────────────────────────────────────────
       const pageTopY = y; // both columns on this page start here
-      let colY = pageTopY;
+      let leftColY = pageTopY;
 
       while (ei < entries.length) {
         const e = entries[ei];
-        if (colY + e.totalH > bodyBottom) break; // no more room in left col
+        if (leftColY + e.totalH > bodyBottom) break; // no more room in left col
 
         // Draw this entry in the left column
-        doc.text(`${e.numStr}${e.lines[0]}`, col1X, colY);
+        doc.text(`${e.numStr}${e.lines[0]}`, col1X, leftColY);
         for (let k = 1; k < e.lines.length; k++) {
-          doc.text(e.lines[k], col1X + e.numW, colY + k * LINE_H);
+          doc.text(e.lines[k], col1X + e.numW, leftColY + k * LINE_H);
         }
-        colY += e.totalH;
+        leftColY += e.totalH;
         ei++;
       }
 
       // ── Fill right column (same page, same starting Y) ────────────────────
-      colY = pageTopY; // reset to the same top as the left column
+      let rightColY = pageTopY; // reset to the same top as the left column
 
       while (ei < entries.length) {
         const e = entries[ei];
-        if (colY + e.totalH > bodyBottom) break; // no more room in right col
+        if (rightColY + e.totalH > bodyBottom) break; // no more room in right col
 
         // Draw this entry in the right column
-        doc.text(`${e.numStr}${e.lines[0]}`, col2X, colY);
+        doc.text(`${e.numStr}${e.lines[0]}`, col2X, rightColY);
         for (let k = 1; k < e.lines.length; k++) {
-          doc.text(e.lines[k], col2X + e.numW, colY + k * LINE_H);
+          doc.text(e.lines[k], col2X + e.numW, rightColY + k * LINE_H);
         }
-        colY += e.totalH;
+        rightColY += e.totalH;
         ei++;
       }
 
-      // y advances to the lower of where either column ended
-      y = colY;
+      // y advances to the LOWER of where either column ended — prevents overlap
+      y = Math.max(leftColY, rightColY);
 
       // If there are still entries left, new page
       if (ei < entries.length) {
@@ -240,7 +240,13 @@ function buildDeliberationPDF({ vacancy, candidates, raters, includeSignatories 
     y += 20;
   }
 
-  if (y + 200 > bodyBottom) { doc.addPage(); y = margin + 5; }
+  // Calculate actual space needed: heading + all-candidates block + long-list block
+  const hasLgbtAll = candidates.some(c => c.gender === 'LGBTQI+');
+  const longListObjs2 = candidates.filter(c => c.status === CANDIDATE_STATUS.LONG_LIST);
+  const hasLgbtLL  = longListObjs2.some(c => c.gender === 'LGBTQI+');
+  const genderBlockNeed = (hasLgbt) => 15 + (3 + (hasLgbt ? 1 : 0)) * 12 + 20;
+  const genderSectionNeed = 25 + genderBlockNeed(hasLgbtAll) + (longListObjs2.length > 0 ? genderBlockNeed(hasLgbtLL) : 0);
+  if (y + genderSectionNeed > bodyBottom) { doc.addPage(); y = margin + 5; }
   doc.setFontSize(13);
   doc.setFont('helvetica', 'bold');
   doc.text('GENDER DISTRIBUTION:', margin, y);
@@ -249,9 +255,8 @@ function buildDeliberationPDF({ vacancy, candidates, raters, includeSignatories 
 
   drawGenderBlock('ALL CANDIDATES:', genderCounts(candidates));
 
-  const longListObjs = candidates.filter(c => c.status === CANDIDATE_STATUS.LONG_LIST);
-  if (longListObjs.length > 0) {
-    drawGenderBlock('LONG LIST CANDIDATES:', genderCounts(longListObjs));
+  if (longListObjs2.length > 0) {
+    drawGenderBlock('LONG LIST CANDIDATES:', genderCounts(longListObjs2));
   }
 
   // ── Signatories — only when explicitly requested ──────────────────────────
