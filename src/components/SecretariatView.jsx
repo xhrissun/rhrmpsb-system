@@ -189,6 +189,16 @@ const SecretariatView = ({ user }) => {
   // the current item-number filter and not present in the candidates list.
   const [reviewBadgeIds, setReviewBadgeIds] = useState(new Set());
 
+  // Late applicant marker — purely UI/local, toggled per row
+  const [lateApplicants, setLateApplicants] = useState(new Set());
+  const toggleLateApplicant = useCallback((id) => {
+    setLateApplicants(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
   const [statusFilter, setStatusFilter] = useState(null);
   const [showAssignmentSummary, setShowAssignmentSummary] = useState(false);
   const [showCBSManual, setShowCBSManual] = useState(false);
@@ -1531,14 +1541,22 @@ const SecretariatView = ({ user }) => {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Position</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-28">Status</th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-red-500 uppercase tracking-wider w-24">Late</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Actions</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredCandidates.map((candidate, index) => {
                   const vacancy = vacancies.find(v => v.itemNumber === candidate.itemNumber);
+                  const isLate = lateApplicants.has(candidate._id);
                   return (
-                    <tr key={candidate._id} className={`hover:bg-gradient-to-r hover:from-blue-50 hover:to-indigo-50 transition-all duration-150 ${candidate.isArchived ? 'bg-gray-100 opacity-60' : ''}`}>
+                    <tr key={candidate._id} className={`transition-all duration-150 ${
+                      isLate
+                        ? 'bg-red-50 hover:bg-red-100 border-l-4 border-red-500'
+                        : candidate.isArchived
+                          ? 'bg-gray-100 opacity-60 hover:bg-gray-200'
+                          : 'hover:bg-gradient-to-r hover:from-blue-50 hover:to-indigo-50'
+                    }`}>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{index + 1}</td>
                       <td className="px-6 py-4 max-w-[220px]">
                         <div className="flex items-center">
@@ -1666,6 +1684,34 @@ const SecretariatView = ({ user }) => {
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(candidate.status)}`}>
                           {getStatusLabel(candidate.status)}
                         </span>
+                      </td>
+                      {/* Late Applicant toggle */}
+                      <td className="px-6 py-4 whitespace-nowrap text-center">
+                        <label
+                          className="inline-flex flex-col items-center gap-1 cursor-pointer group"
+                          title={isLate ? 'Marked as Late Applicant — click to remove' : 'Mark as Late Applicant'}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isLate}
+                            onChange={() => toggleLateApplicant(candidate._id)}
+                            className="sr-only"
+                          />
+                          <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all duration-150
+                            ${isLate
+                              ? 'border-red-500 bg-red-500'
+                              : 'border-gray-300 bg-white group-hover:border-red-400'}`}
+                          >
+                            {isLate && (
+                              <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                <circle cx="12" cy="12" r="6" />
+                              </svg>
+                            )}
+                          </span>
+                          {isLate && (
+                            <span className="text-[10px] font-bold text-red-600 uppercase tracking-wide leading-none">Late</span>
+                          )}
+                        </label>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex space-x-2">
@@ -1842,19 +1888,18 @@ const SecretariatView = ({ user }) => {
               <div className="flex-1 overflow-y-auto">
 
                 {/* Meta strip */}
-                <div className="px-6 py-4 bg-gray-50 border-b border-gray-100 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div className="px-6 py-4 bg-gray-50 border-b border-gray-100 flex flex-wrap gap-x-10 gap-y-3 text-sm">
                   <div>
                     <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">Gender</p>
-                    <p className="font-semibold text-gray-800">{candidate.gender || '—'}</p>
+                    <p className="font-semibold text-gray-800 whitespace-nowrap">{candidate.gender || '—'}</p>
                   </div>
                   <div>
                     <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">Age</p>
-                    <p className="font-semibold text-gray-800">{candidate.age || '—'}</p>
+                    <p className="font-semibold text-gray-800 whitespace-nowrap">{candidate.age || '—'}</p>
                   </div>
-
                   <div>
                     <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">Eligibility</p>
-                    <p className="font-semibold text-gray-800 break-words">{candidate.eligibility || '—'}</p>
+                    <p className="font-semibold text-gray-800 whitespace-nowrap">{candidate.eligibility || '—'}</p>
                   </div>
                 </div>
 
