@@ -6,16 +6,21 @@ import 'jspdf-autotable';
 
 // ─── Core PDF builder ────────────────────────────────────────────────────────
 function buildDeliberationPDF({ vacancy, candidates, raters, includeSignatories }) {
-  // Explicit boolean check — never rely on raters array truthiness alone
   const withSigs = includeSignatories === true && Array.isArray(raters) && raters.length > 0;
 
   const doc = new jsPDF({ format: [576, 936], unit: 'pt' });
   doc.setFont('helvetica');
 
-  const pageWidth  = doc.internal.pageSize.width;
-  const pageHeight = doc.internal.pageSize.height;
-  const margin     = 50;
-  const SAFE_BOTTOM = margin + 60; // pts reserved at bottom for footer
+  const pageWidth   = doc.internal.pageSize.width;
+  const pageHeight  = doc.internal.pageSize.height;
+  const margin      = 50;
+  const FOOTER_H    = 60;  // pts reserved at bottom for footer line + text
+  const LINE_H      = 14;  // fixed line-height for every candidate entry line
+  const COL_GAP     = 30;  // gap between the two columns
+  const colW        = (pageWidth - 2 * margin - COL_GAP) / 2;
+  const col1X       = margin;
+  const col2X       = margin + colW + COL_GAP;
+  const bodyBottom  = pageHeight - margin - FOOTER_H; // lowest y allowed for content
 
   const now = new Date();
   const shortDT = now.toLocaleString('en-US', {
@@ -24,7 +29,7 @@ function buildDeliberationPDF({ vacancy, candidates, raters, includeSignatories 
   });
   const footerLeft = `Item: ${vacancy.itemNumber} | Generated: ${shortDT}`;
 
-  // ── Footer — ONLY called in the final pass after all pages are built ───────
+  // ── Footer stamp — only called in the final pass ──────────────────────────
   function drawFooter(pageNum, totalPages) {
     const sz = doc.getFontSize();
     const fn = doc.getFont();
@@ -37,15 +42,6 @@ function buildDeliberationPDF({ vacancy, candidates, raters, includeSignatories 
     doc.text(`Page ${pageNum} of ${totalPages}`, pageWidth - margin, pageHeight - 18, { align: 'right' });
     doc.setFontSize(sz);
     doc.setFont(fn.fontName, fn.fontStyle);
-  }
-
-  // ── Page-break guard — never stamps footers mid-render ───────────────────
-  function breakIfNeeded(y, needed) {
-    if (y + needed > pageHeight - SAFE_BOTTOM) {
-      doc.addPage();
-      return margin + 5;
-    }
-    return y;
   }
 
   // ── Page 1 header ─────────────────────────────────────────────────────────
@@ -65,7 +61,7 @@ function buildDeliberationPDF({ vacancy, candidates, raters, includeSignatories 
   doc.setFont('helvetica', 'normal');
   y += 30;
 
-  // Fixed label column so POSITION/ASSIGNMENT/ITEM values align cleanly
+  // POSITION / ASSIGNMENT / ITEM — fixed label column
   const labelW = 92;
   const valX   = margin + labelW + 5;
 
@@ -96,21 +92,39 @@ function buildDeliberationPDF({ vacancy, candidates, raters, includeSignatories 
   doc.text(`Generated on: ${fullDT}`, margin, y);
   y += 30;
 
-  // ── Two-column list renderer ──────────────────────────────────────────────
+  // ── Pre-compute wrapped lines for every entry in a list ───────────────────
+  // Returns an array of { numStr, numW, lines, totalH } — one object per name.
+  // totalH is how many pts this entry takes vertically.
+  function precompute(names) {
+    doc.setFontSize(10);
+    return names.map((name, i) => {
+      const numStr = `${i + 1}. `;
+      const numW   = doc.getStringUnitWidth(numStr) * 10 / doc.internal.scaleFactor;
+      const lines  = doc.splitTextToSize(name, colW - numW);
+      return { numStr, numW, lines, totalH: lines.length * LINE_H };
+    });
+  }
+
+  // ── True newspaper-column layout ──────────────────────────────────────────
   //
-  // THE FIX FOR GAPS:
-  // The old code used `rowH = max(leftLines, rightLines) * lineH` and advanced
-  // y by that amount — so a 2-line right entry caused a blank gap on the left
-  // for the NEXT row.
+  // Algorithm:
+  //  1. Pre-compute every entry's height.
+  //  2. Fill left column top-to-bottom until space runs out → spill to right.
+  //  3. Fill right column top-to-bottom until space runs out → new page, repeat.
+  //  4. Both columns on the same page start at the same Y.
   //
-  // New approach: use a FIXED LINE_H per visual line. Each cell's wrapped lines
-  // are drawn at (baseY + k * LINE_H) relative to the row anchor. y advances
-  // by (rowLines * LINE_H) — the actual height consumed — not a guess.
+  // This means entries always read top-to-bottom in the left column first,
+  // then top-to-bottom in the right column — matching the sample PDF exactly.
+  // No row-pairing, no half-split, no gaps from unequal wrapping.
   //
   function drawTwoColList(title, names) {
     if (!names || names.length === 0) return y;
 
-    y = breakIfNeeded(y, 20 + 2 * 16 + 35); // title + 2 rows + END OF LIST
+    // Need room for the title at minimum
+    if (y + 20 + LINE_H > bodyBottom) {
+      doc.addPage();
+      y = margin + 5;
+    }
 
     doc.setFontSize(13);
     doc.setFont('helvetica', 'bold');
@@ -119,62 +133,59 @@ function buildDeliberationPDF({ vacancy, candidates, raters, includeSignatories 
     y += 20;
 
     doc.setFontSize(10);
-    const colW   = (pageWidth - 2 * margin - 30) / 2;
-    const col1X  = margin;
-    const col2X  = margin + colW + 30;
-    const LINE_H = 14; // fixed pts per visual line — consistent, no gaps
 
-    const half = Math.ceil(names.length / 2);
+    const entries = precompute(names);
+    let ei = 0; // entry index, walks 0 → names.length-1
 
-    for (let row = 0; row < half; row++) {
-      const li = row;        // left index  (1st half)
-      const ri = row + half; // right index (2nd half)
+    while (ei < entries.length) {
+      // ── Fill left column ──────────────────────────────────────────────────
+      const pageTopY = y; // both columns on this page start here
+      let colY = pageTopY;
 
-      const leftName  = names[li] || null;
-      const rightName = names[ri] || null;
+      while (ei < entries.length) {
+        const e = entries[ei];
+        if (colY + e.totalH > bodyBottom) break; // no more room in left col
 
-      // Compute wrapped lines for each cell
-      function wrapCell(name, num) {
-        if (!name) return { numStr: '', numW: 0, lines: [] };
-        const numStr = `${num}. `;
-        const numW   = doc.getStringUnitWidth(numStr) * doc.getFontSize() / doc.internal.scaleFactor;
-        const lines  = doc.splitTextToSize(name, colW - numW);
-        return { numStr, numW, lines };
-      }
-
-      const left  = wrapCell(leftName,  li + 1);
-      const right = wrapCell(rightName, ri + 1);
-
-      // Total visual lines this row occupies
-      const rowLines = Math.max(left.lines.length || 1, right.lines.length || 1);
-      const rowH     = rowLines * LINE_H;
-
-      // Break page if this whole row won't fit
-      y = breakIfNeeded(y, rowH + 4);
-      const baseY = y; // anchor — all lines in this row reference baseY
-
-      // Draw left cell
-      if (leftName) {
-        doc.text(`${left.numStr}${left.lines[0]}`, col1X, baseY);
-        for (let k = 1; k < left.lines.length; k++) {
-          doc.text(left.lines[k], col1X + left.numW, baseY + k * LINE_H);
+        // Draw this entry in the left column
+        doc.text(`${e.numStr}${e.lines[0]}`, col1X, colY);
+        for (let k = 1; k < e.lines.length; k++) {
+          doc.text(e.lines[k], col1X + e.numW, colY + k * LINE_H);
         }
+        colY += e.totalH;
+        ei++;
       }
 
-      // Draw right cell
-      if (rightName) {
-        doc.text(`${right.numStr}${right.lines[0]}`, col2X, baseY);
-        for (let k = 1; k < right.lines.length; k++) {
-          doc.text(right.lines[k], col2X + right.numW, baseY + k * LINE_H);
+      // ── Fill right column (same page, same starting Y) ────────────────────
+      colY = pageTopY; // reset to the same top as the left column
+
+      while (ei < entries.length) {
+        const e = entries[ei];
+        if (colY + e.totalH > bodyBottom) break; // no more room in right col
+
+        // Draw this entry in the right column
+        doc.text(`${e.numStr}${e.lines[0]}`, col2X, colY);
+        for (let k = 1; k < e.lines.length; k++) {
+          doc.text(e.lines[k], col2X + e.numW, colY + k * LINE_H);
         }
+        colY += e.totalH;
+        ei++;
       }
 
-      // Advance y by the actual height of this row
-      y += rowH;
+      // y advances to the lower of where either column ended
+      y = colY;
+
+      // If there are still entries left, new page
+      if (ei < entries.length) {
+        doc.addPage();
+        y = margin + 5;
+      }
     }
 
     // END OF LIST marker
-    y = breakIfNeeded(y, 35);
+    if (y + 35 > bodyBottom) {
+      doc.addPage();
+      y = margin + 5;
+    }
     y += 10;
     doc.text('*** END OF LIST ***', pageWidth / 2, y, { align: 'center' });
     y += 25;
@@ -208,8 +219,8 @@ function buildDeliberationPDF({ vacancy, candidates, raters, includeSignatories 
 
   function drawGenderBlock(label, counts) {
     const pct  = (n) => counts.total > 0 ? ((n / counts.total) * 100).toFixed(1) : '0.0';
-    const rows = 3 + (counts.lgbtqi > 0 ? 1 : 0);
-    y = breakIfNeeded(y, 15 + rows * 12 + 20);
+    const need = 15 + (3 + (counts.lgbtqi > 0 ? 1 : 0)) * 12 + 20;
+    if (y + need > bodyBottom) { doc.addPage(); y = margin + 5; }
 
     doc.setFontSize(11);
     doc.setFont('helvetica', 'bold');
@@ -229,7 +240,7 @@ function buildDeliberationPDF({ vacancy, candidates, raters, includeSignatories 
     y += 20;
   }
 
-  y = breakIfNeeded(y, 200);
+  if (y + 200 > bodyBottom) { doc.addPage(); y = margin + 5; }
   doc.setFontSize(13);
   doc.setFont('helvetica', 'bold');
   doc.text('GENDER DISTRIBUTION:', margin, y);
@@ -243,7 +254,7 @@ function buildDeliberationPDF({ vacancy, candidates, raters, includeSignatories 
     drawGenderBlock('LONG LIST CANDIDATES:', genderCounts(longListObjs));
   }
 
-  // ── Signatories — ONLY when includeSignatories is explicitly true ─────────
+  // ── Signatories — only when explicitly requested ──────────────────────────
   if (withSigs) {
     y += 10;
 
@@ -254,7 +265,7 @@ function buildDeliberationPDF({ vacancy, candidates, raters, includeSignatories 
     const sig1CX  = margin + sigColW / 2;
     const sig2CX  = margin + sigColW + 40 + sigColW / 2;
 
-    y = breakIfNeeded(y, 60);
+    if (y + 60 > bodyBottom) { doc.addPage(); y = margin + 5; }
     doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
     doc.text(
@@ -299,7 +310,7 @@ function buildDeliberationPDF({ vacancy, candidates, raters, includeSignatories 
       const sig2   = raters[i + 1] || null;
       const blockH = Math.max(sigBlockH(sig1), sigBlockH(sig2));
 
-      y = breakIfNeeded(y, blockH + 40);
+      if (y + blockH + 40 > bodyBottom) { doc.addPage(); y = margin + 5; }
       const baseY = y;
       drawOneSig(sig1, sig1CX, baseY);
       drawOneSig(sig2, sig2CX, baseY);
@@ -307,7 +318,7 @@ function buildDeliberationPDF({ vacancy, candidates, raters, includeSignatories 
     }
   }
 
-  // ── Final pass: stamp correct "Page X of Y" on every page ────────────────
+  // ── Final pass: stamp correct Page X of Y on every page ──────────────────
   const total = doc.internal.getNumberOfPages();
   for (let p = 1; p <= total; p++) {
     doc.setPage(p);
@@ -317,7 +328,7 @@ function buildDeliberationPDF({ vacancy, candidates, raters, includeSignatories 
   return doc;
 }
 
-// ─── PDFReport component — full deliberation report WITH signatories ─────────
+// ─── PDFReport component — full deliberation report WITH signatories ──────────
 const PDFReport = ({ itemNumber, user, raters }) => {
   const [vacancy,    setVacancy]    = useState(null);
   const [candidates, setCandidates] = useState([]);
@@ -357,7 +368,6 @@ const PDFReport = ({ itemNumber, user, raters }) => {
         setError('MISSING VACANCY OR CANDIDATE DATA.');
         return;
       }
-      // includeSignatories: true — this is the full deliberation report
       const doc = buildDeliberationPDF({ vacancy, candidates, raters, includeSignatories: true });
       doc.save(`Summary_${vacancy.itemNumber}.pdf`);
     } catch (err) {
@@ -423,8 +433,6 @@ const PDFReport = ({ itemNumber, user, raters }) => {
 };
 
 // ─── Longlist-only export — NO signatories, NO certifying clause ──────────────
-// Called directly from SecretariatView via the "Longlist PDF" button.
-// Saves as Longlist_<itemNumber>.pdf so it's distinct from Summary_<itemNumber>.pdf
 export async function generateLongListPDF(itemNumber) {
   const [vacanciesRes, candidatesRes] = await Promise.all([
     vacanciesAPI.getAll(),
@@ -438,7 +446,6 @@ export async function generateLongListPDF(itemNumber) {
     .filter(c => c.itemNumber === itemNumber)
     .sort((a, b) => (a.fullName || '').localeCompare(b.fullName));
 
-  // includeSignatories: false — hard-coded, no certifying clause, no names
   const doc = buildDeliberationPDF({
     vacancy,
     candidates,
