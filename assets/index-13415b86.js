@@ -2928,6 +2928,10 @@ const candidatesAPI = {
     );
     return response.data;
   },
+  markLate: async (id, isLateApplicant) => {
+    const response = await api.put(`/candidates/${id}`, { isLateApplicant });
+    return response.data;
+  },
   getSiblings: async (fullName, excludeId, publicationRangeId) => {
     const params = new URLSearchParams({ fullName, excludeId, publicationRangeId });
     const response = await api.get(`/candidates/siblings?${params}`);
@@ -16825,7 +16829,7 @@ function(t2) {
  */
 function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-9c47c22f.js"), true ? ["assets/index.es-9c47c22f.js","assets/vendor-05345498.js","assets/pdfjs-3a644b6e.js"] : void 0)).catch(function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-12642eed.js"), true ? ["assets/index.es-12642eed.js","assets/vendor-05345498.js","assets/pdfjs-3a644b6e.js"] : void 0)).catch(function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     }).then(function(t3) {
       return t3.default ? t3.default : t3;
@@ -20652,7 +20656,7 @@ const SecretariatView = ({ user }) => {
   const [commentSiblingsLoading, setCommentSiblingsLoading] = reactExports.useState(false);
   const [reviewBadgeIds, setReviewBadgeIds] = reactExports.useState(/* @__PURE__ */ new Set());
   const [lateApplicants, setLateApplicants] = reactExports.useState(/* @__PURE__ */ new Set());
-  const toggleLateApplicant = reactExports.useCallback((id) => {
+  const toggleLateApplicant = reactExports.useCallback(async (id) => {
     setLateApplicants((prev) => {
       const next = new Set(prev);
       if (next.has(id))
@@ -20661,7 +20665,23 @@ const SecretariatView = ({ user }) => {
         next.add(id);
       return next;
     });
-  }, []);
+    try {
+      const isNowLate = !lateApplicants.has(id);
+      await candidatesAPI.markLate(id, isNowLate);
+      setCandidates((prev) => prev.map((c2) => c2._id === id ? { ...c2, isLateApplicant: isNowLate } : c2));
+    } catch (err2) {
+      console.error("Failed to save late applicant marker:", err2);
+      setLateApplicants((prev) => {
+        const next = new Set(prev);
+        if (next.has(id))
+          next.delete(id);
+        else
+          next.add(id);
+        return next;
+      });
+      showToast("Failed to save late applicant marker.", "error");
+    }
+  }, [lateApplicants, showToast]);
   const [statusFilter, setStatusFilter] = reactExports.useState(null);
   const [showAssignmentSummary, setShowAssignmentSummary] = reactExports.useState(false);
   const [showCBSManual, setShowCBSManual] = reactExports.useState(false);
@@ -20954,6 +20974,7 @@ const SecretariatView = ({ user }) => {
       const unique = Array.from(new Map(filteredCandidates2.map((c2) => [c2._id, c2])).values());
       unique.sort((a2, b2) => a2.fullName.localeCompare(b2.fullName));
       setCandidates(unique);
+      setLateApplicants(new Set(unique.filter((c2) => c2.isLateApplicant).map((c2) => c2._id)));
       try {
         const pubRange = selectedPublicationRangeRef.current;
         let allForBadge = unique;
@@ -31955,4 +31976,4 @@ client.createRoot(document.getElementById("root")).render(
 export {
   _typeof as _
 };
-//# sourceMappingURL=index-85958f13.js.map
+//# sourceMappingURL=index-13415b86.js.map
