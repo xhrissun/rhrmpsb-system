@@ -264,8 +264,8 @@ const SecretariatView = ({ user }) => {
     const longListed = candidates.filter(c => c.status === CANDIDATE_STATUS.LONG_LIST).length;
     const forReview = candidates.filter(c => c.status === CANDIDATE_STATUS.FOR_REVIEW).length;
     const disqualified = candidates.filter(c => c.status === CANDIDATE_STATUS.DISQUALIFIED).length;
-    
-    return { total, longListed, forReview, disqualified };
+    const lateCount = candidates.filter(c => c.isLateApplicant).length;
+    return { total, longListed, forReview, disqualified, lateCount };
   }, [candidates]);
 
   const getGenderStatistics = useCallback(() => {
@@ -905,6 +905,7 @@ const SecretariatView = ({ user }) => {
           longListed: groupCandidates.filter(c => c.status === CANDIDATE_STATUS.LONG_LIST).length,
           forReview: groupCandidates.filter(c => c.status === CANDIDATE_STATUS.FOR_REVIEW).length,
           disqualified: groupCandidates.filter(c => c.status === CANDIDATE_STATUS.DISQUALIFIED).length,
+          lateApplicant: groupCandidates.filter(c => c.isLateApplicant).length,
           positions: Object.values(group.positions).map(pos => {
             const posCandidates = allCandidates.filter(c => pos.itemNumbers.includes(c.itemNumber));
             return {
@@ -914,6 +915,7 @@ const SecretariatView = ({ user }) => {
               longListed: posCandidates.filter(c => c.status === CANDIDATE_STATUS.LONG_LIST).length,
               forReview: posCandidates.filter(c => c.status === CANDIDATE_STATUS.FOR_REVIEW).length,
               disqualified: posCandidates.filter(c => c.status === CANDIDATE_STATUS.DISQUALIFIED).length,
+              lateApplicant: posCandidates.filter(c => c.isLateApplicant).length,
             };
           }),
         };
@@ -1378,6 +1380,12 @@ const SecretariatView = ({ user }) => {
                     <span className="text-xs font-semibold leading-tight">{label}</span>
                   </button>
                 ))}
+
+                {/* Late Applicants — display-only stat badge (not a status filter) */}
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg border-2 border-red-300 bg-red-50 text-red-800">
+                  <span className="text-xl font-bold leading-none">{stats.lateCount}</span>
+                  <span className="text-xs font-semibold leading-tight">Late</span>
+                </div>
 
                 {/* Divider */}
                 <div className="w-px h-8 bg-gray-200 shrink-0" />
@@ -2721,7 +2729,8 @@ const SecretariatView = ({ user }) => {
           longListed: acc.longListed + g.longListed,
           forReview: acc.forReview + g.forReview,
           disqualified: acc.disqualified + g.disqualified,
-        }), { vacancies: 0, candidates: 0, generalList: 0, longListed: 0, forReview: 0, disqualified: 0 });
+          lateApplicant: acc.lateApplicant + g.lateApplicant,
+        }), { vacancies: 0, candidates: 0, generalList: 0, longListed: 0, forReview: 0, disqualified: 0, lateApplicant: 0 });
 
         return (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -2758,14 +2767,15 @@ const SecretariatView = ({ user }) => {
 
               {/* Grand Total Banner */}
               {!summaryLoading && (
-                <div className="bg-gray-50 border-b border-gray-200 px-6 py-3 grid grid-cols-6 gap-3">
+                <div className="bg-gray-50 border-b border-gray-200 px-6 py-3 grid grid-cols-7 gap-3">
                   {[
-                    { label: 'Total Vacancies', value: grandTotal.vacancies, color: 'text-gray-800' },
-                    { label: 'Total Applicants', value: grandTotal.candidates, color: 'text-blue-700' },
-                    { label: 'General List', value: grandTotal.generalList, color: 'text-gray-600' },
-                    { label: 'Long Listed', value: grandTotal.longListed, color: 'text-green-700' },
-                    { label: 'For Review', value: grandTotal.forReview, color: 'text-yellow-700' },
-                    { label: 'Disqualified', value: grandTotal.disqualified, color: 'text-red-700' },
+                    { label: 'Total Vacancies',  value: grandTotal.vacancies,     color: 'text-gray-800' },
+                    { label: 'Total Applicants', value: grandTotal.candidates,    color: 'text-blue-700' },
+                    { label: 'General List',     value: grandTotal.generalList,   color: 'text-gray-600' },
+                    { label: 'Long Listed',      value: grandTotal.longListed,    color: 'text-green-700' },
+                    { label: 'For Review',       value: grandTotal.forReview,     color: 'text-yellow-700' },
+                    { label: 'Disqualified',     value: grandTotal.disqualified,  color: 'text-red-700' },
+                    { label: 'Late Applicants',  value: grandTotal.lateApplicant, color: 'text-red-900' },
                   ].map(stat => (
                     <div key={stat.label} className="text-center">
                       <div className={`text-2xl font-extrabold ${stat.color}`}>{stat.value}</div>
@@ -2814,6 +2824,11 @@ const SecretariatView = ({ user }) => {
                               {group.disqualified} Disqualified
                             </span>
                           )}
+                          {group.lateApplicant > 0 && (
+                            <span className="bg-red-200 text-red-900 font-bold px-2 py-1 rounded-md">
+                              {group.lateApplicant} Late
+                            </span>
+                          )}
                         </div>
                       </div>
 
@@ -2828,6 +2843,7 @@ const SecretariatView = ({ user }) => {
                             <th className="text-center px-3 py-2 font-semibold">Long Listed</th>
                             <th className="text-center px-3 py-2 font-semibold">For Review</th>
                             <th className="text-center px-3 py-2 font-semibold">Disqualified</th>
+                            <th className="text-center px-3 py-2 font-semibold text-red-700">Late</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
@@ -2842,6 +2858,7 @@ const SecretariatView = ({ user }) => {
                               <td className="px-3 py-2.5 text-center text-green-700 font-semibold">{pos.longListed}</td>
                               <td className="px-3 py-2.5 text-center text-yellow-700 font-semibold">{pos.forReview}</td>
                               <td className="px-3 py-2.5 text-center text-red-700 font-semibold">{pos.disqualified}</td>
+                              <td className="px-3 py-2.5 text-center text-red-900 font-bold">{pos.lateApplicant || '—'}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -3017,7 +3034,7 @@ const SecretariatView = ({ user }) => {
             pubRangeId: String(v.publicationRangeId),
             secretariats: responsible.map(s => s.name),
             totalCandidates: 0, generalList: 0, longListed: 0,
-            forReview: 0, disqualified: 0,
+            forReview: 0, disqualified: 0, lateApplicant: 0,
             govtPresent: 0, govtWithin2Yrs: 0, govtMoreThan6Mo: 0, govtLessThan6Mo: 0,
           };
         });
@@ -3031,6 +3048,7 @@ const SecretariatView = ({ user }) => {
           if (c.status === 'long_list')     row.longListed++;
           if (c.status === 'for_review')    row.forReview++;
           if (c.status === 'disqualified')  row.disqualified++;
+          if (c.isLateApplicant)            row.lateApplicant++;
           const ge = c.governmentEmployment;
           if (ge) {
             if (ge.employmentPeriod === 'present')             row.govtPresent++;
@@ -3052,7 +3070,7 @@ const SecretariatView = ({ user }) => {
               itemCount: 0,
               items: [],
               totalCandidates: 0, generalList: 0, longListed: 0,
-              forReview: 0, disqualified: 0,
+              forReview: 0, disqualified: 0, lateApplicant: 0,
               govtPresent: 0, govtWithin2Yrs: 0, govtMoreThan6Mo: 0, govtLessThan6Mo: 0,
               secretariats: new Set(),
             };
@@ -3065,6 +3083,7 @@ const SecretariatView = ({ user }) => {
           p.longListed      += item.longListed;
           p.forReview       += item.forReview;
           p.disqualified    += item.disqualified;
+          p.lateApplicant   += item.lateApplicant;
           p.govtPresent     += item.govtPresent;
           p.govtWithin2Yrs  += item.govtWithin2Yrs;
           p.govtMoreThan6Mo += item.govtMoreThan6Mo;
@@ -3094,11 +3113,12 @@ const SecretariatView = ({ user }) => {
           longListed:      acc.longListed      + r.longListed,
           forReview:       acc.forReview       + r.forReview,
           disqualified:    acc.disqualified    + r.disqualified,
+          lateApplicant:   acc.lateApplicant   + r.lateApplicant,
           govtPresent:     acc.govtPresent     + r.govtPresent,
           govtWithin2Yrs:  acc.govtWithin2Yrs  + r.govtWithin2Yrs,
           govtMoreThan6Mo: acc.govtMoreThan6Mo + r.govtMoreThan6Mo,
           govtLessThan6Mo: acc.govtLessThan6Mo + r.govtLessThan6Mo,
-        }), { itemCount: 0, totalCandidates: 0, generalList: 0, longListed: 0, forReview: 0, disqualified: 0, govtPresent: 0, govtWithin2Yrs: 0, govtMoreThan6Mo: 0, govtLessThan6Mo: 0 });
+        }), { itemCount: 0, totalCandidates: 0, generalList: 0, longListed: 0, forReview: 0, disqualified: 0, lateApplicant: 0, govtPresent: 0, govtWithin2Yrs: 0, govtMoreThan6Mo: 0, govtLessThan6Mo: 0 });
 
         // ── Sort helper for column headers ────────────────────────────────────────
         const SortTh = ({ label, sortKey, className = '' }) => {
@@ -3252,6 +3272,7 @@ const SecretariatView = ({ user }) => {
                     { label: `${totals.longListed} Long Listed`,      cls: 'bg-green-100 text-green-800' },
                     { label: `${totals.forReview} For Review`,        cls: 'bg-yellow-100 text-yellow-800' },
                     { label: `${totals.disqualified} Disqualified`,   cls: 'bg-red-100 text-red-800' },
+                    { label: `${totals.lateApplicant} Late`,          cls: 'bg-red-200 text-red-900 font-extrabold' },
                   ].map(({ label, cls }) => (
                     <span key={label} className={`px-2.5 py-1 rounded-full text-xs font-bold ${cls}`}>{label}</span>
                   ))}
@@ -3296,6 +3317,7 @@ const SecretariatView = ({ user }) => {
                       <col style={{ width: '78px' }} />         {/* long list */}
                       <col style={{ width: '68px' }} />         {/* review */}
                       <col style={{ width: '60px' }} />         {/* dq */}
+                      <col style={{ width: '60px' }} />         {/* late */}
                       <col style={{ width: '88px' }} />         {/* govt present */}
                       <col style={{ width: '88px' }} />         {/* within 2 yrs */}
                       <col style={{ width: '68px' }} />         {/* >6 mos */}
@@ -3315,6 +3337,7 @@ const SecretariatView = ({ user }) => {
                         <SortTh label="Long List"  sortKey="longListed"      className="text-center text-green-600" />
                         <SortTh label="Review"     sortKey="forReview"       className="text-center text-yellow-600" />
                         <SortTh label="DQ"         sortKey="disqualified"    className="text-center text-red-500" />
+                        <SortTh label="Late"        sortKey="lateApplicant"   className="text-center text-red-700" />
                         <SortTh label="Govt Present"    sortKey="govtPresent"     className="text-center text-emerald-600" />
                         <SortTh label="Within 2 Yrs"    sortKey="govtWithin2Yrs"  className="text-center text-amber-600" />
                         <SortTh label=">6 Mos"          sortKey="govtMoreThan6Mo" className="text-center text-indigo-600" />
@@ -3370,6 +3393,7 @@ const SecretariatView = ({ user }) => {
                               <td className="px-3 py-3 text-center"><StatBadge val={row.longListed}      cls="bg-green-100 text-green-700" /></td>
                               <td className="px-3 py-3 text-center"><StatBadge val={row.forReview}       cls="bg-yellow-100 text-yellow-700" /></td>
                               <td className="px-3 py-3 text-center"><StatBadge val={row.disqualified}    cls="bg-red-100 text-red-700" /></td>
+                              <td className="px-3 py-3 text-center"><StatBadge val={row.lateApplicant}   cls="bg-red-200 text-red-900" /></td>
                               <td className="px-3 py-3 text-center"><StatBadge val={row.govtPresent}     cls="bg-emerald-100 text-emerald-700" /></td>
                               <td className="px-3 py-3 text-center"><StatBadge val={row.govtWithin2Yrs}  cls="bg-amber-100 text-amber-700" /></td>
                               <td className="px-3 py-3 text-center"><StatBadge val={row.govtMoreThan6Mo} cls="bg-indigo-100 text-indigo-700" /></td>
@@ -3407,6 +3431,7 @@ const SecretariatView = ({ user }) => {
                                 <td className="px-3 py-2 text-center"><StatBadge val={item.longListed}      cls="bg-green-100 text-green-700" /></td>
                                 <td className="px-3 py-2 text-center"><StatBadge val={item.forReview}       cls="bg-yellow-100 text-yellow-700" /></td>
                                 <td className="px-3 py-2 text-center"><StatBadge val={item.disqualified}    cls="bg-red-100 text-red-700" /></td>
+                                <td className="px-3 py-2 text-center"><StatBadge val={item.lateApplicant}   cls="bg-red-200 text-red-900" /></td>
                                 <td className="px-3 py-2 text-center"><StatBadge val={item.govtPresent}     cls="bg-emerald-100 text-emerald-700" /></td>
                                 <td className="px-3 py-2 text-center"><StatBadge val={item.govtWithin2Yrs}  cls="bg-amber-100 text-amber-700" /></td>
                                 <td className="px-3 py-2 text-center"><StatBadge val={item.govtMoreThan6Mo} cls="bg-indigo-100 text-indigo-700" /></td>
@@ -3433,6 +3458,7 @@ const SecretariatView = ({ user }) => {
                         <td className="px-3 py-3 text-center font-bold text-green-700">{totals.longListed}</td>
                         <td className="px-3 py-3 text-center font-bold text-yellow-700">{totals.forReview}</td>
                         <td className="px-3 py-3 text-center font-bold text-red-700">{totals.disqualified}</td>
+                        <td className="px-3 py-3 text-center font-bold text-red-900">{totals.lateApplicant}</td>
                         <td className="px-3 py-3 text-center font-bold text-emerald-700">{totals.govtPresent}</td>
                         <td className="px-3 py-3 text-center font-bold text-amber-700">{totals.govtWithin2Yrs}</td>
                         <td className="px-3 py-3 text-center font-bold text-indigo-700">{totals.govtMoreThan6Mo}</td>
