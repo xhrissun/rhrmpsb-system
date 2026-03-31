@@ -763,10 +763,16 @@ router.get('/candidates', authMiddleware, async (req, res) => {
 
 router.get('/candidates/export-summary-csv', exportLimiter, authMiddleware, async (req, res) => {
   try {
-    const candidates = await Candidate.find().sort({ fullName: 1 });
+    // Only export candidates belonging to active (non-archived) publication ranges
+    const activeRanges = await PublicationRange.find({ isArchived: false }, '_id');
+    const activeRangeIds = activeRanges.map(r => r._id);
+
+    const candidates = await Candidate.find(
+      { publicationRangeId: { $in: activeRangeIds }, isArchived: false }
+    ).sort({ fullName: 1 });
     if (candidates.length === 0) return res.status(404).json({ message: 'No candidates found for export' });
 
-    const vacancies = await Vacancy.find({}, 'itemNumber position');
+    const vacancies = await Vacancy.find({ publicationRangeId: { $in: activeRangeIds } }, 'itemNumber position');
     const itemNumberToPosition = {};
     vacancies.forEach(v => { itemNumberToPosition[v.itemNumber] = v.position; });
 
