@@ -772,20 +772,24 @@ router.get('/candidates/export-summary-csv', exportLimiter, authMiddleware, asyn
     ).sort({ fullName: 1 });
     if (candidates.length === 0) return res.status(404).json({ message: 'No candidates found for export' });
 
-    const vacancies = await Vacancy.find({ publicationRangeId: { $in: activeRangeIds } }, 'itemNumber position');
+    const vacancies = await Vacancy.find({ publicationRangeId: { $in: activeRangeIds } }, 'itemNumber position assignment');
     const itemNumberToPosition = {};
-    vacancies.forEach(v => { itemNumberToPosition[v.itemNumber] = v.position; });
+    const itemNumberToAssignment = {};
+    vacancies.forEach(v => {
+      itemNumberToPosition[v.itemNumber] = v.position;
+      itemNumberToAssignment[v.itemNumber] = v.assignment;
+    });
 
     const headers = [
-      'Full Name', 'Gender', 'Item Number', 'Position Applied',
+      'Full Name', 'Gender', 'Assignment', 'Item Number', 'Position Applied',
       'Status', 'Education Comments', 'Training Comments',
       'Experience Comments', 'Eligibility Comments',
       'Govt Agency', 'Govt Position', 'Govt Employment Status', 'Govt Employment Period',
       'Govt Employment End Date', 'Pre-Assessment Exam Consideration', 'Govt Remarks'
     ];
     const rows = candidates.map(c => [
-      c.fullName || '', c.gender || '', c.itemNumber || '',
-      itemNumberToPosition[c.itemNumber] || 'N/A', c.status || '',
+      c.fullName || '', c.gender || '', itemNumberToAssignment[c.itemNumber] || 'N/A',
+      c.itemNumber || '', itemNumberToPosition[c.itemNumber] || 'N/A', c.status || '',
       c.comments?.education || '', c.comments?.training || '',
       c.comments?.experience || '', c.comments?.eligibility || '',
       c.governmentEmployment?.agency           || '',
