@@ -349,6 +349,12 @@ const RaterView = ({ user }) => {
   const [isCompetencyModalOpen, setIsCompetencyModalOpen] = useState(false);
   const [selectedCompetencyForModal, setSelectedCompetencyForModal] = useState(null);
 
+  // ── Monitoring Modal ──────────────────────────────────────────────────────
+  const [isMonitorModalOpen, setIsMonitorModalOpen] = useState(false);
+  const [monitorData, setMonitorData] = useState([]);
+  const [monitorLoading, setMonitorLoading] = useState(false);
+  const [monitorSearchQuery, setMonitorSearchQuery] = useState('');
+
   // ── Copy Ratings from Another Item ───────────────────────────────────────
   const [isCopyRatingsModalOpen, setIsCopyRatingsModalOpen] = useState(false);
   const [copyRatingsSources, setCopyRatingsSources] = useState([]);  // [{itemNumber, position, assignment, matchCount, ratingsMap}]
@@ -732,6 +738,63 @@ const RaterView = ({ user }) => {
       showToast('Failed to load ratings from other items.', 'error');
     } finally {
       setCopyRatingsLoading(false);
+    }
+  };
+
+  // ── Monitoring: load all rated candidates by this rater ────────────────────
+  const handleOpenMonitorModal = async () => {
+    setIsMonitorModalOpen(true);
+    setMonitorLoading(true);
+    setMonitorSearchQuery('');
+    try {
+      const allMyRatings = await ratingsAPI.getByRater(user._id);
+
+      // Group by candidateId + itemNumber (each unique submission)
+      const submissionMap = {};
+      allMyRatings.forEach(r => {
+        const candidateId = r.candidateId?._id || r.candidateId;
+        const key = `${candidateId}__${r.itemNumber}`;
+        if (!submissionMap[key]) {
+          submissionMap[key] = {
+            candidateId,
+            candidateName: r.candidateId?.fullName || 'Unknown',
+            itemNumber: r.itemNumber,
+            position: null,
+            assignment: null,
+            scores: [],
+            submittedAt: r.createdAt,
+            raterType: r.raterType || user.raterType,
+          };
+        }
+        submissionMap[key].scores.push(r.score);
+        // Keep latest date
+        if (r.createdAt > submissionMap[key].submittedAt) {
+          submissionMap[key].submittedAt = r.createdAt;
+        }
+      });
+
+      // Enrich with vacancy info
+      const enriched = Object.values(submissionMap).map(entry => {
+        const vacancy = vacancies.find(v => v.itemNumber === entry.itemNumber);
+        const avgScore = entry.scores.length > 0
+          ? (entry.scores.reduce((a, b) => a + b, 0) / entry.scores.length).toFixed(3)
+          : '—';
+        return {
+          ...entry,
+          position: vacancy?.position || '—',
+          assignment: vacancy?.assignment || '—',
+          avgScore,
+          totalRatings: entry.scores.length,
+        };
+      });
+
+      // Sort by most recently submitted first
+      enriched.sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
+      setMonitorData(enriched);
+    } catch (err) {
+      console.error('Failed to load monitor data:', err);
+    } finally {
+      setMonitorLoading(false);
     }
   };
 
@@ -1600,6 +1663,211 @@ const RaterView = ({ user }) => {
               onClose={() => { setIsCompetencyModalOpen(false); setSelectedCompetencyForModal(null); }}
             />
           )}
+
+          {/* ── Monitoring Modal ───────────────────────────────────────────── */}
+          {isMonitorModalOpen && (
+            <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4" style={{ backdropFilter: 'blur(4px)' }}>
+              <div className="bg-white rounded-2xl w-full max-w-2xl mx-auto shadow-2xl overflow-hidden flex flex-col" style={{ maxHeight: '88vh' }}>
+                {/* Header */}
+                <div style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #2d5a8e 100%)' }} className="px-6 py-5 flex-shrink-0">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-white bg-opacity-20 flex items-center justify-center flex-shrink-0">
+                        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                        </svg>
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-bold text-white leading-tight">Rating Monitor</h3>
+                        <p className="text-blue-200 text-xs mt-0.5">Your submitted ratings — {user.name} ({user.raterType})</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setIsMonitorModalOpen(false)}
+                      className="w-8 h-8 rounded-lg bg-white bg-opacity-20 hover:bg-opacity-30 flex items-center justify-center transition-all"
+                    >
+                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Search bar */}
+                {!monitorLoading && monitorData.length > 0 && (
+                  <div className="px-6 pt-4 pb-2 flex-shrink-0 border-b border-gray-100">
+                    <div className="relative">
+                      <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                      <input
+                        type="text"
+                        placeholder="Search candidate, position, or item number…"
+                        value={monitorSearchQuery}
+                        onChange={e => setMonitorSearchQuery(e.target.value)}
+                        className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 bg-gray-50"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Body */}
+                <div className="flex-1 overflow-y-auto">
+                  {monitorLoading ? (
+                    <div className="flex flex-col items-center justify-center py-16 gap-3">
+                      <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
+                      <p className="text-gray-500 text-sm">Loading your rating history…</p>
+                    </div>
+                  ) : monitorData.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-16 gap-3 text-center px-6">
+                      <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center">
+                        <svg className="w-8 h-8 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                        </svg>
+                      </div>
+                      <p className="text-gray-600 font-semibold">No ratings submitted yet</p>
+                      <p className="text-gray-400 text-sm">Your submitted ratings will appear here for monitoring.</p>
+                    </div>
+                  ) : (() => {
+                      const filtered = monitorData.filter(entry => {
+                        const q = monitorSearchQuery.toLowerCase();
+                        if (!q) return true;
+                        return (
+                          entry.candidateName.toLowerCase().includes(q) ||
+                          entry.position.toLowerCase().includes(q) ||
+                          entry.itemNumber.toLowerCase().includes(q) ||
+                          entry.assignment.toLowerCase().includes(q)
+                        );
+                      });
+                      if (filtered.length === 0) return (
+                        <div className="flex flex-col items-center justify-center py-12 text-center px-6">
+                          <p className="text-gray-500 text-sm">No results found for "<span className="font-medium">{monitorSearchQuery}</span>"</p>
+                        </div>
+                      );
+                      return (
+                        <div className="p-4 space-y-3">
+                          <p className="text-xs text-gray-400 px-1">
+                            Showing <span className="font-semibold text-gray-600">{filtered.length}</span> of {monitorData.length} submission{monitorData.length !== 1 ? 's' : ''}
+                          </p>
+                          {filtered.map((entry, idx) => (
+                            <div
+                              key={`${entry.candidateId}__${entry.itemNumber}__${idx}`}
+                              className="bg-white border border-gray-200 rounded-xl p-4 hover:border-blue-200 hover:shadow-sm transition-all"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-bold text-gray-900 text-sm truncate">{entry.candidateName}</p>
+                                  <p className="text-gray-600 text-xs mt-0.5 truncate">{entry.position}</p>
+                                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                    <span className="text-gray-400 text-xs font-mono">{entry.itemNumber}</span>
+                                    {entry.assignment !== '—' && (
+                                      <>
+                                        <span className="text-gray-300 text-xs">·</span>
+                                        <span className="text-gray-400 text-xs truncate max-w-[160px]">{entry.assignment}</span>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                                {/* Score badge */}
+                                <div className="flex-shrink-0 text-right">
+                                  <div className="inline-flex flex-col items-center px-3 py-2 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-sm">
+                                    <span className="text-xs font-medium opacity-80 leading-none">Avg Score</span>
+                                    <span className="text-lg font-extrabold leading-tight">{entry.avgScore}</span>
+                                    <span className="text-xs opacity-70 leading-none">{entry.totalRatings} items</span>
+                                  </div>
+                                </div>
+                              </div>
+                              {/* Submission date */}
+                              {entry.submittedAt && (
+                                <div className="mt-2 pt-2 border-t border-gray-100 flex items-center gap-1.5">
+                                  <svg className="w-3 h-3 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                  </svg>
+                                  <span className="text-gray-400 text-xs">
+                                    Submitted {new Date(entry.submittedAt).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()
+                  }
+                </div>
+
+                {/* Footer */}
+                {!monitorLoading && monitorData.length > 0 && (
+                  <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex-shrink-0 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                      <span className="text-xs text-gray-500">
+                        <span className="font-semibold text-gray-700">{monitorData.length}</span> total submission{monitorData.length !== 1 ? 's' : ''}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => setIsMonitorModalOpen(false)}
+                      className="px-5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-semibold rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all shadow-sm"
+                    >
+                      Close
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── Floating Monitor Button ────────────────────────────────────── */}
+          <button
+            onClick={handleOpenMonitorModal}
+            title="View your rating monitor"
+            style={{
+              position: 'fixed',
+              bottom: 28,
+              right: 24,
+              zIndex: 40,
+              width: 56,
+              height: 56,
+              borderRadius: '50%',
+              background: 'linear-gradient(135deg, #1e3a5f 0%, #2d6bbf 100%)',
+              boxShadow: '0 4px 18px rgba(30,58,95,0.45)',
+              border: 'none',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.1)'; e.currentTarget.style.boxShadow = '0 6px 24px rgba(30,58,95,0.55)'; }}
+            onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = '0 4px 18px rgba(30,58,95,0.45)'; }}
+          >
+            <svg width="24" height="24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+              <path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
+            {/* Tooltip label */}
+            <span style={{
+              position: 'absolute',
+              right: 64,
+              background: '#1e3a5f',
+              color: '#fff',
+              fontSize: 11,
+              fontWeight: 600,
+              padding: '4px 10px',
+              borderRadius: 6,
+              whiteSpace: 'nowrap',
+              pointerEvents: 'none',
+              opacity: 0,
+              transition: 'opacity 0.2s',
+            }}
+              className="monitor-fab-tooltip"
+            >
+              Rating Monitor
+            </span>
+          </button>
+
+          <style>{`
+            button:hover .monitor-fab-tooltip { opacity: 1 !important; }
+          `}</style>
 
           {selectedCandidate && !isRaterTypeConflictModalOpen && (
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6 shadow-sm">
