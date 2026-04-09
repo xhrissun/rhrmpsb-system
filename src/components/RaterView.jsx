@@ -741,7 +741,7 @@ const RaterView = ({ user }) => {
     }
   };
 
-  // ── Monitoring: load all rated candidates by this rater ────────────────────
+  // ── Monitoring: load rated candidates scoped to active publications only ───
   const handleOpenMonitorModal = async () => {
     setIsMonitorModalOpen(true);
     setMonitorLoading(true);
@@ -749,9 +749,18 @@ const RaterView = ({ user }) => {
     try {
       const allMyRatings = await ratingsAPI.getByRater(user._id);
 
-      // Group by candidateId + itemNumber (each unique submission)
+      // `vacancies` in state are already filtered to the active (non-archived)
+      // publication ranges for this rater. Use their itemNumbers as the allowlist
+      // so we only show ratings that belong to the current active publication/s.
+      const activeItemNumbers = new Set(vacancies.map(v => v.itemNumber));
+
+      const activeRatings = allMyRatings.filter(r =>
+        activeItemNumbers.has(r.itemNumber)
+      );
+
+      // Group by candidateId + itemNumber (one entry per unique submission)
       const submissionMap = {};
-      allMyRatings.forEach(r => {
+      activeRatings.forEach(r => {
         const candidateId = r.candidateId?._id || r.candidateId;
         const key = `${candidateId}__${r.itemNumber}`;
         if (!submissionMap[key]) {
@@ -759,32 +768,56 @@ const RaterView = ({ user }) => {
             candidateId,
             candidateName: r.candidateId?.fullName || 'Unknown',
             itemNumber: r.itemNumber,
-            position: null,
-            assignment: null,
-            scores: [],
+            ratingRecords: [],
             submittedAt: r.createdAt,
-            raterType: r.raterType || user.raterType,
           };
         }
-        submissionMap[key].scores.push(r.score);
-        // Keep latest date
+        submissionMap[key].ratingRecords.push(r);
         if (r.createdAt > submissionMap[key].submittedAt) {
           submissionMap[key].submittedAt = r.createdAt;
         }
       });
 
-      // Enrich with vacancy info
+      // Enrich each submission with vacancy info + compute Psycho-Social & Potential
       const enriched = Object.values(submissionMap).map(entry => {
         const vacancy = vacancies.find(v => v.itemNumber === entry.itemNumber);
-        const avgScore = entry.scores.length > 0
-          ? (entry.scores.reduce((a, b) => a + b, 0) / entry.scores.length).toFixed(3)
-          : '—';
+        const salaryGrade = vacancy?.salaryGrade || 1;
+
+        // Build minimal grouped competency structure from populated competencyId.
+        // IMPORTANT: helpers.js filters use strict === to match rating.competencyId
+        // against competency._id, so BOTH must be plain strings. Normalise here.
+        const grouped = { basic: [], organizational: [], leadership: [], minimum: [] };
+        entry.ratingRecords.forEach(r => {
+          const type = r.competencyType;
+          const compId = String(r.competencyId?._id ?? r.competencyId ?? '');
+          if (type && grouped[type] && compId) {
+            if (!grouped[type].find(c => c._id === compId)) {
+              grouped[type].push({ _id: compId, name: r.competencyId?.name || '', type });
+            }
+          }
+        });
+
+        // ratings array — competencyId as plain string to match grouped._id above
+        const ratingsArr = entry.ratingRecords.map(r => ({
+          raterId: user._id,
+          competencyId: String(r.competencyId?._id ?? r.competencyId ?? ''),
+          competencyType: r.competencyType,
+          score: r.score,
+        }));
+
+        const scores = calculateRatingScores(ratingsArr, grouped, salaryGrade);
+
         return {
-          ...entry,
+          candidateId: entry.candidateId,
+          candidateName: entry.candidateName,
+          itemNumber: entry.itemNumber,
           position: vacancy?.position || '—',
           assignment: vacancy?.assignment || '—',
-          avgScore,
-          totalRatings: entry.scores.length,
+          salaryGrade,
+          psychoSocial: scores.psychoSocial,
+          potential: scores.potential,
+          totalRatings: entry.ratingRecords.length,
+          submittedAt: entry.submittedAt,
         };
       });
 
@@ -1667,8 +1700,9 @@ const RaterView = ({ user }) => {
           {/* ── Monitoring Modal ───────────────────────────────────────────── */}
           {isMonitorModalOpen && (
             <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4" style={{ backdropFilter: 'blur(4px)' }}>
-              <div className="bg-white rounded-2xl w-full max-w-2xl mx-auto shadow-2xl overflow-hidden flex flex-col" style={{ maxHeight: '88vh' }}>
-                {/* Header */}
+              <div className="bg-white rounded-2xl w-full max-w-2xl mx-auto shadow-2xl overflow-hidden flex flex-col" style={{ maxHeight: '90vh' }}>
+
+                {/* ── Header ── */}
                 <div style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #2d5a8e 100%)' }} className="px-6 py-5 flex-shrink-0">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -1679,7 +1713,7 @@ const RaterView = ({ user }) => {
                       </div>
                       <div>
                         <h3 className="text-lg font-bold text-white leading-tight">Rating Monitor</h3>
-                        <p className="text-blue-200 text-xs mt-0.5">Your submitted ratings — {user.name} ({user.raterType})</p>
+                        <p className="text-blue-200 text-xs mt-0.5">{user.name} · {user.raterType} · Active publication only</p>
                       </div>
                     </div>
                     <button
@@ -1693,30 +1727,30 @@ const RaterView = ({ user }) => {
                   </div>
                 </div>
 
-                {/* Search bar */}
+                {/* ── Search bar ── */}
                 {!monitorLoading && monitorData.length > 0 && (
-                  <div className="px-6 pt-4 pb-2 flex-shrink-0 border-b border-gray-100">
+                  <div className="px-5 pt-4 pb-3 flex-shrink-0 border-b border-gray-100 bg-gray-50">
                     <div className="relative">
                       <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                       </svg>
                       <input
                         type="text"
-                        placeholder="Search candidate, position, or item number…"
+                        placeholder="Search by candidate name, position, or item no…"
                         value={monitorSearchQuery}
                         onChange={e => setMonitorSearchQuery(e.target.value)}
-                        className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 bg-gray-50"
+                        className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
                       />
                     </div>
                   </div>
                 )}
 
-                {/* Body */}
+                {/* ── Body ── */}
                 <div className="flex-1 overflow-y-auto">
                   {monitorLoading ? (
                     <div className="flex flex-col items-center justify-center py-16 gap-3">
                       <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
-                      <p className="text-gray-500 text-sm">Loading your rating history…</p>
+                      <p className="text-gray-500 text-sm">Loading your active publication ratings…</p>
                     </div>
                   ) : monitorData.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-16 gap-3 text-center px-6">
@@ -1725,8 +1759,8 @@ const RaterView = ({ user }) => {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                         </svg>
                       </div>
-                      <p className="text-gray-600 font-semibold">No ratings submitted yet</p>
-                      <p className="text-gray-400 text-sm">Your submitted ratings will appear here for monitoring.</p>
+                      <p className="text-gray-700 font-semibold">No ratings yet for this publication</p>
+                      <p className="text-gray-400 text-sm max-w-xs">Candidates you rate in the current active publication will appear here.</p>
                     </div>
                   ) : (() => {
                       const filtered = monitorData.filter(entry => {
@@ -1739,52 +1773,71 @@ const RaterView = ({ user }) => {
                           entry.assignment.toLowerCase().includes(q)
                         );
                       });
+
                       if (filtered.length === 0) return (
                         <div className="flex flex-col items-center justify-center py-12 text-center px-6">
-                          <p className="text-gray-500 text-sm">No results found for "<span className="font-medium">{monitorSearchQuery}</span>"</p>
+                          <p className="text-gray-500 text-sm">No results for "<span className="font-medium">{monitorSearchQuery}</span>"</p>
                         </div>
                       );
+
                       return (
                         <div className="p-4 space-y-3">
-                          <p className="text-xs text-gray-400 px-1">
-                            Showing <span className="font-semibold text-gray-600">{filtered.length}</span> of {monitorData.length} submission{monitorData.length !== 1 ? 's' : ''}
+                          <p className="text-xs text-gray-400 px-1 pb-1">
+                            Showing <span className="font-semibold text-gray-600">{filtered.length}</span> of{' '}
+                            <span className="font-semibold text-gray-600">{monitorData.length}</span> rated candidate{monitorData.length !== 1 ? 's' : ''}
                           </p>
+
                           {filtered.map((entry, idx) => (
                             <div
                               key={`${entry.candidateId}__${entry.itemNumber}__${idx}`}
-                              className="bg-white border border-gray-200 rounded-xl p-4 hover:border-blue-200 hover:shadow-sm transition-all"
+                              className="bg-white border border-gray-200 rounded-xl overflow-hidden hover:border-blue-200 hover:shadow-md transition-all"
                             >
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="flex-1 min-w-0">
-                                  <p className="font-bold text-gray-900 text-sm truncate">{entry.candidateName}</p>
-                                  <p className="text-gray-600 text-xs mt-0.5 truncate">{entry.position}</p>
-                                  <div className="flex items-center gap-2 mt-1 flex-wrap">
-                                    <span className="text-gray-400 text-xs font-mono">{entry.itemNumber}</span>
-                                    {entry.assignment !== '—' && (
-                                      <>
-                                        <span className="text-gray-300 text-xs">·</span>
-                                        <span className="text-gray-400 text-xs truncate max-w-[160px]">{entry.assignment}</span>
-                                      </>
-                                    )}
+                              {/* Candidate identity row */}
+                              <div className="px-4 pt-4 pb-3">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="flex-1 min-w-0">
+                                    <p className="font-bold text-gray-900 text-sm leading-tight truncate">{entry.candidateName}</p>
+                                    <p className="text-gray-500 text-xs mt-0.5 truncate">{entry.position}</p>
+                                    <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                      <span className="text-xs font-mono bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{entry.itemNumber}</span>
+                                      {entry.assignment !== '—' && (
+                                        <span className="text-gray-400 text-xs truncate max-w-[180px]">{entry.assignment}</span>
+                                      )}
+                                      <span className="text-xs text-gray-400 bg-gray-50 border border-gray-200 px-1.5 py-0.5 rounded">SG {entry.salaryGrade}</span>
+                                    </div>
                                   </div>
-                                </div>
-                                {/* Score badge */}
-                                <div className="flex-shrink-0 text-right">
-                                  <div className="inline-flex flex-col items-center px-3 py-2 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-sm">
-                                    <span className="text-xs font-medium opacity-80 leading-none">Avg Score</span>
-                                    <span className="text-lg font-extrabold leading-tight">{entry.avgScore}</span>
-                                    <span className="text-xs opacity-70 leading-none">{entry.totalRatings} items</span>
+                                  <div className="flex-shrink-0">
+                                    <span className="text-xs text-gray-400 bg-gray-50 border border-gray-200 px-2 py-1 rounded-lg whitespace-nowrap">
+                                      {entry.totalRatings} competenc{entry.totalRatings !== 1 ? 'ies' : 'y'}
+                                    </span>
                                   </div>
                                 </div>
                               </div>
-                              {/* Submission date */}
+
+                              {/* ── Psycho-Social & Potential score panels ── */}
+                              <div className="grid grid-cols-2 gap-px bg-gray-100 border-t border-gray-100">
+                                <div className="bg-gradient-to-br from-emerald-500 to-green-600 px-4 py-3 text-white text-center">
+                                  <p className="text-xs font-semibold opacity-80 uppercase tracking-wide leading-none mb-1">Psycho-Social</p>
+                                  <p className="text-2xl font-extrabold leading-none tabular-nums">
+                                    {entry.psychoSocial > 0 ? entry.psychoSocial.toFixed(3) : '—'}
+                                  </p>
+                                </div>
+                                <div className="bg-gradient-to-br from-blue-500 to-indigo-600 px-4 py-3 text-white text-center">
+                                  <p className="text-xs font-semibold opacity-80 uppercase tracking-wide leading-none mb-1">Potential</p>
+                                  <p className="text-2xl font-extrabold leading-none tabular-nums">
+                                    {entry.potential > 0 ? entry.potential.toFixed(3) : '—'}
+                                  </p>
+                                </div>
+                              </div>
+
+                              {/* Submission timestamp */}
                               {entry.submittedAt && (
-                                <div className="mt-2 pt-2 border-t border-gray-100 flex items-center gap-1.5">
+                                <div className="px-4 py-2 bg-gray-50 flex items-center gap-1.5 border-t border-gray-100">
                                   <svg className="w-3 h-3 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                                   </svg>
                                   <span className="text-gray-400 text-xs">
-                                    Submitted {new Date(entry.submittedAt).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                    Last updated {new Date(entry.submittedAt).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                                   </span>
                                 </div>
                               )}
@@ -1796,23 +1849,22 @@ const RaterView = ({ user }) => {
                   }
                 </div>
 
-                {/* Footer */}
-                {!monitorLoading && monitorData.length > 0 && (
-                  <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex-shrink-0 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                      <span className="text-xs text-gray-500">
-                        <span className="font-semibold text-gray-700">{monitorData.length}</span> total submission{monitorData.length !== 1 ? 's' : ''}
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => setIsMonitorModalOpen(false)}
-                      className="px-5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-semibold rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all shadow-sm"
-                    >
-                      Close
-                    </button>
+                {/* ── Footer ── */}
+                <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex-shrink-0 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                    <span className="text-xs text-gray-500">
+                      Active publication ·{' '}
+                      <span className="font-semibold text-gray-700">{monitorData.length}</span> candidate{monitorData.length !== 1 ? 's' : ''} rated
+                    </span>
                   </div>
-                )}
+                  <button
+                    onClick={() => setIsMonitorModalOpen(false)}
+                    className="px-5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-semibold rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all shadow-sm"
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
             </div>
           )}
