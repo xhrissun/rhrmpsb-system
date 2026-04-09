@@ -821,9 +821,13 @@ const RaterView = ({ user }) => {
         };
       });
 
+      // Filter out entries where the candidate name couldn't be resolved
+      // (happens when candidateId is not populated — nothing useful to display).
+      const known = enriched.filter(e => e.candidateName && e.candidateName !== 'Unknown');
+
       // Sort by most recently submitted first
-      enriched.sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
-      setMonitorData(enriched);
+      known.sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
+      setMonitorData(known);
     } catch (err) {
       console.error('Failed to load monitor data:', err);
     } finally {
