@@ -25,6 +25,9 @@ if (process.env.JWT_SECRET.length < 32) {
 
 const app = express();
 
+// ── Trust Render's reverse proxy (required for correct IP-based rate limiting) ─
+app.set('trust proxy', 1);
+
 // ── Environment-based CORS configuration ─────────────────────────────────────
 const corsOptions = {
   origin: process.env.NODE_ENV === 'production'
@@ -49,7 +52,7 @@ const globalLimiter = rateLimit({
 // ── Auth-specific rate limiter (stricter) ─────────────────────────────────────
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: 20,
   standardHeaders: true,
   legacyHeaders: false,
   message: { message: 'Too many login attempts. Please wait 15 minutes before trying again.' }

@@ -8,13 +8,22 @@ import { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRan
 
 const router = express.Router();
 
-// ── Auth rate limiter ─────────────────────────────────────────────────────────
-const authLimiter = rateLimit({
+// ── Auth rate limiters ────────────────────────────────────────────────────────
+// loginLimiter: guards the unauthenticated login endpoint (strict)
+const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: 20,
   standardHeaders: true,
   legacyHeaders: false,
   message: { message: 'Too many login attempts. Please wait 15 minutes before trying again.' }
+});
+// verifyLimiter: guards verify-password (user is already authenticated, so more lenient)
+const verifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many verification attempts. Please wait 15 minutes before trying again.' }
 });
 
 // F-15 FIX: Stricter limiter for bulk export/report endpoints — prevents data exfiltration loops.
@@ -142,7 +151,7 @@ const COMPETENCY_WRITE_ALLOWED = [
 // AUTH ROUTES
 // ═══════════════════════════════════════════════════════════════════════════
 
-router.post('/auth/login', authLimiter, async (req, res) => {
+router.post('/auth/login', loginLimiter, async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) {
     return res.status(400).json({ message: 'Email and password are required' });
@@ -166,7 +175,7 @@ router.get('/auth/me', authMiddleware, async (req, res) => {
   res.json(req.user);
 });
 
-router.post('/auth/verify-password', authLimiter, authMiddleware, async (req, res) => {
+router.post('/auth/verify-password', verifyLimiter, authMiddleware, async (req, res) => {
   const { userId, password } = req.body;
   if (!userId || !password) {
     return res.status(400).json({ message: 'userId and password are required' });
