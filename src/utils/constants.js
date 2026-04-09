@@ -1,7 +1,8 @@
 export const USER_TYPES = {
   RATER: 'rater',
-  SECRETARIAT: 'secretariat', 
-  ADMIN: 'admin'
+  SECRETARIAT: 'secretariat',
+  ADMIN: 'admin',
+  SUMMARY_VIEWER: 'summary_viewer'
 };
 
 export const RATER_TYPES = {

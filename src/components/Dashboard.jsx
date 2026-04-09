@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import RaterView from './RaterView';
 import SecretariatView from './SecretariatView';
 import AdminView from './AdminView';
+import InterviewSummaryGeneratorV2 from './InterviewSummaryGeneratorV2';
 import { USER_TYPES } from '../utils/constants';
 import { usersAPI } from '../utils/api';
 
@@ -1266,6 +1267,7 @@ const Dashboard = ({ user, onLogout }) => {
       case USER_TYPES.RATER:      return <RaterView user={user} />;
       case USER_TYPES.SECRETARIAT: return <SecretariatView user={user} />;
       case USER_TYPES.ADMIN:      return <AdminView user={user} />;
+      case USER_TYPES.SUMMARY_VIEWER: return <InterviewSummaryGeneratorV2 user={user} />;
       default:
         return (
           <div className="flex items-center justify-center h-full">

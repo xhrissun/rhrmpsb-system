@@ -1566,7 +1566,7 @@ router.delete('/competencies/:id', authMiddleware, async (req, res) => {
 router.get('/ratings', authMiddleware, async (req, res) => {
   // F-01 FIX: Only admins may fetch the full ratings collection.
   // Raters must not see other raters' scores — CBS independence requirement.
-  if (req.user.userType !== 'admin') return res.status(403).json({ message: 'Access denied' });
+  if (req.user.userType !== 'admin' && req.user.userType !== 'summary_viewer') return res.status(403).json({ message: 'Access denied' });
   try {
     const ratings = await Rating.find()
       .populate('raterId', 'name raterType')

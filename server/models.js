@@ -26,7 +26,7 @@ const userSchema = new mongoose.Schema({
   name:  { type: String, required: true, trim: true },
   email: { type: String, required: true, unique: true, lowercase: true, trim: true },
   password: { type: String, required: true, minlength: 8 },
-  userType: { type: String, required: true, enum: ['rater', 'secretariat', 'admin'] },
+  userType: { type: String, required: true, enum: ['rater', 'secretariat', 'admin', 'summary_viewer'] },
   raterType: {
     type: String,
     enum: ['Chairperson', 'Vice-Chairperson', 'Regular Member', 'DENREU', 'Gender and Development', 'End-User'],

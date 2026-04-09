@@ -3,6 +3,7 @@ import usePersistedState from '../utils/usePersistedState';
 import { usersAPI, vacanciesAPI, candidatesAPI, competenciesAPI, publicationRangesAPI, authAPI } from '../utils/api';
 import { USER_TYPES, RATER_TYPES, SALARY_GRADES, CANDIDATE_STATUS } from '../utils/constants';
 import InterviewSummaryGenerator from './InterviewSummaryGenerator';
+import InterviewSummaryGeneratorV2 from './InterviewSummaryGeneratorV2';
 import { useToast } from '../utils/ToastContext';
 import RatingLogsView from './RatingLogsView';
 import PublicationRangeManager from './PublicationRangeManager';
@@ -172,6 +173,13 @@ const AdminView = ({ user }) => {
   const [lastVacancyUpload, setLastVacancyUpload] = useState(null);
   const [competencyVacancyModal, setCompetencyVacancyModal] = useState(null);
   const [showCompetencyModal, setShowCompetencyModal] = useState(false);
+
+  // ─── Summary Viewer Account State ─────────────────────────────────────────
+  const [summaryViewers, setSummaryViewers] = useState([]);
+  const [summaryViewerSubTab, setSummaryViewerSubTab] = useState('generator');
+  const [showSVModal, setShowSVModal] = useState(false);
+  const [editingSV, setEditingSV] = useState(null);
+  const [svLoading, setSvLoading] = useState(false);
   const [selectedVacancyForCompetencies, setSelectedVacancyForCompetencies] = useState(null);
   const [vacancyCompetencies, setVacancyCompetencies] = useState([]);
   const [loadingCompetencies, setLoadingCompetencies] = useState(false);
@@ -2295,13 +2303,161 @@ const loadDataForCurrentTab = useCallback(async () => {
   selectedUserForDetails,
 ]);
 
+  // ─── Load Summary Viewers ─────────────────────────────────────────────────
+  const loadSummaryViewers = useCallback(async () => {
+    try {
+      setSvLoading(true);
+      const allUsers = await usersAPI.getAll();
+      setSummaryViewers(allUsers.filter(u => u.userType === 'summary_viewer'));
+    } catch (err) {
+      showToast('Failed to load viewer accounts', 'error');
+    } finally {
+      setSvLoading(false);
+    }
+  }, [showToast]);
+
   const renderInterviewSummary = useCallback(() => {
     return (
-      <div className="space-y-4">
-        <InterviewSummaryGenerator user={user} />
+      <div>
+        {/* Sub-tab switcher */}
+        <div className="flex items-center gap-1 mb-5 border-b border-gray-200 pb-0">
+          <button
+            onClick={() => {
+              setSummaryViewerSubTab('generator');
+            }}
+            className={`px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-all ${
+              summaryViewerSubTab === 'generator'
+                ? 'border-blue-600 text-blue-600 bg-blue-50'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            📊 Summary Generator
+          </button>
+          <button
+            onClick={() => {
+              setSummaryViewerSubTab('accounts');
+              loadSummaryViewers();
+            }}
+            className={`px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-all ${
+              summaryViewerSubTab === 'accounts'
+                ? 'border-blue-600 text-blue-600 bg-blue-50'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            👥 Viewer Accounts
+          </button>
+        </div>
+
+        {/* Generator sub-tab */}
+        {summaryViewerSubTab === 'generator' && (
+          <InterviewSummaryGeneratorV2 user={user} />
+        )}
+
+        {/* Accounts sub-tab */}
+        {summaryViewerSubTab === 'accounts' && (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <div>
+                <h3 className="text-base font-bold text-gray-900">Summary Viewer Accounts</h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  These accounts can only log in and view the Interview Summary Generator.
+                </p>
+              </div>
+              <button
+                onClick={() => { setEditingSV(null); setShowSVModal(true); }}
+                className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Add Viewer Account
+              </button>
+            </div>
+
+            {/* Table */}
+            {svLoading ? (
+              <div className="flex items-center justify-center py-16">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+              </div>
+            ) : summaryViewers.length === 0 ? (
+              <div className="flex flex-col items-center py-16 text-center">
+                <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center mb-3">
+                  <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                </div>
+                <p className="text-gray-500 text-sm font-medium">No viewer accounts yet</p>
+                <p className="text-gray-400 text-xs mt-1">Add an account to grant read-only access to the summary generator.</p>
+              </div>
+            ) : (
+              <table className="min-w-full divide-y divide-gray-100 text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Name</th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Email</th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Access</th>
+                    <th className="px-5 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {summaryViewers.map(sv => (
+                    <tr key={sv._id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-5 py-3 font-medium text-gray-900">{sv.name}</td>
+                      <td className="px-5 py-3 text-gray-600">{sv.email}</td>
+                      <td className="px-5 py-3">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 text-xs font-medium rounded-full border border-blue-100">
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                          </svg>
+                          Summary Viewer
+                        </span>
+                      </td>
+                      <td className="px-5 py-3 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => { setEditingSV(sv); setShowSVModal(true); }}
+                            className="text-xs text-blue-600 hover:text-blue-800 px-2 py-1 rounded hover:bg-blue-50 transition-colors font-medium"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={async () => {
+                              if (!window.confirm(`Delete viewer account for ${sv.name}?`)) return;
+                              try {
+                                await usersAPI.delete(sv._id);
+                                showToast(`${sv.name} removed`, 'success');
+                                loadSummaryViewers();
+                              } catch {
+                                showToast('Failed to delete account', 'error');
+                              }
+                            }}
+                            className="text-xs text-red-500 hover:text-red-700 px-2 py-1 rounded hover:bg-red-50 transition-colors font-medium"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+
+        {/* Summary Viewer Create/Edit Modal */}
+        {showSVModal && (
+          <SummaryViewerModal
+            editingItem={editingSV}
+            onClose={() => { setShowSVModal(false); setEditingSV(null); }}
+            onSuccess={() => { loadSummaryViewers(); }}
+          />
+        )}
       </div>
     );
-  }, [user]);
+  }, [user, summaryViewerSubTab, summaryViewers, svLoading, showSVModal, editingSV, loadSummaryViewers, showToast]);
 
   // ─── Early Return for Loading State ───────────────────────────────────────
 
@@ -4493,6 +4649,144 @@ const PasswordConfirmModal = ({ isOpen, onClose, onConfirm, actionType, itemName
               disabled={loading}
             >
               {loading ? 'Verifying...' : `Confirm ${actionType}`}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// ──────────────────────────────────────────────────────────────────────────────
+// SummaryViewerModal — Create / Edit summary_viewer accounts
+// ──────────────────────────────────────────────────────────────────────────────
+const SummaryViewerModal = ({ editingItem, onClose, onSuccess }) => {
+  const [formData, setFormData] = React.useState(
+    editingItem
+      ? { name: editingItem.name, email: editingItem.email, password: '' }
+      : { name: '', email: '', password: '' }
+  );
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState('');
+  const { showToast } = useToast();
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    if (!editingItem && !formData.password) {
+      setError('Password is required for new accounts.');
+      return;
+    }
+    try {
+      setSaving(true);
+      if (editingItem) {
+        const payload = { name: formData.name, email: formData.email };
+        if (formData.password) payload.password = formData.password;
+        await usersAPI.update(editingItem._id, payload);
+        showToast('Viewer account updated', 'success');
+      } else {
+        await usersAPI.create({
+          name: formData.name,
+          email: formData.email,
+          password: formData.password,
+          userType: 'summary_viewer',
+        });
+        showToast('Viewer account created', 'success');
+      }
+      onClose();
+      onSuccess();
+    } catch (err) {
+      setError(err?.response?.data?.message || 'Failed to save account. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="modal-content bg-white rounded-xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 bg-gradient-to-r from-blue-700 to-blue-600">
+          <div>
+            <h2 className="text-sm font-bold text-white">
+              {editingItem ? 'Edit Viewer Account' : 'New Viewer Account'}
+            </h2>
+            <p className="text-blue-200 text-xs mt-0.5">Summary Viewer · Read-only access</p>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 rounded-lg bg-white bg-opacity-20 hover:bg-opacity-30 flex items-center justify-center text-white transition-colors">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-5 space-y-4">
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-700">
+              {error}
+            </div>
+          )}
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Full Name</label>
+            <input
+              type="text"
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+              placeholder="e.g. Maria Santos"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Email Address</label>
+            <input
+              type="email"
+              value={formData.email}
+              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+              placeholder="email@denr.gov.ph"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">
+              Password {editingItem && <span className="font-normal text-gray-400">(leave blank to keep current)</span>}
+            </label>
+            <input
+              type="password"
+              value={formData.password}
+              onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+              placeholder={editingItem ? "Leave blank to keep current" : "Set a password"}
+              required={!editingItem}
+            />
+          </div>
+          <div className="bg-blue-50 rounded-lg px-3 py-2.5 border border-blue-100">
+            <p className="text-xs text-blue-700 font-medium flex items-center gap-1.5">
+              <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              This account can only access the Interview Summary Generator.
+            </p>
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-sm text-gray-600 hover:text-gray-800 px-4 py-2 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+            >
+              {saving && (
+                <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                </svg>
+              )}
+              {editingItem ? 'Save Changes' : 'Create Account'}
             </button>
           </div>
         </form>
