@@ -933,36 +933,55 @@ router.get('/candidates/item/:itemNumber', authMiddleware, async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
-// ── PERF: Batch board endpoint — 2 DB queries instead of 1+N ─────────────────
-// Returns all long-listed candidates for an item with pre-aggregated rating
-// stats. Includes salaryGrade from the vacancy for correct card display.
+// ── PERF: Batch board endpoint — SG-aware rater counts ────────────────────────
+// For SG≤14 positions only REGMEM and END-USER ratings count toward completion.
+// For SG≥15 all 6 rater types count. raterCount and requiredRaters in the
+// response already reflect this so the frontend metrics are correct.
 router.get('/candidates/item/:itemNumber/board', authMiddleware, async (req, res) => {
   try {
     const itemNumber = decodeURIComponent(req.params.itemNumber);
 
-    // 1. Get candidates + vacancy in parallel
-    const [candidates, vacancy] = await Promise.all([
+    // 1. Candidates + vacancy + rater roster in parallel
+    const [candidates, vacancy, allRaters] = await Promise.all([
       Candidate.find({ itemNumber, isArchived: false, status: 'long_list' })
         .select('_id fullName').lean(),
-      Vacancy.findOne({ itemNumber, isArchived: false }).select('salaryGrade').lean()
+      Vacancy.findOne({ itemNumber, isArchived: false }).select('salaryGrade').lean(),
+      User.find({ userType: 'rater' }).select('_id raterType').lean()
     ]);
 
-    if (!candidates.length) return res.json({ board: [], salaryGrade: vacancy?.salaryGrade || null });
+    const sg = vacancy?.salaryGrade || null;
+
+    // 2. Determine which rater IDs are "required" for this SG
+    // SG≤14: only Regular Member + End-User count toward completion.
+    // SG≥15: all 6 rater types count.
+    const requiredTypes = sg && sg <= 14
+      ? new Set(['Regular Member', 'End-User'])
+      : new Set(['Chairperson', 'Vice-Chairperson', 'Regular Member', 'DENREU', 'Gender and Development', 'End-User']);
+    const requiredRaterIds = new Set(
+      allRaters.filter(r => requiredTypes.has(r.raterType)).map(r => r._id.toString())
+    );
+    const requiredRaters = requiredRaterIds.size;
+
+    if (!candidates.length) return res.json({ board: [], salaryGrade: sg, requiredRaters });
 
     const candidateIds = candidates.map(c => c._id);
 
-    // 2. Fetch ALL ratings for these candidates + item in ONE query
+    // 3. Fetch ALL ratings for these candidates + item in ONE query
     const allRatings = await Rating.find({ candidateId: { $in: candidateIds }, itemNumber })
       .select('candidateId raterId score interviewDate createdAt').lean();
 
-    // 3. Aggregate per-candidate stats in JS
+    // 4. Aggregate per-candidate stats in JS — only count required rater types
     const statsMap = {};
     for (const r of allRatings) {
       const key = r.candidateId.toString();
-      if (!statsMap[key]) statsMap[key] = { scores: [], raterIds: new Set(), lastRatedAt: null };
+      if (!statsMap[key]) statsMap[key] = { scores: [], qualifiedRaterIds: new Set(), allRaterIds: new Set(), lastRatedAt: null };
       const s = statsMap[key];
-      if (r.score > 0) s.scores.push(r.score);
-      s.raterIds.add((r.raterId?._id || r.raterId).toString());
+      const raterIdStr = (r.raterId?._id || r.raterId).toString();
+      s.allRaterIds.add(raterIdStr);
+      if (requiredRaterIds.has(raterIdStr)) {
+        if (r.score > 0) s.scores.push(r.score);
+        s.qualifiedRaterIds.add(raterIdStr);
+      }
       const d = new Date(r.interviewDate || r.createdAt || 0);
       if (!s.lastRatedAt || d > s.lastRatedAt) s.lastRatedAt = d;
     }
@@ -976,12 +995,12 @@ router.get('/candidates/item/:itemNumber/board', authMiddleware, async (req, res
         id: c._id,
         name: c.fullName,
         avgScore,
-        raterCount: s ? s.raterIds.size : 0,
+        raterCount: s ? s.qualifiedRaterIds.size : 0,
         lastRatedAt: s ? s.lastRatedAt : null,
       };
     });
 
-    res.json({ board, salaryGrade: vacancy?.salaryGrade || null });
+    res.json({ board, salaryGrade: sg, requiredRaters });
   } catch (error) {
     console.error('[GET /candidates/item/:itemNumber/board]', error);
     res.status(500).json({ message: 'Server error' });

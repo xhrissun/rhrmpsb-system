@@ -108,6 +108,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
   const [boardLoading, setBoardLoading] = useState(false);
   const [boardLoadTime, setBoardLoadTime] = useState(null);
   const [boardSalaryGrade, setBoardSalaryGrade] = useState(null); // from batch endpoint
+  const [boardRequiredRaters, setBoardRequiredRaters] = useState(6); // 2 for SG≤14, 6 for SG≥15
 
   // Board search/filter
   const [searchQuery, setSearchQuery] = useState('');
@@ -125,6 +126,8 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
   const [modalLoading, setModalLoading] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(new Date());
+  const [testMode, setTestMode] = useState(false);
+  const [testScores, setTestScores] = useState({}); // { "RATERTYPE:COMP_CODE": score }
   const autoRefreshRef = useRef(null);
 
   const [initLoading, setInitLoading] = useState(true);
@@ -214,8 +217,9 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     setFilterRated('all');
     try {
       // Fast path: single batch request (2 DB queries instead of 1+N)
-      const { board, salaryGrade: sg } = await candidatesAPI.getBoardByItem(selectedItem);
+      const { board, salaryGrade: sg, requiredRaters: rr } = await candidatesAPI.getBoardByItem(selectedItem);
       setBoardSalaryGrade(sg);
+      setBoardRequiredRaters(rr ?? (sg && sg <= 14 ? 2 : 6));
       const sorted = [...board].sort((a, b) => {
         if (a.lastRatedAt && b.lastRatedAt) return new Date(b.lastRatedAt) - new Date(a.lastRatedAt);
         if (a.lastRatedAt) return -1;
@@ -274,7 +278,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     if (!candidateBoard.length) return null;
     const total = candidateBoard.length;
     const rated = candidateBoard.filter(c => c.raterCount > 0).length;
-    const fullyRated = candidateBoard.filter(c => c.raterCount >= 6).length;
+    const fullyRated = candidateBoard.filter(c => c.raterCount >= boardRequiredRaters).length;
     const scores = candidateBoard.filter(c => c.avgScore > 0).map(c => c.avgScore);
     const avgScore = scores.length
       ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 100) / 100 : 0;
@@ -287,7 +291,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       ratedPct: Math.round((rated / total) * 100),
       fullyRatedPct: Math.round((fullyRated / total) * 100),
     };
-  }, [candidateBoard]);
+  }, [candidateBoard, boardRequiredRaters]);
 
   // ─── Filtered board ───────────────────────────────────────────────────────────
   const filteredBoard = useMemo(() => {
@@ -371,6 +375,8 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     setRatings([]);
     setGroupedCompetencies({ basic: [], organizational: [], leadership: [], minimum: [] });
     setAutoRefresh(false);
+    setTestMode(false);
+    setTestScores({});
     if (autoRefreshRef.current) clearInterval(autoRefreshRef.current);
   };
 
@@ -410,6 +416,11 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
 
   const getRatingDisplay = (competencyCode, raterType) => {
     if (!isRaterRequired(raterType)) return 'NA';
+    if (testMode) {
+      const key = `${raterType}:${competencyCode}`;
+      const v = testScores[key];
+      return (v !== undefined && v !== '') ? parseFloat(v).toFixed(2) : '-';
+    }
     const rating = ratings.find(r =>
       r.competencyId?.name?.toUpperCase().replace(/ /g, '_') === competencyCode &&
       getRaterTypeCode(r.raterId?.raterType) === raterType &&
@@ -423,6 +434,11 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     const validScores = raterTypes
       .filter(rt => isRaterRequired(rt))
       .map(rt => {
+        if (testMode) {
+          const key = `${rt}:${competencyCode}`;
+          const v = testScores[key];
+          return (v !== undefined && v !== '' && parseFloat(v) > 0) ? parseFloat(v) : null;
+        }
         const rating = ratings.find(r =>
           r.competencyId?.name?.toUpperCase().replace(/ /g, '_') === competencyCode &&
           getRaterTypeCode(r.raterId?.raterType) === rt &&
@@ -687,9 +703,25 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
                 <tr key={comp.code} className="hover:bg-blue-50 transition-colors">
                   <td className="px-4 py-2 text-gray-800">{comp.ordinal}. {comp.name}</td>
                   {raterCols.map(rt => {
+                    const required = isRaterRequired(rt);
+                    if (!required) return <td key={rt} className="px-2 py-2 text-center text-gray-300">NA</td>;
+                    if (testMode) {
+                      const key = `${rt}:${comp.code}`;
+                      return (
+                        <td key={rt} className="px-1 py-1 text-center">
+                          <input
+                            type="number" min="1" max="5" step="0.01"
+                            placeholder="-"
+                            value={testScores[key] ?? ''}
+                            onChange={e => setTestScores(prev => ({ ...prev, [key]: e.target.value }))}
+                            className="w-12 text-center text-xs border border-amber-300 rounded bg-amber-50 focus:outline-none focus:ring-1 focus:ring-amber-400 py-0.5"
+                          />
+                        </td>
+                      );
+                    }
                     const val = getRatingDisplay(comp.code, rt);
                     return (
-                      <td key={rt} className={`px-2 py-2 text-center ${val === 'NA' ? 'text-gray-300' : val === '-' ? 'text-gray-400' : 'text-gray-800 font-medium'}`}>{val}</td>
+                      <td key={rt} className={`px-2 py-2 text-center ${val === '-' ? 'text-gray-400' : 'text-gray-800 font-medium'}`}>{val}</td>
                     );
                   })}
                   <td className="px-2 py-2 text-center font-bold text-blue-700">{calculateRowAverage(comp.code, type).toFixed(2)}</td>
@@ -702,6 +734,11 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
                 {raterCols.map(rt => {
                   if (!isRaterRequired(rt)) return <td key={rt} className="px-2 py-2 text-center text-gray-300 text-xs">NA</td>;
                   const total = (comps.reduce((sum, comp) => {
+                    if (testMode) {
+                      const key = `${rt}:${comp.code}`;
+                      const v = testScores[key];
+                      return sum + ((v !== undefined && v !== '') ? parseFloat(v) || 0 : 0);
+                    }
                     const r = ratings.find(r =>
                       r.competencyId?.name?.toUpperCase().replace(/ /g, '_') === comp.code &&
                       getRaterTypeCode(r.raterId?.raterType) === rt &&
@@ -729,6 +766,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     setCandidateBoard([]);
     setBoardLoadTime(null);
     setBoardSalaryGrade(null);
+    setBoardRequiredRaters(6);
     setSearchQuery('');
     setFilterRated('all');
   };
@@ -886,7 +924,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
                   />
                   <MetricCard
                     color={metrics.fullyRatedPct === 100 ? 'green' : 'purple'}
-                    label="Fully Rated (6 Raters)" value={`${metrics.fullyRated} / ${metrics.total}`} sub={`${metrics.fullyRatedPct}% complete`}
+                    label={`Fully Rated (${boardRequiredRaters} Rater${boardRequiredRaters !== 1 ? 's' : ''})`} value={`${metrics.fullyRated} / ${metrics.total}`} sub={`${metrics.fullyRatedPct}% complete`}
                     icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>}
                   />
                   <MetricCard
@@ -979,7 +1017,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
                   )
                   : filteredBoard.map((candidate) => {
                     const colors = scoreColor(candidate.avgScore);
-                    const totalRatersExpected = (boardSalaryGrade || salaryGrade || 18) <= 14 ? 2 : 6;
+                    const totalRatersExpected = boardRequiredRaters;
                     const pct = Math.round((candidate.raterCount / totalRatersExpected) * 100);
                     return (
                       <div
@@ -1084,6 +1122,20 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
                   </label>
                 </div>
 
+                {/* Test Mode toggle */}
+                {!modalLoading && candidateDetails && (
+                  <button
+                    onClick={() => { setTestMode(m => !m); setTestScores({}); }}
+                    className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors shadow-sm ${testMode ? 'bg-amber-400 text-amber-900 hover:bg-amber-300' : 'bg-white bg-opacity-20 text-white hover:bg-opacity-30'}`}
+                    title="Test Mode: enter hypothetical scores to verify computation formulas"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10H9m3-5h.01M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z" />
+                    </svg>
+                    {testMode ? 'Exit Test Mode' : 'Test Mode'}
+                  </button>
+                )}
+
                 {/* PDF button */}
                 {!modalLoading && candidateDetails && (
                   <button
@@ -1140,8 +1192,20 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
                     </div>
                   </div>
 
+                  {testMode && (
+                    <div className="mb-5 bg-amber-50 border border-amber-300 rounded-xl px-5 py-3 flex items-start gap-3">
+                      <svg className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                      </svg>
+                      <div>
+                        <p className="text-sm font-semibold text-amber-800">Test Mode active</p>
+                        <p className="text-xs text-amber-700 mt-0.5">Enter scores (1–5) in any cell. Averages and CER scores update in real time. Real ratings are not affected. Click <strong>Exit Test Mode</strong> to restore live data.</p>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Final Score Summary */}
-                  {ratings.length > 0 && (
+                  {(ratings.length > 0 || testMode) && (
                     <div className="bg-white rounded-xl border border-gray-200 p-5 mb-5">
                       <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wider mb-3 flex items-center gap-2">
                         <svg className="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">

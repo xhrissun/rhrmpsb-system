@@ -283,6 +283,7 @@ competencySchema.index({ isFixed: 1 });
 
 ratingSchema.index({ candidateId: 1 });
 ratingSchema.index({ itemNumber: 1, raterId: 1, candidateId: 1 }, { unique: true });
+ratingSchema.index({ itemNumber: 1, candidateId: 1 }); // board batch query: fetch all ratings for a set of candidates in one item
 
 ratingLogSchema.index({ candidateId: 1, createdAt: -1 });
 ratingLogSchema.index({ raterId: 1, createdAt: -1 });

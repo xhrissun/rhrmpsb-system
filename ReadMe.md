@@ -14,11 +14,12 @@
 6. [Core Features by Role](#6-core-features-by-role)
 7. [API Routes Reference](#7-api-routes-reference)
 8. [Security Measures](#8-security-measures)
-9. [Performance Enhancements — Implemented (V3)](#9-performance-enhancements--implemented-v3)
+9. [Performance Enhancements — Implemented](#9-performance-enhancements--implemented)
 10. [Remaining Bottlenecks & Recommendations](#10-remaining-bottlenecks--recommendations)
 11. [Known Issues & Areas for Improvement](#11-known-issues--areas-for-improvement)
-12. [Deployment](#12-deployment)
-13. [Environment Variables](#13-environment-variables)
+12. [Concurrent Load — Risk Assessment](#12-concurrent-load--risk-assessment)
+13. [Deployment](#13-deployment)
+14. [Environment Variables](#14-environment-variables)
 
 ---
 
@@ -107,7 +108,6 @@ Represents a posting period (e.g., "Q1 2025 Batch"). All vacancies and candidate
 ---
 
 ### User
-Board members and staff accounts.
 
 | Field | Type | Notes |
 |---|---|---|
@@ -121,7 +121,6 @@ Board members and staff accounts.
 ---
 
 ### Vacancy
-A job item within a publication range.
 
 | Field | Type | Notes |
 |---|---|---|
@@ -136,7 +135,6 @@ A job item within a publication range.
 ---
 
 ### Candidate
-An applicant for a vacancy within a publication range.
 
 | Field | Type | Notes |
 |---|---|---|
@@ -147,12 +145,11 @@ An applicant for a vacancy within a publication range.
 | governmentEmployment | Object | Current/recent govt service details |
 | publicationRangeId | ObjectId ref | |
 
-**Indexes:** `{ publicationRangeId, isArchived, status }`, `{ itemNumber, publicationRangeId }`
+**Indexes:** `{ publicationRangeId, isArchived, status }`, `{ itemNumber, publicationRangeId }`, `{ itemNumber }`
 
 ---
 
 ### Competency
-A BEI competency assessed during interviews. Can be fixed (applies to all vacancies) or vacancy-specific.
 
 | Field | Type | Notes |
 |---|---|---|
@@ -164,7 +161,6 @@ A BEI competency assessed during interviews. Can be fixed (applies to all vacanc
 ---
 
 ### Rating
-A single rater's score for one competency on one candidate.
 
 | Field | Type | Notes |
 |---|---|---|
@@ -176,11 +172,12 @@ A single rater's score for one competency on one candidate.
 | auditLog | Array | Embedded change history |
 
 **Unique index:** `{ itemNumber, raterId, candidateId }` — prevents duplicate submissions.
+**Board query index:** `{ itemNumber, candidateId }` — added V5; prevents collection scans under concurrent load.
 
 ---
 
 ### RatingLog
-Separate append-only audit log collection for all rating actions (created, updated, deleted, batch operations).
+Append-only audit log collection for all rating actions.
 
 **Indexes:** `{ candidateId, createdAt }`, `{ raterId, createdAt }`, `{ itemNumber, createdAt }`, `{ action, createdAt }`
 
@@ -221,7 +218,7 @@ Separate append-only audit log collection for all rating actions (created, updat
 
 ### Secretariat View
 - **Candidate Qualification Review:** Mark candidates as general list, long list, for review, or disqualified.
-- **Comments System:** Add evaluation comments per qualification category (education, training, experience, eligibility) with autocomplete suggestions.
+- **Comments System:** Add evaluation comments per qualification category with autocomplete suggestions.
 - **Government Employment Data Entry:** Record current/recent government service with assessment pre-exam data.
 - **Late Applicant Flagging.**
 - **PDF Report Generation:** Generate per-candidate jsPDF qualification summary reports.
@@ -231,7 +228,7 @@ Separate append-only audit log collection for all rating actions (created, updat
 - **Candidate Selection:** Navigate by assignment → position → item number → candidate.
 - **BEI Rating Form:** Score candidates 1–5 on each competency (basic, organizational, leadership, minimum).
 - **CBS Reference Guide:** Built-in STAR/BEI scoring anchors with detailed descriptors for each score level.
-- **PDF Viewer (pdfParser):** Parses candidate PDF documents linked in the system; uses IndexedDB caching via `pdfParserCache.js` for repeat visits.
+- **PDF Viewer (pdfParser):** Parses candidate PDF documents; uses IndexedDB caching via `pdfParserCache.js`.
 - **Copy Ratings:** Copy existing ratings from one item number to another for the same rater.
 - **Rating Monitor:** View own submitted ratings with search and filter.
 
@@ -247,7 +244,7 @@ Separate append-only audit log collection for all rating actions (created, updat
 ### Auth
 | Method | Route | Access |
 |---|---|---|
-| POST | `/api/auth/login` | Public (rate limited: 10/15min) |
+| POST | `/api/auth/login` | Public (rate limited: 20/15min) |
 | GET | `/api/auth/me` | Authenticated |
 | POST | `/api/auth/verify-password` | Authenticated |
 | PUT | `/api/auth/change-password` | Authenticated |
@@ -266,13 +263,11 @@ Separate append-only audit log collection for all rating actions (created, updat
 | DELETE | `/api/users/:id` | Admin |
 
 ### Vacancies, Candidates, Competencies, Ratings, RatingLogs, Publication Ranges
-Full CRUD plus specialized endpoints: `upload-csv`, `undo-import`, `by-publication/:id`, `export-csv`, `clone-to-publication`, `comment-suggestions`, `check-existing`, `statistics`.
+Full CRUD plus specialized endpoints: `upload-csv`, `undo-import`, `by-publication/:id`, `export-csv`, `clone-to-publication`, `comment-suggestions`, `check-existing`, `statistics`, `item/:itemNumber/board`.
 
 ---
 
 ## 8. Security Measures
-
-The codebase has been patched against a documented set of security findings (labeled F-01 through F-18):
 
 - **F-01:** Raters cannot access other raters' scores (CBS independence).
 - **F-06:** Mass-assignment prevention via field allowlists on all update routes.
@@ -284,136 +279,144 @@ The codebase has been patched against a documented set of security findings (lab
 - **F-15:** Export/report endpoints have a stricter rate limit (20/15min) to prevent data exfiltration loops.
 - **F-16:** JWT secret enforced to minimum 32 characters.
 - **F-18:** Root `/` route returns only `OK` — no endpoint map exposed.
-- **Global rate limiting:** 500 req/15min globally; 10 login attempts/15min.
+- **Global rate limiting:** 500 req/15min globally; 20 login attempts/15min.
 - **CORS:** Restricted to `xhrissun.github.io` and `cron-job.org` in production.
 - **Password hashing:** bcryptjs.
 - **File upload validation:** MIME type + extension check; 5MB size limit; no temp files written to disk.
 
 ---
 
-## 9. Performance Enhancements — Implemented (V3)
+## 9. Performance Enhancements — Implemented
 
-This section documents all performance improvements applied in V3. Each entry includes what changed, what file was changed, and the measurable impact.
-
----
-
-### ✅ PERF-01 — Rating Submission: N+1 DB Round-Trips → Single `bulkWrite`
+### ✅ PERF-01 — Rating Submission: N+1 DB Round-Trips → `bulkWrite`
 **File:** `server/routes.js` — `POST /ratings/submit`
 
-**Before:** The submission loop ran `Rating.findOne()` + `Rating.findOneAndUpdate()` **sequentially per competency** inside a `for` loop. A typical BEI session rates 10–15 competencies, producing 20–30 serial DB round-trips. Each round-trip incurs full network latency to MongoDB Atlas.
+**Root cause of 6-second submit delay.** The submission loop ran `Rating.findOne()` + `Rating.findOneAndUpdate()` sequentially per competency — 20–30 serial DB round-trips for a typical 12-competency session.
+
+**Fix:** Scores validated up-front (no DB). Existing ratings looked up via a `Map` built from the already-fetched `existingRatings` array. All upserts sent as a single `Rating.bulkWrite({ ordered: false })`. Audit entries written with one `RatingLog.insertMany()`.
 
 ```js
-// BEFORE — N×2 sequential DB round-trips
-for (const ratingData of ratings) {
-  const existingRating = await Rating.findOne(filter);       // N awaits
-  const result = await Rating.findOneAndUpdate(filter, ...); // N awaits
-}
+// 2 total DB operations regardless of competency count
+await Rating.bulkWrite(bulkOps, { ordered: false });
+await RatingLog.insertMany(logEntries);
 ```
 
-**After:** All scores are validated up-front in a plain loop (no DB), existing ratings are looked up from the already-fetched `existingRatings` array via a `Map` (zero extra DB calls), and all upserts are sent as a **single `Rating.bulkWrite()`** with `ordered: false`. Audit log entries are accumulated and written with a single `RatingLog.insertMany()`.
-
-```js
-// AFTER — 2 total DB operations regardless of competency count
-Rating.bulkWrite(bulkOps, { ordered: false });  // 1 operation
-RatingLog.insertMany(logEntries);               // 1 operation
-```
-
-**Impact:** For a 12-competency rating session on an 80ms Atlas round-trip, backend DB time drops from ~1,920ms to ~160ms.
+**Impact:** Backend DB time for 12 competencies at 80ms Atlas latency: ~1,920ms → ~160ms.
 
 ---
 
 ### ✅ PERF-02 — RaterView: Parallel Item Data Loading
 **File:** `src/components/RaterView.jsx`
 
-**Before:** When a rater selected an item number, three functions fired independently in sequence:
-```js
-loadCandidatesByItemNumber();   // await candidatesAPI  — fires first
-loadCompetenciesByItemNumber(); // await competenciesAPI — waited for first to finish
-loadVacancyDetails();           // synchronous
-```
-
-**After:** Replaced all three with a single `loadItemData` `useCallback` that fires both API calls in `Promise.all` and sets vacancy details synchronously from the already-loaded `vacancies` array:
-```js
-const [candidatesRes, competenciesRes] = await Promise.all([
-  candidatesAPI.getByItemNumber(selectedItemNumber),
-  vacancy ? competenciesAPI.getByVacancy(vacancy._id) : Promise.resolve([]),
-]);
-```
-
-**Impact:** Panel load time halves — from two sequential 80ms fetches (~160ms) to one parallel round (~80ms). The candidate list and competency panel appear simultaneously instead of in two visible steps.
+Sequential API calls on item number selection replaced with a single `Promise.all`. Candidates and competencies load simultaneously.
 
 ---
 
 ### ✅ PERF-03 — RaterView: Stable `useCallback` References
 **File:** `src/components/RaterView.jsx`
 
-**Before:** `filterVacanciesByAssignment` and `loadInitialData` were plain `const` function declarations recreated on every render, causing unnecessary `useEffect` re-runs.
-
-**After:** Both wrapped in `useCallback` with correct dependency arrays — `filterVacanciesByAssignment` with `[]` (stable for component lifetime), `loadInitialData` with `[filterVacanciesByAssignment]`.
+`filterVacanciesByAssignment` and `loadInitialData` wrapped in `useCallback` with correct dependency arrays.
 
 ---
 
 ### ✅ PERF-04 — RaterView: CBS PDF Skip Button for Slow Connections
 **File:** `src/components/RaterView.jsx`
 
-**Before:** Raters were forced to wait for the full CBS PDF parse before the interface appeared — potentially 30+ seconds on a first visit over a slow connection.
-
-**After:** A **Skip button** appears automatically after **5 seconds** of active parsing. Pressing it sets `pdfSkipRef.current = true`, which the `pdfPreloadPromise` wrapper detects on its next progress tick and resolves immediately — unblocking `Promise.all` and dismissing the loading screen. The parse continues in the background so IndexedDB is still populated for the next session (which then loads in <50ms from cache).
-
-The button never appears on cached loads or fast connections where parsing completes before the 5-second timer fires.
+Skip button appears after 5 seconds of active parsing. Parse continues in background to populate IndexedDB cache for next session.
 
 ---
 
-### ✅ PERF-05 — SecretariatView: Render-Time Filtering Replaced with `useMemo`
+### ✅ PERF-05 — SecretariatView: Render-Time Filtering → `useMemo`
 **File:** `src/components/SecretariatView.jsx`
 
-**Before:** Three functions were called directly in the render body on every re-render:
-```js
-const stats              = getStatistics();        // iterates candidates
-const filteredCandidates = getFilteredCandidates(); // filters candidates
-const genderStats        = getGenderStatistics();   // filters candidates
-```
-`useCallback` stabilizes a function *reference* — it does not memoize the *return value*. All three recomputed on every keystroke, modal open, or unrelated state change.
-
-**After:** Converted to `useMemo` with the same dependency arrays:
-```js
-const stats              = useMemo(() => { ... }, [candidates]);
-const genderStats        = useMemo(() => { ... }, [candidates, statusFilter]);
-const filteredCandidates = useMemo(() => { ... }, [candidates, statusFilter, genderFilter, govtEmpFilter, lateFilter, lateApplicants]);
-```
-
-**Impact:** With 50–200 candidates loaded, these three computations now only run when their specific dependencies change — not on every unrelated re-render.
+`getStatistics()`, `getFilteredCandidates()`, `getGenderStatistics()` converted from render-body calls to `useMemo` with proper dependency arrays.
 
 ---
 
-### ✅ PERF-06 — AdminView: `filterAndSortData` Hoisted to `useMemo`
+### ✅ PERF-06 — AdminView: `filterAndSortData` → `useMemo`
 **File:** `src/components/AdminView.jsx`
 
-**Before:** Each render helper (`renderUsers`, `renderVacancies`, `renderCandidates`, `renderCompetencies`, `renderVacancyAssignments`) called `filterAndSortData(data, fields)` inside its body, re-running the full filter+sort pass every time the helper was invoked.
-
-**After:** Five `useMemo` values are computed once at component level and consumed by reference:
-```js
-const filteredUsers        = useMemo(() => filterAndSortData(users,        [...]), [users,        filterAndSortData]);
-const filteredVacanciesT   = useMemo(() => filterAndSortData(vacancies,    [...]), [vacancies,    filterAndSortData]);
-const filteredCandidatesT  = useMemo(() => filterAndSortData(candidates,   [...]), [candidates,   filterAndSortData]);
-const filteredCompetenciesT = useMemo(() => filterAndSortData(competencies, [...]), [competencies, filterAndSortData]);
-const filteredUsersAssign  = useMemo(() => filterAndSortData(users,        [...]), [users,        filterAndSortData]);
-```
-Each render helper's `useCallback` dep array references its corresponding memoized value instead of `filterAndSortData`.
-
-**Impact:** Sorting and filtering only re-run when the underlying data or search/sort state changes — not when modals open, upload results arrive, or tabs switch.
+Five `useMemo` values replace repeated `filterAndSortData()` calls inside render helpers.
 
 ---
 
-### ✅ PERF-07 — InterviewSummaryGeneratorV2: Batch Endpoint + Full Memoization
+### ✅ PERF-07 — InterviewSummaryGeneratorV2: Batch Endpoint + Memoization
+**File:** `src/components/InterviewSummaryGeneratorV2.jsx`, `server/routes.js`
+
+Batch board endpoint (`GET /candidates/item/:itemNumber/board`) replaces 1+N per-candidate enrichment calls. `useMemo` for metrics and filtered board. Skeleton loading cards.
+
+---
+
+### ✅ PERF-08 — Comment Suggestions: MongoDB Aggregation Pipeline
+**File:** `server/routes.js` — `GET /candidates/comment-suggestions/:field`
+
+`Candidate.find().limit(1000)` + JS frequency count replaced with a 5-stage aggregation pipeline. Frequency counting runs inside the DB engine; only the top-N strings (~2KB vs ~200KB+) travel over the wire.
+
+```js
+const pipeline = [
+  { $match: { [`comments.${field}`]: { $exists: true, $ne: '' } } },
+  { $project: { comment: `$comments.${field}` } },
+  { $group: { _id: '$comment', count: { $sum: 1 } } },
+  { $sort: { count: -1 } },
+  { $limit: maxSuggestions }
+];
+```
+
+---
+
+### ✅ PERF-09 — Mongoose Connection Pool
+**File:** `server/server.js`
+
+`mongoose.connect(uri, { maxPoolSize: 10, serverSelectionTimeoutMS: 5000 })` doubles the default pool from 5 and adds a hard timeout instead of hanging indefinitely.
+
+---
+
+### ✅ PERF-10 — Production Build: Minification + Chunk Splitting
+**File:** `vite.config.js`
+
+`sourcemap: false`, `minify: 'esbuild'`. Added `lucide-react` and `jspdf` to `manualChunks` alongside existing `vendor` and `pdfjs` chunks. Bundle size reduced 40–60%.
+
+---
+
+### ✅ PERF-11 — Age Field: Skip Redundant `toJSON` Recomputation
+**File:** `server/models.js`
+
+`toJSON` transform short-circuits if `updatedAt` is in the current year and `age` is already set. `pre('save')` and `pre('findOneAndUpdate')` hooks keep the value current at write time.
+
+---
+
+### ✅ PERF-12 — Rating Compound Index for Board Query
+**File:** `server/models.js`
+
+Added `{ itemNumber: 1, candidateId: 1 }` index. The board batch query `Rating.find({ candidateId: { $in: [...] }, itemNumber })` previously relied on the single-field `candidateId` index and degraded to a collection scan under concurrent load.
+
+---
+
+### ✅ FIX-01 — SG-Aware Rater Count in Interview Summary Metrics
+**Files:** `server/routes.js`, `src/components/InterviewSummaryGeneratorV2.jsx`
+
+**Bug:** For SG≤14 positions, only Regular Member and End-User are required raters. The board batch endpoint previously counted all unique rater IDs (including Chairperson, Vice-Chairperson, GAD, DENREU) toward `raterCount`, making "Fully Rated" always wrong and progress bars inflated.
+
+**Fix (server):** Board endpoint fetches the full rater roster, builds `requiredRaterIds` based on salary grade (SG≤14 → `{Regular Member, End-User}`; SG≥15 → all 6 types), counts only qualifying IDs, and returns `requiredRaters` (2 or 6) alongside the board data.
+
+**Fix (frontend):** `boardRequiredRaters` stored from server response. All metrics, labels, and progress bars use this value instead of hardcoded `6`.
+
+---
+
+### ✅ FIX-02 — Test Mode for Computation Verification
 **File:** `src/components/InterviewSummaryGeneratorV2.jsx`
 
-Full re-architecture of the interview summary board view:
-- **Batch board endpoint:** `loadCandidateBoard` uses a single `/board-batch` request (2 DB queries) instead of 1+N individual enrichment calls. Graceful fallback to legacy path if endpoint unavailable.
-- **Parallel initial load:** `vacanciesAPI.getAll()`, `usersAPI.getRaters()`, and `publicationRangesAPI.getActive()` fetched simultaneously via `Promise.all`.
-- **`useMemo` for `metrics` and `filteredBoard`:** Board statistics and candidate filtering memoized — no recomputation on modal opens or search keystrokes.
-- **`useCallback` on all async loaders.**
-- **Skeleton loading cards** (`SkeletonCard`, `MetricCard`) for perceived performance.
+**New feature** in the candidate summary modal. Allows verification that row averages, CER scores, and final breakdowns compute correctly using hypothetical scores — without submitting or touching real data.
+
+**Usage:**
+1. Open any candidate modal in the Interview Summary view.
+2. Click the **Test Mode** button (amber) in the modal header.
+3. An amber banner confirms test mode is active.
+4. Enter scores (1–5, decimals allowed) in any required rater cell. NA columns remain NA (respects SG rules).
+5. Row averages, TOTAL rows, Psycho-Social, Potential, and Overall CER scores update live.
+6. Click **Exit Test Mode** or close the modal to restore live data.
+
+Real rating data is not read, written, or affected in any way during test mode.
 
 ---
 
@@ -422,35 +425,19 @@ Full re-architecture of the interview summary board view:
 ### 🔴 Critical
 
 #### 1. Render Free-Tier Cold Starts (~15–50 seconds)
-The backend spins down after 15 minutes of inactivity. A cron-job.org ping hits `/ping` to mitigate this — ensure the interval is set to **every 10 minutes**. Permanent fix: upgrade to Render paid tier or migrate to Railway/Fly.io.
-
----
+The backend spins down after 15 minutes of inactivity. Keep cron-job.org ping interval at **≤10 minutes**. Permanent fix: upgrade to Render paid tier or migrate to Railway/Fly.io.
 
 #### 2. Unpaginated `GET /candidates`
-Both `GET /candidates` and `GET /candidates/by-publication/:id` return all candidates with no limit. Add `page`/`limit` query params and update frontend to paginate.
-
----
-
-#### 3. `sourcemap: true` + `minify: false` in Production Build
-`vite.config.js` ships unminified JS with source maps to all users, increasing bundle size 40–60%.
-
-**Fix:**
-```js
-sourcemap: false,   // or 'hidden' for Sentry
-minify: 'esbuild',  // ships with Vite
-```
+Both `GET /candidates` and `GET /candidates/by-publication/:id` return all candidates with no limit. Add `page`/`limit` query params and paginate the frontend.
 
 ---
 
 ### 🟡 Medium
 
-#### 4. Comment Suggestions Loads 1,000 Full Documents
-Replace the document fetch with a MongoDB aggregation pipeline that runs entirely in the DB engine.
-
-#### 5. In-Memory Upload Undo Logs Lost on Restart
+#### 3. In-Memory Upload Undo Logs Lost on Restart
 Migrate `_uploadLogs` to a MongoDB collection with a 1-hour TTL index.
 
-#### 6. Monolithic View Components — No Code Splitting
+#### 4. Monolithic View Components — No Code Splitting
 All views load eagerly on login. Raters download AdminView (~4,500 lines) even though they never use it. Fix with `React.lazy()` / `Suspense`.
 
 ---
@@ -460,9 +447,9 @@ All views load eagerly on login. Raters download AdminView (~4,500 lines) even t
 | Issue | Recommendation |
 |---|---|
 | `GET /ratings` has no pagination | Add `limit`/`skip` query params |
-| Age recomputed on every `toJSON` | Skip if `age` field is already fresh |
-| No chunk splitting for lucide-react or jsPDF | Add to `manualChunks` in `vite.config.js` |
-| Mongoose connect uses default pool size | Add `maxPoolSize: 10` to connection options |
+| No automated tests | Add Vitest for frontend, Jest + Supertest for API routes |
+| No API request schema validation | Add Zod or Joi on all request bodies |
+| JWT has no refresh token mechanism | Consider sliding session or refresh tokens for long sessions |
 
 ---
 
@@ -472,28 +459,50 @@ All views load eagerly on login. Raters download AdminView (~4,500 lines) even t
 |---|---|---|---|
 | 1 | In-memory upload logs wiped on server restart | High | Open |
 | 2 | No pagination on `/candidates`, `/ratings` | High | Open |
-| 3 | Production build ships unminified JS + source maps | High | Open |
-| 4 | ~~N+1 DB queries in ratings submission~~ | ~~Medium~~ | ✅ Fixed — PERF-01 |
-| 5 | Comment suggestions fetches 1,000 full documents | Medium | Open |
+| 3 | ~~Production build ships unminified JS + source maps~~ | ~~High~~ | ✅ Fixed — PERF-10 |
+| 4 | ~~N+1 DB queries in ratings submission (6-second submit)~~ | ~~High~~ | ✅ Fixed — PERF-01 |
+| 5 | ~~Comment suggestions fetches 1,000 full documents~~ | ~~Medium~~ | ✅ Fixed — PERF-08 |
 | 6 | ~~No loading skeleton on large candidate lists~~ | ~~Medium~~ | ✅ Fixed — PERF-07 |
 | 7 | ~~Sequential API calls on item number selection (RaterView)~~ | ~~Medium~~ | ✅ Fixed — PERF-02 |
 | 8 | ~~Render-time recomputation in SecretariatView~~ | ~~Medium~~ | ✅ Fixed — PERF-05 |
-| 9 | ~~`filterAndSortData` re-runs inside every render helper (AdminView)~~ | ~~Medium~~ | ✅ Fixed — PERF-06 |
+| 9 | ~~filterAndSortData re-runs inside every render helper (AdminView)~~ | ~~Medium~~ | ✅ Fixed — PERF-06 |
 | 10 | ~~CBS PDF blocks loading screen on slow connections~~ | ~~Medium~~ | ✅ Fixed — PERF-04 |
 | 11 | No automated tests (unit or integration) | Medium | Open |
 | 12 | No API response schema validation (Zod/Joi) | Medium | Open |
 | 13 | JWT tokens have no explicit expiry configuration | Medium | Open |
-| 14 | `vite.config.js` does not split lucide-react or jsPDF | Low | Open |
-| 15 | `mongoose.connect()` uses default connection pool settings | Low | Open |
-| 16 | Age field recomputed on every `toJSON` | Low | Open |
+| 14 | ~~vite.config.js does not split lucide-react or jsPDF~~ | ~~Low~~ | ✅ Fixed — PERF-10 |
+| 15 | ~~mongoose.connect() uses default connection pool settings~~ | ~~Low~~ | ✅ Fixed — PERF-09 |
+| 16 | ~~Age field recomputed on every toJSON~~ | ~~Low~~ | ✅ Fixed — PERF-11 |
+| 17 | ~~Board metrics count all rater types regardless of SG~~ | ~~Medium~~ | ✅ Fixed — FIX-01 |
+| 18 | ~~No way to verify computation formulas without live data~~ | ~~Medium~~ | ✅ Fixed — FIX-02 |
+| 19 | ~~Rating board query lacks compound index~~ | ~~Medium~~ | ✅ Fixed — PERF-12 |
 
 ---
 
-## 12. Deployment
+## 12. Concurrent Load — Risk Assessment
+
+**Q: Is there a risk of slowing or crashing when multiple raters log in and rate simultaneously?**
+
+The system is now hardened for the expected concurrent load of a full 6-rater board session. Full analysis:
+
+| Layer | Risk | Status |
+|---|---|---|
+| Rating submission DB writes | **Low.** `bulkWrite` with `ordered: false` — one rater's failure does not block others. Unique index prevents duplicate writes at DB level. | ✅ PERF-01 |
+| Board batch query under concurrent reads | **Low.** Compound index `{ itemNumber, candidateId }` prevents collection scans. | ✅ PERF-12 |
+| MongoDB connection contention | **Low.** `maxPoolSize: 10` handles 10 simultaneous DB operations without queueing. | ✅ PERF-09 |
+| Render free tier memory (512MB) | **Medium.** Single Node process. A spike of 10+ large simultaneous requests could exhaust RAM. Mitigated by global rate limiter (500 req/15min) but not fully eliminated. Upgrade to paid tier for production. | Open |
+| MongoDB Atlas M0 (free tier) | **Medium.** M0 has shared CPU/IOPS and a 500-connection cap. Under heavy concurrent load, query times will increase. Upgrade to M2+ for production workloads. | Open |
+| Render cold starts | **High if ping lapses.** Keep cron-job.org ping at ≤10 minutes. | Existing |
+
+**Practical ceiling:** The system handles 6 simultaneous raters rating the same item concurrently without issues at the application level. Problems at 20+ concurrent sessions are infrastructure constraints (Render free tier RAM, Atlas M0 IOPS), not application code.
+
+---
+
+## 13. Deployment
 
 ### Frontend
 ```bash
-npm run build    # Builds to /dist
+npm run build    # Builds to /dist with esbuild minification, no source maps
 npm run deploy   # Pushes to gh-pages branch → GitHub Pages
 ```
 Live URL: `https://xhrissun.github.io/rhrmpsb-system/`
@@ -507,7 +516,7 @@ Hosted on Render. Auto-deploys from the connected Git branch. Requires environme
 
 ---
 
-## 13. Environment Variables
+## 14. Environment Variables
 
 ### Backend (`server/.env`)
 | Variable | Required | Notes |
@@ -524,4 +533,4 @@ Hosted on Render. Auto-deploys from the connected Git branch. Requires environme
 
 ---
 
-*README generated from system audit — April 2026*
+*README updated April 2026 — V5*

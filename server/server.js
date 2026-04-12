@@ -5,7 +5,7 @@ import rateLimit from 'express-rate-limit';
 import fileUpload from 'express-fileupload';
 import routes from './routes.js';
 import dotenv from 'dotenv';
-import { runMigration } from './migration_add_publication_ranges.js';
+// import { runMigration } from './migration_add_publication_ranges.js';
 
 dotenv.config();
 
@@ -80,9 +80,9 @@ async function startServer() {
       serverSelectionTimeoutMS: 5000
     });
     console.log('Connected to MongoDB');
-    console.log('\n🔄 Checking for pending migrations...');
-    await runMigration();
-    console.log('✅ Migration check complete\n');
+    // console.log('\n🔄 Checking for pending migrations...');
+    // await runMigration();
+    // console.log('✅ Migration check complete\n');
   } catch (err) {
     console.error('Startup error:', err);
     process.exit(1);
