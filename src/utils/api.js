@@ -230,6 +230,11 @@ export const candidatesAPI = {
     const response = await api.get(`/candidates/item/${encodedItemNumber}${params}`);
     return response.data;
   },
+  getBoardByItem: async (itemNumber) => {
+    const encodedItemNumber = encodeURIComponent(itemNumber);
+    const response = await api.get(`/candidates/item/${encodedItemNumber}/board`);
+    return response.data; // { board: [...], salaryGrade: number|null }
+  },
   exportCSV: async (filters = {}) => {
     const params = new URLSearchParams();
     if (filters.itemNumber) params.append('itemNumber', filters.itemNumber);

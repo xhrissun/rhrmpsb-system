@@ -17,7 +17,7 @@ const loginLimiter = rateLimit({
   legacyHeaders: false,
   message: { message: 'Too many login attempts. Please wait 15 minutes before trying again.' }
 });
-// verifyLimiter: guards verify-password (user is already authenticated, so more lenient)
+// verifyLimiter: guards verify-password (user is already authenticated, more lenient)
 const verifyLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 30,
@@ -217,7 +217,8 @@ router.get('/users/raters', authMiddleware, async (req, res) => {
   // but NOT _id, password, or other sensitive fields that could enable IDOR attacks.
   try {
     const raters = await User.findRaters();
-    if (req.user.userType !== 'admin') {
+    // summary_viewer needs _id to match raters against ratings for PDF signatories
+    if (req.user.userType !== 'admin' && req.user.userType !== 'summary_viewer') {
       return res.json(raters.map(r => ({
         name: r.name,
         raterType: r.raterType,
@@ -932,6 +933,61 @@ router.get('/candidates/item/:itemNumber', authMiddleware, async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
+// ── PERF: Batch board endpoint — 2 DB queries instead of 1+N ─────────────────
+// Returns all long-listed candidates for an item with pre-aggregated rating
+// stats. Includes salaryGrade from the vacancy for correct card display.
+router.get('/candidates/item/:itemNumber/board', authMiddleware, async (req, res) => {
+  try {
+    const itemNumber = decodeURIComponent(req.params.itemNumber);
+
+    // 1. Get candidates + vacancy in parallel
+    const [candidates, vacancy] = await Promise.all([
+      Candidate.find({ itemNumber, isArchived: false, status: 'long_list' })
+        .select('_id fullName').lean(),
+      Vacancy.findOne({ itemNumber, isArchived: false }).select('salaryGrade').lean()
+    ]);
+
+    if (!candidates.length) return res.json({ board: [], salaryGrade: vacancy?.salaryGrade || null });
+
+    const candidateIds = candidates.map(c => c._id);
+
+    // 2. Fetch ALL ratings for these candidates + item in ONE query
+    const allRatings = await Rating.find({ candidateId: { $in: candidateIds }, itemNumber })
+      .select('candidateId raterId score interviewDate createdAt').lean();
+
+    // 3. Aggregate per-candidate stats in JS
+    const statsMap = {};
+    for (const r of allRatings) {
+      const key = r.candidateId.toString();
+      if (!statsMap[key]) statsMap[key] = { scores: [], raterIds: new Set(), lastRatedAt: null };
+      const s = statsMap[key];
+      if (r.score > 0) s.scores.push(r.score);
+      s.raterIds.add((r.raterId?._id || r.raterId).toString());
+      const d = new Date(r.interviewDate || r.createdAt || 0);
+      if (!s.lastRatedAt || d > s.lastRatedAt) s.lastRatedAt = d;
+    }
+
+    const board = candidates.map(c => {
+      const s = statsMap[c._id.toString()];
+      const avgScore = s && s.scores.length
+        ? Math.round((s.scores.reduce((a, b) => a + b, 0) / s.scores.length) * 100) / 100
+        : 0;
+      return {
+        id: c._id,
+        name: c.fullName,
+        avgScore,
+        raterCount: s ? s.raterIds.size : 0,
+        lastRatedAt: s ? s.lastRatedAt : null,
+      };
+    });
+
+    res.json({ board, salaryGrade: vacancy?.salaryGrade || null });
+  } catch (error) {
+    console.error('[GET /candidates/item/:itemNumber/board]', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 
 router.get('/candidates/comment-suggestions/:field', authMiddleware, async (req, res) => {
   // F-11 FIX: Secretariat evaluation language must not be visible to raters.
