@@ -999,25 +999,24 @@ router.get('/candidates/comment-suggestions/:field', authMiddleware, async (req,
     if (!validFields.includes(field)) return res.status(400).json({ message: 'Invalid field' });
 
     const maxSuggestions = Math.min(Math.max(parseInt(limit) || 100, 1), 500);
-    const candidates = await Candidate.find(
-      { [`comments.${field}`]: { $exists: true, $ne: '' } },
-      { [`comments.${field}`]: 1 }
-    ).limit(1000);
 
-    const commentFrequency = {};
-    candidates.forEach(c => {
-      const comment = c.comments?.[field];
-      if (comment && comment.trim() !== '') {
-        const normalized = comment.trim().replace(/\s+/g, ' ')
-          .replace(/\s*(,.:;!?)\s*/g, '$1').replace(/([(),.:;!?])+/g, '$1')
-          .replace(/[\u200B-\u200D\uFEFF]/g, '').replace(/\u00A0/g, ' ')
-          .normalize('NFKC').toUpperCase();
-        commentFrequency[normalized] = (commentFrequency[normalized] || 0) + 1;
-      }
-    });
+    // PERF: Aggregation pipeline — frequency counting runs in the DB engine.
+    // Only the top-N strings travel over the wire instead of up to 1,000 full documents.
+    const pipeline = [
+      { $match: { [`comments.${field}`]: { $exists: true, $ne: '' } } },
+      { $project: { comment: `$comments.${field}` } },
+      { $group: { _id: '$comment', count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+      { $limit: maxSuggestions }
+    ];
 
-    const suggestions = Object.entries(commentFrequency)
-      .sort((a, b) => b[1] - a[1]).slice(0, maxSuggestions).map(([c]) => c);
+    const rawSuggestions = await Candidate.aggregate(pipeline);
+    const suggestions = rawSuggestions.map(({ _id: comment }) =>
+      comment.trim().replace(/\s+/g, ' ')
+        .replace(/\s*(,.:;!?)\s*/g, '$1').replace(/([(),.:;!?])+/g, '$1')
+        .replace(/[\u200B-\u200D\uFEFF]/g, '').replace(/\u00A0/g, ' ')
+        .normalize('NFKC').toUpperCase()
+    );
     res.json(suggestions);
   } catch (error) {
     console.error('[GET /candidates/comment-suggestions]', error);
@@ -1664,37 +1663,61 @@ router.post('/ratings/submit', authMiddleware, async (req, res) => {
       });
     }
 
-    const results = [], logEntries = [];
+    // F-14 FIX: Validate all scores up-front before any DB writes.
     for (const ratingData of ratings) {
+      const s = parseInt(ratingData.score);
+      if (isNaN(s) || s < 1 || s > 5)
+        return res.status(400).json({ message: `Invalid score value: ${ratingData.score}. Must be 1–5.` });
+    }
+
+    // PERF-01: Build a lookup map from the already-fetched existingRatings so we
+    // never issue extra findOne calls inside the loop. Key = "competencyId:candidateId".
+    const existingMap = new Map(
+      existingRatings.map(r => [`${r.competencyId}:${r.candidateId}`, r])
+    );
+
+    const bulkOps = [], logEntries = [];
+    const submittedAt = new Date();
+    const ipAddress = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    const userAgent = req.headers['user-agent'];
+
+    for (const ratingData of ratings) {
+      const newScore = parseInt(ratingData.score);
+      const key = `${ratingData.competencyId}:${ratingData.candidateId}`;
+      const existingRating = existingMap.get(key);
+
+      // Skip if score is unchanged — no write needed.
+      if (existingRating && existingRating.score === newScore) continue;
+
       const filter = {
         candidateId: ratingData.candidateId, raterId: req.user._id,
         competencyId: ratingData.competencyId, competencyType: ratingData.competencyType,
         itemNumber: ratingData.itemNumber
       };
-      const existingRating = await Rating.findOne(filter);
-      // F-14 FIX: Validate score range before hitting the DB.
-      const newScore = parseInt(ratingData.score);
-      if (isNaN(newScore) || newScore < 1 || newScore > 5)
-        return res.status(400).json({ message: `Invalid score value: ${ratingData.score}. Must be 1–5.` });
-      if (existingRating && existingRating.score === newScore) continue;
 
-      const update = { ...filter, score: newScore, submittedAt: new Date() };
-      const result = await Rating.findOneAndUpdate(filter, update, { upsert: true, new: true, setDefaultsOnInsert: true });
-      results.push(result);
+      bulkOps.push({
+        updateOne: {
+          filter,
+          update: { $set: { ...filter, score: newScore, submittedAt } },
+          upsert: true
+        }
+      });
+
       logEntries.push({
         action: existingRating ? 'updated' : 'created',
-        ratingId: result._id, candidateId: ratingData.candidateId, raterId: req.user._id,
+        candidateId: ratingData.candidateId, raterId: req.user._id,
         itemNumber: ratingData.itemNumber, competencyId: ratingData.competencyId,
         competencyType: ratingData.competencyType, oldScore: existingRating?.score || null, newScore,
-        performedBy: req.user._id,
-        ipAddress: req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress,
-        userAgent: req.headers['user-agent']
+        performedBy: req.user._id, ipAddress, userAgent
       });
     }
+
+    // PERF-01: 2 total DB operations regardless of competency count.
+    if (bulkOps.length > 0)    await Rating.bulkWrite(bulkOps, { ordered: false });
     if (logEntries.length > 0) await RatingLog.insertMany(logEntries);
     res.json({
       message: hasExistingRatings ? 'Ratings updated successfully' : 'Ratings submitted successfully',
-      isUpdate: hasExistingRatings, ratingsProcessed: results.length, changesLogged: logEntries.length
+      isUpdate: hasExistingRatings, ratingsProcessed: bulkOps.length, changesLogged: logEntries.length
     });
   } catch (error) {
     console.error('[POST /ratings/submit]', error);

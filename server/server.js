@@ -75,7 +75,10 @@ app.use(fileUpload({
 // ── Connect to MongoDB and run migration ──────────────────────────────────────
 async function startServer() {
   try {
-    await mongoose.connect(process.env.MONGODB_URI);
+    await mongoose.connect(process.env.MONGODB_URI, {
+      maxPoolSize: 10,
+      serverSelectionTimeoutMS: 5000
+    });
     console.log('Connected to MongoDB');
     console.log('\n🔄 Checking for pending migrations...');
     await runMigration();

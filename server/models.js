@@ -198,10 +198,19 @@ candidateSchema.virtual('computedAge').get(function() {
 
 // Override toJSON so that `age` is always the live-computed value when
 // dateOfBirth is present, falling back to the stored value only if no dob.
+// PERF: Short-circuit when the stored age was already written this calendar year
+// (pre('save') and pre('findOneAndUpdate') hooks keep it current) to avoid
+// redundant Date arithmetic on every serialization, e.g. bulk CSV exports.
 candidateSchema.set('toJSON', {
   virtuals: false,
   transform(doc, ret) {
-    if (ret.dateOfBirth) ret.age = computeAge(ret.dateOfBirth);
+    if (ret.dateOfBirth) {
+      const storedYear = ret.updatedAt ? new Date(ret.updatedAt).getFullYear() : null;
+      if (storedYear && storedYear === new Date().getFullYear() && ret.age != null) {
+        return ret;
+      }
+      ret.age = computeAge(ret.dateOfBirth);
+    }
     return ret;
   }
 });

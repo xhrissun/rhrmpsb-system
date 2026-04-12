@@ -6,8 +6,8 @@ export default defineConfig({
   base: '/rhrmpsb-system/',
   build: {
     outDir: 'dist',
-    sourcemap: true,
-    minify: false,
+    sourcemap: false,
+    minify: 'esbuild',
     assetsDir: 'assets',
     rollupOptions: {
       external: [],
@@ -18,6 +18,12 @@ export default defineConfig({
           }
           if (id.includes('pdfjs-dist')) {
             return 'pdfjs';
+          }
+          if (id.includes('node_modules/lucide-react')) {
+            return 'lucide';
+          }
+          if (id.includes('node_modules/jspdf')) {
+            return 'jspdf';
           }
         },
       },
