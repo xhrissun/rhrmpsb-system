@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { vacanciesAPI, candidatesAPI, competenciesAPI, ratingsAPI, usersAPI, publicationRangesAPI } from '../utils/api';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
@@ -47,29 +47,6 @@ const SkeletonCard = () => (
   </div>
 );
 
-
-// ─── Metric Card ──────────────────────────────────────────────────────────────
-const MetricCard = ({ icon, label, value, sub, color = 'blue' }) => {
-  const colorMap = {
-    blue:   { bg: 'bg-blue-50',   border: 'border-blue-100',   text: 'text-blue-700',   icon: 'text-blue-400'   },
-    green:  { bg: 'bg-green-50',  border: 'border-green-100',  text: 'text-green-700',  icon: 'text-green-400'  },
-    amber:  { bg: 'bg-amber-50',  border: 'border-amber-100',  text: 'text-amber-700',  icon: 'text-amber-400'  },
-    purple: { bg: 'bg-purple-50', border: 'border-purple-100', text: 'text-purple-700', icon: 'text-purple-400' },
-    rose:   { bg: 'bg-rose-50',   border: 'border-rose-100',   text: 'text-rose-700',   icon: 'text-rose-400'   },
-  };
-  const c = colorMap[color] || colorMap.blue;
-  return (
-    <div className={`${c.bg} ${c.border} border rounded-xl p-4 flex items-start gap-3`}>
-      <div className={`${c.icon} mt-0.5 flex-shrink-0`}>{icon}</div>
-      <div className="min-w-0">
-        <p className="text-xs text-gray-500 font-medium truncate">{label}</p>
-        <p className={`text-xl font-bold ${c.text} leading-tight`}>{value}</p>
-        {sub && <p className="text-xs text-gray-400 mt-0.5 truncate">{sub}</p>}
-      </div>
-    </div>
-  );
-};
-
 // ─── Main Component ────────────────────────────────────────────────────────────
 const InterviewSummaryGeneratorV2 = ({ user }) => {
   // Filter state
@@ -86,11 +63,6 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
   // Candidate board state
   const [candidateBoard, setCandidateBoard] = useState([]); // [{id, name, avgScore, raterCount, totalRaters, lastRatedAt, ratings}]
   const [boardLoading, setBoardLoading] = useState(false);
-  const [boardLoadTime, setBoardLoadTime] = useState(null);
-
-  // Search / filter on board
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filterRated, setFilterRated] = useState('all'); // 'all' | 'rated' | 'unrated'
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -187,16 +159,56 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
 
   const loadCandidateBoard = useCallback(async () => {
     if (!selectedItem) return;
-    const t0 = performance.now();
     try {
       setBoardLoading(true);
-      setSearchQuery('');
-      setFilterRated('all');
+      const [allCandidates, allRatings] = await Promise.all([
+        candidatesAPI.getAll(),
+        // Fetch ratings for item - we use per-candidate later, but prefetch all for perf
+        ratingsAPI.getAll ? ratingsAPI.getAll() : Promise.resolve([])
+      ]);
 
-      // ONE batch request — replaces 1 + N pattern (was 279 requests for 278 candidates)
-      const board = await candidatesAPI.getBoardByItem(selectedItem);
+      const itemCandidates = allCandidates.filter(
+        c => !c.isArchived && c.itemNumber === selectedItem && c.status === 'long_list'
+      );
 
-      const sorted = [...board].sort((a, b) => {
+      // For each candidate, fetch their ratings (or use prefetched if available)
+      const enriched = await Promise.all(
+        itemCandidates.map(async (c) => {
+          try {
+            const candidateRatings = await ratingsAPI.getByCandidate(c._id);
+            const itemRatings = candidateRatings.filter(r => r.itemNumber === selectedItem);
+            const uniqueRaterIds = [...new Set(itemRatings.map(r => r.raterId?._id || r.raterId))];
+            const scores = itemRatings.map(r => r.score).filter(s => s > 0);
+            const avgScore = scores.length > 0
+              ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 100) / 100
+              : 0;
+            const lastRatedAt = itemRatings.length > 0
+              ? itemRatings.reduce((latest, r) => {
+                  const d = new Date(r.interviewDate || r.createdAt || 0);
+                  return d > latest ? d : latest;
+                }, new Date(0))
+              : null;
+            return {
+              id: c._id,
+              name: c.fullName,
+              avgScore,
+              raterCount: uniqueRaterIds.length,
+              lastRatedAt,
+            };
+          } catch {
+            return {
+              id: c._id,
+              name: c.fullName,
+              avgScore: 0,
+              raterCount: 0,
+              lastRatedAt: null,
+            };
+          }
+        })
+      );
+
+      // Sort: rated candidates first (by latest activity), then unrated alphabetically
+      const sorted = enriched.sort((a, b) => {
         if (a.lastRatedAt && b.lastRatedAt) return new Date(b.lastRatedAt) - new Date(a.lastRatedAt);
         if (a.lastRatedAt) return -1;
         if (b.lastRatedAt) return 1;
@@ -204,46 +216,12 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       });
 
       setCandidateBoard(sorted);
-      setBoardLoadTime(Math.round(performance.now() - t0));
     } catch (err) {
       console.error('Failed to load candidate board:', err);
     } finally {
       setBoardLoading(false);
     }
   }, [selectedItem]);
-
-  // ─── Live metrics (zero extra requests — derived from board data) ─────────────
-  const metrics = useMemo(() => {
-    if (!candidateBoard.length) return null;
-    const total = candidateBoard.length;
-    const rated = candidateBoard.filter(c => c.raterCount > 0).length;
-    const fullyRated = candidateBoard.filter(c => c.raterCount >= 6).length;
-    const scores = candidateBoard.filter(c => c.avgScore > 0).map(c => c.avgScore);
-    const avgScore = scores.length
-      ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 100) / 100
-      : 0;
-    const topScorer = candidateBoard.reduce((top, c) => c.avgScore > (top?.avgScore || 0) ? c : top, null);
-    const recentActivity = [...candidateBoard]
-      .filter(c => c.lastRatedAt)
-      .sort((a, b) => new Date(b.lastRatedAt) - new Date(a.lastRatedAt))[0];
-    return {
-      total, rated, fullyRated, avgScore, topScorer, recentActivity,
-      ratedPct: Math.round((rated / total) * 100),
-      fullyRatedPct: Math.round((fullyRated / total) * 100),
-    };
-  }, [candidateBoard]);
-
-  // ─── Filtered board ───────────────────────────────────────────────────────────
-  const filteredBoard = useMemo(() => {
-    let list = candidateBoard;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      list = list.filter(c => c.name.toLowerCase().includes(q));
-    }
-    if (filterRated === 'rated')   list = list.filter(c => c.raterCount > 0);
-    if (filterRated === 'unrated') list = list.filter(c => c.raterCount === 0);
-    return list;
-  }, [candidateBoard, searchQuery, filterRated]);
 
   // ─── Open modal for a candidate ───────────────────────────────────────────────
   const openCandidateModal = async (candidate) => {
@@ -659,8 +637,6 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     setSelectedPosition('');
     setSelectedItem('');
     setCandidateBoard([]);
-    setSearchQuery('');
-    setFilterRated('all');
   };
 
   const hasFilters = selectedPublicationRange || selectedAssignment || selectedPosition || selectedItem;
@@ -791,109 +767,35 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
 
         {selectedItem && (
           <>
-            {/* ── Live Metrics Panel ──────────────────────────────────────── */}
-            {!boardLoading && metrics && (
-              <div className="mb-6">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="inline-block w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                    Live Monitoring — Item {selectedItem}
-                  </span>
-                  {boardLoadTime !== null && (
-                    <span className="ml-auto text-xs text-gray-400 bg-gray-100 rounded px-2 py-0.5">
-                      ⚡ Loaded in {boardLoadTime < 1000 ? `${boardLoadTime}ms` : `${(boardLoadTime / 1000).toFixed(1)}s`}
-                    </span>
-                  )}
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-3">
-                  <MetricCard color="blue" label="Total Candidates" value={metrics.total} sub={`Item ${selectedItem}`}
-                    icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>}
-                  />
-                  <MetricCard
-                    color={metrics.ratedPct === 100 ? 'green' : metrics.ratedPct >= 50 ? 'blue' : 'amber'}
-                    label="At Least 1 Rater" value={`${metrics.rated} / ${metrics.total}`} sub={`${metrics.ratedPct}% have been rated`}
-                    icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
-                  />
-                  <MetricCard
-                    color={metrics.fullyRatedPct === 100 ? 'green' : 'purple'}
-                    label="Fully Rated (6 Raters)" value={`${metrics.fullyRated} / ${metrics.total}`} sub={`${metrics.fullyRatedPct}% complete`}
-                    icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>}
-                  />
-                  <MetricCard
-                    color={metrics.avgScore >= 4.0 ? 'green' : metrics.avgScore >= 3.0 ? 'amber' : 'rose'}
-                    label="Pool Avg Score" value={metrics.avgScore > 0 ? metrics.avgScore.toFixed(2) : '—'} sub={metrics.avgScore > 0 ? scoreLabel(metrics.avgScore) : 'No scores yet'}
-                    icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" /></svg>}
-                  />
-                  <MetricCard color="green" label="Top Scorer"
-                    value={metrics.topScorer?.avgScore > 0 ? metrics.topScorer.avgScore.toFixed(2) : '—'}
-                    sub={metrics.topScorer?.avgScore > 0 ? metrics.topScorer.name : 'No scores yet'}
-                    icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>}
-                  />
-                </div>
-                <div className="bg-white rounded-xl border border-gray-200 px-5 py-3 flex items-center gap-4">
-                  <span className="text-xs text-gray-500 font-medium whitespace-nowrap">Rating Progress</span>
-                  <div className="flex-1 bg-gray-100 rounded-full h-2.5 relative overflow-hidden">
-                    <div className="h-2.5 rounded-full transition-all duration-700"
-                      style={{ width: `${metrics.fullyRatedPct}%`, background: metrics.fullyRatedPct === 100 ? '#22c55e' : metrics.fullyRatedPct >= 50 ? '#3b82f6' : '#f59e0b' }} />
-                    {metrics.ratedPct > metrics.fullyRatedPct && (
-                      <div className="absolute top-0 left-0 h-2.5 rounded-full opacity-30"
-                        style={{ width: `${metrics.ratedPct}%`, background: '#3b82f6' }} />
-                    )}
-                  </div>
-                  <span className="text-xs font-semibold text-gray-700 whitespace-nowrap">{metrics.fullyRated} of {metrics.total} fully rated</span>
-                  {metrics.recentActivity && (
-                    <span className="text-xs text-gray-400 hidden lg:block whitespace-nowrap">
-                      Last activity: {formatTimeSince(metrics.recentActivity.lastRatedAt)}
-                    </span>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Board header with search */}
-            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            {/* Board header */}
+            <div className="flex items-center justify-between mb-4">
               <div>
-                <h2 className="text-base font-bold text-gray-900">Candidates — Item {selectedItem}</h2>
+                <h2 className="text-base font-bold text-gray-900">
+                  Candidates — Item {selectedItem}
+                </h2>
                 {!boardLoading && (
                   <p className="text-xs text-gray-500 mt-0.5">
-                    {filteredBoard.length !== candidateBoard.length
-                      ? `${filteredBoard.length} of ${candidateBoard.length} shown`
-                      : `${candidateBoard.length} candidate${candidateBoard.length !== 1 ? 's' : ''}`
-                    } · Sorted by latest rating activity
+                    {candidateBoard.length} candidate{candidateBoard.length !== 1 ? 's' : ''} · Sorted by latest rating activity
                   </p>
                 )}
               </div>
-              {!boardLoading && candidateBoard.length > 0 && (
-                <div className="flex items-center gap-2 flex-wrap">
-                  <div className="relative">
-                    <svg className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                    </svg>
-                    <input type="text" placeholder="Search candidates…" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
-                      className="text-xs border border-gray-200 rounded-lg pl-8 pr-3 py-1.5 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-44 transition-all" />
-                  </div>
-                  <select value={filterRated} onChange={e => setFilterRated(e.target.value)}
-                    className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all">
-                    <option value="all">All</option>
-                    <option value="rated">Rated only</option>
-                    <option value="unrated">Unrated only</option>
-                  </select>
-                  <button onClick={loadCandidateBoard} disabled={boardLoading}
-                    className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 px-3 py-1.5 rounded-lg border border-blue-200 hover:bg-blue-50 transition-all disabled:opacity-50">
-                    <svg className={`w-3.5 h-3.5 ${boardLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                    Refresh
-                  </button>
-                </div>
-              )}
+              <button
+                onClick={loadCandidateBoard}
+                disabled={boardLoading}
+                className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 px-3 py-1.5 rounded-lg border border-blue-200 hover:bg-blue-50 transition-all disabled:opacity-50"
+              >
+                <svg className={`w-3.5 h-3.5 ${boardLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Refresh
+              </button>
             </div>
 
             {/* Candidate cards grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {boardLoading
-                ? [...Array(8)].map((_, i) => <SkeletonCard key={i} />)
-                : filteredBoard.length === 0
+                ? [...Array(6)].map((_, i) => <SkeletonCard key={i} />)
+                : candidateBoard.length === 0
                   ? (
                     <div className="col-span-full flex flex-col items-center py-16 text-center">
                       <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center mb-3">
@@ -901,15 +803,13 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
                         </svg>
                       </div>
-                      <p className="text-gray-500 text-sm">No candidates match your filter</p>
-                      {(searchQuery || filterRated !== 'all') && (
-                        <button onClick={() => { setSearchQuery(''); setFilterRated('all'); }} className="text-xs text-blue-500 mt-2 hover:underline">Clear filters</button>
-                      )}
+                      <p className="text-gray-500 text-sm">No candidates found for this item number</p>
                     </div>
                   )
-                  : filteredBoard.map((candidate) => {
+                  : candidateBoard.map((candidate) => {
                     const colors = scoreColor(candidate.avgScore);
-                    const pct = Math.round((candidate.raterCount / 6) * 100);
+                    const totalRatersExpected = salaryGrade <= 14 ? 2 : 6;
+                    const pct = Math.round((candidate.raterCount / totalRatersExpected) * 100);
                     return (
                       <div
                         key={candidate.id}

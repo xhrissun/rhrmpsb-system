@@ -17,7 +17,7 @@ const loginLimiter = rateLimit({
   legacyHeaders: false,
   message: { message: 'Too many login attempts. Please wait 15 minutes before trying again.' }
 });
-// verifyLimiter: guards verify-password (user already authenticated, more lenient)
+// verifyLimiter: guards verify-password (user is already authenticated, so more lenient)
 const verifyLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 30,
@@ -933,64 +933,6 @@ router.get('/candidates/item/:itemNumber', authMiddleware, async (req, res) => {
   }
 });
 
-
-// ── PERF: Single-query candidate board — replaces N+1 pattern in InterviewSummaryGeneratorV2 ──
-// Returns candidates for an item with pre-aggregated rating stats in one round-trip.
-router.get('/candidates/item/:itemNumber/board', authMiddleware, async (req, res) => {
-  try {
-    const itemNumber = decodeURIComponent(req.params.itemNumber);
-
-    // 1. Fetch long-listed, non-archived candidates for this item
-    const candidates = await Candidate.find({
-      itemNumber,
-      isArchived: false,
-      status: 'long_list'
-    }).select('_id fullName').lean();
-
-    if (!candidates.length) return res.json([]);
-
-    const candidateIds = candidates.map(c => c._id);
-
-    // 2. Fetch ALL ratings for these candidates + item in ONE query
-    const allRatings = await Rating.find({
-      candidateId: { $in: candidateIds },
-      itemNumber
-    })
-      .select('candidateId raterId score interviewDate createdAt')
-      .lean();
-
-    // 3. Aggregate per-candidate stats in JS (no extra DB round-trips)
-    const statsMap = {};
-    for (const r of allRatings) {
-      const key = r.candidateId.toString();
-      if (!statsMap[key]) statsMap[key] = { scores: [], raterIds: new Set(), lastRatedAt: null };
-      const s = statsMap[key];
-      if (r.score > 0) s.scores.push(r.score);
-      s.raterIds.add((r.raterId?._id || r.raterId).toString());
-      const d = new Date(r.interviewDate || r.createdAt || 0);
-      if (!s.lastRatedAt || d > s.lastRatedAt) s.lastRatedAt = d;
-    }
-
-    const board = candidates.map(c => {
-      const s = statsMap[c._id.toString()];
-      const avgScore = s && s.scores.length
-        ? Math.round((s.scores.reduce((a, b) => a + b, 0) / s.scores.length) * 100) / 100
-        : 0;
-      return {
-        id: c._id,
-        name: c.fullName,
-        avgScore,
-        raterCount: s ? s.raterIds.size : 0,
-        lastRatedAt: s ? s.lastRatedAt : null,
-      };
-    });
-
-    res.json(board);
-  } catch (error) {
-    console.error('[GET /candidates/item/:itemNumber/board]', error);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
 router.get('/candidates/comment-suggestions/:field', authMiddleware, async (req, res) => {
   // F-11 FIX: Secretariat evaluation language must not be visible to raters.
   if (req.user.userType === 'rater') return res.status(403).json({ message: 'Access denied' });
