@@ -1059,10 +1059,18 @@ const loadDataForCurrentTab = useCallback(async () => {
     if (candidateInput) candidateInput.value = '';
   }, [selectedPublicationRange]);
 
+  // ─── Memoized filtered/sorted data ────────────────────────────────────────
+  // Computed once per render when their dependencies change, then passed into
+  // each render helper so the helpers never re-run filterAndSortData themselves.
+  const filteredUsers       = useMemo(() => filterAndSortData(users,        ['name', 'email', 'userType', 'raterType', 'position']), [users,        filterAndSortData]);
+  const filteredVacanciesT  = useMemo(() => filterAndSortData(vacancies,    ['itemNumber', 'position', 'assignment', 'salaryGrade']), [vacancies,    filterAndSortData]);
+  const filteredCandidatesT = useMemo(() => filterAndSortData(candidates,   ['fullName', 'itemNumber', 'gender', 'age', 'status']),   [candidates,   filterAndSortData]);
+  const filteredCompetenciesT = useMemo(() => filterAndSortData(competencies, ['name', 'type']),                                       [competencies, filterAndSortData]);
+  const filteredUsersAssign = useMemo(() => filterAndSortData(users,        ['name', 'email', 'userType']),                            [users,        filterAndSortData]);
+
   // ─── Render Helper Functions ───────────────────────────────────────────────
 
   const renderUsers = useCallback(() => {
-    const filteredUsers = filterAndSortData(users, ['name', 'email', 'userType', 'raterType', 'position']);
 
     return (
       <div className="space-y-4">
@@ -1194,7 +1202,7 @@ const loadDataForCurrentTab = useCallback(async () => {
         </div>
       </div>
     );
-  }, [users, filters, sortConfig, filterAndSortData, handleFilterChange, handleSort, handleExportCSV, handleExportEmptyTemplate, handleAdd, handleEdit, handleDelete]);
+  }, [users, filters, sortConfig, filteredUsers, handleFilterChange, handleSort, handleExportCSV, handleExportEmptyTemplate, handleAdd, handleEdit, handleDelete]);
 
   const handleUndoVacancyImport = useCallback(async () => {
   if (!lastVacancyUpload) {
@@ -1218,7 +1226,7 @@ const loadDataForCurrentTab = useCallback(async () => {
 }, [lastVacancyUpload, loadDataForCurrentTab, showToast]);
 
   const renderVacancies = useCallback(() => {
-    const filteredVacancies = filterAndSortData(vacancies, ['itemNumber', 'position', 'assignment', 'salaryGrade']);
+    const filteredVacancies = filteredVacanciesT;
     const activePublicationRanges = publicationRanges.filter(pr => pr.isActive && !pr.isArchived);
     const isUploading = csvUploading.vacancies;
     const uploadResult = uploadResults.vacancies;
@@ -1458,7 +1466,7 @@ const loadDataForCurrentTab = useCallback(async () => {
     showArchivedRanges, 
     filters, 
     sortConfig, 
-    filterAndSortData, 
+    filteredVacanciesT, 
     handleFilterChange, 
     handleSort, 
     handleExportCSV, 
@@ -1477,7 +1485,7 @@ const loadDataForCurrentTab = useCallback(async () => {
   ]);
 
   const renderCandidates = useCallback(() => {
-    const filteredCandidates = filterAndSortData(candidates, ['fullName', 'itemNumber', 'gender', 'age', 'status']);
+    const filteredCandidates = filteredCandidatesT;
     const activePublicationRanges = publicationRanges.filter(pr => pr.isActive && !pr.isArchived);
     const isUploading = csvUploading.candidates;
     const uploadResult = uploadResults.candidates;
@@ -1699,7 +1707,7 @@ const loadDataForCurrentTab = useCallback(async () => {
     selectedPublicationRange,
     filters,
     sortConfig,
-    filterAndSortData,
+    filteredCandidatesT,
     handleFilterChange,
     handleSort,
     handleExportCSV,
@@ -1834,7 +1842,7 @@ const loadDataForCurrentTab = useCallback(async () => {
   }, [showToast]);
 
   const renderCompetencies = useCallback(() => {
-    const filteredCompetencies = filterAndSortData(competencies, ['name', 'type']);
+    const filteredCompetencies = filteredCompetenciesT;
     const isUploading = csvUploading.competencies;
     const uploadResult = uploadResults.competencies;
 
@@ -2118,7 +2126,7 @@ const loadDataForCurrentTab = useCallback(async () => {
     vacancies,
     filters,
     sortConfig,
-    filterAndSortData,
+    filteredCompetenciesT,
     handleFilterChange,
     handleSort,
     handleExportCSV,
@@ -2136,7 +2144,7 @@ const loadDataForCurrentTab = useCallback(async () => {
   ]);
 
   const renderVacancyAssignments = useCallback(() => {
-  const filteredUsers = filterAndSortData(users, ['name', 'email', 'userType']);
+  const filteredUsers = filteredUsersAssign;
 
   return (
     <div className="space-y-4">
@@ -2294,7 +2302,7 @@ const loadDataForCurrentTab = useCallback(async () => {
   vacancies,
   filters,
   sortConfig,
-  filterAndSortData,
+  filteredUsersAssign,
   handleFilterChange,
   handleSort,
   handleEdit,

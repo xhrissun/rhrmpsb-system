@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import usePersistedState from '../utils/usePersistedState';
 import { vacanciesAPI, candidatesAPI, usersAPI, publicationRangesAPI } from '../utils/api';
 import { getStatusColor, getStatusLabel, CANDIDATE_STATUS } from '../utils/constants';
@@ -260,7 +260,7 @@ const SecretariatView = ({ user }) => {
     }
   }, []);
 
-  const getStatistics = useCallback(() => {
+  const stats = useMemo(() => {
     const total = candidates.length;
     const longListed = candidates.filter(c => c.status === CANDIDATE_STATUS.LONG_LIST).length;
     const forReview = candidates.filter(c => c.status === CANDIDATE_STATUS.FOR_REVIEW).length;
@@ -269,7 +269,7 @@ const SecretariatView = ({ user }) => {
     return { total, longListed, forReview, disqualified, lateCount };
   }, [candidates]);
 
-  const getGenderStatistics = useCallback(() => {
+  const genderStats = useMemo(() => {
     let baseFiltered = candidates;
     
     if (statusFilter) {
@@ -289,7 +289,7 @@ const SecretariatView = ({ user }) => {
     return { male, female, lgbtqi, total: baseFiltered.length };
   }, [candidates, statusFilter]);
 
-  const getFilteredCandidates = useCallback(() => {
+  const filteredCandidates = useMemo(() => {
     let filtered = candidates;
     
     if (statusFilter) {
@@ -1139,9 +1139,6 @@ const SecretariatView = ({ user }) => {
     );
   }
 
-  const stats = getStatistics();
-  const filteredCandidates = getFilteredCandidates();
-  const genderStats = getGenderStatistics();
   const currentPublicationRange = publicationRanges.find(r => r._id === selectedPublicationRange);
 
   return (

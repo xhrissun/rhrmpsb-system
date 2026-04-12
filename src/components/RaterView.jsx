@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import usePersistedState from '../utils/usePersistedState';
 import { vacanciesAPI, candidatesAPI, ratingsAPI, competenciesAPI, authAPI } from '../utils/api';
 import { calculateRatingScores, formatDate } from '../utils/helpers';
@@ -53,7 +53,7 @@ function SkeletonBlock({ width = '100%', height = 16, radius = 8, style = {} }) 
   );
 }
 
-function RaterLoadingScreen({ pdfStatus, pdfProgress = 0, pdfMsg = '' }) {
+function RaterLoadingScreen({ pdfStatus, pdfProgress = 0, pdfMsg = '', onSkip }) {
   const steps = [
     { id: 'vacancies', label: 'Loading vacancies',   icon: '📋' },
     { id: 'pdf',       label: 'Parsing CBS Manual',  icon: '📖' },
@@ -67,6 +67,14 @@ function RaterLoadingScreen({ pdfStatus, pdfProgress = 0, pdfMsg = '' }) {
 
   const statuses = [vacanciesDone, pdfDone, readyDone];
   const showPdfProgress = pdfStatus === 'parsing' && pdfProgress > 0;
+
+  // Show skip button after 5 s of active parsing (slow connection signal)
+  const [showSkip, setShowSkip] = React.useState(false);
+  React.useEffect(() => {
+    if (pdfStatus !== 'parsing') { setShowSkip(false); return; }
+    const t = setTimeout(() => setShowSkip(true), 5000);
+    return () => clearTimeout(t);
+  }, [pdfStatus]);
 
   return (
     <>
@@ -289,6 +297,36 @@ function RaterLoadingScreen({ pdfStatus, pdfProgress = 0, pdfMsg = '' }) {
             </div>
           </div>
 
+          {/* Skip button — appears after 5 s on slow connections */}
+          {showSkip && onSkip && (
+            <div style={{
+              textAlign: 'center', marginTop: 16,
+              animation: 'rater-fade-in 0.4s ease both',
+            }}>
+              <button
+                onClick={onSkip}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  padding: '9px 20px', borderRadius: 10,
+                  background: '#fff', border: '1.5px solid #e2e8f0',
+                  color: '#64748b', fontSize: 13, fontWeight: 600,
+                  cursor: 'pointer', boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+                  transition: 'all 0.15s',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = '#94a3b8'; e.currentTarget.style.color = '#334155'; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.color = '#64748b'; }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/>
+                </svg>
+                Skip CBS parsing — continue without suggestions
+              </button>
+              <p style={{ margin: '6px 0 0', fontSize: 11, color: '#94a3b8' }}>
+                CBS data will finish loading in the background
+              </p>
+            </div>
+          )}
+
           {/* Bottom hint */}
           <p style={{
             textAlign: 'center', marginTop: 20,
@@ -330,6 +368,9 @@ const RaterView = ({ user }) => {
   const [pdfStatus, setPdfStatus] = useState('idle'); // idle | parsing | done | error | unavailable
   const [pdfProgress, setPdfProgress] = useState(0);
   const [pdfMsg, setPdfMsg] = useState('');
+  const [pdfSkipped, setPdfSkipped] = useState(false);
+  // Ref used by loadInitialData to detect a user-initiated skip while awaiting
+  const pdfSkipRef = useRef(false);
   const [submitting, setSubmitting] = useState(false);
   const [isModalMinimized, setIsModalMinimized] = useState(true);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
@@ -398,9 +439,7 @@ const RaterView = ({ user }) => {
           setItemNumbers(uniqueItemNumbers);
 
           if (selectedItemNumber && uniqueItemNumbers.includes(selectedItemNumber)) {
-            loadCandidatesByItemNumber();
-            loadCompetenciesByItemNumber();
-            loadVacancyDetails();
+            loadItemData();
           } else {
             setSelectedItemNumber('');
             setSelectedCandidate('');
@@ -447,7 +486,7 @@ const RaterView = ({ user }) => {
       setCompetencies([]);
       setGroupedCompetencies({ basic: [], organizational: [], leadership: [], minimum: [] });
     }
-  }, [vacancies, loading, selectedAssignment, selectedPosition, selectedItemNumber]);
+  }, [vacancies, loading, selectedAssignment, selectedPosition, selectedItemNumber, loadItemData]);
 
   useEffect(() => {
     if (candidates.length > 0 && selectedCandidate) {
@@ -470,7 +509,7 @@ const RaterView = ({ user }) => {
     }
   }, [ratings, user._id]);
 
-  const filterVacanciesByAssignment = (allVacancies, user) => {
+  const filterVacanciesByAssignment = useCallback((allVacancies, user) => {
     switch (user.assignedVacancies) {
       case 'none':
         return [];
@@ -485,22 +524,27 @@ const RaterView = ({ user }) => {
       default:
         return [];
     }
-  };
+  }, []);
 
   // ✅ CHANGED: loadInitialData now pre-parses the CBS PDF and WAITS for it to finish
   // before releasing the loading screen. This guarantees the modal opens instantly
   // on all devices, including tablets where background parsing was racing the UI.
-  const loadInitialData = async () => {
+  // ✅ PERF: If the user presses Skip (slow connection), pdfSkipRef is set to true
+  // and we race the PDF parse against a never-resolving skip-gate so the vacancies
+  // promise wins and we proceed immediately. The PDF continues parsing in the
+  // background so subsequent modal opens still benefit from the cache.
+  const loadInitialData = useCallback(async () => {
     try {
       setLoading(true);
       setPdfStatus('idle');
       setPdfProgress(0);
       setPdfMsg('');
+      pdfSkipRef.current = false;
 
       // ── Fire vacancies fetch immediately (critical path) ────────────────
       const vacanciesPromise = vacanciesAPI.getAll();
 
-      // ── Start PDF preload and build a awaitable promise ─────────────────
+      // ── Start PDF preload and build an awaitable promise ─────────────────
       let pdfPreloadPromise = Promise.resolve();
 
       const available = await isPDFAvailable();
@@ -508,21 +552,31 @@ const RaterView = ({ user }) => {
         setPdfStatus('unavailable');
       } else {
         setPdfStatus('parsing');
-        pdfPreloadPromise = ensureParsed((pct, msg) => {
-          // Real progress callback — drives the loading screen bar
-          setPdfProgress(pct);
-          if (msg) setPdfMsg(msg);
-        })
-          .then(() => { setPdfStatus('done'); setPdfProgress(100); })
-          .catch((err) => {
-            console.warn('[RaterView] PDF pre-parse failed (non-critical):', err);
-            setPdfStatus('error');
-          });
+        // This promise resolves when parsing finishes OR when the user skips.
+        // Either way we gate on skipGate below so a skip immediately unblocks.
+        pdfPreloadPromise = new Promise((resolve) => {
+          ensureParsed((pct, msg) => {
+            // Still update progress even after skip so the background parse
+            // completes and populates IndexedDB for the next session.
+            setPdfProgress(pct);
+            if (msg) setPdfMsg(msg);
+            // If the user already skipped, resolve this promise immediately
+            // (ensureParsed keeps running in background via its own closure).
+            if (pdfSkipRef.current) resolve('skipped');
+          })
+            .then(() => { setPdfStatus('done'); setPdfProgress(100); resolve('done'); })
+            .catch((err) => {
+              console.warn('[RaterView] PDF pre-parse failed (non-critical):', err);
+              setPdfStatus('error');
+              resolve('error');
+            });
+        });
       }
 
-      // ── Wait for BOTH: vacancies (required) + PDF (required for instant modal) ──
+      // ── Wait for BOTH: vacancies (required) + PDF (or skip) ──────────────
       // We race them in parallel — vacancies typically finish first.
-      // The loading screen stays up until the slower one (PDF) completes.
+      // The loading screen stays up until the slower one completes,
+      // UNLESS the user presses Skip, which resolves pdfPreloadPromise early.
       const [vacanciesRes] = await Promise.all([
         vacanciesPromise,
         pdfPreloadPromise,
@@ -537,47 +591,43 @@ const RaterView = ({ user }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filterVacanciesByAssignment]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const loadCandidatesByItemNumber = async () => {
+  // ✅ PERF: Single batched loader — fires candidatesAPI and competenciesAPI in
+  // parallel (Promise.all) instead of two sequential awaits, then sets all
+  // derived state in one pass. Also handles vacancyDetails synchronously from
+  // the already-loaded vacancies array so no extra fetch is needed.
+  const loadItemData = useCallback(async () => {
+    const vacancy = vacancies.find(v => v.itemNumber === selectedItemNumber);
+    // Set vacancy details immediately (synchronous — no network needed)
+    setVacancyDetails(vacancy || null);
+
     try {
-      const candidatesRes = await candidatesAPI.getByItemNumber(selectedItemNumber);
+      const [candidatesRes, competenciesRes] = await Promise.all([
+        candidatesAPI.getByItemNumber(selectedItemNumber),
+        vacancy ? competenciesAPI.getByVacancy(vacancy._id) : Promise.resolve([]),
+      ]);
+
       const longListCandidates = candidatesRes.filter(candidate =>
         candidate.status === CANDIDATE_STATUS.LONG_LIST &&
         !candidate.isArchived
       );
       setCandidates(longListCandidates);
-    } catch (error) {
-      console.error('Failed to load candidates:', error);
-      setCandidates([]);
-    }
-  };
 
-  const loadCompetenciesByItemNumber = async () => {
-    try {
-      const vacancy = vacancies.find(v => v.itemNumber === selectedItemNumber);
-      if (vacancy) {
-        const competenciesRes = await competenciesAPI.getByVacancy(vacancy._id);
-        setCompetencies(competenciesRes);
-        const grouped = {
-          basic: competenciesRes.filter(c => c.type === COMPETENCY_TYPES.BASIC),
-          organizational: competenciesRes.filter(c => c.type === COMPETENCY_TYPES.ORGANIZATIONAL),
-          leadership: competenciesRes.filter(c => c.type === COMPETENCY_TYPES.LEADERSHIP),
-          minimum: competenciesRes.filter(c => c.type === COMPETENCY_TYPES.MINIMUM)
-        };
-        setGroupedCompetencies(grouped);
-      }
+      setCompetencies(competenciesRes);
+      setGroupedCompetencies({
+        basic:          competenciesRes.filter(c => c.type === COMPETENCY_TYPES.BASIC),
+        organizational: competenciesRes.filter(c => c.type === COMPETENCY_TYPES.ORGANIZATIONAL),
+        leadership:     competenciesRes.filter(c => c.type === COMPETENCY_TYPES.LEADERSHIP),
+        minimum:        competenciesRes.filter(c => c.type === COMPETENCY_TYPES.MINIMUM),
+      });
     } catch (error) {
-      console.error('Failed to load competencies:', error);
+      console.error('Failed to load item data:', error);
+      setCandidates([]);
       setCompetencies([]);
       setGroupedCompetencies({ basic: [], organizational: [], leadership: [], minimum: [] });
     }
-  };
-
-  const loadVacancyDetails = () => {
-    const vacancy = vacancies.find(v => v.itemNumber === selectedItemNumber);
-    setVacancyDetails(vacancy || null);
-  };
+  }, [vacancies, selectedItemNumber]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadCandidateDetails = async () => {
     try {
@@ -1103,7 +1153,18 @@ const RaterView = ({ user }) => {
 
   // ✅ CHANGED: Show the rich loading screen while loading
   if (loading) {
-    return <RaterLoadingScreen pdfStatus={pdfStatus} pdfProgress={pdfProgress} pdfMsg={pdfMsg} />;
+    const handlePdfSkip = () => {
+      pdfSkipRef.current = true;
+      setPdfSkipped(true);
+    };
+    return (
+      <RaterLoadingScreen
+        pdfStatus={pdfStatus}
+        pdfProgress={pdfProgress}
+        pdfMsg={pdfMsg}
+        onSkip={handlePdfSkip}
+      />
+    );
   }
 
   const currentScores = calculateCurrentScores();
