@@ -423,6 +423,42 @@ const RaterView = ({ user }) => {
     loadInitialData();
   }, []);
 
+  // ✅ PERF: Single batched loader — fires candidatesAPI and competenciesAPI in
+  // parallel (Promise.all) instead of two sequential awaits, then sets all
+  // derived state in one pass. Also handles vacancyDetails synchronously from
+  // the already-loaded vacancies array so no extra fetch is needed.
+  const loadItemData = useCallback(async () => {
+    const vacancy = vacancies.find(v => v.itemNumber === selectedItemNumber);
+    // Set vacancy details immediately (synchronous — no network needed)
+    setVacancyDetails(vacancy || null);
+
+    try {
+      const [candidatesRes, competenciesRes] = await Promise.all([
+        candidatesAPI.getByItemNumber(selectedItemNumber),
+        vacancy ? competenciesAPI.getByVacancy(vacancy._id) : Promise.resolve([]),
+      ]);
+
+      const longListCandidates = candidatesRes.filter(candidate =>
+        candidate.status === CANDIDATE_STATUS.LONG_LIST &&
+        !candidate.isArchived
+      );
+      setCandidates(longListCandidates);
+
+      setCompetencies(competenciesRes);
+      setGroupedCompetencies({
+        basic:          competenciesRes.filter(c => c.type === COMPETENCY_TYPES.BASIC),
+        organizational: competenciesRes.filter(c => c.type === COMPETENCY_TYPES.ORGANIZATIONAL),
+        leadership:     competenciesRes.filter(c => c.type === COMPETENCY_TYPES.LEADERSHIP),
+        minimum:        competenciesRes.filter(c => c.type === COMPETENCY_TYPES.MINIMUM),
+      });
+    } catch (error) {
+      console.error('Failed to load item data:', error);
+      setCandidates([]);
+      setCompetencies([]);
+      setGroupedCompetencies({ basic: [], organizational: [], leadership: [], minimum: [] });
+    }
+  }, [vacancies, selectedItemNumber]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!loading && vacancies.length > 0) {
       const uniqueAssignments = [...new Set(vacancies.map(v => v.assignment))].filter(a => a).sort();
@@ -592,42 +628,6 @@ const RaterView = ({ user }) => {
       setLoading(false);
     }
   }, [filterVacanciesByAssignment]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ✅ PERF: Single batched loader — fires candidatesAPI and competenciesAPI in
-  // parallel (Promise.all) instead of two sequential awaits, then sets all
-  // derived state in one pass. Also handles vacancyDetails synchronously from
-  // the already-loaded vacancies array so no extra fetch is needed.
-  const loadItemData = useCallback(async () => {
-    const vacancy = vacancies.find(v => v.itemNumber === selectedItemNumber);
-    // Set vacancy details immediately (synchronous — no network needed)
-    setVacancyDetails(vacancy || null);
-
-    try {
-      const [candidatesRes, competenciesRes] = await Promise.all([
-        candidatesAPI.getByItemNumber(selectedItemNumber),
-        vacancy ? competenciesAPI.getByVacancy(vacancy._id) : Promise.resolve([]),
-      ]);
-
-      const longListCandidates = candidatesRes.filter(candidate =>
-        candidate.status === CANDIDATE_STATUS.LONG_LIST &&
-        !candidate.isArchived
-      );
-      setCandidates(longListCandidates);
-
-      setCompetencies(competenciesRes);
-      setGroupedCompetencies({
-        basic:          competenciesRes.filter(c => c.type === COMPETENCY_TYPES.BASIC),
-        organizational: competenciesRes.filter(c => c.type === COMPETENCY_TYPES.ORGANIZATIONAL),
-        leadership:     competenciesRes.filter(c => c.type === COMPETENCY_TYPES.LEADERSHIP),
-        minimum:        competenciesRes.filter(c => c.type === COMPETENCY_TYPES.MINIMUM),
-      });
-    } catch (error) {
-      console.error('Failed to load item data:', error);
-      setCandidates([]);
-      setCompetencies([]);
-      setGroupedCompetencies({ basic: [], organizational: [], leadership: [], minimum: [] });
-    }
-  }, [vacancies, selectedItemNumber]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadCandidateDetails = async () => {
     try {
