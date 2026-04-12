@@ -22,6 +22,26 @@ const scoreLabel = (score) => {
   return 'Poor';
 };
 
+
+// ─── CER score helpers (0–10 scale: psychoSocial + potential each max 10, avg = 0–10) ──
+const cerScoreColor = (score) => {
+  if (!score || score === 0) return { bg: '#f1f5f9', text: '#94a3b8', border: '#e2e8f0' };
+  if (score >= 9.0) return { bg: '#dcfce7', text: '#15803d', border: '#86efac' };
+  if (score >= 8.0) return { bg: '#d1fae5', text: '#065f46', border: '#6ee7b7' };
+  if (score >= 7.0) return { bg: '#fef9c3', text: '#854d0e', border: '#fde047' };
+  if (score >= 6.0) return { bg: '#ffedd5', text: '#9a3412', border: '#fdba74' };
+  return { bg: '#fee2e2', text: '#991b1b', border: '#fca5a5' };
+};
+
+const cerScoreLabel = (score) => {
+  if (!score || score === 0) return 'No Ratings';
+  if (score >= 9.0) return 'Outstanding';
+  if (score >= 8.0) return 'Very Satisfactory';
+  if (score >= 7.0) return 'Satisfactory';
+  if (score >= 6.0) return 'Unsatisfactory';
+  return 'Poor';
+};
+
 const formatTimeSince = (date) => {
   if (!date) return 'No ratings yet';
   const seconds = Math.floor((new Date() - new Date(date)) / 1000);
@@ -1131,8 +1151,8 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
                       </h3>
                       {(() => {
                         const scores = calculateFinalScores();
-                        const cerTotal = Math.round((scores.psychoSocial + scores.potential) * 100) / 100;
-                        const cerColors = scoreColor(cerTotal);
+                        const cerTotal = Math.round(((scores.psychoSocial + scores.potential) / 2) * 100) / 100;
+                        const cerColors = cerScoreColor(cerTotal);
                         return (
                           <div className="grid grid-cols-3 gap-3">
                             <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 text-center">
@@ -1151,7 +1171,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
                             >
                               <p className="text-xs font-semibold uppercase tracking-wide mb-1" style={{ color: cerColors.text }}>Overall</p>
                               <p className="text-3xl font-bold" style={{ color: cerColors.text }}>{cerTotal.toFixed(2)}</p>
-                              <p className="text-xs mt-1 font-medium" style={{ color: cerColors.text }}>{scoreLabel(cerTotal)}</p>
+                              <p className="text-xs mt-1 font-medium" style={{ color: cerColors.text }}>{cerScoreLabel(cerTotal)}</p>
                             </div>
                           </div>
                         );
