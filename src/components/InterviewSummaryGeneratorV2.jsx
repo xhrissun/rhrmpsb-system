@@ -108,7 +108,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
   const [boardLoading, setBoardLoading] = useState(false);
   const [boardLoadTime, setBoardLoadTime] = useState(null);
   const [boardSalaryGrade, setBoardSalaryGrade] = useState(null); // from batch endpoint
-  const [boardRequiredRaters, setBoardRequiredRaters] = useState(6); // 2 for SG≤14, 6 for SG≥15
+  const [boardRequiredRaters, setBoardRequiredRaters] = useState(null); // 2 for SG≤14, 6 for SG≥15
 
   // Board search/filter
   const [searchQuery, setSearchQuery] = useState('');
@@ -278,7 +278,9 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     if (!candidateBoard.length) return null;
     const total = candidateBoard.length;
     const rated = candidateBoard.filter(c => c.raterCount > 0).length;
-    const fullyRated = candidateBoard.filter(c => c.raterCount >= boardRequiredRaters).length;
+    const fullyRated = boardRequiredRaters
+    ? candidateBoard.filter(c => c.raterCount >= boardRequiredRaters).length
+    : 0;
     const scores = candidateBoard.filter(c => c.avgScore > 0).map(c => c.avgScore);
     const avgScore = scores.length
       ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 100) / 100 : 0;
@@ -1017,7 +1019,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
                   )
                   : filteredBoard.map((candidate) => {
                     const colors = scoreColor(candidate.avgScore);
-                    const totalRatersExpected = boardRequiredRaters;
+                    const totalRatersExpected = boardRequiredRaters || 1;
                     const pct = Math.round((candidate.raterCount / totalRatersExpected) * 100);
                     return (
                       <div
