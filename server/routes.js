@@ -972,34 +972,71 @@ router.get('/candidates/item/:itemNumber/board', authMiddleware, async (req, res
     const candidateIds = candidates.map(c => c._id);
 
     // 3. Fetch ALL ratings for these candidates + item in ONE query
+    //    Include competencyType so we can compute per-type averages for CER score
     const allRatings = await Rating.find({ candidateId: { $in: candidateIds }, itemNumber })
-      .select('candidateId raterId score interviewDate createdAt').lean();
+      .select('candidateId raterId score competencyType interviewDate createdAt').lean();
 
     // 4. Aggregate per-candidate stats in JS — only count required rater types
+    //    Also track per-competency-type score arrays so we can compute the CER
+    //    formula on the backend (matching the frontend modal calculation exactly):
+    //      psychoSocial = basicAvg * 2          (0-10)
+    //      potential    = ((orgAvg + minAvg) / 2) * 2   for SG<18
+    //                   = ((orgAvg + leadershipAvg + minAvg) / 3) * 2  for SG>=18
+    //      cerScore     = (psychoSocial + potential) / 2  (0-10)
+    const COMP_TYPES = ['basic', 'organizational', 'leadership', 'minimum'];
     const statsMap = {};
     for (const r of allRatings) {
       const key = r.candidateId.toString();
-      if (!statsMap[key]) statsMap[key] = { scores: [], qualifiedRaterIds: new Set(), allRaterIds: new Set(), lastRatedAt: null };
+      if (!statsMap[key]) {
+        statsMap[key] = {
+          qualifiedRaterIds: new Set(),
+          lastRatedAt: null,
+          // per-type score buckets — keyed by competencyType
+          typeScores: { basic: [], organizational: [], leadership: [], minimum: [] },
+        };
+      }
       const s = statsMap[key];
       const raterIdStr = (r.raterId?._id || r.raterId).toString();
-      s.allRaterIds.add(raterIdStr);
       if (requiredRaterIds.has(raterIdStr)) {
-        if (r.score > 0) s.scores.push(r.score);
-        s.qualifiedRaterIds.add(raterIdStr);
+        if (r.score > 0) {
+          const ct = r.competencyType;
+          if (ct && COMP_TYPES.includes(ct)) s.typeScores[ct].push(r.score);
+          s.qualifiedRaterIds.add(raterIdStr);
+        }
       }
       const d = new Date(r.interviewDate || r.createdAt || 0);
       if (!s.lastRatedAt || d > s.lastRatedAt) s.lastRatedAt = d;
     }
 
+    // 5. Helper: average of an array, 0 if empty
+    const avg = arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+
+    // 6. Compute CER score (0–10) per candidate — mirrors frontend calculateFinalScores:
+    //    psychoSocial = basicAvg * 2
+    //    potential    = ((orgAvg + minAvg) / 2) * 2          for SG < 18
+    //                 = ((orgAvg + leaderAvg + minAvg) / 3) * 2  for SG >= 18
+    //    cerScore     = (psychoSocial + potential) / 2
+    const cerForStats = (s) => {
+      if (!s) return 0;
+      const basicAvg  = avg(s.typeScores.basic);
+      const orgAvg    = avg(s.typeScores.organizational);
+      const leaderAvg = avg(s.typeScores.leadership);
+      const minAvg    = avg(s.typeScores.minimum);
+      const psychoSocial = basicAvg * 2;
+      const potential = sg && sg >= 18
+        ? ((orgAvg + leaderAvg + minAvg) / 3) * 2
+        : ((orgAvg + minAvg) / 2) * 2;
+      if (psychoSocial === 0 && potential === 0) return 0;
+      return Math.round(((psychoSocial + potential) / 2) * 100) / 100;
+    };
+
     const board = candidates.map(c => {
       const s = statsMap[c._id.toString()];
-      const avgScore = s && s.scores.length
-        ? Math.round((s.scores.reduce((a, b) => a + b, 0) / s.scores.length) * 100) / 100
-        : 0;
+      const cerScore = cerForStats(s);
       return {
         id: c._id,
         name: c.fullName,
-        avgScore,
+        cerScore,
         raterCount: s ? s.qualifiedRaterIds.size : 0,
         lastRatedAt: s ? s.lastRatedAt : null,
       };

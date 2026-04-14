@@ -139,6 +139,14 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
 
   const [initLoading, setInitLoading] = useState(true);
 
+  // ─── Stable refs so the notification poll can access current state without re-subscribing ──
+  const selectedItemRef = useRef(selectedItem);
+  const selectedCandidateRef = useRef(selectedCandidate);
+  const modalOpenRef = useRef(modalOpen);
+  useEffect(() => { selectedItemRef.current = selectedItem; }, [selectedItem]);
+  useEffect(() => { selectedCandidateRef.current = selectedCandidate; }, [selectedCandidate]);
+  useEffect(() => { modalOpenRef.current = modalOpen; }, [modalOpen]);
+
   // ─── System-wide notification polling (every 30s, always on) ─────────────────
   useEffect(() => {
     const poll = async () => {
@@ -148,6 +156,33 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
         if (recent.length > 0) {
           setNotifications(prev => [...recent, ...prev].slice(0, 20));
           setUnreadCount(prev => prev + recent.length);
+
+          // ── Auto-refresh live view when new activity is detected ──────────────
+          // 1. If a board is currently shown, silently refresh the candidate cards
+          const currentItem = selectedItemRef.current;
+          if (currentItem) {
+            try {
+              const { board, salaryGrade: sg, requiredRaters: rr } = await candidatesAPI.getBoardByItem(currentItem);
+              setBoardSalaryGrade(sg);
+              setBoardRequiredRaters(rr ?? (sg && sg <= 14 ? 2 : 6));
+              setCandidateBoard(prev => {
+                const sorted = [...board].sort((a, b) => {
+                  if (a.lastRatedAt && b.lastRatedAt) return new Date(b.lastRatedAt) - new Date(a.lastRatedAt);
+                  if (a.lastRatedAt) return -1;
+                  if (b.lastRatedAt) return 1;
+                  return a.name.localeCompare(b.name);
+                });
+                return sorted;
+              });
+            } catch { /* silent — board refresh is non-critical */ }
+          }
+
+          // 2. If a candidate modal is open, silently refresh it too
+          if (modalOpenRef.current && selectedCandidateRef.current) {
+            try {
+              await loadModalData(selectedCandidateRef.current.id);
+            } catch { /* silent */ }
+          }
         }
       } catch {
         // Silent fail — notifications are non-critical
@@ -160,7 +195,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       clearTimeout(initialTimer);
       clearInterval(interval);
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Close notification panel when clicking outside ───────────────────────────
   useEffect(() => {
@@ -283,18 +318,30 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
               const candidateRatings = await ratingsAPI.getByCandidate(c._id);
               const itemRatings = candidateRatings.filter(r => r.itemNumber === selectedItem);
               const uniqueRaterIds = [...new Set(itemRatings.map(r => String(r.raterId?._id || r.raterId)))];
-              const scores = itemRatings.map(r => r.score).filter(s => s > 0);
-              const avgScore = scores.length > 0
-                ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 100) / 100 : 0;
+              // Compute CER score (0-10) matching the modal formula
+              const byType = { basic: [], organizational: [], leadership: [], minimum: [] };
+              itemRatings.forEach(r => { if (r.score > 0 && byType[r.competencyType]) byType[r.competencyType].push(r.score); });
+              const typeAvg = arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+              const basicAvg = typeAvg(byType.basic);
+              const orgAvg   = typeAvg(byType.organizational);
+              const leadAvg  = typeAvg(byType.leadership);
+              const minAvg   = typeAvg(byType.minimum);
+              const psychoSocial = basicAvg * 2;
+              const potential = boardSalaryGrade && boardSalaryGrade >= 18
+                ? ((orgAvg + leadAvg + minAvg) / 3) * 2
+                : ((orgAvg + minAvg) / 2) * 2;
+              const cerScore = (psychoSocial === 0 && potential === 0)
+                ? 0
+                : Math.round(((psychoSocial + potential) / 2) * 100) / 100;
               const lastRatedAt = itemRatings.length > 0
                 ? itemRatings.reduce((latest, r) => {
                     const d = new Date(r.interviewDate || r.createdAt || 0);
                     return d > latest ? d : latest;
                   }, new Date(0))
                 : null;
-              return { id: c._id, name: c.fullName, avgScore, raterCount: uniqueRaterIds.length, lastRatedAt };
+              return { id: c._id, name: c.fullName, cerScore, raterCount: uniqueRaterIds.length, lastRatedAt };
             } catch {
-              return { id: c._id, name: c.fullName, avgScore: 0, raterCount: 0, lastRatedAt: null };
+              return { id: c._id, name: c.fullName, cerScore: 0, raterCount: 0, lastRatedAt: null };
             }
           })
         );
@@ -322,10 +369,10 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     const fullyRated = boardRequiredRaters
       ? candidateBoard.filter(c => c.raterCount >= boardRequiredRaters).length
       : 0;
-    const scores = candidateBoard.filter(c => c.avgScore > 0).map(c => c.avgScore);
+    const scores = candidateBoard.filter(c => c.cerScore > 0).map(c => c.cerScore);
     const avgScore = scores.length
       ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 100) / 100 : 0;
-    const topScorer = candidateBoard.reduce((top, c) => c.avgScore > (top?.avgScore || 0) ? c : top, null);
+    const topScorer = candidateBoard.reduce((top, c) => c.cerScore > (top?.cerScore || 0) ? c : top, null);
     const recentActivity = [...candidateBoard]
       .filter(c => c.lastRatedAt)
       .sort((a, b) => new Date(b.lastRatedAt) - new Date(a.lastRatedAt))[0];
@@ -1075,13 +1122,13 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
                     icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>}
                   />
                   <MetricCard
-                    color={metrics.avgScore >= 4.0 ? 'green' : metrics.avgScore >= 3.0 ? 'amber' : 'rose'}
-                    label="Pool Avg Score" value={metrics.avgScore > 0 ? metrics.avgScore.toFixed(2) : '—'} sub={metrics.avgScore > 0 ? scoreLabel(metrics.avgScore) : 'No scores yet'}
+                    color={metrics.avgScore >= 8.0 ? 'green' : metrics.avgScore >= 6.0 ? 'amber' : 'rose'}
+                    label="Pool Avg CER Score" value={metrics.avgScore > 0 ? metrics.avgScore.toFixed(2) : '—'} sub={metrics.avgScore > 0 ? cerScoreLabel(metrics.avgScore) : 'No scores yet'}
                     icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" /></svg>}
                   />
                   <MetricCard color="green" label="Top Scorer"
-                    value={metrics.topScorer?.avgScore > 0 ? metrics.topScorer.avgScore.toFixed(2) : '—'}
-                    sub={metrics.topScorer?.avgScore > 0 ? metrics.topScorer.name : 'No scores yet'}
+                    value={metrics.topScorer?.cerScore > 0 ? metrics.topScorer.cerScore.toFixed(2) : '—'}
+                    sub={metrics.topScorer?.cerScore > 0 ? metrics.topScorer.name : 'No scores yet'}
                     icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>}
                   />
                 </div>
@@ -1163,7 +1210,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
                     </div>
                   )
                   : filteredBoard.map((candidate) => {
-                    const colors = scoreColor(candidate.avgScore);
+                    const colors = cerScoreColor(candidate.cerScore);
                     const totalRatersExpected = boardRequiredRaters || 1;
                     const pct = boardRequiredRaters
                       ? Math.round((candidate.raterCount / totalRatersExpected) * 100)
@@ -1184,10 +1231,10 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
                             style={{ background: colors.bg, border: `1px solid ${colors.border}` }}
                           >
                             <div className="text-lg font-bold leading-none" style={{ color: colors.text }}>
-                              {candidate.avgScore > 0 ? candidate.avgScore.toFixed(2) : '—'}
+                              {candidate.cerScore > 0 ? candidate.cerScore.toFixed(2) : '—'}
                             </div>
                             <div className="text-xs mt-0.5 font-medium" style={{ color: colors.text, opacity: 0.8 }}>
-                              {candidate.avgScore > 0 ? scoreLabel(candidate.avgScore) : 'No data'}
+                              {candidate.cerScore > 0 ? cerScoreLabel(candidate.cerScore) : 'No data'}
                             </div>
                           </div>
                         </div>
