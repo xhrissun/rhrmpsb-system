@@ -88,7 +88,7 @@ function InterviewTimer({ visible, running, hidden }) {
           /* sit directly above the monitor FAB, same right-edge, gap of 10px */
           bottom: FAB_BOTTOM + FAB_SIZE + 10,
           right: FAB_RIGHT,
-          zIndex: 50,
+          zIndex: 40,
           width: FAB_SIZE,
           height: FAB_SIZE,
           borderRadius: '50%',
