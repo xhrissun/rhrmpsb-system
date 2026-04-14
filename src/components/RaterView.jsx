@@ -11,6 +11,8 @@ import { ensureParsed, isPDFAvailable } from '../lib/pdfParserCache.js';
 // ─── Interview Timer Component ────────────────────────────────────────────────
 
 const INTERVIEW_DURATION_MS = 10 * 60 * 1000; // 10 minutes
+const EXTEND_INCREMENT_MS   = 5  * 60 * 1000; // +5 minutes per tap
+const MAX_DURATION_MS       = 60 * 60 * 1000; // hard cap 60 minutes
 
 // FAB_BOTTOM / FAB_RIGHT must match the monitor FAB position exactly
 const FAB_BOTTOM = 28;
@@ -18,14 +20,28 @@ const FAB_RIGHT  = 24;
 const FAB_SIZE   = 56;
 
 function InterviewTimer({ visible, running, hidden }) {
-  const [elapsed, setElapsed] = useState(0);
-  const startRef = useRef(null);
-  const rafRef   = useRef(null);
+  const [elapsed,        setElapsed]        = useState(0);
+  const [extraMs,        setExtraMs]        = useState(0);   // total extension added
+  const [paused,         setPaused]         = useState(false);
+  const [pausedAt,       setPausedAt]       = useState(0);   // elapsed ms when paused
+  const [panelOpen,      setPanelOpen]      = useState(false);
+  const [extendFlash,    setExtendFlash]    = useState(false); // brief green flash on extend
+  const [notes,          setNotes]          = useState('');
+  const [notesSaved,     setNotesSaved]     = useState(false);
+  const startRef  = useRef(null);
+  const rafRef    = useRef(null);
+  const panelRef  = useRef(null);
 
   // Reset everything when candidate is deselected or changed
   useEffect(() => {
     if (!visible) {
       setElapsed(0);
+      setExtraMs(0);
+      setPaused(false);
+      setPausedAt(0);
+      setPanelOpen(false);
+      setNotes('');
+      setNotesSaved(false);
       startRef.current = null;
       if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
     }
@@ -33,41 +49,100 @@ function InterviewTimer({ visible, running, hidden }) {
 
   // RAF ticker — only starts when running flips true; anchored at that exact moment
   useEffect(() => {
-    if (!running) {
+    if (!running || paused) {
       if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
       return;
     }
-    startRef.current = performance.now();
+    // If we're resuming from pause, re-anchor start so elapsed picks up correctly
+    const offset = pausedAt;
+    startRef.current = performance.now() - offset;
     const tick = (now) => {
       setElapsed(now - startRef.current);
       rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);
     return () => { if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; } };
-  }, [running]);
+  }, [running, paused]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Close panel on outside click
+  useEffect(() => {
+    if (!panelOpen) return;
+    const handler = (e) => {
+      if (panelRef.current && !panelRef.current.contains(e.target)) {
+        setPanelOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [panelOpen]);
 
   if (!visible) return null;
 
-  const remaining = running ? Math.max(0, INTERVIEW_DURATION_MS - elapsed) : INTERVIEW_DURATION_MS;
-  const totalSec  = Math.floor(remaining / 1000);
-  const mins      = Math.floor(totalSec / 60);
-  const secs      = totalSec % 60;
-  const isOver    = running && remaining === 0;
-  const warn3     = running && !isOver && remaining <= 3 * 60 * 1000;
-  const warn5     = running && !isOver && remaining <= 5 * 60 * 1000 && !warn3;
-  const timeStr   = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-  const accent    = !running ? '#6b7280' : isOver ? '#dc2626' : warn3 ? '#ea580c' : warn5 ? '#d97706' : '#059669';
-  const shouldPulse = warn3 || isOver;
+  const totalDuration = Math.min(INTERVIEW_DURATION_MS + extraMs, MAX_DURATION_MS);
+  const remaining     = running ? Math.max(0, totalDuration - elapsed) : totalDuration;
+  const totalSec      = Math.floor(remaining / 1000);
+  const mins          = Math.floor(totalSec / 60);
+  const secs          = totalSec % 60;
+  const isOver        = running && remaining === 0;
+  const warn3         = running && !paused && !isOver && remaining <= 3 * 60 * 1000;
+  const warn5         = running && !paused && !isOver && remaining <= 5 * 60 * 1000 && !warn3;
+  const timeStr       = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  const pct           = running ? Math.max(0, Math.min(1, remaining / totalDuration)) : 1;
+  const circumference = 2 * Math.PI * 24; // r=24
+  const dashOffset    = circumference * (1 - pct);
+  const canExtend     = totalDuration < MAX_DURATION_MS;
+  const extensionsMade = Math.round(extraMs / EXTEND_INCREMENT_MS);
 
-  const tooltip = !running
-    ? 'Interview Timer — starts when you scroll to competencies'
+  const accent = extendFlash
+    ? '#0ea5e9'
+    : paused
+    ? '#7c3aed'
+    : !running
+    ? '#6b7280'
     : isOver
-    ? 'Time is up!'
+    ? '#dc2626'
     : warn3
-    ? `3 min left — ${timeStr}`
+    ? '#ea580c'
     : warn5
-    ? `5 min left — ${timeStr}`
-    : `Interview Timer — ${timeStr}`;
+    ? '#d97706'
+    : '#059669';
+
+  const shouldPulse = (warn3 || isOver) && !paused;
+
+  const handleFabClick = () => setPanelOpen(o => !o);
+
+  const handleExtend = () => {
+    if (!canExtend) return;
+    setExtraMs(prev => Math.min(prev + EXTEND_INCREMENT_MS, MAX_DURATION_MS - INTERVIEW_DURATION_MS));
+    setExtendFlash(true);
+    setTimeout(() => setExtendFlash(false), 600);
+  };
+
+  const handlePauseResume = () => {
+    if (!running) return;
+    if (!paused) {
+      setPausedAt(elapsed);   // freeze elapsed
+      setPaused(true);
+    } else {
+      setPaused(false);       // RAF effect will re-anchor
+    }
+  };
+
+  const handleReset = () => {
+    setElapsed(0);
+    setExtraMs(0);
+    setPaused(false);
+    setPausedAt(0);
+    startRef.current = performance.now();
+  };
+
+  const handleSaveNote = () => {
+    setNotesSaved(true);
+    setTimeout(() => setNotesSaved(false), 1800);
+  };
+
+  // Progress ring colors
+  const ringColor = isOver ? '#dc2626' : warn3 ? '#ea580c' : warn5 ? '#d97706' : paused ? '#7c3aed' : '#10b981';
 
   return (
     <>
@@ -80,42 +155,299 @@ function InterviewTimer({ visible, running, hidden }) {
           from { opacity: 0; transform: scale(0.7); }
           to   { opacity: 1; transform: scale(1); }
         }
+        @keyframes timer-panel-in {
+          from { opacity: 0; transform: scale(0.92) translateY(8px); }
+          to   { opacity: 1; transform: scale(1) translateY(0); }
+        }
+        @keyframes timer-extend-flash {
+          0%   { box-shadow: 0 0 0 0 rgba(14,165,233,0.6); }
+          100% { box-shadow: 0 0 0 14px rgba(14,165,233,0); }
+        }
       `}</style>
+
+      {/* ── FAB button ── */}
       <div
-        title={tooltip}
-        style={{
-          position: 'fixed',
-          /* sit directly above the monitor FAB, same right-edge, gap of 10px */
-          bottom: FAB_BOTTOM + FAB_SIZE + 10,
-          right: FAB_RIGHT,
-          zIndex: 40,
-          width: FAB_SIZE,
-          height: FAB_SIZE,
-          borderRadius: '50%',
-          background: accent,
-          color: '#fff',
-          display: hidden ? 'none' : 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 1,
-          boxShadow: '0 4px 14px rgba(0,0,0,0.22)',
-          cursor: 'default',
-          fontFamily: 'monospace',
-          fontSize: 11,
-          fontWeight: 800,
-          lineHeight: 1,
-          transition: 'background 0.4s',
-          animation: shouldPulse
-            ? 'timer-pulse 1.6s ease-in-out infinite'
-            : 'timer-appear 0.3s ease both',
-          userSelect: 'none',
-        }}
+        ref={panelRef}
+        style={{ position: 'fixed', bottom: FAB_BOTTOM + FAB_SIZE + 10, right: FAB_RIGHT, zIndex: 40, display: hidden ? 'none' : 'block' }}
       >
-        <svg width="13" height="13" fill="none" stroke="white" strokeWidth="2.3" viewBox="0 0 24 24">
-          <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
-        </svg>
-        <span>{isOver ? 'DONE' : !running ? 'READY' : timeStr}</span>
+        {/* ── Popover panel ── */}
+        {panelOpen && (
+          <div style={{
+            position: 'absolute',
+            bottom: FAB_SIZE + 10,
+            right: 0,
+            width: 264,
+            background: '#fff',
+            borderRadius: 18,
+            boxShadow: '0 8px 40px rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.06)',
+            overflow: 'hidden',
+            animation: 'timer-panel-in 0.22s cubic-bezier(0.34,1.56,0.64,1) both',
+            fontFamily: "'Segoe UI', system-ui, sans-serif",
+          }}>
+            {/* Header */}
+            <div style={{
+              background: `linear-gradient(135deg, ${accent} 0%, ${accent}cc 100%)`,
+              padding: '14px 16px 12px',
+              transition: 'background 0.4s',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <svg width="15" height="15" fill="none" stroke="white" strokeWidth="2.3" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
+                  </svg>
+                  <span style={{ color: '#fff', fontWeight: 700, fontSize: 13, letterSpacing: '-0.01em' }}>Interview Timer</span>
+                </div>
+                <button onClick={() => setPanelOpen(false)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: 8, width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff' }}>
+                  <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                </button>
+              </div>
+
+              {/* Big time display */}
+              <div style={{ textAlign: 'center', marginTop: 10 }}>
+                <div style={{ fontFamily: 'monospace', fontSize: 38, fontWeight: 900, color: '#fff', lineHeight: 1, letterSpacing: '-0.02em' }}>
+                  {isOver ? 'TIME UP' : timeStr}
+                </div>
+                <div style={{ marginTop: 4, fontSize: 11, color: 'rgba(255,255,255,0.75)', fontWeight: 500 }}>
+                  {!running
+                    ? 'Starts when you reach competencies'
+                    : paused
+                    ? '⏸ Paused'
+                    : isOver
+                    ? 'Interview time has elapsed'
+                    : warn3
+                    ? '⚠️ Under 3 minutes remaining'
+                    : warn5
+                    ? '⚠️ Under 5 minutes remaining'
+                    : `${Math.round(pct * 100)}% time remaining`}
+                </div>
+                {/* Progress bar */}
+                {running && (
+                  <div style={{ marginTop: 10, height: 4, background: 'rgba(255,255,255,0.25)', borderRadius: 99, overflow: 'hidden' }}>
+                    <div style={{
+                      height: '100%',
+                      width: `${pct * 100}%`,
+                      background: '#fff',
+                      borderRadius: 99,
+                      transition: 'width 0.5s linear',
+                    }}/>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+
+              {/* ── Row 1: Pause/Resume + Reset ── */}
+              {running && (
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    onClick={handlePauseResume}
+                    style={{
+                      flex: 1, padding: '9px 0', borderRadius: 10, border: 'none', cursor: 'pointer',
+                      background: paused ? '#7c3aed' : '#f3f4f6',
+                      color: paused ? '#fff' : '#374151',
+                      fontWeight: 700, fontSize: 12,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    {paused ? (
+                      <><svg width="12" height="12" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg> Resume</>
+                    ) : (
+                      <><svg width="12" height="12" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg> Pause</>
+                    )}
+                  </button>
+                  <button
+                    onClick={handleReset}
+                    style={{
+                      flex: 1, padding: '9px 0', borderRadius: 10, border: 'none', cursor: 'pointer',
+                      background: '#f3f4f6', color: '#374151',
+                      fontWeight: 700, fontSize: 12,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
+                    Restart
+                  </button>
+                </div>
+              )}
+
+              {/* ── Row 2: +5 min extension ── */}
+              <div>
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 5 }}>
+                  Extend Time {extensionsMade > 0 && <span style={{ color: '#0ea5e9', marginLeft: 4 }}>+{extensionsMade * 5} min added</span>}
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button
+                    onClick={handleExtend}
+                    disabled={!canExtend}
+                    style={{
+                      flex: 1, padding: '9px 0', borderRadius: 10, border: 'none', cursor: canExtend ? 'pointer' : 'not-allowed',
+                      background: canExtend ? '#eff6ff' : '#f9fafb',
+                      color: canExtend ? '#1d4ed8' : '#d1d5db',
+                      fontWeight: 700, fontSize: 12,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v4m0 0v4m0-4h4m-4 0H8"/></svg>
+                    +5 min
+                  </button>
+                  <div style={{
+                    flex: 1, padding: '9px 0', borderRadius: 10,
+                    background: '#f9fafb', border: '1px solid #f3f4f6',
+                    textAlign: 'center', fontSize: 11, color: '#6b7280', fontWeight: 600,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    Max: {Math.floor(MAX_DURATION_MS / 60000)} min
+                  </div>
+                </div>
+              </div>
+
+              {/* ── Row 3: Interview notes ── */}
+              <div>
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 5 }}>
+                  Quick Notes
+                </div>
+                <textarea
+                  value={notes}
+                  onChange={e => { setNotes(e.target.value); setNotesSaved(false); }}
+                  placeholder="Jot down impressions during the interview…"
+                  rows={3}
+                  style={{
+                    width: '100%', boxSizing: 'border-box',
+                    padding: '8px 10px', borderRadius: 10,
+                    border: '1.5px solid #e5e7eb', fontSize: 12,
+                    color: '#374151', resize: 'vertical', outline: 'none',
+                    fontFamily: 'inherit', lineHeight: 1.5,
+                    transition: 'border-color 0.2s',
+                  }}
+                  onFocus={e => e.target.style.borderColor = '#6366f1'}
+                  onBlur={e => e.target.style.borderColor = '#e5e7eb'}
+                />
+                <button
+                  onClick={handleSaveNote}
+                  disabled={!notes.trim()}
+                  style={{
+                    marginTop: 5, width: '100%', padding: '7px 0', borderRadius: 9, border: 'none',
+                    cursor: notes.trim() ? 'pointer' : 'not-allowed',
+                    background: notesSaved ? '#d1fae5' : notes.trim() ? '#f0fdf4' : '#f9fafb',
+                    color: notesSaved ? '#065f46' : notes.trim() ? '#15803d' : '#d1d5db',
+                    fontWeight: 700, fontSize: 11.5,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                    transition: 'all 0.25s',
+                  }}
+                >
+                  {notesSaved
+                    ? <><svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Noted!</>
+                    : <><svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Save Note</>
+                  }
+                </button>
+              </div>
+
+              {/* ── Row 4: Stats footer ── */}
+              <div style={{
+                display: 'flex', gap: 6, padding: '8px 10px',
+                background: '#f9fafb', borderRadius: 10,
+                fontSize: 11, color: '#6b7280',
+              }}>
+                <div style={{ flex: 1, textAlign: 'center' }}>
+                  <div style={{ fontWeight: 800, fontSize: 13, color: '#111827', fontFamily: 'monospace' }}>
+                    {String(Math.floor(elapsed / 60000)).padStart(2,'0')}:{String(Math.floor((elapsed % 60000) / 1000)).padStart(2,'0')}
+                  </div>
+                  <div>Elapsed</div>
+                </div>
+                <div style={{ width: 1, background: '#e5e7eb' }} />
+                <div style={{ flex: 1, textAlign: 'center' }}>
+                  <div style={{ fontWeight: 800, fontSize: 13, color: '#111827', fontFamily: 'monospace' }}>
+                    {Math.floor(totalDuration / 60000)} min
+                  </div>
+                  <div>Duration</div>
+                </div>
+                <div style={{ width: 1, background: '#e5e7eb' }} />
+                <div style={{ flex: 1, textAlign: 'center' }}>
+                  <div style={{ fontWeight: 800, fontSize: 13, color: '#111827' }}>
+                    {extensionsMade}×
+                  </div>
+                  <div>Extended</div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        )}
+
+        {/* ── The FAB itself ── */}
+        <button
+          onClick={handleFabClick}
+          title={
+            !running ? 'Interview Timer — click to open' :
+            paused   ? `Paused at ${timeStr} — click to open` :
+            isOver   ? 'Time is up! — click to open' :
+            `${timeStr} remaining — click to open`
+          }
+          style={{
+            width: FAB_SIZE,
+            height: FAB_SIZE,
+            borderRadius: '50%',
+            border: 'none',
+            background: accent,
+            color: '#fff',
+            display: hidden ? 'none' : 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 1,
+            boxShadow: panelOpen
+              ? `0 0 0 3px ${accent}55, 0 6px 20px rgba(0,0,0,0.22)`
+              : '0 4px 14px rgba(0,0,0,0.22)',
+            cursor: 'pointer',
+            fontFamily: 'monospace',
+            fontSize: 11,
+            fontWeight: 800,
+            lineHeight: 1,
+            transition: 'background 0.4s, box-shadow 0.2s',
+            animation: shouldPulse
+              ? 'timer-pulse 1.6s ease-in-out infinite'
+              : 'timer-appear 0.3s ease both',
+            userSelect: 'none',
+            padding: 0,
+            position: 'relative',
+          }}
+        >
+          {/* SVG progress ring */}
+          <svg
+            width={FAB_SIZE} height={FAB_SIZE}
+            viewBox="0 0 56 56"
+            style={{ position: 'absolute', top: 0, left: 0, transform: 'rotate(-90deg)', pointerEvents: 'none' }}
+          >
+            <circle cx="28" cy="28" r="24" fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth="3"/>
+            {running && !isOver && (
+              <circle
+                cx="28" cy="28" r="24"
+                fill="none"
+                stroke={paused ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.9)'}
+                strokeWidth="3"
+                strokeLinecap="round"
+                strokeDasharray={circumference}
+                strokeDashoffset={dashOffset}
+                style={{ transition: 'stroke-dashoffset 0.5s linear' }}
+              />
+            )}
+          </svg>
+
+          <svg width="13" height="13" fill="none" stroke="white" strokeWidth="2.3" viewBox="0 0 24 24" style={{ position: 'relative' }}>
+            {paused
+              ? <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" fill="white" stroke="none"/>
+              : <><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>
+            }
+          </svg>
+          <span style={{ position: 'relative', fontSize: 10 }}>
+            {isOver ? 'DONE' : paused ? 'PAUS' : !running ? 'READY' : timeStr}
+          </span>
+        </button>
       </div>
     </>
   );
