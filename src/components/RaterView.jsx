@@ -8,6 +8,196 @@ import CompetencyDetailModal from './CompetencyDetailModal';
 // ✅ Pre-load PDF parser on mount
 import { ensureParsed, isPDFAvailable } from '../lib/pdfParserCache.js';
 
+// ─── Interview Timer Component ────────────────────────────────────────────────
+
+const INTERVIEW_DURATION_MS = 10 * 60 * 1000; // 10 minutes
+
+function InterviewTimer({ active, onReset }) {
+  const [elapsed, setElapsed] = useState(0);       // ms elapsed
+  const [minimized, setMinimized] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+  const startRef = useRef(null);
+  const rafRef   = useRef(null);
+
+  // Reset whenever `active` flips back to false (new candidate selected)
+  useEffect(() => {
+    if (!active) {
+      setElapsed(0);
+      setDismissed(false);
+      setMinimized(false);
+      startRef.current = null;
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    }
+  }, [active]);
+
+  // Start / stop the RAF loop
+  useEffect(() => {
+    if (!active) return;
+    const tick = (now) => {
+      if (!startRef.current) startRef.current = now;
+      setElapsed(now - startRef.current);
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [active]);
+
+  if (!active || dismissed) return null;
+
+  const remaining   = Math.max(0, INTERVIEW_DURATION_MS - elapsed);
+  const totalSec    = Math.floor(remaining / 1000);
+  const mins        = Math.floor(totalSec / 60);
+  const secs        = totalSec % 60;
+  const pct         = (elapsed / INTERVIEW_DURATION_MS) * 100;
+  const isOver      = remaining === 0;
+  const warn3       = !isOver && remaining <= 3 * 60 * 1000;
+  const warn5       = !isOver && remaining <= 5 * 60 * 1000 && !warn3;
+
+  // Color scheme
+  const accent  = isOver ? '#dc2626' : warn3 ? '#ea580c' : warn5 ? '#d97706' : '#059669';
+  const bgLight = isOver ? '#fef2f2' : warn3 ? '#fff7ed' : warn5 ? '#fffbeb' : '#f0fdf4';
+  const border  = isOver ? '#fecaca' : warn3 ? '#fed7aa' : warn5 ? '#fde68a' : '#bbf7d0';
+
+  const label   = isOver
+    ? 'Time is up!'
+    : warn3
+    ? '3 min left'
+    : warn5
+    ? '5 min left'
+    : 'Interview Timer';
+
+  const timeStr = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+
+  if (minimized) {
+    return (
+      <div
+        onClick={() => setMinimized(false)}
+        title="Expand timer"
+        style={{
+          position: 'fixed',
+          bottom: 90,        // above the monitor FAB
+          right: 20,
+          zIndex: 1200,
+          background: accent,
+          color: '#fff',
+          borderRadius: 50,
+          width: 52,
+          height: 52,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'pointer',
+          boxShadow: '0 4px 14px rgba(0,0,0,0.25)',
+          fontSize: 11,
+          fontWeight: 700,
+          fontFamily: 'monospace',
+          flexDirection: 'column',
+          lineHeight: 1.1,
+          transition: 'background 0.4s',
+          animation: (warn3 || isOver) ? 'timer-pulse 1.6s ease-in-out infinite' : 'none',
+        }}
+      >
+        <svg width="14" height="14" fill="none" stroke="white" strokeWidth="2.2" viewBox="0 0 24 24" style={{ marginBottom: 1 }}>
+          <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
+        </svg>
+        {timeStr}
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <style>{`
+        @keyframes timer-pulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(220,38,38,0.4); }
+          50%       { box-shadow: 0 0 0 8px rgba(220,38,38,0); }
+        }
+        @keyframes timer-fade-in {
+          from { opacity: 0; transform: translateY(6px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
+      <div style={{
+        position: 'fixed',
+        bottom: 90,
+        right: 20,
+        zIndex: 1200,
+        background: bgLight,
+        border: `1.5px solid ${border}`,
+        borderRadius: 14,
+        boxShadow: '0 4px 20px rgba(0,0,0,0.12)',
+        padding: '10px 14px 10px 12px',
+        minWidth: 188,
+        maxWidth: 210,
+        fontFamily: "'Segoe UI', system-ui, sans-serif",
+        animation: 'timer-fade-in 0.3s ease both',
+        transition: 'background 0.4s, border-color 0.4s',
+      }}>
+        {/* Header row */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <svg width="13" height="13" fill="none" stroke={accent} strokeWidth="2.2" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
+              <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
+            </svg>
+            <span style={{ fontSize: 11, fontWeight: 700, color: accent, letterSpacing: '0.03em', textTransform: 'uppercase' }}>
+              {label}
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 4 }}>
+            <button
+              onClick={() => setMinimized(true)}
+              title="Minimize"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', padding: '2px 4px', lineHeight: 1, borderRadius: 4 }}
+            >
+              <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M5 12h14"/></svg>
+            </button>
+            <button
+              onClick={() => setDismissed(true)}
+              title="Dismiss timer"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', padding: '2px 4px', lineHeight: 1, borderRadius: 4 }}
+            >
+              <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
+        </div>
+
+        {/* Big clock */}
+        <div style={{
+          fontSize: 28,
+          fontWeight: 800,
+          fontFamily: 'monospace',
+          color: accent,
+          letterSpacing: '0.04em',
+          lineHeight: 1,
+          textAlign: 'center',
+          marginBottom: 8,
+          animation: (warn3 || isOver) ? 'timer-pulse 1.6s ease-in-out infinite' : 'none',
+        }}>
+          {isOver ? '00:00' : timeStr}
+        </div>
+
+        {/* Progress bar */}
+        <div style={{ height: 4, background: '#e5e7eb', borderRadius: 99, overflow: 'hidden', marginBottom: 6 }}>
+          <div style={{
+            height: '100%',
+            width: `${Math.min(pct, 100)}%`,
+            background: accent,
+            borderRadius: 99,
+            transition: 'width 0.5s linear, background 0.4s',
+          }} />
+        </div>
+
+        {/* Status text */}
+        <p style={{ margin: 0, fontSize: 10.5, color: '#6b7280', textAlign: 'center' }}>
+          {isOver
+            ? 'Interview time has elapsed'
+            : `${mins}m ${secs}s remaining of 10 min`}
+        </p>
+      </div>
+    </>
+  );
+}
+
 // ─── Skeleton / Loading Components ───────────────────────────────────────────
 
 const shimmerKeyframes = `
@@ -401,6 +591,10 @@ const RaterView = ({ user }) => {
   const [copyRatingsSources, setCopyRatingsSources] = useState([]);  // [{itemNumber, position, assignment, matchCount, ratingsMap}]
   const [copyRatingsLoading, setCopyRatingsLoading] = useState(false);
 
+  // ── Interview Timer ───────────────────────────────────────────────────────
+  const [timerActive, setTimerActive] = useState(false);
+  const prevCandidateRef = useRef('');
+
   const activeRatingRef = useRef(null);
   const scrollPositionRef = useRef(0);
 
@@ -536,6 +730,21 @@ const RaterView = ({ user }) => {
       }
     }
   }, [candidates, selectedCandidate]);
+
+  // Start timer when a candidate with competencies is first viewed
+  useEffect(() => {
+    if (selectedCandidate && selectedCandidate !== prevCandidateRef.current) {
+      prevCandidateRef.current = selectedCandidate;
+      setTimerActive(false);          // reset first so InterviewTimer cleans up
+      // Short defer so the state reset propagates before re-enabling
+      const t = setTimeout(() => setTimerActive(true), 50);
+      return () => clearTimeout(t);
+    }
+    if (!selectedCandidate) {
+      prevCandidateRef.current = '';
+      setTimerActive(false);
+    }
+  }, [selectedCandidate]);
 
   useEffect(() => {
     if (Object.keys(ratings).length > 0) {
@@ -1985,6 +2194,9 @@ const RaterView = ({ user }) => {
           <style>{`
             button:hover .monitor-fab-tooltip { opacity: 1 !important; }
           `}</style>
+
+          {/* ── Interview Timer floating modal ── */}
+          <InterviewTimer active={timerActive} />
 
           {selectedCandidate && !isRaterTypeConflictModalOpen && (
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6 shadow-sm">
