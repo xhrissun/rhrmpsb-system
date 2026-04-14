@@ -592,4 +592,22 @@ export const publicationRangesAPI = {
   }
 };
 
+// Interview Sessions API
+export const interviewSessionsAPI = {
+  // Load a previously saved session for a candidate+item (restores notes & timer state)
+  get: async (candidateId, itemNumber) => {
+    const encodedItem = encodeURIComponent(itemNumber);
+    const response = await api.get(
+      `/interview-sessions?candidateId=${candidateId}&itemNumber=${encodedItem}`
+    );
+    return response.data; // null-safe: caller should catch 404
+  },
+
+  // Upsert — safe to call frequently (debounced from the timer component)
+  save: async (sessionData) => {
+    const response = await api.put('/interview-sessions', sessionData);
+    return response.data;
+  },
+};
+
 export default api;

@@ -1952,7 +1952,7 @@ router.get('/rating-logs/recent', authMiddleware, async (req, res) => {
       : new Date(Date.now() - 60000);
 
     const logs = await RatingLog.find({
-      action: { $in: ['created', 'updated', 'batch_created', 'batch_updated'] },
+      action: { $in: ['created', 'updated', 'deleted', 'batch_created', 'batch_updated', 'batch_deleted'] },
       createdAt: { $gt: since }
     })
       .populate('candidateId', 'fullName')
@@ -2341,6 +2341,59 @@ router.delete('/publication-ranges/:id', authMiddleware, async (req, res) => {
     res.json({ message: 'Publication range deleted successfully' });
   } catch (error) {
     console.error('[DELETE /publication-ranges/:id]', error);
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
+  }
+});
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// INTERVIEW SESSION ROUTES
+// Allows raters to save and restore timer + notes for a candidate/item combo.
+// PUT  /interview-sessions          — upsert (create or overwrite) the session
+// GET  /interview-sessions?candidateId=&itemNumber= — restore a prior session
+// ═══════════════════════════════════════════════════════════════════════════
+
+// In-memory session store keyed by "raterId:candidateId:itemNumber".
+// NOTE: Cleared on server restart. Migrate to a MongoDB collection with a
+// TTL index if you need persistence across deploys.
+const _interviewSessions = new Map();
+
+router.put('/interview-sessions', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'rater') return res.status(403).json({ message: 'Access denied' });
+  try {
+    const { candidateId, itemNumber, elapsedSeconds, notes } = req.body;
+    if (!candidateId || !itemNumber) {
+      return res.status(400).json({ message: 'candidateId and itemNumber are required' });
+    }
+    const key = `${req.user._id}:${candidateId}:${itemNumber}`;
+    _interviewSessions.set(key, {
+      raterId: req.user._id.toString(),
+      candidateId,
+      itemNumber,
+      elapsedSeconds: typeof elapsedSeconds === 'number' ? elapsedSeconds : 0,
+      notes: typeof notes === 'string' ? notes : '',
+      savedAt: new Date()
+    });
+    res.json({ message: 'Session saved' });
+  } catch (error) {
+    console.error('[PUT /interview-sessions]', error);
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
+  }
+});
+
+router.get('/interview-sessions', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'rater') return res.status(403).json({ message: 'Access denied' });
+  try {
+    const { candidateId, itemNumber } = req.query;
+    if (!candidateId || !itemNumber) {
+      return res.status(400).json({ message: 'candidateId and itemNumber query parameters are required' });
+    }
+    const key = `${req.user._id}:${candidateId}:${itemNumber}`;
+    const session = _interviewSessions.get(key);
+    if (!session) return res.status(404).json({ message: 'No session found' });
+    res.json(session);
+  } catch (error) {
+    console.error('[GET /interview-sessions]', error);
     res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });

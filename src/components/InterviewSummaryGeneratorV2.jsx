@@ -887,8 +887,13 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
 
   const actionLabel = (action) => {
     if (action === 'created' || action === 'batch_created') return 'Rated';
-    return 'Updated';
+    if (action === 'updated' || action === 'batch_updated') return 'Updated';
+    if (action === 'deleted' || action === 'batch_deleted') return 'Deleted rating';
+    return 'Changed';
   };
+
+  const isDeleteAction = (action) =>
+    action === 'deleted' || action === 'batch_deleted';
 
   // ─── Render ───────────────────────────────────────────────────────────────────
   return (
@@ -971,14 +976,21 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
                                 <p className="text-xs text-gray-500 truncate mt-0.5">
                                   {notif.position} · {notif.assignment}
                                 </p>
-                                <p className="text-xs text-blue-600 mt-0.5">
+                                <p className={`text-xs mt-0.5 ${isDeleteAction(notif.action) ? 'text-red-500' : notif.action === 'updated' || notif.action === 'batch_updated' ? 'text-amber-600' : 'text-blue-600'}`}>
                                   {actionLabel(notif.action)} by {notif.raterName}
                                   {notif.raterType ? ` (${notif.raterType})` : ''}
                                 </p>
                               </div>
-                              <span className="text-[10px] text-gray-400 whitespace-nowrap mt-0.5 flex-shrink-0">
-                                {formatNotifTime(notif.createdAt)}
-                              </span>
+                              <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                                <span className="text-[10px] text-gray-400 whitespace-nowrap mt-0.5">
+                                  {formatNotifTime(notif.createdAt)}
+                                </span>
+                                {isDeleteAction(notif.action) && (
+                                  <span className="text-[9px] font-bold uppercase tracking-wide text-red-400 bg-red-50 border border-red-100 rounded px-1 py-0.5">
+                                    Deleted
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </button>
                         </li>

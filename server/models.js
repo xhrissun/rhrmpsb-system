@@ -269,6 +269,36 @@ const ratingLogSchema = new mongoose.Schema({
   notes: String
 }, { timestamps: true });
 
+// ── Interview Session Schema ──────────────────────────────────────────────────
+// One document per (rater × candidate × itemNumber) interview sitting.
+// Created/updated automatically when ratings are submitted.
+const interviewSessionSchema = new mongoose.Schema({
+  raterId:      { type: mongoose.Schema.Types.ObjectId, ref: 'User',      required: true },
+  candidateId:  { type: mongoose.Schema.Types.ObjectId, ref: 'Candidate', required: true },
+  itemNumber:   { type: String, required: true, trim: true },
+
+  // Timer data
+  elapsedMs:      { type: Number, default: 0, min: 0 },   // actual time elapsed (ms)
+  totalDurationMs:{ type: Number, default: 0, min: 0 },   // configured duration incl. extensions
+  extensionCount: { type: Number, default: 0, min: 0 },   // how many +5 min adds were made
+  timerCompleted: { type: Boolean, default: false },       // true if timer ran to zero
+
+  // Rater's quick notes
+  notes: { type: String, trim: true, default: '' },
+
+  // When the interview actually started / finished (wall-clock)
+  interviewStartedAt: { type: Date },
+  interviewEndedAt:   { type: Date },
+}, { timestamps: true });
+
+// One session per rater+candidate+item sitting
+interviewSessionSchema.index(
+  { raterId: 1, candidateId: 1, itemNumber: 1 },
+  { unique: true }
+);
+interviewSessionSchema.index({ candidateId: 1 });
+interviewSessionSchema.index({ raterId: 1, createdAt: -1 });
+
 // ── Indexes ───────────────────────────────────────────────────────────────────
 publicationRangeSchema.index({ isArchived: 1, isActive: 1 });
 publicationRangeSchema.index({ startDate: 1, endDate: 1 });
@@ -374,4 +404,6 @@ const Rating          = mongoose.model('Rating',           ratingSchema);
 const RatingLog       = mongoose.model('RatingLog',        ratingLogSchema);
 const PublicationRange= mongoose.model('PublicationRange', publicationRangeSchema);
 
-export { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange };
+const InterviewSession = mongoose.model('InterviewSession', interviewSessionSchema);
+
+export { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, InterviewSession };
