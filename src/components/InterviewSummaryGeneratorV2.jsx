@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { vacanciesAPI, candidatesAPI, competenciesAPI, ratingsAPI, usersAPI, publicationRangesAPI } from '../utils/api';
+import { vacanciesAPI, candidatesAPI, competenciesAPI, ratingsAPI, usersAPI, publicationRangesAPI, ratingLogsAPI } from '../utils/api';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 
@@ -108,7 +108,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
   const [boardLoading, setBoardLoading] = useState(false);
   const [boardLoadTime, setBoardLoadTime] = useState(null);
   const [boardSalaryGrade, setBoardSalaryGrade] = useState(null); // from batch endpoint
-  const [boardRequiredRaters, setBoardRequiredRaters] = useState(null); // 2 for SG≤14, 6 for SG≥15
+  const [boardRequiredRaters, setBoardRequiredRaters] = useState(null); // null until server confirms: 2 for SG≤14, 6 for SG≥15
 
   // Board search/filter
   const [searchQuery, setSearchQuery] = useState('');
@@ -130,7 +130,48 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
   const [testScores, setTestScores] = useState({}); // { "RATERTYPE:COMP_CODE": score }
   const autoRefreshRef = useRef(null);
 
+  // ─── Notification state ───────────────────────────────────────────────────────
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const lastNotifPollRef = useRef(new Date().toISOString());
+  const notifPanelRef = useRef(null);
+
   const [initLoading, setInitLoading] = useState(true);
+
+  // ─── System-wide notification polling (every 30s, always on) ─────────────────
+  useEffect(() => {
+    const poll = async () => {
+      try {
+        const recent = await ratingLogsAPI.getRecent(lastNotifPollRef.current);
+        lastNotifPollRef.current = new Date().toISOString();
+        if (recent.length > 0) {
+          setNotifications(prev => [...recent, ...prev].slice(0, 20));
+          setUnreadCount(prev => prev + recent.length);
+        }
+      } catch {
+        // Silent fail — notifications are non-critical
+      }
+    };
+    // Initial poll after 10s so it doesn't fire on first load
+    const initialTimer = setTimeout(poll, 10000);
+    const interval = setInterval(poll, 30000);
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(interval);
+    };
+  }, []);
+
+  // ─── Close notification panel when clicking outside ───────────────────────────
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (notifPanelRef.current && !notifPanelRef.current.contains(e.target)) {
+        setNotifOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // ─── Initial load ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -279,8 +320,8 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     const total = candidateBoard.length;
     const rated = candidateBoard.filter(c => c.raterCount > 0).length;
     const fullyRated = boardRequiredRaters
-    ? candidateBoard.filter(c => c.raterCount >= boardRequiredRaters).length
-    : 0;
+      ? candidateBoard.filter(c => c.raterCount >= boardRequiredRaters).length
+      : 0;
     const scores = candidateBoard.filter(c => c.avgScore > 0).map(c => c.avgScore);
     const avgScore = scores.length
       ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 100) / 100 : 0;
@@ -768,12 +809,39 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     setCandidateBoard([]);
     setBoardLoadTime(null);
     setBoardSalaryGrade(null);
-    setBoardRequiredRaters(6);
+    setBoardRequiredRaters(null);
     setSearchQuery('');
     setFilterRated('all');
   };
 
   const hasFilters = selectedPublicationRange || selectedAssignment || selectedPosition || selectedItem;
+
+  // ─── Notification helpers ─────────────────────────────────────────────────────
+  const handleNotifClick = async (notif) => {
+    setNotifOpen(false);
+    setUnreadCount(0);
+    // If the notification's item is different from the current selection,
+    // navigate the filters to match it before opening the modal
+    if (notif.itemNumber !== selectedItem) {
+      setSelectedAssignment(notif.assignment);
+      setSelectedPosition(notif.position);
+      setSelectedItem(notif.itemNumber);
+    }
+    await openCandidateModal({ id: notif.candidateId, name: notif.candidateName });
+  };
+
+  const formatNotifTime = (isoString) => {
+    const diff = Math.floor((Date.now() - new Date(isoString)) / 1000);
+    if (diff < 60) return 'just now';
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return new Date(isoString).toLocaleDateString();
+  };
+
+  const actionLabel = (action) => {
+    if (action === 'created' || action === 'batch_created') return 'Rated';
+    return 'Updated';
+  };
 
   // ─── Render ───────────────────────────────────────────────────────────────────
   return (
@@ -792,14 +860,91 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
               <p className="text-xs text-gray-500 leading-tight">HRMPSB · DENR Region IV-A</p>
             </div>
           </div>
-          {hasFilters && (
-            <button onClick={resetFilters} className="text-xs text-gray-500 hover:text-red-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg border border-gray-200 hover:border-red-300 hover:bg-red-50">
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-              Clear filters
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {hasFilters && (
+              <button onClick={resetFilters} className="text-xs text-gray-500 hover:text-red-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg border border-gray-200 hover:border-red-300 hover:bg-red-50">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                Clear filters
+              </button>
+            )}
+
+            {/* ── Notification Bell ─────────────────────────────────────── */}
+            <div className="relative" ref={notifPanelRef}>
+              <button
+                onClick={() => { setNotifOpen(o => !o); if (!notifOpen) setUnreadCount(0); }}
+                className="relative w-9 h-9 flex items-center justify-center rounded-lg border border-gray-200 bg-white hover:bg-gray-50 hover:border-blue-300 transition-all"
+                title="Rating Notifications"
+              >
+                <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                </svg>
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
+              </button>
+
+              {/* ── Notification Dropdown Panel ───────────────────────── */}
+              {notifOpen && (
+                <div className="absolute right-0 top-11 w-80 bg-white rounded-xl border border-gray-200 shadow-xl z-50 overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                    <span className="text-sm font-semibold text-gray-800">Rating Activity</span>
+                    {notifications.length > 0 && (
+                      <button
+                        onClick={() => setNotifications([])}
+                        className="text-xs text-gray-400 hover:text-red-500 transition-colors"
+                      >
+                        Clear all
+                      </button>
+                    )}
+                  </div>
+
+                  {notifications.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-10 text-center px-4">
+                      <svg className="w-8 h-8 text-gray-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                      </svg>
+                      <p className="text-xs text-gray-400">No recent rating activity</p>
+                      <p className="text-xs text-gray-300 mt-1">Polls every 30 seconds</p>
+                    </div>
+                  ) : (
+                    <ul className="max-h-72 overflow-y-auto divide-y divide-gray-50">
+                      {notifications.map((notif, idx) => (
+                        <li key={`${notif._id || idx}`}>
+                          <button
+                            onClick={() => handleNotifClick(notif)}
+                            className="w-full text-left px-4 py-3 hover:bg-blue-50 transition-colors"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-semibold text-gray-900 truncate">{notif.candidateName}</p>
+                                <p className="text-xs text-gray-500 truncate mt-0.5">
+                                  {notif.position} · {notif.assignment}
+                                </p>
+                                <p className="text-xs text-blue-600 mt-0.5">
+                                  {actionLabel(notif.action)} by {notif.raterName}
+                                  {notif.raterType ? ` (${notif.raterType})` : ''}
+                                </p>
+                              </div>
+                              <span className="text-[10px] text-gray-400 whitespace-nowrap mt-0.5 flex-shrink-0">
+                                {formatNotifTime(notif.createdAt)}
+                              </span>
+                            </div>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className="px-4 py-2 border-t border-gray-100 bg-gray-50">
+                    <p className="text-[10px] text-gray-400 text-center">Click a notification to open the summary</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -926,7 +1071,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
                   />
                   <MetricCard
                     color={metrics.fullyRatedPct === 100 ? 'green' : 'purple'}
-                    label={`Fully Rated (${boardRequiredRaters} Rater${boardRequiredRaters !== 1 ? 's' : ''})`} value={`${metrics.fullyRated} / ${metrics.total}`} sub={`${metrics.fullyRatedPct}% complete`}
+                    label={`Fully Rated (${boardRequiredRaters ?? '…'} Rater${boardRequiredRaters !== 1 ? 's' : ''})`} value={`${metrics.fullyRated} / ${metrics.total}`} sub={`${metrics.fullyRatedPct}% complete`}
                     icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>}
                   />
                   <MetricCard
@@ -1020,7 +1165,9 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
                   : filteredBoard.map((candidate) => {
                     const colors = scoreColor(candidate.avgScore);
                     const totalRatersExpected = boardRequiredRaters || 1;
-                    const pct = Math.round((candidate.raterCount / totalRatersExpected) * 100);
+                    const pct = boardRequiredRaters
+                      ? Math.round((candidate.raterCount / totalRatersExpected) * 100)
+                      : 0;
                     return (
                       <div
                         key={candidate.id}

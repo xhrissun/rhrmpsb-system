@@ -43,6 +43,11 @@ const authMiddleware = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = await User.findById(decoded.id).select('-password');
     if (!req.user) return res.status(401).json({ message: 'Invalid token' });
+    // ── Sliding expiry: re-issue a fresh token on every authenticated request ──
+    // This resets the idle clock so active users are never kicked out.
+    // They only get logged out after 8h of true inactivity.
+    const freshToken = jwt.sign({ id: req.user._id }, process.env.JWT_SECRET, { expiresIn: '8h' });
+    res.setHeader('X-Refresh-Token', freshToken);
     next();
   } catch {
     res.status(401).json({ message: 'Invalid token' });
@@ -163,7 +168,7 @@ router.post('/auth/login', loginLimiter, async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(401).json({ message: 'Invalid credentials' });
 
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1d' });
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '8h' });
     res.json({ token, user: user.toJSON() });
   } catch (error) {
     console.error('[POST /auth/login]', error);
@@ -1896,6 +1901,67 @@ router.get('/reports/candidate/:candidateId', exportLimiter, authMiddleware, asy
 // ═══════════════════════════════════════════════════════════════════════════
 // RATING LOG ROUTES
 // ═══════════════════════════════════════════════════════════════════════════
+
+// ── Lightweight recent-activity endpoint for system-wide notifications ────────
+// Only admins and summary_viewers may poll this.
+// Uses the indexed createdAt field — never scans the full collection.
+router.get('/rating-logs/recent', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin' && req.user.userType !== 'summary_viewer') {
+    return res.status(403).json({ message: 'Access denied' });
+  }
+  try {
+    const since = req.query.since
+      ? new Date(req.query.since)
+      : new Date(Date.now() - 60000);
+
+    const logs = await RatingLog.find({
+      action: { $in: ['created', 'updated', 'batch_created', 'batch_updated'] },
+      createdAt: { $gt: since }
+    })
+      .populate('candidateId', 'fullName')
+      .populate('raterId', 'name raterType')
+      .select('candidateId raterId itemNumber action createdAt')
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .lean();
+
+    // Deduplicate: one notification per candidate+item combination
+    const seen = new Set();
+    const unique = logs.filter(l => {
+      const key = `${l.candidateId?._id}_${l.itemNumber}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    // Enrich with position + assignment from Vacancy (one query, not N)
+    const itemNumbers = [...new Set(unique.map(l => l.itemNumber))];
+    const vacancies = await Vacancy.find(
+      { itemNumber: { $in: itemNumbers }, isArchived: false },
+      'itemNumber position assignment'
+    ).lean();
+    const vacancyMap = {};
+    vacancies.forEach(v => { vacancyMap[v.itemNumber] = v; });
+
+    const enriched = unique.map(l => ({
+      _id: l._id,
+      candidateId: l.candidateId?._id,
+      candidateName: l.candidateId?.fullName || 'Unknown',
+      raterName: l.raterId?.name || 'Unknown',
+      raterType: l.raterId?.raterType || '',
+      itemNumber: l.itemNumber,
+      position: vacancyMap[l.itemNumber]?.position || '',
+      assignment: vacancyMap[l.itemNumber]?.assignment || '',
+      action: l.action,
+      createdAt: l.createdAt,
+    }));
+
+    res.json(enriched);
+  } catch (error) {
+    console.error('[GET /rating-logs/recent]', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
 
 router.get('/rating-logs', authMiddleware, async (req, res) => {
   if (req.user.userType !== 'admin' && !req.user.administrativePrivilege) {

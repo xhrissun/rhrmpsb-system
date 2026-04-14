@@ -28,9 +28,16 @@ api.interceptors.request.use(
   }
 );
 
-// Response interceptor to handle auth errors
+// Response interceptor to handle auth errors and sliding token refresh
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // ── Sliding expiry: if server issued a fresh token, swap it silently ──
+    const refreshed = response.headers['x-refresh-token'];
+    if (refreshed) {
+      localStorage.setItem('authToken', refreshed);
+    }
+    return response;
+  },
   (error) => {
     if (error.response?.status === 401) {
       // Clear all localStorage keys
@@ -523,6 +530,12 @@ export const ratingLogsAPI = {
     window.URL.revokeObjectURL(url);
     
     return { success: true, filename };
+  },
+
+  getRecent: async (since) => {
+    const params = since ? `?since=${encodeURIComponent(since)}` : '';
+    const response = await api.get(`/rating-logs/recent${params}`);
+    return response.data;
   }
 };
 
