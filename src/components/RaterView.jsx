@@ -17,46 +17,51 @@ const FAB_BOTTOM = 28;
 const FAB_RIGHT  = 24;
 const FAB_SIZE   = 56;
 
-function InterviewTimer({ active, hidden }) {
+function InterviewTimer({ visible, running, hidden }) {
   const [elapsed, setElapsed] = useState(0);
   const startRef = useRef(null);
   const rafRef   = useRef(null);
 
-  // Reset when active flips off (new candidate or deselect)
+  // Reset everything when candidate is deselected or changed
   useEffect(() => {
-    if (!active) {
+    if (!visible) {
       setElapsed(0);
       startRef.current = null;
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
     }
-  }, [active]);
+  }, [visible]);
 
-  // RAF ticker
+  // RAF ticker — only starts when running flips true; anchored at that exact moment
   useEffect(() => {
-    if (!active) return;
+    if (!running) {
+      if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+      return;
+    }
+    startRef.current = performance.now();
     const tick = (now) => {
-      if (!startRef.current) startRef.current = now;
       setElapsed(now - startRef.current);
       rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);
-    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, [active]);
+    return () => { if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; } };
+  }, [running]);
 
-  if (!active) return null;
+  if (!visible) return null;
 
-  const remaining = Math.max(0, INTERVIEW_DURATION_MS - elapsed);
+  const remaining = running ? Math.max(0, INTERVIEW_DURATION_MS - elapsed) : INTERVIEW_DURATION_MS;
   const totalSec  = Math.floor(remaining / 1000);
   const mins      = Math.floor(totalSec / 60);
   const secs      = totalSec % 60;
-  const isOver    = remaining === 0;
-  const warn3     = !isOver && remaining <= 3 * 60 * 1000;
-  const warn5     = !isOver && remaining <= 5 * 60 * 1000 && !warn3;
+  const isOver    = running && remaining === 0;
+  const warn3     = running && !isOver && remaining <= 3 * 60 * 1000;
+  const warn5     = running && !isOver && remaining <= 5 * 60 * 1000 && !warn3;
   const timeStr   = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-  const accent    = isOver ? '#dc2626' : warn3 ? '#ea580c' : warn5 ? '#d97706' : '#059669';
+  const accent    = !running ? '#6b7280' : isOver ? '#dc2626' : warn3 ? '#ea580c' : warn5 ? '#d97706' : '#059669';
   const shouldPulse = warn3 || isOver;
 
-  const tooltip = isOver
+  const tooltip = !running
+    ? 'Interview Timer — starts when you scroll to competencies'
+    : isOver
     ? 'Time is up!'
     : warn3
     ? `3 min left — ${timeStr}`
@@ -110,7 +115,7 @@ function InterviewTimer({ active, hidden }) {
         <svg width="13" height="13" fill="none" stroke="white" strokeWidth="2.3" viewBox="0 0 24 24">
           <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
         </svg>
-        <span>{isOver ? 'DONE' : timeStr}</span>
+        <span>{isOver ? 'DONE' : !running ? 'READY' : timeStr}</span>
       </div>
     </>
   );
@@ -510,8 +515,10 @@ const RaterView = ({ user }) => {
   const [copyRatingsLoading, setCopyRatingsLoading] = useState(false);
 
   // ── Interview Timer ───────────────────────────────────────────────────────
-  const [timerActive, setTimerActive] = useState(false);
+  const [timerVisible, setTimerVisible] = useState(false);  // shows the FAB
+  const [timerRunning, setTimerRunning] = useState(false);  // starts the countdown
   const prevCandidateRef = useRef('');
+  const competencySentinelRef = useRef(null); // attached to top of competency section
 
   const activeRatingRef = useRef(null);
   const scrollPositionRef = useRef(0);
@@ -649,20 +656,42 @@ const RaterView = ({ user }) => {
     }
   }, [candidates, selectedCandidate]);
 
-  // Start timer when a candidate with competencies is first viewed
+  // Show timer FAB as soon as a candidate is selected; hide + stop on deselect/change
   useEffect(() => {
     if (selectedCandidate && selectedCandidate !== prevCandidateRef.current) {
       prevCandidateRef.current = selectedCandidate;
-      setTimerActive(false);          // reset first so InterviewTimer cleans up
-      // Short defer so the state reset propagates before re-enabling
-      const t = setTimeout(() => setTimerActive(true), 50);
+      // Reset both flags so a fresh candidate always starts from 10:00 paused
+      setTimerVisible(false);
+      setTimerRunning(false);
+      const t = setTimeout(() => setTimerVisible(true), 0);
       return () => clearTimeout(t);
     }
     if (!selectedCandidate) {
       prevCandidateRef.current = '';
-      setTimerActive(false);
+      setTimerVisible(false);
+      setTimerRunning(false);
     }
   }, [selectedCandidate]);
+
+  // IntersectionObserver: start the countdown the first time the competency
+  // section scrolls into view (threshold 0.1 = just barely visible)
+  useEffect(() => {
+    if (!timerVisible || timerRunning) return; // already running or no candidate
+    const sentinel = competencySentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setTimerRunning(true);
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.1 }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [timerVisible, timerRunning]);
 
   useEffect(() => {
     if (Object.keys(ratings).length > 0) {
@@ -2114,7 +2143,7 @@ const RaterView = ({ user }) => {
           `}</style>
 
           {/* ── Interview Timer floating modal ── */}
-          <InterviewTimer active={timerActive} />
+          <InterviewTimer visible={timerVisible} running={timerRunning} />
 
           {selectedCandidate && !isRaterTypeConflictModalOpen && (
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6 shadow-sm">
@@ -2147,6 +2176,8 @@ const RaterView = ({ user }) => {
               </div>
 
               <div className="p-6">
+                {/* Sentinel observed by IntersectionObserver to start the timer */}
+                <div ref={competencySentinelRef} style={{ height: 0 }} />
                 {groupedCompetencies.basic.length > 0 && (
                   <div className="mb-10">
                     <div className="text-center mb-0">
