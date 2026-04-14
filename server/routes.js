@@ -960,7 +960,7 @@ router.get('/candidates/item/:itemNumber/board', authMiddleware, async (req, res
     const requiredRaterIds = new Set(
       allRaters.filter(r => requiredTypes.has(r.raterType)).map(r => r._id.toString())
     );
-    const requiredRaters = requiredRaterIds.size;
+    const requiredRaters = requiredTypes.size;
 
     if (!candidates.length) return res.json({ board: [], salaryGrade: sg, requiredRaters });
 
