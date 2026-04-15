@@ -608,6 +608,12 @@ export const interviewSessionsAPI = {
     const response = await api.put('/interview-sessions', sessionData);
     return response.data;
   },
+
+  // Alias used by RaterView and other consumers that call interviewSessionsAPI.upsert(...)
+  upsert: async (sessionData) => {
+    const response = await api.put('/interview-sessions', sessionData);
+    return response.data;
+  },
 };
 
 export default api;

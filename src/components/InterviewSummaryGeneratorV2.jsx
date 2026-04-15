@@ -130,12 +130,34 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
   const [testScores, setTestScores] = useState({}); // { "RATERTYPE:COMP_CODE": score }
   const autoRefreshRef = useRef(null);
 
-  // ─── Notification state ───────────────────────────────────────────────────────
+  // ─── Notification state — persisted in DB via ratingLogsAPI ──────────────────
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifOpen, setNotifOpen] = useState(false);
-  const lastNotifPollRef = useRef(new Date().toISOString());
+  const lastNotifPollRef = useRef(null); // null until we know the latest timestamp from DB
   const notifPanelRef = useRef(null);
+
+  // ── Load persisted notifications on mount ───────────────────────────────────
+  useEffect(() => {
+    const loadPersistedNotifications = async () => {
+      try {
+        // Fetch the last 20 stored notifications (no "since" filter = fetch all recent)
+        const stored = await ratingLogsAPI.getRecent();
+        if (stored.length > 0) {
+          setNotifications(stored.slice(0, 20));
+          // All are considered "read" since they pre-date this session
+          setUnreadCount(0);
+          // Set the poll cursor to the most recent one so we only pick up NEW ones
+          lastNotifPollRef.current = stored[0].createdAt ?? new Date().toISOString();
+        } else {
+          lastNotifPollRef.current = new Date().toISOString();
+        }
+      } catch {
+        lastNotifPollRef.current = new Date().toISOString();
+      }
+    };
+    loadPersistedNotifications();
+  }, []);
 
   const [initLoading, setInitLoading] = useState(true);
 
@@ -150,6 +172,8 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
   // ─── System-wide notification polling (every 30s, always on) ─────────────────
   useEffect(() => {
     const poll = async () => {
+      // Don't poll until the initial load has set the cursor
+      if (!lastNotifPollRef.current) return;
       try {
         const recent = await ratingLogsAPI.getRecent(lastNotifPollRef.current);
         lastNotifPollRef.current = new Date().toISOString();
@@ -180,7 +204,8 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
           // 2. If a candidate modal is open, silently refresh it too
           if (modalOpenRef.current && selectedCandidateRef.current) {
             try {
-              await loadModalData(selectedCandidateRef.current.id);
+              // Use the ref (not the closure) so we always read the current selectedItem
+              await loadModalData(selectedCandidateRef.current.id, selectedItemRef.current);
             } catch { /* silent */ }
           }
         }
@@ -407,7 +432,11 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     }
   };
 
-  const loadModalData = async (candidateId) => {
+  const loadModalData = async (candidateId, overrideItemNumber) => {
+    // overrideItemNumber is used when the notification's item differs from current selectedItem
+    // (React state hasn't flushed yet when this is called from handleNotifClick)
+    const effectiveItem = overrideItemNumber ?? selectedItem;
+
     const [candidateData, ratingsData, allVacancies] = await Promise.all([
       candidatesAPI.getById(candidateId),
       ratingsAPI.getByCandidate(candidateId),
@@ -415,14 +444,14 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     ]);
 
     setCandidateDetails(candidateData);
-    const filteredRatings = ratingsData.filter(r => r.itemNumber === selectedItem);
+    const filteredRatings = ratingsData.filter(r => r.itemNumber === effectiveItem);
     setRatings(filteredRatings);
     setLastRefresh(new Date());
 
     // FIX: Use .toString() on both sides to avoid ObjectId vs string mismatch
     const vacancy = allVacancies.find(v =>
       !v.isArchived &&
-      v.itemNumber === selectedItem &&
+      v.itemNumber === effectiveItem &&
       (!selectedPublicationRange || String(v.publicationRangeId) === String(selectedPublicationRange))
     );
     setVacancyDetails(vacancy);
@@ -867,14 +896,23 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
   const handleNotifClick = async (notif) => {
     setNotifOpen(false);
     setUnreadCount(0);
-    // If the notification's item is different from the current selection,
-    // navigate the filters to match it before opening the modal
-    if (notif.itemNumber !== selectedItem) {
-      setSelectedAssignment(notif.assignment);
-      setSelectedPosition(notif.position);
-      setSelectedItem(notif.itemNumber);
+
+    // Always sync the filter dropdowns to match the notification's vacancy
+    setSelectedAssignment(notif.assignment);
+    setSelectedPosition(notif.position);
+    setSelectedItem(notif.itemNumber);
+
+    // Open the modal immediately — pass notif.itemNumber as an explicit override because
+    // the setSelectedItem above is async: React won't have flushed the new value into
+    // `selectedItem` by the time loadModalData runs, so we bypass the stale closure.
+    setSelectedCandidate({ id: notif.candidateId, name: notif.candidateName });
+    setModalOpen(true);
+    setModalLoading(true);
+    try {
+      await loadModalData(notif.candidateId, notif.itemNumber);
+    } finally {
+      setModalLoading(false);
     }
-    await openCandidateModal({ id: notif.candidateId, name: notif.candidateName });
   };
 
   const formatNotifTime = (isoString) => {

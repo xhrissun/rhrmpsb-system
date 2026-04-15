@@ -269,6 +269,36 @@ const ratingLogSchema = new mongoose.Schema({
   notes: String
 }, { timestamps: true });
 
+// ── Notification Log Schema ───────────────────────────────────────────────────
+// Stores ISG bell-panel notifications persistently.
+// Each document mirrors the shape that InterviewSummaryGeneratorV2 already
+// renders, so the frontend needs no changes beyond the API call.
+const notificationLogSchema = new mongoose.Schema({
+  // Who/what triggered the notification (mirrors RatingLog fields the ISG uses)
+  action: {
+    type: String,
+    enum: ['created', 'updated', 'deleted', 'batch_created', 'batch_updated', 'batch_deleted'],
+    required: true
+  },
+  ratingId:      { type: mongoose.Schema.Types.ObjectId, ref: 'Rating' },
+  candidateId:   { type: mongoose.Schema.Types.ObjectId, ref: 'Candidate', required: true },
+  raterId:       { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  itemNumber:    { type: String, required: true, trim: true },
+  competencyId:  { type: mongoose.Schema.Types.ObjectId, ref: 'Competency' },
+  competencyType:{ type: String, enum: ['basic', 'organizational', 'leadership', 'minimum'] },
+  oldScore:      { type: Number, min: 1, max: 5 },
+  newScore:      { type: Number, min: 1, max: 5 },
+  ratingsCount:  { type: Number, default: 1 },
+  performedBy:   { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  notes: String,
+
+  // Keep the last 500 notifications; older ones auto-expire after 30 days
+  expiresAt: { type: Date, default: () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) }
+}, { timestamps: true });
+
+notificationLogSchema.index({ createdAt: -1 });
+notificationLogSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 }); // TTL index
+
 // ── Interview Session Schema ──────────────────────────────────────────────────
 // One document per (rater × candidate × itemNumber) interview sitting.
 // Created/updated automatically when ratings are submitted.
@@ -403,7 +433,7 @@ const Competency      = mongoose.model('Competency',       competencySchema);
 const Rating          = mongoose.model('Rating',           ratingSchema);
 const RatingLog       = mongoose.model('RatingLog',        ratingLogSchema);
 const PublicationRange= mongoose.model('PublicationRange', publicationRangeSchema);
-
+const NotificationLog = mongoose.model('NotificationLog',  notificationLogSchema);
 const InterviewSession = mongoose.model('InterviewSession', interviewSessionSchema);
 
-export { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, InterviewSession };
+export { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, NotificationLog, InterviewSession };
