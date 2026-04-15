@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import usePersistedState from '../utils/usePersistedState';
-import { vacanciesAPI, candidatesAPI, ratingsAPI, competenciesAPI, authAPI } from '../utils/api';
+import { vacanciesAPI, candidatesAPI, ratingsAPI, competenciesAPI, authAPI, interviewSessionsAPI } from '../utils/api';
 import { calculateRatingScores, formatDate } from '../utils/helpers';
 import { RATING_SCALE, COMPETENCY_TYPES, CANDIDATE_STATUS } from '../utils/constants';
 import { useToast } from '../utils/ToastContext';
@@ -19,7 +19,7 @@ const FAB_BOTTOM = 28;
 const FAB_RIGHT  = 24;
 const FAB_SIZE   = 56;
 
-function InterviewTimer({ visible, running, hidden }) {
+function InterviewTimer({ visible, running, hidden, candidateId, itemNumber, onSaveSession, restoredSession }) {
   const [elapsed,        setElapsed]        = useState(0);
   const [extraMs,        setExtraMs]        = useState(0);   // total extension added
   const [paused,         setPaused]         = useState(false);
@@ -28,9 +28,38 @@ function InterviewTimer({ visible, running, hidden }) {
   const [extendFlash,    setExtendFlash]    = useState(false); // brief green flash on extend
   const [notes,          setNotes]          = useState('');
   const [notesSaved,     setNotesSaved]     = useState(false);
+  const [sessionRestored, setSessionRestored] = useState(false); // banner shown once on restore
   const startRef  = useRef(null);
   const rafRef    = useRef(null);
   const panelRef  = useRef(null);
+
+  // ── Restore a prior session when one is passed in ──────────────────────────
+  useEffect(() => {
+    if (visible && restoredSession) {
+      const { elapsedSeconds, notes: savedNotes } = restoredSession;
+      if (elapsedSeconds > 0) {
+        const ms = elapsedSeconds * 1000;
+        setElapsed(ms);
+        setPausedAt(ms);
+        setPaused(true);   // start paused so the rater can choose to resume
+      }
+      if (savedNotes) setNotes(savedNotes);
+      setSessionRestored(true);
+      const t = setTimeout(() => setSessionRestored(false), 4000);
+      return () => clearTimeout(t);
+    }
+  }, [visible, restoredSession]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Auto-save session every 30 s while timer is running ───────────────────
+  useEffect(() => {
+    if (!running || !candidateId || !itemNumber) return;
+    const interval = setInterval(() => {
+      if (onSaveSession) {
+        onSaveSession({ elapsedSeconds: Math.floor(elapsed / 1000), notes });
+      }
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [running, elapsed, notes, candidateId, itemNumber, onSaveSession]);
 
   // Reset everything when candidate is deselected or changed
   useEffect(() => {
@@ -42,6 +71,7 @@ function InterviewTimer({ visible, running, hidden }) {
       setPanelOpen(false);
       setNotes('');
       setNotesSaved(false);
+      setSessionRestored(false);
       startRef.current = null;
       if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
     }
@@ -139,6 +169,9 @@ function InterviewTimer({ visible, running, hidden }) {
   const handleSaveNote = () => {
     setNotesSaved(true);
     setTimeout(() => setNotesSaved(false), 1800);
+    if (onSaveSession) {
+      onSaveSession({ elapsedSeconds: Math.floor(elapsed / 1000), notes });
+    }
   };
 
   // Progress ring colors
@@ -201,6 +234,21 @@ function InterviewTimer({ visible, running, hidden }) {
                   <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
                 </button>
               </div>
+
+              {/* Session restored notice */}
+              {sessionRestored && (
+                <div style={{
+                  marginTop: 8, padding: '5px 10px', borderRadius: 8,
+                  background: 'rgba(255,255,255,0.18)',
+                  fontSize: 11, color: '#fff', fontWeight: 600,
+                  display: 'flex', alignItems: 'center', gap: 5,
+                }}>
+                  <svg width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                    <polyline points="20 6 9 17 4 12"/>
+                  </svg>
+                  Prior session restored — timer paused where you left off
+                </div>
+              )}
 
               {/* Big time display */}
               <div style={{ textAlign: 'center', marginTop: 10 }}>
@@ -849,6 +897,7 @@ const RaterView = ({ user }) => {
   // ── Interview Timer ───────────────────────────────────────────────────────
   const [timerVisible, setTimerVisible] = useState(false);  // shows the FAB
   const [timerRunning, setTimerRunning] = useState(false);  // starts the countdown
+  const [restoredSession, setRestoredSession] = useState(null); // session fetched from DB
   const prevCandidateRef = useRef('');
   const competencySentinelRef = useRef(null); // attached to top of competency section
 
@@ -995,15 +1044,30 @@ const RaterView = ({ user }) => {
       // Reset both flags so a fresh candidate always starts from 10:00 paused
       setTimerVisible(false);
       setTimerRunning(false);
-      const t = setTimeout(() => setTimerVisible(true), 0);
+      setRestoredSession(null);
+      const t = setTimeout(async () => {
+        setTimerVisible(true);
+        // Try to restore a prior session for this candidate + item
+        if (selectedItemNumber) {
+          try {
+            const session = await interviewSessionsAPI.get(selectedCandidate, selectedItemNumber);
+            if (session && session.elapsedSeconds > 0) {
+              setRestoredSession(session);
+            }
+          } catch {
+            // 404 = no prior session; silence it
+          }
+        }
+      }, 0);
       return () => clearTimeout(t);
     }
     if (!selectedCandidate) {
       prevCandidateRef.current = '';
       setTimerVisible(false);
       setTimerRunning(false);
+      setRestoredSession(null);
     }
-  }, [selectedCandidate]);
+  }, [selectedCandidate, selectedItemNumber]);
 
   // IntersectionObserver: start the countdown the first time the competency
   // section scrolls into view (threshold 0.1 = just barely visible)
@@ -1563,6 +1627,16 @@ const RaterView = ({ user }) => {
     groupedCompetencies.organizational.length +
     (shouldShowLeadership() ? groupedCompetencies.leadership.length : 0) +
     groupedCompetencies.minimum.length;
+
+  // ── Interview Timer session save ─────────────────────────────────────────
+  const handleSaveSession = useCallback(async ({ elapsedSeconds, notes }) => {
+    if (!selectedCandidate || !selectedItemNumber) return;
+    try {
+      await interviewSessionsAPI.upsert({ candidateId: selectedCandidate, itemNumber: selectedItemNumber, elapsedSeconds, notes });
+    } catch (err) {
+      console.warn('[InterviewTimer] session save failed:', err);
+    }
+  }, [selectedCandidate, selectedItemNumber]);
 
   const RadioRating = ({ competency, competencyType, currentRating, onChange, onInfoClick }) => {
     return (
@@ -2475,7 +2549,14 @@ const RaterView = ({ user }) => {
           `}</style>
 
           {/* ── Interview Timer floating modal ── */}
-          <InterviewTimer visible={timerVisible} running={timerRunning} />
+          <InterviewTimer
+            visible={timerVisible}
+            running={timerRunning}
+            candidateId={selectedCandidate}
+            itemNumber={selectedItemNumber}
+            restoredSession={restoredSession}
+            onSaveSession={handleSaveSession}
+          />
 
           {selectedCandidate && !isRaterTypeConflictModalOpen && (
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6 shadow-sm">

@@ -134,8 +134,14 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [initLoading, setInitLoading] = useState(true);
   const lastNotifPollRef = useRef(null); // null until we know the latest timestamp from DB
   const notifPanelRef = useRef(null);
+
+  // ─── Stable refs so the notification poll can access current state without re-subscribing ──
+  const selectedItemRef = useRef(selectedItem);
+  const selectedCandidateRef = useRef(selectedCandidate);
+  const modalOpenRef = useRef(modalOpen);
 
   // ── Load persisted notifications on mount ───────────────────────────────────
   useEffect(() => {
@@ -159,12 +165,6 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     loadPersistedNotifications();
   }, []);
 
-  const [initLoading, setInitLoading] = useState(true);
-
-  // ─── Stable refs so the notification poll can access current state without re-subscribing ──
-  const selectedItemRef = useRef(selectedItem);
-  const selectedCandidateRef = useRef(selectedCandidate);
-  const modalOpenRef = useRef(modalOpen);
   useEffect(() => { selectedItemRef.current = selectedItem; }, [selectedItem]);
   useEffect(() => { selectedCandidateRef.current = selectedCandidate; }, [selectedCandidate]);
   useEffect(() => { modalOpenRef.current = modalOpen; }, [modalOpen]);
