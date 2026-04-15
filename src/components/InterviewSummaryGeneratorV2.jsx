@@ -121,6 +121,9 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
   const [vacancyDetails, setVacancyDetails] = useState(null);
   const [salaryGrade, setSalaryGrade] = useState(null);
   const [ratings, setRatings] = useState([]);
+  // The item number actually being shown in the modal — may differ from selectedItem
+  // when the modal was opened via a notification while a different item was selected.
+  const [modalItemNumber, setModalItemNumber] = useState('');
   const [groupedCompetencies, setGroupedCompetencies] = useState({ basic: [], organizational: [], leadership: [], minimum: [] });
   const [raters, setRaters] = useState([]);
   const [modalLoading, setModalLoading] = useState(false);
@@ -425,8 +428,9 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     setSelectedCandidate(candidate);
     setModalOpen(true);
     setModalLoading(true);
+    setModalItemNumber(selectedItem);
     try {
-      await loadModalData(candidate.id);
+      await loadModalData(candidate.id, selectedItem);
     } finally {
       setModalLoading(false);
     }
@@ -436,6 +440,9 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     // overrideItemNumber is used when the notification's item differs from current selectedItem
     // (React state hasn't flushed yet when this is called from handleNotifClick)
     const effectiveItem = overrideItemNumber ?? selectedItem;
+    // Keep modalItemNumber in sync so rendering helpers (getRatingDisplay, calculateRowAverage,
+    // renderCompetencyTable totals) use the correct item number regardless of the dropdown state.
+    setModalItemNumber(effectiveItem);
 
     const [candidateData, ratingsData, allVacancies] = await Promise.all([
       candidatesAPI.getById(candidateId),
@@ -492,6 +499,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     setSelectedCandidate(null);
     setCandidateDetails(null);
     setRatings([]);
+    setModalItemNumber('');
     setGroupedCompetencies({ basic: [], organizational: [], leadership: [], minimum: [] });
     setAutoRefresh(false);
     setTestMode(false);
@@ -543,7 +551,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     const rating = ratings.find(r =>
       r.competencyId?.name?.toUpperCase().replace(/ /g, '_') === competencyCode &&
       getRaterTypeCode(r.raterId?.raterType) === raterType &&
-      r.itemNumber === selectedItem
+      r.itemNumber === modalItemNumber
     );
     return rating ? rating.score.toFixed(2) : '-';
   };
@@ -562,7 +570,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
           r.competencyId?.name?.toUpperCase().replace(/ /g, '_') === competencyCode &&
           getRaterTypeCode(r.raterId?.raterType) === rt &&
           r.competencyType === competencyType &&
-          r.itemNumber === selectedItem
+          r.itemNumber === modalItemNumber
         );
         return rating ? rating.score : null;
       })
@@ -632,7 +640,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       ['Name of Candidate:', candidateDetails?.fullName || ''],
       ['Office:', vacancyDetails?.assignment || ''],
       ['Vacancy:', vacancyDetails?.position || ''],
-      ['Item Number:', selectedItem || ''],
+      ['Item Number:', modalItemNumber || ''],
       ['Date of Interview:', new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })]
     ];
 
@@ -678,7 +686,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
               const r = ratings.find(r =>
                 r.competencyId?.name?.toUpperCase().replace(/ /g, '_') === comp.code &&
                 getRaterTypeCode(r.raterId?.raterType) === rt &&
-                r.itemNumber === selectedItem
+                r.itemNumber === modalItemNumber
               );
               return sum + (r ? r.score : 0);
             }, 0) / Math.max(1, competencies.length)).toFixed(2),
@@ -741,7 +749,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
             const r = ratings.find(r =>
               r.competencyId?.name?.toUpperCase().replace(/ /g, '_') === comp.code &&
               getRaterTypeCode(r.raterId?.raterType) === rt &&
-              r.itemNumber === selectedItem
+              r.itemNumber === modalItemNumber
             );
             return sum + (r ? r.score : 0);
           }, 0) / Math.max(1, groupedCompetencies.organizational.length)).toFixed(2),
@@ -861,7 +869,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
                     const r = ratings.find(r =>
                       r.competencyId?.name?.toUpperCase().replace(/ /g, '_') === comp.code &&
                       getRaterTypeCode(r.raterId?.raterType) === rt &&
-                      r.itemNumber === selectedItem
+                      r.itemNumber === modalItemNumber
                     );
                     return sum + (r ? r.score : 0);
                   }, 0) / Math.max(1, comps.length)).toFixed(2);
@@ -1426,7 +1434,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
                         ['Full Name', candidateDetails.fullName],
                         ['Office / Assignment', vacancyDetails?.assignment || 'REGIONAL OFFICE'],
                         ['Position Applied', vacancyDetails?.position || '—'],
-                        ['Item Number', selectedItem],
+                        ['Item Number', modalItemNumber],
                         ['Salary Grade', salaryGrade ? `SG-${salaryGrade}` : '—'],
                         ['Interview Date', new Date().toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' })],
                       ].map(([label, value]) => (
