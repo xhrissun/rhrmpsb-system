@@ -1642,6 +1642,12 @@ const RaterView = ({ user }) => {
               finished: false,
             });
           } catch { /* non-critical */ }
+          // Clear the in-memory restored session so the timer resets to 10:00
+          // immediately — without this, the old session (elapsed time / finished
+          // flag) stays in state and prevents a clean restart even though the
+          // DB record was just wiped.
+          setRestoredSession(null);
+          setTimerRunning(false);
           setIsPasswordModalOpen(false);
           setPassword('');
           setPasswordError('');

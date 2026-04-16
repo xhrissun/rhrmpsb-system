@@ -156,8 +156,14 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
         const stored = await ratingLogsAPI.getAll({ limit: 20 });
         if (stored.length > 0) {
           setNotifications(stored.slice(0, 20));
-          // All are considered "read" since they pre-date this session
-          setUnreadCount(0);
+
+          // FIX: Restore unread count across refreshes using the last-read timestamp
+          // persisted in localStorage. Notifications created AFTER that timestamp are
+          // still unread — they should stay highlighted until the user explicitly clears them.
+          const lastReadAt = localStorage.getItem('notif_lastReadAt') || '';
+          const unread = stored.filter(n => (n.createdAt ?? '') > lastReadAt).length;
+          setUnreadCount(unread);
+
           // FIX: Don't assume stored[0] is the newest — find the actual max createdAt
           // so the poll cursor is always correct regardless of sort order from the server.
           const latest = stored.reduce((max, n) => {
@@ -447,9 +453,15 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     // overrideItemNumber is used when the notification's item differs from current selectedItem
     // (React state hasn't flushed yet when this is called from handleNotifClick)
     const effectiveItem = overrideItemNumber ?? selectedItem;
-    // Keep modalItemNumber in sync so rendering helpers (getRatingDisplay, calculateRowAverage,
-    // renderCompetencyTable totals) use the correct item number regardless of the dropdown state.
-    setModalItemNumber(effectiveItem);
+
+    // ── FIX: Do NOT touch any state until ALL data is fetched. ──────────────────
+    // The old code spread state updates across multiple await boundaries. When the
+    // background poll triggered a silent refresh, React would re-render between
+    // awaits with partially-reset state — e.g. ratings already cleared but
+    // groupedCompetencies still from the previous load — causing scores to flash
+    // blank until the full load completed.
+    // Solution: fetch everything first, then commit all state in one synchronous
+    // block so React batches it into a single render with no blank intermediate frame.
 
     const [candidateData, ratingsData, allVacancies] = await Promise.all([
       candidatesAPI.getById(candidateId),
@@ -457,31 +469,27 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       vacanciesAPI.getAll()
     ]);
 
-    setCandidateDetails(candidateData);
     const filteredRatings = ratingsData.filter(r => r.itemNumber === effectiveItem);
-    setRatings(filteredRatings);
-    setLastRefresh(new Date());
 
-    // FIX: Use .toString() on both sides to avoid ObjectId vs string mismatch
     const vacancy = allVacancies.find(v =>
       !v.isArchived &&
       v.itemNumber === effectiveItem &&
       (!selectedPublicationRange || String(v.publicationRangeId) === String(selectedPublicationRange))
     );
-    setVacancyDetails(vacancy);
-    // FIX: Fall back to boardSalaryGrade if vacancy lookup fails
-    setSalaryGrade(vacancy?.salaryGrade || boardSalaryGrade || null);
 
-    // FIX: If raters state is empty (e.g. non-admin got stripped _id), re-fetch
+    const resolvedSalaryGrade = vacancy?.salaryGrade || boardSalaryGrade || null;
+
+    // Re-fetch raters if missing (e.g. non-admin got stripped _id)
+    let resolvedRaters = raters;
     if (raters.length === 0 || !raters[0]?._id) {
       try {
-        const freshRaters = await usersAPI.getRaters();
-        setRaters(freshRaters);
+        resolvedRaters = await usersAPI.getRaters();
       } catch (e) {
         console.warn('Could not re-fetch raters:', e.message);
       }
     }
 
+    let newGroupedCompetencies = { basic: [], organizational: [], leadership: [], minimum: [] };
     if (vacancy) {
       const competencyData = await competenciesAPI.getByVacancy(vacancy._id);
       const sorted = competencyData
@@ -492,13 +500,23 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
             ? order[a.type] - order[b.type]
             : a.name.localeCompare(b.name);
         });
-      setGroupedCompetencies({
+      newGroupedCompetencies = {
         basic: sorted.filter(c => c.type === 'basic').map((c, i) => ({ ...c, ordinal: i + 1 })),
         organizational: sorted.filter(c => c.type === 'organizational').map((c, i) => ({ ...c, ordinal: i + 1 })),
         leadership: sorted.filter(c => c.type === 'leadership').map((c, i) => ({ ...c, ordinal: i + 1 })),
         minimum: sorted.filter(c => c.type === 'minimum').map((c, i) => ({ ...c, ordinal: i + 1 })),
-      });
+      };
     }
+
+    // ── Commit everything in one synchronous block → single React render ────────
+    setModalItemNumber(effectiveItem);
+    setCandidateDetails(candidateData);
+    setRatings(filteredRatings);
+    setVacancyDetails(vacancy);
+    setSalaryGrade(resolvedSalaryGrade);
+    if (resolvedRaters !== raters) setRaters(resolvedRaters);
+    setGroupedCompetencies(newGroupedCompetencies);
+    setLastRefresh(new Date());
   };
 
   const closeModal = () => {
@@ -908,9 +926,14 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
   const hasFilters = selectedPublicationRange || selectedAssignment || selectedPosition || selectedItem;
 
   // ─── Notification helpers ─────────────────────────────────────────────────────
+  const markAllNotificationsRead = () => {
+    localStorage.setItem('notif_lastReadAt', new Date().toISOString());
+    setUnreadCount(0);
+  };
+
   const handleNotifClick = async (notif) => {
     setNotifOpen(false);
-    setUnreadCount(0);
+    markAllNotificationsRead();
 
     // Always sync the filter dropdowns to match the notification's vacancy
     setSelectedAssignment(notif.assignment);
@@ -978,7 +1001,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
             {/* ── Notification Bell ─────────────────────────────────────── */}
             <div className="relative" ref={notifPanelRef}>
               <button
-                onClick={() => { setNotifOpen(o => !o); if (!notifOpen) setUnreadCount(0); }}
+                onClick={() => { setNotifOpen(o => !o); if (!notifOpen) markAllNotificationsRead(); }}
                 className="relative w-9 h-9 flex items-center justify-center rounded-lg border border-gray-200 bg-white hover:bg-gray-50 hover:border-blue-300 transition-all"
                 title="Rating Notifications"
               >
@@ -999,7 +1022,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
                     <span className="text-sm font-semibold text-gray-800">Rating Activity</span>
                     {notifications.length > 0 && (
                       <button
-                        onClick={() => setUnreadCount(0)}
+                        onClick={() => markAllNotificationsRead()}
                         className="text-xs text-gray-400 hover:text-blue-500 transition-colors"
                       >
                         Mark all read
