@@ -19,10 +19,11 @@ const FAB_BOTTOM = 28;
 const FAB_RIGHT  = 24;
 const FAB_SIZE   = 56;
 
-function InterviewTimer({ visible, running, hidden, candidateId, itemNumber, onSaveSession, restoredSession }) {
+function InterviewTimer({ visible, running, hidden, candidateId, itemNumber, onSaveSession, restoredSession, elapsedRef }) {
   const [elapsed,        setElapsed]        = useState(0);
   const [extraMs,        setExtraMs]        = useState(0);   // total extension added
   const [paused,         setPaused]         = useState(false);
+  const [finished,       setFinished]       = useState(false); // ratings were submitted
   const [pausedAt,       setPausedAt]       = useState(0);   // elapsed ms when paused
   const [panelOpen,      setPanelOpen]      = useState(false);
   const [extendFlash,    setExtendFlash]    = useState(false); // brief green flash on extend
@@ -36,12 +37,18 @@ function InterviewTimer({ visible, running, hidden, candidateId, itemNumber, onS
   // ── Restore a prior session when one is passed in ──────────────────────────
   useEffect(() => {
     if (visible && restoredSession) {
-      const { elapsedSeconds, notes: savedNotes } = restoredSession;
+      const { elapsedSeconds, notes: savedNotes, finished: wasFinished } = restoredSession;
       if (elapsedSeconds > 0) {
         const ms = elapsedSeconds * 1000;
         setElapsed(ms);
         setPausedAt(ms);
-        setPaused(true);   // start paused so the rater can choose to resume
+        if (wasFinished) {
+          // Ratings were already submitted — show as "Finished", not "Paused"
+          setFinished(true);
+          setPaused(false);
+        } else {
+          setPaused(true);   // start paused so the rater can choose to resume
+        }
       }
       if (savedNotes) setNotes(savedNotes);
       setSessionRestored(true);
@@ -61,12 +68,18 @@ function InterviewTimer({ visible, running, hidden, candidateId, itemNumber, onS
     return () => clearInterval(interval);
   }, [running, elapsed, notes, candidateId, itemNumber, onSaveSession]);
 
+  // Keep elapsedRef in sync so the parent can read current elapsed at any time
+  useEffect(() => {
+    if (elapsedRef) elapsedRef.current = elapsed;
+  }, [elapsed, elapsedRef]);
+
   // Reset everything when candidate is deselected or changed
   useEffect(() => {
     if (!visible) {
       setElapsed(0);
       setExtraMs(0);
       setPaused(false);
+      setFinished(false);
       setPausedAt(0);
       setPanelOpen(false);
       setNotes('');
@@ -79,7 +92,7 @@ function InterviewTimer({ visible, running, hidden, candidateId, itemNumber, onS
 
   // RAF ticker — only starts when running flips true; anchored at that exact moment
   useEffect(() => {
-    if (!running || paused) {
+    if (!running || paused || finished) {
       if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
       return;
     }
@@ -92,7 +105,7 @@ function InterviewTimer({ visible, running, hidden, candidateId, itemNumber, onS
     };
     rafRef.current = requestAnimationFrame(tick);
     return () => { if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; } };
-  }, [running, paused]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [running, paused, finished]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Close panel on outside click
   useEffect(() => {
@@ -125,6 +138,8 @@ function InterviewTimer({ visible, running, hidden, candidateId, itemNumber, onS
 
   const accent = extendFlash
     ? '#0ea5e9'
+    : finished
+    ? '#16a34a'   // green — ratings submitted
     : paused
     ? '#7c3aed'
     : !running
@@ -137,7 +152,7 @@ function InterviewTimer({ visible, running, hidden, candidateId, itemNumber, onS
     ? '#d97706'
     : '#059669';
 
-  const shouldPulse = (warn3 || isOver) && !paused;
+  const shouldPulse = (warn3 || isOver) && !paused && !finished;
 
   const handleFabClick = () => setPanelOpen(o => !o);
 
@@ -162,6 +177,7 @@ function InterviewTimer({ visible, running, hidden, candidateId, itemNumber, onS
     setElapsed(0);
     setExtraMs(0);
     setPaused(false);
+    setFinished(false);
     setPausedAt(0);
     startRef.current = performance.now();
   };
@@ -175,7 +191,7 @@ function InterviewTimer({ visible, running, hidden, candidateId, itemNumber, onS
   };
 
   // Progress ring colors
-  const ringColor = isOver ? '#dc2626' : warn3 ? '#ea580c' : warn5 ? '#d97706' : paused ? '#7c3aed' : '#10b981';
+  const ringColor = finished ? '#16a34a' : isOver ? '#dc2626' : warn3 ? '#ea580c' : warn5 ? '#d97706' : paused ? '#7c3aed' : '#10b981';
 
   return (
     <>
@@ -246,7 +262,9 @@ function InterviewTimer({ visible, running, hidden, candidateId, itemNumber, onS
                   <svg width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                     <polyline points="20 6 9 17 4 12"/>
                   </svg>
-                  Prior session restored — timer paused where you left off
+                  {finished
+                    ? 'Ratings already submitted — timer finished'
+                    : 'Prior session restored — timer paused where you left off'}
                 </div>
               )}
 
@@ -258,6 +276,8 @@ function InterviewTimer({ visible, running, hidden, candidateId, itemNumber, onS
                 <div style={{ marginTop: 4, fontSize: 11, color: 'rgba(255,255,255,0.75)', fontWeight: 500 }}>
                   {!running
                     ? 'Starts when you reach competencies'
+                    : finished
+                    ? '✅ Ratings submitted'
                     : paused
                     ? '⏸ Paused'
                     : isOver
@@ -287,7 +307,7 @@ function InterviewTimer({ visible, running, hidden, candidateId, itemNumber, onS
             <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
 
               {/* ── Row 1: Pause/Resume + Reset ── */}
-              {running && (
+              {running && !finished && (
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button
                     onClick={handlePauseResume}
@@ -431,9 +451,10 @@ function InterviewTimer({ visible, running, hidden, candidateId, itemNumber, onS
         <button
           onClick={handleFabClick}
           title={
-            !running ? 'Interview Timer — click to open' :
-            paused   ? `Paused at ${timeStr} — click to open` :
-            isOver   ? 'Time is up! — click to open' :
+            !running   ? 'Interview Timer — click to open' :
+            finished   ? 'Ratings submitted ✅ — click to open' :
+            paused     ? `Paused at ${timeStr} — click to open` :
+            isOver     ? 'Time is up! — click to open' :
             `${timeStr} remaining — click to open`
           }
           style={{
@@ -487,13 +508,15 @@ function InterviewTimer({ visible, running, hidden, candidateId, itemNumber, onS
           </svg>
 
           <svg width="13" height="13" fill="none" stroke="white" strokeWidth="2.3" viewBox="0 0 24 24" style={{ position: 'relative' }}>
-            {paused
+            {finished
+              ? <polyline points="20 6 9 17 4 12" strokeWidth="3"/>
+              : paused
               ? <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" fill="white" stroke="none"/>
               : <><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>
             }
           </svg>
           <span style={{ position: 'relative', fontSize: 10 }}>
-            {isOver ? 'DONE' : paused ? 'PAUS' : !running ? 'READY' : timeStr}
+            {finished ? 'DONE' : isOver ? 'DONE' : paused ? 'PAUS' : !running ? 'READY' : timeStr}
           </span>
         </button>
       </div>
@@ -899,6 +922,7 @@ const RaterView = ({ user }) => {
   const [timerRunning, setTimerRunning] = useState(false);  // starts the countdown
   const [restoredSession, setRestoredSession] = useState(null); // session fetched from DB
   const prevCandidateRef = useRef('');
+  const timerElapsedRef = useRef(0); // live elapsed ms — written by InterviewTimer, read on submit
   const competencySentinelRef = useRef(null); // attached to top of competency section
 
   const activeRatingRef = useRef(null);
@@ -1070,9 +1094,12 @@ const RaterView = ({ user }) => {
   }, [selectedCandidate, selectedItemNumber]);
 
   // IntersectionObserver: start the countdown the first time the competency
-  // section scrolls into view (threshold 0.1 = just barely visible)
+  // section scrolls into view (threshold 0.1 = just barely visible).
+  // Skip if the session was already finished (ratings submitted) — we don't
+  // want the timer to auto-run for a candidate who has already been rated.
   useEffect(() => {
     if (!timerVisible || timerRunning) return; // already running or no candidate
+    if (restoredSession?.finished) return;     // already rated — keep timer in Finished state
     const sentinel = competencySentinelRef.current;
     if (!sentinel) return;
 
@@ -1087,7 +1114,7 @@ const RaterView = ({ user }) => {
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [timerVisible, timerRunning]);
+  }, [timerVisible, timerRunning, restoredSession]);
 
   useEffect(() => {
     if (Object.keys(ratings).length > 0) {
@@ -1207,6 +1234,42 @@ const RaterView = ({ user }) => {
         }
       });
       setRatings(ratingsMap);
+
+      // If this candidate already has ratings from this rater (e.g. returning after submission),
+      // make sure a finished session record exists so the timer shows "Finished" instead of
+      // auto-starting. This backfills old records created before the finished flag was introduced.
+      if (raterRatings.length > 0 && selectedCandidate && selectedItemNumber) {
+        try {
+          const existing = await interviewSessionsAPI.get(selectedCandidate, selectedItemNumber);
+          // Only backfill if no session exists yet, or if it exists but isn't marked finished
+          if (!existing || !existing.finished) {
+            await interviewSessionsAPI.upsert({
+              candidateId: selectedCandidate,
+              itemNumber: selectedItemNumber,
+              elapsedSeconds: existing?.elapsedSeconds ?? 0,
+              notes: existing?.notes ?? '',
+              finished: true,
+            });
+            // Update the restoredSession in state so the timer + observer see it immediately
+            setRestoredSession(prev => prev
+              ? { ...prev, finished: true }
+              : { elapsedSeconds: existing?.elapsedSeconds ?? 0, notes: existing?.notes ?? '', finished: true }
+            );
+          }
+        } catch {
+          // 404 = no prior session at all — create a minimal finished one
+          try {
+            await interviewSessionsAPI.upsert({
+              candidateId: selectedCandidate,
+              itemNumber: selectedItemNumber,
+              elapsedSeconds: 0,
+              notes: '',
+              finished: true,
+            });
+            setRestoredSession({ elapsedSeconds: 0, notes: '', finished: true });
+          } catch { /* truly non-critical */ }
+        }
+      }
     } catch (error) {
       console.error('Failed to load existing ratings:', error);
       setRatings({});
@@ -1533,6 +1596,19 @@ const RaterView = ({ user }) => {
         };
       });
       await ratingsAPI.submitRatings({ ratings: ratingsData }, isUpdateSubmission);
+      // Always persist a finished session so re-visiting this candidate shows
+      // "Finished" on the timer rather than auto-starting or showing "Paused".
+      try {
+        await interviewSessionsAPI.upsert({
+          candidateId: selectedCandidate,
+          itemNumber: selectedItemNumber,
+          elapsedSeconds: Math.floor((timerElapsedRef.current || 0) / 1000),
+          notes: '',
+          finished: true,
+        });
+      } catch (sessionErr) {
+        console.warn('[InterviewTimer] session finish-save failed (non-critical):', sessionErr);
+      }
       setIsConfirmModalOpen(false);
       setSuccessModalType(isUpdateSubmission ? 'update' : 'submit');
       setIsSuccessModalOpen(true);
@@ -1556,6 +1632,16 @@ const RaterView = ({ user }) => {
         try {
           await ratingsAPI.resetRatings(selectedCandidate, user._id, selectedItemNumber);
           setRatings({});
+          // Reset the session so the timer starts fresh on next visit — not "Finished"
+          try {
+            await interviewSessionsAPI.upsert({
+              candidateId: selectedCandidate,
+              itemNumber: selectedItemNumber,
+              elapsedSeconds: 0,
+              notes: '',
+              finished: false,
+            });
+          } catch { /* non-critical */ }
           setIsPasswordModalOpen(false);
           setPassword('');
           setPasswordError('');
@@ -2556,6 +2642,7 @@ const RaterView = ({ user }) => {
             itemNumber={selectedItemNumber}
             restoredSession={restoredSession}
             onSaveSession={handleSaveSession}
+            elapsedRef={timerElapsedRef}
           />
 
           {selectedCandidate && !isRaterTypeConflictModalOpen && (
