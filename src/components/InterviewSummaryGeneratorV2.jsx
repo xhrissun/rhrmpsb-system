@@ -150,14 +150,21 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
   useEffect(() => {
     const loadPersistedNotifications = async () => {
       try {
-        // Fetch the last 20 stored notifications (no "since" filter = fetch all recent)
-        const stored = await ratingLogsAPI.getRecent();
+        // FIX: Use getAll (not getRecent) so we always get stored logs regardless of age.
+        // getRecent is designed for polling ("give me things newer than X") and may return
+        // nothing if the backend's time window is shorter than the gap since last activity.
+        const stored = await ratingLogsAPI.getAll({ limit: 20 });
         if (stored.length > 0) {
           setNotifications(stored.slice(0, 20));
           // All are considered "read" since they pre-date this session
           setUnreadCount(0);
-          // Set the poll cursor to the most recent one so we only pick up NEW ones
-          lastNotifPollRef.current = stored[0].createdAt ?? new Date().toISOString();
+          // FIX: Don't assume stored[0] is the newest — find the actual max createdAt
+          // so the poll cursor is always correct regardless of sort order from the server.
+          const latest = stored.reduce((max, n) => {
+            const t = n.createdAt ?? '';
+            return t > max ? t : max;
+          }, '');
+          lastNotifPollRef.current = latest || new Date().toISOString();
         } else {
           lastNotifPollRef.current = new Date().toISOString();
         }
@@ -992,10 +999,10 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
                     <span className="text-sm font-semibold text-gray-800">Rating Activity</span>
                     {notifications.length > 0 && (
                       <button
-                        onClick={() => setNotifications([])}
-                        className="text-xs text-gray-400 hover:text-red-500 transition-colors"
+                        onClick={() => setUnreadCount(0)}
+                        className="text-xs text-gray-400 hover:text-blue-500 transition-colors"
                       >
-                        Clear all
+                        Mark all read
                       </button>
                     )}
                   </div>
