@@ -124,6 +124,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
   // The item number actually being shown in the modal — may differ from selectedItem
   // when the modal was opened via a notification while a different item was selected.
   const [modalItemNumber, setModalItemNumber] = useState('');
+  const [modalAllItemNumbers, setModalAllItemNumbers] = useState([]);
   const [groupedCompetencies, setGroupedCompetencies] = useState({ basic: [], organizational: [], leadership: [], minimum: [] });
   const [raters, setRaters] = useState([]);
   const [modalLoading, setModalLoading] = useState(false);
@@ -494,6 +495,13 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       (!selectedPublicationRange || String(v.publicationRangeId) === String(selectedPublicationRange))
     );
 
+    // All item numbers sharing the same position + assignment (for merged display in PDF)
+    const siblingItemNumbers = vacancy
+      ? allVacancies
+          .filter(v => !v.isArchived && v.position === vacancy.position && v.assignment === vacancy.assignment)
+          .map(v => v.itemNumber).filter(Boolean).sort()
+      : [effectiveItem];
+
     const resolvedSalaryGrade = vacancy?.salaryGrade || boardSalaryGrade || null;
 
     // Re-fetch raters if missing (e.g. non-admin got stripped _id)
@@ -527,6 +535,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
 
     // ── Commit everything in one synchronous block → single React render ────────
     setModalItemNumber(effectiveItem);
+    setModalAllItemNumbers(siblingItemNumbers);
     setCandidateDetails(candidateData);
     setRatings(filteredRatings);
     setVacancyDetails(vacancy);
@@ -542,6 +551,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     setCandidateDetails(null);
     setRatings([]);
     setModalItemNumber('');
+    setModalAllItemNumbers([]);
     setGroupedCompetencies({ basic: [], organizational: [], leadership: [], minimum: [] });
     setAutoRefresh(false);
     setTestMode(false);
@@ -682,7 +692,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       ['Name of Candidate:', candidateDetails?.fullName || ''],
       ['Office:', vacancyDetails?.assignment || ''],
       ['Vacancy:', vacancyDetails?.position || ''],
-      ['Item Number:', modalItemNumber || ''],
+      ['Item Number:', (modalAllItemNumbers.length > 0 ? modalAllItemNumbers : [modalItemNumber]).join(', ') || ''],
       ['Date of Interview:', new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })]
     ];
 
