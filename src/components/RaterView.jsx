@@ -888,6 +888,7 @@ const RaterView = ({ user }) => {
   // Ref used by loadInitialData to detect a user-initiated skip while awaiting
   const pdfSkipRef = useRef(false);
   const [submitting, setSubmitting] = useState(false);
+  const [submitSlowWarning, setSubmitSlowWarning] = useState(false); // true after 5 s of submitting
   const [isModalMinimized, setIsModalMinimized] = useState(true);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
@@ -1123,6 +1124,14 @@ const RaterView = ({ user }) => {
       sessionStorage.removeItem(`rater_${user._id}_hasUnsavedRatings`);
     }
   }, [ratings, user._id]);
+
+  // Show a slow-connection warning inside the submit modal if submission takes
+  // longer than 5 seconds — reassures the rater the system is still working.
+  useEffect(() => {
+    if (!submitting) { setSubmitSlowWarning(false); return; }
+    const t = setTimeout(() => setSubmitSlowWarning(true), 5000);
+    return () => clearTimeout(t);
+  }, [submitting]);
 
   const filterVacanciesByAssignment = useCallback((allVacancies, user) => {
     switch (user.assignedVacancies) {
@@ -2151,11 +2160,22 @@ const RaterView = ({ user }) => {
                     </div>
                   </div>
                 </div>
+                {submitSlowWarning && (
+                  <div className="mb-4 flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                    <svg className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
+                    </svg>
+                    <div>
+                      <p className="font-semibold">Slow connection detected</p>
+                      <p className="mt-0.5">Your submission is still in progress — please <strong>do not close this window</strong>. The system is waiting for the server to respond.</p>
+                    </div>
+                  </div>
+                )}
                 <div className="flex justify-end gap-4">
-                  <button onClick={() => setIsConfirmModalOpen(false)} className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 text-lg font-semibold">Cancel</button>
+                  <button onClick={() => setIsConfirmModalOpen(false)} disabled={submitting} className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 text-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed">Cancel</button>
                   <button onClick={confirmSubmitRatings} disabled={submitting} className={`px-6 py-3 rounded-lg font-semibold flex items-center justify-center space-x-2 text-lg ${submitting ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-gradient-to-r from-green-600 to-emerald-600 text-white hover:from-green-700 hover:to-emerald-700 focus:ring-2 focus:ring-green-500'}`}>
                     {submitting ? (
-                      <><div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div><span>{isUpdateSubmission ? 'Updating...' : 'Submitting...'}</span></>
+                      <><div className="w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div><span>{isUpdateSubmission ? 'Updating...' : 'Submitting...'}</span></>
                     ) : (
                       <><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg><span>{isUpdateSubmission ? 'Update Ratings' : 'Submit Ratings'}</span></>
                     )}
