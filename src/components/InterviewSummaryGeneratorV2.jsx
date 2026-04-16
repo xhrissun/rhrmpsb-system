@@ -149,23 +149,29 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
   // ── Load persisted notifications on mount ───────────────────────────────────
   useEffect(() => {
     const loadPersistedNotifications = async () => {
+      // Non-admin roles do not have access to GET /rating-logs (returns 403).
+      // For those users we skip the initial load entirely — the poll cursor is
+      // set to "now" so the 30-second polling loop still works via getRecent,
+      // which uses a separate endpoint that is accessible to all roles.
+      const isAdmin = user?.role === 'summary_viewer';
+
+      if (!isAdmin) {
+        lastNotifPollRef.current = new Date().toISOString();
+        return;
+      }
+
       try {
-        // FIX: Use getAll (not getRecent) so we always get stored logs regardless of age.
-        // getRecent is designed for polling ("give me things newer than X") and may return
-        // nothing if the backend's time window is shorter than the gap since last activity.
+        // Admin path: hydrate the notification panel from stored logs.
         const stored = await ratingLogsAPI.getAll({ limit: 20 });
         if (stored.length > 0) {
           setNotifications(stored.slice(0, 20));
 
-          // FIX: Restore unread count across refreshes using the last-read timestamp
-          // persisted in localStorage. Notifications created AFTER that timestamp are
-          // still unread — they should stay highlighted until the user explicitly clears them.
+          // Restore unread count using the last-read timestamp in localStorage.
           const lastReadAt = localStorage.getItem('notif_lastReadAt') || '';
           const unread = stored.filter(n => (n.createdAt ?? '') > lastReadAt).length;
           setUnreadCount(unread);
 
-          // FIX: Don't assume stored[0] is the newest — find the actual max createdAt
-          // so the poll cursor is always correct regardless of sort order from the server.
+          // Use the actual max createdAt as the poll cursor (don't assume sort order).
           const latest = stored.reduce((max, n) => {
             const t = n.createdAt ?? '';
             return t > max ? t : max;
@@ -174,19 +180,27 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
         } else {
           lastNotifPollRef.current = new Date().toISOString();
         }
-      } catch {
+      } catch (err) {
+        // If the server still returns 403 (e.g. role check differs from client-side),
+        // fall through gracefully so polling can still start via getRecent.
+        if (err?.response?.status !== 403) {
+          console.warn('Failed to load persisted notifications:', err);
+        }
         lastNotifPollRef.current = new Date().toISOString();
       }
     };
     loadPersistedNotifications();
-  }, []);
+  }, [user?.role]);
 
   useEffect(() => { selectedItemRef.current = selectedItem; }, [selectedItem]);
   useEffect(() => { selectedCandidateRef.current = selectedCandidate; }, [selectedCandidate]);
   useEffect(() => { modalOpenRef.current = modalOpen; }, [modalOpen]);
 
-  // ─── System-wide notification polling (every 30s, always on) ─────────────────
+  // ─── System-wide notification polling (every 30s, admin only) ───────────────
   useEffect(() => {
+    // Only admins have access to rating-logs endpoints; skip for other roles.
+    if (user?.role !== 'admin') return;
+
     const poll = async () => {
       // Don't poll until the initial load has set the cursor
       if (!lastNotifPollRef.current) return;
@@ -225,8 +239,11 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
             } catch { /* silent */ }
           }
         }
-      } catch {
-        // Silent fail — notifications are non-critical
+      } catch (err) {
+        // Silence expected 403s; surface unexpected errors for debugging
+        if (err?.response?.status !== 403) {
+          console.warn('Notification poll error:', err);
+        }
       }
     };
     // Initial poll after 10s so it doesn't fire on first load
@@ -236,7 +253,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       clearTimeout(initialTimer);
       clearInterval(interval);
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Close notification panel when clicking outside ───────────────────────────
   useEffect(() => {
