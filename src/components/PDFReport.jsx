@@ -5,7 +5,7 @@ import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 
 // ─── Core PDF builder ────────────────────────────────────────────────────────
-function buildDeliberationPDF({ vacancy, candidates, raters, includeSignatories }) {
+function buildDeliberationPDF({ vacancy, candidates, raters, includeSignatories, allItemNumbers }) {
   const withSigs = includeSignatories === true && Array.isArray(raters) && raters.length > 0;
 
   const doc = new jsPDF({ format: [576, 936], unit: 'pt' });
@@ -27,7 +27,11 @@ function buildDeliberationPDF({ vacancy, candidates, raters, includeSignatories 
     year: 'numeric', month: 'short', day: 'numeric',
     hour: '2-digit', minute: '2-digit', hour12: true,
   });
-  const footerLeft = `Item: ${vacancy.itemNumber} | Generated: ${shortDT}`;
+  // Merge all item numbers for same position+assignment, falling back to single item
+  const mergedItems = (allItemNumbers && allItemNumbers.length > 0)
+    ? allItemNumbers.join(', ')
+    : vacancy.itemNumber;
+  const footerLeft = `Item: ${mergedItems} | Generated: ${shortDT}`;
 
   // ── Footer stamp — only called in the final pass ──────────────────────────
   function drawFooter(pageNum, totalPages) {
@@ -81,8 +85,11 @@ function buildDeliberationPDF({ vacancy, candidates, raters, includeSignatories 
   doc.setFont('helvetica', 'bold');
   doc.text('ITEM:',       margin, y);
   doc.setFont('helvetica', 'normal');
-  doc.text(vacancy.itemNumber, valX, y);
-  y += 20;
+  {
+    const itemLines = doc.splitTextToSize(mergedItems, pageWidth - valX - margin);
+    doc.text(itemLines, valX, y);
+    y += itemLines.length * 14 + 6;
+  }
 
   doc.setFontSize(8);
   const fullDT = now.toLocaleString('en-US', {
@@ -337,6 +344,7 @@ function buildDeliberationPDF({ vacancy, candidates, raters, includeSignatories 
 const PDFReport = ({ itemNumber, user, raters }) => {
   const [vacancy,    setVacancy]    = useState(null);
   const [candidates, setCandidates] = useState([]);
+  const [siblingItemNumbers, setSiblingItemNumbers] = useState([]);
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState('');
 
@@ -353,6 +361,11 @@ const PDFReport = ({ itemNumber, user, raters }) => {
         const found = vacanciesRes.find(v => v.itemNumber === itemNumber);
         if (!found) throw new Error('VACANCY NOT FOUND FOR THE SPECIFIED ITEM NUMBER');
         setVacancy(found);
+        // Collect all item numbers sharing the same position + assignment
+        const sibling = vacanciesRes.filter(
+          v => v.position === found.position && v.assignment === found.assignment
+        ).map(v => v.itemNumber).filter(Boolean).sort();
+        setSiblingItemNumbers(sibling);
         setCandidates(
           candidatesRes
             .filter(c => c.itemNumber === itemNumber)
@@ -373,7 +386,7 @@ const PDFReport = ({ itemNumber, user, raters }) => {
         setError('MISSING VACANCY OR CANDIDATE DATA.');
         return;
       }
-      const doc = buildDeliberationPDF({ vacancy, candidates, raters, includeSignatories: true });
+      const doc = buildDeliberationPDF({ vacancy, candidates, raters, includeSignatories: true, allItemNumbers: siblingItemNumbers });
       doc.save(`Summary_${vacancy.itemNumber}.pdf`);
     } catch (err) {
       console.error('FAILED TO GENERATE PDF:', err.message, err.stack);
@@ -447,6 +460,11 @@ export async function generateLongListPDF(itemNumber) {
   const vacancy = vacanciesRes.find(v => v.itemNumber === itemNumber);
   if (!vacancy) throw new Error('Vacancy not found for item: ' + itemNumber);
 
+  // Collect all item numbers sharing the same position + assignment
+  const allItemNumbers = vacanciesRes
+    .filter(v => v.position === vacancy.position && v.assignment === vacancy.assignment)
+    .map(v => v.itemNumber).filter(Boolean).sort();
+
   const candidates = candidatesRes
     .filter(c => c.itemNumber === itemNumber)
     .sort((a, b) => (a.fullName || '').localeCompare(b.fullName));
@@ -456,6 +474,7 @@ export async function generateLongListPDF(itemNumber) {
     candidates,
     raters: [],
     includeSignatories: false,
+    allItemNumbers,
   });
 
   doc.save(`Longlist_${vacancy.itemNumber}.pdf`);
