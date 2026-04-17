@@ -536,6 +536,13 @@ export const ratingLogsAPI = {
     const params = since ? `?since=${encodeURIComponent(since)}` : '';
     const response = await api.get(`/rating-logs/recent${params}`);
     return response.data;
+  },
+
+  // Hydration load: last 30 notifications from all time, newest first.
+  // Uses the same /recent endpoint with no `since` — backend returns last 30 in that case.
+  getNotifications: async () => {
+    const response = await api.get('/rating-logs/recent');
+    return response.data;
   }
 };
 

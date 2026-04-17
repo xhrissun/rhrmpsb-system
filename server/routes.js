@@ -1947,19 +1947,22 @@ router.get('/rating-logs/recent', authMiddleware, async (req, res) => {
     return res.status(403).json({ message: 'Access denied' });
   }
   try {
-    const since = req.query.since
-      ? new Date(req.query.since)
-      : new Date(Date.now() - 60000);
+    // When `since` is omitted the caller wants a hydration load (page/session start):
+    // return the last 30 notifications across all time, not just the past minute.
+    // When `since` IS provided it's the polling cursor — return everything newer than it.
+    const sinceFilter = req.query.since
+      ? { createdAt: { $gt: new Date(req.query.since) } }
+      : {};
 
     const logs = await RatingLog.find({
       action: { $in: ['created', 'updated', 'deleted', 'batch_created', 'batch_updated', 'batch_deleted'] },
-      createdAt: { $gt: since }
+      ...sinceFilter
     })
       .populate('candidateId', 'fullName')
       .populate('raterId', 'name raterType')
       .select('candidateId raterId itemNumber action createdAt')
       .sort({ createdAt: -1 })
-      .limit(50)
+      .limit(req.query.since ? 50 : 30)  // hydration: 30 max; polling: up to 50 new
       .lean();
 
     // Deduplicate: one notification per candidate+item combination

@@ -150,27 +150,26 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
   // ── Load persisted notifications on mount ───────────────────────────────────
   useEffect(() => {
     const loadPersistedNotifications = async () => {
-      // Non-admin roles do not have access to GET /rating-logs (returns 403).
-      // For those users we skip the initial load entirely — the poll cursor is
-      // set to "now" so the 30-second polling loop still works via getRecent,
-      // which uses a separate endpoint that is accessible to all roles.
-      const isAdmin = user?.role === 'summary_viewer';
+      // Only summary_viewer and admin have access to GET /rating-logs/recent for hydration.
+      const canViewNotifs = user?.userType === 'summary_viewer' || user?.userType === 'admin';
 
-      if (!isAdmin) {
+      if (!canViewNotifs) {
         lastNotifPollRef.current = new Date().toISOString();
         return;
       }
 
       try {
-        // Admin path: hydrate the notification panel from stored logs.
-        const stored = await ratingLogsAPI.getAll({ limit: 20 });
-        if (stored.length > 0) {
-          setNotifications(stored.slice(0, 20));
+        // Hydrate the notification panel from stored logs (last 30, all time).
+        // getNotifications() calls /rating-logs/recent with no `since` param,
+        // which the backend interprets as a hydration load and returns last 30.
+        const stored = await ratingLogsAPI.getNotifications();
+        if (Array.isArray(stored) && stored.length > 0) {
+          setNotifications(stored.slice(0, 30));
 
           // Restore unread count using the last-read timestamp in localStorage.
           const lastReadAt = localStorage.getItem('notif_lastReadAt') || '';
           const unread = stored.filter(n => (n.createdAt ?? '') > lastReadAt).length;
-          setUnreadCount(unread);
+          setUnreadCount(Math.min(unread, 30));
 
           // Use the actual max createdAt as the poll cursor (don't assume sort order).
           const latest = stored.reduce((max, n) => {
@@ -182,8 +181,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
           lastNotifPollRef.current = new Date().toISOString();
         }
       } catch (err) {
-        // If the server still returns 403 (e.g. role check differs from client-side),
-        // fall through gracefully so polling can still start via getRecent.
+        // If the server returns 403 fall through gracefully so polling can still start.
         if (err?.response?.status !== 403) {
           console.warn('Failed to load persisted notifications:', err);
         }
@@ -191,16 +189,16 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       }
     };
     loadPersistedNotifications();
-  }, [user?.role]);
+  }, [user?.userType]);
 
   useEffect(() => { selectedItemRef.current = selectedItem; }, [selectedItem]);
   useEffect(() => { selectedCandidateRef.current = selectedCandidate; }, [selectedCandidate]);
   useEffect(() => { modalOpenRef.current = modalOpen; }, [modalOpen]);
 
-  // ─── System-wide notification polling (every 30s, admin only) ───────────────
+  // ─── System-wide notification polling (every 30s, admin + summary_viewer) ───
   useEffect(() => {
-    // Only admins have access to rating-logs endpoints; skip for other roles.
-    if (user?.role !== 'admin') return;
+    // Only admins and summary_viewers have access to rating-logs endpoints.
+    if (user?.userType !== 'admin' && user?.userType !== 'summary_viewer') return;
 
     const poll = async () => {
       // Don't poll until the initial load has set the cursor
@@ -209,7 +207,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
         const recent = await ratingLogsAPI.getRecent(lastNotifPollRef.current);
         lastNotifPollRef.current = new Date().toISOString();
         if (recent.length > 0) {
-          setNotifications(prev => [...recent, ...prev].slice(0, 20));
+          setNotifications(prev => [...recent, ...prev].slice(0, 30));
           setUnreadCount(prev => prev + recent.length);
 
           // ── Auto-refresh live view when new activity is detected ──────────────
@@ -254,7 +252,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       clearTimeout(initialTimer);
       clearInterval(interval);
     };
-  }, [user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user?.userType]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Close notification panel when clicking outside ───────────────────────────
   useEffect(() => {
