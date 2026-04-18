@@ -1015,7 +1015,15 @@ const RaterView = ({ user }) => {
   const [sessionReady, setSessionReady] = useState(false);
   const prevCandidateRef = useRef('');
   const timerElapsedRef = useRef(0); // live elapsed ms — written by InterviewTimer, read on submit
-  const competencySentinelRef = useRef(null); // attached to top of competency section
+  // Callback ref: flips sentinelMounted→true the moment the sentinel div enters the DOM.
+  // This re-triggers the IntersectionObserver effect on refresh when sessionReady
+  // becomes true before the competency section has rendered.
+  const [sentinelMounted, setSentinelMounted] = useState(false);
+  const sentinelNodeRef = useRef(null);
+  const competencySentinelRef = useCallback((node) => {
+    sentinelNodeRef.current = node;
+    if (node) setSentinelMounted(true);
+  }, []);
 
   const activeRatingRef = useRef(null);
   const scrollPositionRef = useRef(0);
@@ -1162,6 +1170,7 @@ const RaterView = ({ user }) => {
       setTimerRunning(false);
       setRestoredSession(null);
       setSessionReady(false);
+      setSentinelMounted(false); // re-arm so observer re-attaches after DOM re-renders
       const t = setTimeout(async () => {
         setTimerVisible(true);
         // Try to restore a prior session for this candidate + item
@@ -1188,6 +1197,7 @@ const RaterView = ({ user }) => {
       setTimerRunning(false);
       setRestoredSession(null);
       setSessionReady(false);
+      setSentinelMounted(false);
     }
   }, [selectedCandidate, selectedItemNumber]);
 
@@ -1207,7 +1217,10 @@ const RaterView = ({ user }) => {
     if (!timerVisible || timerRunning) return;
     if (!sessionReady) return;               // wait for restore fetch to complete
     if (restoredSession?.finished) return;   // already rated — stay in Finished state
-    const sentinel = competencySentinelRef.current;
+    // sentinelNodeRef holds the actual DOM node set by the callback ref.
+    // sentinelMounted is in deps so this effect re-runs the moment the node
+    // appears after a refresh (when sessionReady was true before the DOM mounted).
+    const sentinel = sentinelNodeRef.current;
     if (!sentinel) return;
 
     const observer = new IntersectionObserver(
@@ -1221,7 +1234,7 @@ const RaterView = ({ user }) => {
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [timerVisible, timerRunning, restoredSession, sessionReady]);
+  }, [timerVisible, timerRunning, restoredSession, sessionReady, sentinelMounted]);
 
   useEffect(() => {
     if (Object.keys(ratings).length > 0) {
