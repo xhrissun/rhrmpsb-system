@@ -1962,17 +1962,21 @@ router.get('/rating-logs/recent', authMiddleware, async (req, res) => {
       .populate('raterId', 'name raterType')
       .select('candidateId raterId itemNumber action createdAt')
       .sort({ createdAt: -1 })
-      .limit(req.query.since ? 50 : 30)  // hydration: 30 max; polling: up to 50 new
+      // FIX: Raise the pre-dedup fetch limit so dedup has enough raw material to
+      // produce 30 unique candidate+item pairs. The old limit(30) meant that if the
+      // same 2 candidates were each rated 15 times recently, dedup would yield only 2
+      // notifications instead of 30. We now fetch up to 300 rows then slice after dedup.
+      .limit(req.query.since ? 300 : 300)
       .lean();
 
-    // Deduplicate: one notification per candidate+item combination
+    // Deduplicate: one notification per candidate+item combination (most recent wins)
     const seen = new Set();
     const unique = logs.filter(l => {
       const key = `${l.candidateId?._id}_${l.itemNumber}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
-    });
+    }).slice(0, req.query.since ? 50 : 30); // enforce final cap AFTER dedup
 
     // Enrich with position + assignment from Vacancy (one query, not N)
     const itemNumbers = [...new Set(unique.map(l => l.itemNumber))];
@@ -2356,28 +2360,32 @@ router.delete('/publication-ranges/:id', authMiddleware, async (req, res) => {
 // GET  /interview-sessions?candidateId=&itemNumber= — restore a prior session
 // ═══════════════════════════════════════════════════════════════════════════
 
-// In-memory session store keyed by "raterId:candidateId:itemNumber".
-// NOTE: Cleared on server restart. Migrate to a MongoDB collection with a
-// TTL index if you need persistence across deploys.
-const _interviewSessions = new Map();
+// FIX: Sessions are now persisted in MongoDB via the InterviewSession model.
+// Previously used an in-memory Map that was wiped on every server restart (Render
+// free-tier spin-down), causing all GET /interview-sessions calls to return 404.
 
 router.put('/interview-sessions', authMiddleware, async (req, res) => {
   if (req.user.userType !== 'rater') return res.status(403).json({ message: 'Access denied' });
   try {
-    const { candidateId, itemNumber, elapsedSeconds, notes } = req.body;
+    const { candidateId, itemNumber, elapsedSeconds, notes, finished } = req.body;
     if (!candidateId || !itemNumber) {
       return res.status(400).json({ message: 'candidateId and itemNumber are required' });
     }
-    const key = `${req.user._id}:${candidateId}:${itemNumber}`;
-    _interviewSessions.set(key, {
-      raterId: req.user._id.toString(),
-      candidateId,
-      itemNumber,
-      elapsedSeconds: typeof elapsedSeconds === 'number' ? elapsedSeconds : 0,
-      notes: typeof notes === 'string' ? notes : '',
-      savedAt: new Date()
+    const filter = { raterId: req.user._id, candidateId, itemNumber };
+    const update = {
+      $set: {
+        elapsedMs: typeof elapsedSeconds === 'number' ? elapsedSeconds * 1000 : 0,
+        notes: typeof notes === 'string' ? notes : '',
+        timerCompleted: finished === true,
+        updatedAt: new Date(),
+      }
+    };
+    const session = await InterviewSession.findOneAndUpdate(filter, update, {
+      upsert: true,
+      new: true,
+      setDefaultsOnInsert: true,
     });
-    res.json({ message: 'Session saved' });
+    res.json({ message: 'Session saved', session });
   } catch (error) {
     console.error('[PUT /interview-sessions]', error);
     res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
@@ -2391,10 +2399,22 @@ router.get('/interview-sessions', authMiddleware, async (req, res) => {
     if (!candidateId || !itemNumber) {
       return res.status(400).json({ message: 'candidateId and itemNumber query parameters are required' });
     }
-    const key = `${req.user._id}:${candidateId}:${itemNumber}`;
-    const session = _interviewSessions.get(key);
+    const session = await InterviewSession.findOne({
+      raterId: req.user._id,
+      candidateId,
+      itemNumber,
+    }).lean();
     if (!session) return res.status(404).json({ message: 'No session found' });
-    res.json(session);
+    // Normalise: client expects elapsedSeconds (not elapsedMs) and a `finished` flag
+    res.json({
+      raterId:        session.raterId,
+      candidateId:    session.candidateId,
+      itemNumber:     session.itemNumber,
+      elapsedSeconds: Math.floor((session.elapsedMs ?? 0) / 1000),
+      notes:          session.notes ?? '',
+      finished:       session.timerCompleted ?? false,
+      savedAt:        session.updatedAt,
+    });
   } catch (error) {
     console.error('[GET /interview-sessions]', error);
     res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
@@ -2411,7 +2431,12 @@ router.get('/interview-sessions', authMiddleware, async (req, res) => {
 
 router.get('/pdf-cache/competencies', async (req, res) => {
   try {
-    const cached = await PDFCache.findOne().sort({ createdAt: -1 });
+    // FIX: If a fingerprint query param is supplied, match it exactly so we never
+    // serve a stale cache for a different PDF version. Without it, fall back to the
+    // most recently created entry (hydration load on first visit).
+    const { fingerprint } = req.query;
+    const query = fingerprint ? { fingerprint } : {};
+    const cached = await PDFCache.findOne(query).sort({ createdAt: -1 });
     if (!cached) {
       return res.status(404).json({ message: 'No cached PDF data found' });
     }

@@ -58,15 +58,26 @@ function InterviewTimer({ visible, running, hidden, candidateId, itemNumber, onS
   }, [visible, restoredSession]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Auto-save session every 30 s while timer is running ───────────────────
+  // FIX: Use refs for elapsed + notes so the interval never re-creates on every
+  // RAF tick (which previously caused the 30 s autosave to almost never fire).
+  const _autoSaveElapsedRef = useRef(0);
+  const _autoSaveNotesRef   = useRef('');
+  useEffect(() => { _autoSaveElapsedRef.current = elapsed; }, [elapsed]);
+  useEffect(() => { _autoSaveNotesRef.current   = notes;   }, [notes]);
+
   useEffect(() => {
     if (!running || !candidateId || !itemNumber) return;
     const interval = setInterval(() => {
       if (onSaveSession) {
-        onSaveSession({ elapsedSeconds: Math.floor(elapsed / 1000), notes });
+        onSaveSession({
+          elapsedSeconds: Math.floor(_autoSaveElapsedRef.current / 1000),
+          notes: _autoSaveNotesRef.current,
+        });
       }
     }, 30000);
     return () => clearInterval(interval);
-  }, [running, elapsed, notes, candidateId, itemNumber, onSaveSession]);
+    // Stable deps only — elapsed/notes read via ref to avoid interval restart churn
+  }, [running, candidateId, itemNumber, onSaveSession]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keep elapsedRef in sync so the parent can read current elapsed at any time
   useEffect(() => {

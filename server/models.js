@@ -329,8 +329,12 @@ const pdfCacheSchema = new mongoose.Schema({
   schemaVersion: { type: Number, default: 1 },
   data: { type: mongoose.Schema.Types.Mixed, required: true },
   cachedAt: { type: Date, default: Date.now },
-  source: { type: String, default: 'server' }
+  source: { type: String, default: 'server' },
+  // FIX: TTL field — stale entries auto-expire after 30 days
+  expiresAt: { type: Date, default: () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) }
 }, { timestamps: true });
+// TTL index: MongoDB auto-deletes when expiresAt is reached
+pdfCacheSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 // One session per rater+candidate+item sitting
 interviewSessionSchema.index(

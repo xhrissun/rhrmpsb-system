@@ -587,7 +587,8 @@ export async function ensureParsed(onProgress) {
       // STEP 1: Try server-backed cache first (persists across server restarts)
       let serverCached = null;
       try {
-        serverCached = await pdfCacheAPI.get();
+        // FIX: Pass fingerprint so server returns 404 on version mismatch rather than stale data
+        serverCached = await pdfCacheAPI.get(fingerprint);
       } catch (err) {
         console.info('[pdfParserCache] Server cache unavailable (expected on first load):', err.message);
       }

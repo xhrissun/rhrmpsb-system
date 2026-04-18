@@ -625,13 +625,15 @@ export const interviewSessionsAPI = {
 
 // PDF Cache API — server-backed persistence for parsed competency data
 export const pdfCacheAPI = {
-  // Get cached parsed competencies from server (returns null if not cached)
-  get: async () => {
+  // FIX: Accept optional fingerprint — server returns 404 if its cached entry
+  // is for a different PDF version, forcing a fresh parse instead of serving stale data.
+  get: async (fingerprint) => {
     try {
-      const response = await api.get('/pdf-cache/competencies');
+      const params = fingerprint ? `?fingerprint=${encodeURIComponent(fingerprint)}` : '';
+      const response = await api.get(`/pdf-cache/competencies${params}`);
       return response.data; // { data: [...], fingerprint, cachedAt }
     } catch (error) {
-      // 404 or other errors mean cache is empty; return null to trigger re-parse
+      // 404 = cache empty or fingerprint mismatch; return null to trigger re-parse
       if (error.response?.status === 404) return null;
       throw error;
     }

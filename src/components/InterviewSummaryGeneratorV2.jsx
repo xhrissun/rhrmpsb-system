@@ -1042,7 +1042,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
 
               {/* ── Notification Dropdown Panel ───────────────────────── */}
               {notifOpen && (
-                <div className="absolute right-0 top-11 w-80 bg-white rounded-xl border border-gray-200 shadow-xl z-50 overflow-hidden">
+                <div className="absolute right-0 top-11 w-96 bg-white rounded-xl border border-gray-200 shadow-xl z-50 overflow-hidden">
                   <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
                     <span className="text-sm font-semibold text-gray-800">Rating Activity</span>
                     {notifications.length > 0 && (
@@ -1064,7 +1064,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
                       <p className="text-xs text-gray-300 mt-1">Polls every 30 seconds</p>
                     </div>
                   ) : (
-                    <ul className="max-h-72 overflow-y-auto divide-y divide-gray-50">
+                    <ul className="max-h-[480px] overflow-y-auto divide-y divide-gray-50">
                       {notifications.map((notif, idx) => (
                         <li key={`${notif._id || idx}`}>
                           <button
