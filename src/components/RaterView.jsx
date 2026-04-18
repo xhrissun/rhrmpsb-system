@@ -1089,12 +1089,14 @@ const RaterView = ({ user }) => {
         // Try to restore a prior session for this candidate + item
         if (selectedItemNumber) {
           try {
+            // interviewSessionsAPI.get() returns null on 404 (first-time candidate) — never throws it.
             const session = await interviewSessionsAPI.get(selectedCandidate, selectedItemNumber);
             if (session && session.elapsedSeconds > 0) {
               setRestoredSession(session);
             }
-          } catch {
-            // 404 = no prior session; silence it
+          } catch (err) {
+            // Only genuine errors reach here (network failure, 5xx) — 404 is handled in api.js.
+            console.warn('[InterviewTimer] session restore failed (non-critical):', err?.message);
           }
         }
       }, 0);

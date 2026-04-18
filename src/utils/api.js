@@ -601,13 +601,20 @@ export const publicationRangesAPI = {
 
 // Interview Sessions API
 export const interviewSessionsAPI = {
-  // Load a previously saved session for a candidate+item (restores notes & timer state)
+  // Returns null when no session exists yet (404) — expected for first-time candidates.
+  // 404 is handled HERE so it never throws or logs a console error (Axios treats 4xx as exceptions).
   get: async (candidateId, itemNumber) => {
-    const encodedItem = encodeURIComponent(itemNumber);
-    const response = await api.get(
-      `/interview-sessions?candidateId=${candidateId}&itemNumber=${encodedItem}`
-    );
-    return response.data; // null-safe: caller should catch 404
+    try {
+      const encodedItem = encodeURIComponent(itemNumber);
+      const response = await api.get(
+        `/interview-sessions?candidateId=${candidateId}&itemNumber=${encodedItem}`
+      );
+      return response.data;
+    } catch (error) {
+      // 404 = no prior session; normal on first visit — return null silently.
+      if (error.response?.status === 404) return null;
+      throw error; // re-throw unexpected errors (network, 5xx)
+    }
   },
 
   // Upsert — safe to call frequently (debounced from the timer component)
