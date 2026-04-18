@@ -11,7 +11,8 @@ function App() {
 
   useEffect(() => {
     const initAuth = async () => {
-      const token = localStorage.getItem('token');
+      // FIX: Use consistent key 'authToken' (matches api.js interceptor and Login.jsx)
+      const token = localStorage.getItem('authToken');
       const savedUser = localStorage.getItem('user');
 
       if (token && savedUser) {
@@ -20,7 +21,7 @@ function App() {
           setUser(userData);
         } catch (error) {
           console.error('Auth verification failed:', error);
-          localStorage.removeItem('token');
+          localStorage.removeItem('authToken');
           localStorage.removeItem('user');
           setUser(null);
         }
@@ -33,13 +34,15 @@ function App() {
 
   const handleLogin = (userData) => {
     setUser(userData.user);
-    localStorage.setItem('token', userData.token);
+    // FIX: Use consistent key 'authToken' (matches api.js interceptor)
+    localStorage.setItem('authToken', userData.token);
     localStorage.setItem('user', JSON.stringify(userData.user));
   };
 
   const handleLogout = () => {
     setUser(null);
-    localStorage.removeItem('token');
+    // FIX: Use consistent key 'authToken' (matches api.js interceptor)
+    localStorage.removeItem('authToken');
     localStorage.removeItem('user');
   };
 
