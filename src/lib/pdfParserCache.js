@@ -584,36 +584,9 @@ export async function ensureParsed(onProgress) {
       const PDF_URL   = '/rhrmpsb-system/2025_CBS.pdf';
       const fingerprint = await getPDFFingerprint(PDF_URL);
 
-      // STEP 1: Try server-backed cache first (persists across server restarts)
-      let serverCached = null;
-      try {
-        // FIX: Pass fingerprint so server returns 404 on version mismatch rather than stale data
-        serverCached = await pdfCacheAPI.get(fingerprint);
-      } catch (err) {
-        console.info('[pdfParserCache] Server cache unavailable (expected on first load):', err.message);
-      }
-
-      const serverCacheValid =
-        serverCached &&
-        serverCached.schemaVersion === SCHEMA_VER &&
-        Array.isArray(serverCached.data) &&
-        serverCached.data.length > 0 &&
-        (fingerprint === 'unavailable' || serverCached.fingerprint === fingerprint);
-
-      if (serverCacheValid) {
-        onProgress?.(100, 'Loaded from server cache');
-        _competencies = serverCached.data;
-        // Also update IndexedDB for offline access
-        idbSet('competencies', {
-          schemaVer: SCHEMA_VER,
-          fingerprint,
-          cachedAt: Date.now(),
-          data: _competencies,
-        }).catch(err => console.warn('[pdfParserCache] IDB write error:', err));
-        return _competencies;
-      }
-
-      // STEP 2: Fall back to IndexedDB if server cache is invalid/unavailable
+      // STEP 1: Check IndexedDB first — it lives in the browser and survives
+      // server restarts. If it has a valid fingerprint match we skip the server
+      // GET entirely, eliminating the 404 console noise on every reload.
       let cached = null;
       try { cached = await idbGet('competencies'); } catch {}
 
@@ -630,7 +603,37 @@ export async function ensureParsed(onProgress) {
         return _competencies;
       }
 
-      if ((serverCached || cached) && !serverCacheValid && !cacheValid) {
+      // STEP 2: IndexedDB cold or stale — try server cache.
+      // 404 here is expected (first load / server restart) and handled silently.
+      let serverCached = null;
+      try {
+        serverCached = await pdfCacheAPI.get(fingerprint);
+      } catch (err) {
+        // pdfCacheAPI.get() already returns null on 404; only genuine errors reach here
+        console.info('[pdfParserCache] Server cache unavailable:', err.message);
+      }
+
+      const serverCacheValid =
+        serverCached &&
+        serverCached.schemaVersion === SCHEMA_VER &&
+        Array.isArray(serverCached.data) &&
+        serverCached.data.length > 0 &&
+        (fingerprint === 'unavailable' || serverCached.fingerprint === fingerprint);
+
+      if (serverCacheValid) {
+        onProgress?.(100, 'Loaded from server cache');
+        _competencies = serverCached.data;
+        // Warm IndexedDB so next load skips the server GET entirely
+        idbSet('competencies', {
+          schemaVer: SCHEMA_VER,
+          fingerprint,
+          cachedAt: Date.now(),
+          data: _competencies,
+        }).catch(err => console.warn('[pdfParserCache] IDB write error:', err));
+        return _competencies;
+      }
+
+      if (cached || serverCached) {
         console.info('[pdfParserCache] PDF changed — re-parsing.');
       }
 
