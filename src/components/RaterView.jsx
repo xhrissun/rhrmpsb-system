@@ -30,6 +30,10 @@ function InterviewTimer({ visible, running, hidden, candidateId, itemNumber, onS
   const [notes,          setNotes]          = useState('');
   const [notesSaved,     setNotesSaved]     = useState(false);
   const [sessionRestored, setSessionRestored] = useState(false); // banner shown once on restore
+  // Toggle: when true, timer always resets to 10:00 for unfinished candidates (notes still persist)
+  const [resetOnNewCandidate, setResetOnNewCandidate] = useState(
+    () => localStorage.getItem('timer_resetOnNewCandidate') === 'true'
+  );
   const startRef  = useRef(null);
   const rafRef    = useRef(null);
   const panelRef  = useRef(null);
@@ -38,24 +42,47 @@ function InterviewTimer({ visible, running, hidden, candidateId, itemNumber, onS
   useEffect(() => {
     if (visible && restoredSession) {
       const { elapsedSeconds, notes: savedNotes, finished: wasFinished } = restoredSession;
-      if (elapsedSeconds > 0) {
-        const ms = elapsedSeconds * 1000;
-        setElapsed(ms);
-        setPausedAt(ms);
-        if (wasFinished) {
-          // Ratings were already submitted — show as "Finished", not "Paused"
-          setFinished(true);
-          setPaused(false);
-        } else {
-          setPaused(true);   // start paused so the rater can choose to resume
-        }
-      }
+
+      // Notes ALWAYS persist regardless of the reset toggle
       if (savedNotes) setNotes(savedNotes);
-      setSessionRestored(true);
-      const t = setTimeout(() => setSessionRestored(false), 4000);
-      return () => clearTimeout(t);
+
+      if (wasFinished) {
+        // Rated candidate — always freeze in Finished state, ignore toggle
+        if (elapsedSeconds > 0) {
+          const ms = elapsedSeconds * 1000;
+          setElapsed(ms);
+          setPausedAt(ms);
+        }
+        setFinished(true);
+        setPaused(false);
+        setSessionRestored(true);
+        const t = setTimeout(() => setSessionRestored(false), 4000);
+        return () => clearTimeout(t);
+      }
+
+      if (resetOnNewCandidate) {
+        // Toggle ON — reset timer to 10:00 fresh; notes were already restored above
+        setElapsed(0);
+        setPausedAt(0);
+        setExtraMs(0);
+        setFinished(false);
+        setPaused(false);
+        // No sessionRestored banner — we're intentionally starting fresh
+      } else {
+        // Toggle OFF — resume from saved elapsed
+        if (elapsedSeconds > 0) {
+          const ms = elapsedSeconds * 1000;
+          setElapsed(ms);
+          setPausedAt(ms);
+        }
+        setPaused(false);
+        setFinished(false);
+        setSessionRestored(true);
+        const t = setTimeout(() => setSessionRestored(false), 4000);
+        return () => clearTimeout(t);
+      }
     }
-  }, [visible, restoredSession]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [visible, restoredSession, resetOnNewCandidate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Auto-save session every 30 s while timer is running ───────────────────
   // FIX: Use refs for elapsed + notes so the interval never re-creates on every
@@ -202,6 +229,12 @@ function InterviewTimer({ visible, running, hidden, candidateId, itemNumber, onS
     if (onSaveSession) {
       onSaveSession({ elapsedSeconds: Math.floor(elapsed / 1000), notes });
     }
+  };
+
+  const handleToggleReset = () => {
+    const next = !resetOnNewCandidate;
+    setResetOnNewCandidate(next);
+    localStorage.setItem('timer_resetOnNewCandidate', String(next));
   };
 
   // Progress ring colors
@@ -429,7 +462,49 @@ function InterviewTimer({ visible, running, hidden, candidateId, itemNumber, onS
                 </button>
               </div>
 
-              {/* ── Row 4: Stats footer ── */}
+              {/* ── Row 4: Reset-on-new-candidate toggle ── */}
+              <div
+                onClick={handleToggleReset}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '9px 12px', borderRadius: 10, cursor: 'pointer',
+                  background: resetOnNewCandidate ? '#fef3c7' : '#f9fafb',
+                  border: `1.5px solid ${resetOnNewCandidate ? '#fcd34d' : '#e5e7eb'}`,
+                  transition: 'all 0.2s',
+                  userSelect: 'none',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                  <svg width='13' height='13' fill='none' stroke={resetOnNewCandidate ? '#b45309' : '#9ca3af'} strokeWidth='2.3' viewBox='0 0 24 24'>
+                    <path d='M1 4v6h6M23 20v-6h-6'/><path d='M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15'/>
+                  </svg>
+                  <div>
+                    <div style={{ fontSize: 11.5, fontWeight: 700, color: resetOnNewCandidate ? '#92400e' : '#374151' }}>
+                      Reset timer per candidate
+                    </div>
+                    <div style={{ fontSize: 10, color: resetOnNewCandidate ? '#b45309' : '#9ca3af', marginTop: 1 }}>
+                      {resetOnNewCandidate ? 'ON — always starts at 10:00 (notes kept)' : 'OFF — resumes from last saved time'}
+                    </div>
+                  </div>
+                </div>
+                {/* Toggle pill */}
+                <div style={{
+                  width: 34, height: 20, borderRadius: 99, position: 'relative',
+                  background: resetOnNewCandidate ? '#f59e0b' : '#d1d5db',
+                  transition: 'background 0.2s', flexShrink: 0,
+                }}>
+                  <div style={{
+                    position: 'absolute', top: 3,
+                    left: resetOnNewCandidate ? 17 : 3,
+                    width: 14, height: 14, borderRadius: '50%',
+                    background: '#fff',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                    transition: 'left 0.2s',
+                  }}/>
+                </div>
+              </div>
+
+              {/* ── Row 5: Stats footer ── */}
               <div style={{
                 display: 'flex', gap: 6, padding: '8px 10px',
                 background: '#f9fafb', borderRadius: 10,
@@ -936,6 +1011,8 @@ const RaterView = ({ user }) => {
   const [timerVisible, setTimerVisible] = useState(false);  // shows the FAB
   const [timerRunning, setTimerRunning] = useState(false);  // starts the countdown
   const [restoredSession, setRestoredSession] = useState(null); // session fetched from DB
+  // FIX: false while GET /interview-sessions is in flight; prevents observer race
+  const [sessionReady, setSessionReady] = useState(false);
   const prevCandidateRef = useRef('');
   const timerElapsedRef = useRef(0); // live elapsed ms — written by InterviewTimer, read on submit
   const competencySentinelRef = useRef(null); // attached to top of competency section
@@ -1080,10 +1157,11 @@ const RaterView = ({ user }) => {
   useEffect(() => {
     if (selectedCandidate && selectedCandidate !== prevCandidateRef.current) {
       prevCandidateRef.current = selectedCandidate;
-      // Reset both flags so a fresh candidate always starts from 10:00 paused
+      // Reset all timer flags; sessionReady=false blocks the observer until fetch completes
       setTimerVisible(false);
       setTimerRunning(false);
       setRestoredSession(null);
+      setSessionReady(false);
       const t = setTimeout(async () => {
         setTimerVisible(true);
         // Try to restore a prior session for this candidate + item
@@ -1099,6 +1177,8 @@ const RaterView = ({ user }) => {
             console.warn('[InterviewTimer] session restore failed (non-critical):', err?.message);
           }
         }
+        // Mark session fetch complete — unblocks the IntersectionObserver
+        setSessionReady(true);
       }, 0);
       return () => clearTimeout(t);
     }
@@ -1107,16 +1187,26 @@ const RaterView = ({ user }) => {
       setTimerVisible(false);
       setTimerRunning(false);
       setRestoredSession(null);
+      setSessionReady(false);
     }
   }, [selectedCandidate, selectedItemNumber]);
 
   // IntersectionObserver: start the countdown the first time the competency
   // section scrolls into view (threshold 0.1 = just barely visible).
-  // Skip if the session was already finished (ratings submitted) — we don't
-  // want the timer to auto-run for a candidate who has already been rated.
+  // FIX: Added sessionReady gate — the observer must not fire setTimerRunning(true)
+  // until the async session-restore fetch has completed. Without this gate there
+  // was a race: timerVisible became true, the sentinel was immediately intersecting,
+  // the observer fired and anchored the RAF at elapsed=0 — and THEN restoredSession
+  // arrived and tried to set pausedAt to the saved offset, but the RAF was already
+  // running from 0, so the saved time was silently lost.
+  //
+  // sessionReady is false while the GET /interview-sessions fetch is in flight.
+  // It becomes true once either (a) a session was restored, or (b) the fetch
+  // returned null/404 confirming there is no prior session.
   useEffect(() => {
-    if (!timerVisible || timerRunning) return; // already running or no candidate
-    if (restoredSession?.finished) return;     // already rated — keep timer in Finished state
+    if (!timerVisible || timerRunning) return;
+    if (!sessionReady) return;               // wait for restore fetch to complete
+    if (restoredSession?.finished) return;   // already rated — stay in Finished state
     const sentinel = competencySentinelRef.current;
     if (!sentinel) return;
 
@@ -1131,7 +1221,7 @@ const RaterView = ({ user }) => {
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [timerVisible, timerRunning, restoredSession]);
+  }, [timerVisible, timerRunning, restoredSession, sessionReady]);
 
   useEffect(() => {
     if (Object.keys(ratings).length > 0) {
