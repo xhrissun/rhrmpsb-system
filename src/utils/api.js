@@ -623,4 +623,35 @@ export const interviewSessionsAPI = {
   },
 };
 
+// PDF Cache API — server-backed persistence for parsed competency data
+export const pdfCacheAPI = {
+  // Get cached parsed competencies from server (returns null if not cached)
+  get: async () => {
+    try {
+      const response = await api.get('/pdf-cache/competencies');
+      return response.data; // { data: [...], fingerprint, cachedAt }
+    } catch (error) {
+      // 404 or other errors mean cache is empty; return null to trigger re-parse
+      if (error.response?.status === 404) return null;
+      throw error;
+    }
+  },
+
+  // Store parsed competencies in server cache (called after successful parse)
+  save: async (competencies, fingerprint) => {
+    const response = await api.post('/pdf-cache/competencies', {
+      data: competencies,
+      fingerprint,
+      cachedAt: Date.now()
+    });
+    return response.data;
+  },
+
+  // Clear server cache (admin tool after PDF upload)
+  clear: async () => {
+    const response = await api.delete('/pdf-cache/competencies');
+    return response.data;
+  }
+};
+
 export default api;

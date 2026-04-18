@@ -12,6 +12,7 @@
  */
 
 import * as pdfParser from './pdfParser';
+import { pdfCacheAPI } from '../utils/api';
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -583,6 +584,35 @@ export async function ensureParsed(onProgress) {
       const PDF_URL   = '/rhrmpsb-system/2025_CBS.pdf';
       const fingerprint = await getPDFFingerprint(PDF_URL);
 
+      // STEP 1: Try server-backed cache first (persists across server restarts)
+      let serverCached = null;
+      try {
+        serverCached = await pdfCacheAPI.get();
+      } catch (err) {
+        console.info('[pdfParserCache] Server cache unavailable (expected on first load):', err.message);
+      }
+
+      const serverCacheValid =
+        serverCached &&
+        serverCached.schemaVersion === SCHEMA_VER &&
+        Array.isArray(serverCached.data) &&
+        serverCached.data.length > 0 &&
+        (fingerprint === 'unavailable' || serverCached.fingerprint === fingerprint);
+
+      if (serverCacheValid) {
+        onProgress?.(100, 'Loaded from server cache');
+        _competencies = serverCached.data;
+        // Also update IndexedDB for offline access
+        idbSet('competencies', {
+          schemaVer: SCHEMA_VER,
+          fingerprint,
+          cachedAt: Date.now(),
+          data: _competencies,
+        }).catch(err => console.warn('[pdfParserCache] IDB write error:', err));
+        return _competencies;
+      }
+
+      // STEP 2: Fall back to IndexedDB if server cache is invalid/unavailable
       let cached = null;
       try { cached = await idbGet('competencies'); } catch {}
 
@@ -594,24 +624,35 @@ export async function ensureParsed(onProgress) {
         (fingerprint === 'unavailable' || cached.fingerprint === fingerprint);
 
       if (cacheValid) {
-        onProgress?.(100, 'Loaded from cache');
+        onProgress?.(100, 'Loaded from local cache');
         _competencies = cached.data;
         return _competencies;
       }
 
-      if (cached && !cacheValid) {
+      if ((serverCached || cached) && !serverCacheValid && !cacheValid) {
         console.info('[pdfParserCache] PDF changed — re-parsing.');
       }
 
+      // STEP 3: Parse PDF if no valid cache exists
+      onProgress?.(5, 'Parsing PDF...');
       const result = await pdfParser.ensureParsed((pct, msg) => onProgress?.(pct, msg));
       _competencies = result;
 
+      // STEP 4: Store in both IndexedDB and server cache
       idbSet('competencies', {
         schemaVer: SCHEMA_VER,
         fingerprint,
         cachedAt: Date.now(),
         data: result,
       }).catch(err => console.warn('[pdfParserCache] IDB write error:', err));
+
+      // Store in server cache (non-blocking; don't fail if server unavailable)
+      try {
+        await pdfCacheAPI.save(result, fingerprint);
+        console.info('[pdfParserCache] Parsed data saved to server cache');
+      } catch (err) {
+        console.warn('[pdfParserCache] Failed to save to server cache (non-fatal):', err.message);
+      }
 
       return _competencies;
     } catch (err) {

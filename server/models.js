@@ -321,6 +321,17 @@ const interviewSessionSchema = new mongoose.Schema({
   interviewEndedAt:   { type: Date },
 }, { timestamps: true });
 
+// ── PDF Cache Schema ──────────────────────────────────────────────────────────
+// Server-side cache for parsed PDF competency data.
+// Avoids re-parsing on every server restart.
+const pdfCacheSchema = new mongoose.Schema({
+  fingerprint: { type: String, required: true, unique: true, index: true },
+  schemaVersion: { type: Number, default: 1 },
+  data: { type: mongoose.Schema.Types.Mixed, required: true },
+  cachedAt: { type: Date, default: Date.now },
+  source: { type: String, default: 'server' }
+}, { timestamps: true });
+
 // One session per rater+candidate+item sitting
 interviewSessionSchema.index(
   { raterId: 1, candidateId: 1, itemNumber: 1 },
@@ -435,5 +446,6 @@ const RatingLog       = mongoose.model('RatingLog',        ratingLogSchema);
 const PublicationRange= mongoose.model('PublicationRange', publicationRangeSchema);
 const NotificationLog = mongoose.model('NotificationLog',  notificationLogSchema);
 const InterviewSession = mongoose.model('InterviewSession', interviewSessionSchema);
+const PDFCache        = mongoose.model('PDFCache',         pdfCacheSchema);
 
-export { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, NotificationLog, InterviewSession };
+export { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, NotificationLog, InterviewSession, PDFCache };

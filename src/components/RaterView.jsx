@@ -123,10 +123,13 @@ function InterviewTimer({ visible, running, hidden, candidateId, itemNumber, onS
 
   const totalDuration = Math.min(INTERVIEW_DURATION_MS + extraMs, MAX_DURATION_MS);
   const remaining     = running ? Math.max(0, totalDuration - elapsed) : totalDuration;
-  const totalSec      = Math.floor(remaining / 1000);
+  
+  // FIX: When finished, show the time it took (elapsed) instead of remaining time.
+  const displayMs     = finished ? elapsed : remaining;
+  const totalSec      = Math.floor(displayMs / 1000);
   const mins          = Math.floor(totalSec / 60);
   const secs          = totalSec % 60;
-  const isOver        = running && remaining === 0;
+  const isOver        = running && !finished && remaining === 0;
   const warn3         = running && !paused && !isOver && remaining <= 3 * 60 * 1000;
   const warn5         = running && !paused && !isOver && remaining <= 5 * 60 * 1000 && !warn3;
   const timeStr       = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
@@ -271,7 +274,7 @@ function InterviewTimer({ visible, running, hidden, candidateId, itemNumber, onS
               {/* Big time display */}
               <div style={{ textAlign: 'center', marginTop: 10 }}>
                 <div style={{ fontFamily: 'monospace', fontSize: 38, fontWeight: 900, color: '#fff', lineHeight: 1, letterSpacing: '-0.02em' }}>
-                  {isOver ? 'TIME UP' : timeStr}
+                  {finished ? timeStr : (isOver ? 'TIME UP' : timeStr)}
                 </div>
                 <div style={{ marginTop: 4, fontSize: 11, color: 'rgba(255,255,255,0.75)', fontWeight: 500 }}>
                   {!running

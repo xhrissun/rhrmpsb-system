@@ -4,7 +4,7 @@ import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
 import { parse } from 'csv-parse/sync';
 import rateLimit from 'express-rate-limit';
-import { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange } from './models.js';
+import { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, InterviewSession, PDFCache } from './models.js';
 
 const router = express.Router();
 
@@ -2397,6 +2397,74 @@ router.get('/interview-sessions', authMiddleware, async (req, res) => {
     res.json(session);
   } catch (error) {
     console.error('[GET /interview-sessions]', error);
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PDF CACHE ROUTES
+// Allows server-side persistence of parsed PDF competency data.
+// GET  /pdf-cache/competencies          — retrieve cached parsed data
+// POST /pdf-cache/competencies          — store parsed data in DB
+// DELETE /pdf-cache/competencies        — clear cache (admin only)
+// ═══════════════════════════════════════════════════════════════════════════
+
+router.get('/pdf-cache/competencies', async (req, res) => {
+  try {
+    const cached = await PDFCache.findOne().sort({ createdAt: -1 });
+    if (!cached) {
+      return res.status(404).json({ message: 'No cached PDF data found' });
+    }
+    res.json({
+      data: cached.data,
+      fingerprint: cached.fingerprint,
+      schemaVersion: cached.schemaVersion,
+      cachedAt: cached.cachedAt,
+      source: cached.source
+    });
+  } catch (error) {
+    console.error('[GET /pdf-cache/competencies]', error);
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
+  }
+});
+
+router.post('/pdf-cache/competencies', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin') return res.status(403).json({ message: 'Access denied' });
+  try {
+    const { data, fingerprint, cachedAt } = req.body;
+    if (!data || !fingerprint) {
+      return res.status(400).json({ message: 'data and fingerprint are required' });
+    }
+    if (!Array.isArray(data)) {
+      return res.status(400).json({ message: 'data must be an array' });
+    }
+
+    const cached = await PDFCache.findOneAndUpdate(
+      { fingerprint },
+      {
+        data,
+        fingerprint,
+        schemaVersion: 1,
+        cachedAt: cachedAt || Date.now(),
+        source: 'server'
+      },
+      { upsert: true, new: true }
+    );
+
+    res.json({ message: 'PDF cache saved', cached });
+  } catch (error) {
+    console.error('[POST /pdf-cache/competencies]', error);
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
+  }
+});
+
+router.delete('/pdf-cache/competencies', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin') return res.status(403).json({ message: 'Access denied' });
+  try {
+    const result = await PDFCache.deleteMany({});
+    res.json({ message: 'PDF cache cleared', deletedCount: result.deletedCount });
+  } catch (error) {
+    console.error('[DELETE /pdf-cache/competencies]', error);
     res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
