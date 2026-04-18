@@ -146,6 +146,9 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
   const selectedItemRef = useRef(selectedItem);
   const selectedCandidateRef = useRef(selectedCandidate);
   const modalOpenRef = useRef(modalOpen);
+  // When true the cascade useEffects skip their destructive resets so a
+  // notification click can set all three filter values atomically.
+  const notifNavRef = useRef(false);
 
   // ── Load persisted notifications on mount ───────────────────────────────────
   useEffect(() => {
@@ -294,6 +297,8 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
 
   // ─── Position loader ─────────────────────────────────────────────────────────
   useEffect(() => {
+    // Skip cascade resets when a notification click is setting all filters at once
+    if (notifNavRef.current) return;
     if (!selectedAssignment) {
       setPositions([]);
       setSelectedPosition('');
@@ -316,6 +321,8 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
 
   // ─── Item loader ─────────────────────────────────────────────────────────────
   useEffect(() => {
+    // Skip cascade resets when a notification click is setting all filters at once
+    if (notifNavRef.current) return;
     if (!selectedPosition) {
       setItems([]);
       setSelectedItem('');
@@ -960,14 +967,42 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     setNotifOpen(false);
     markAllNotificationsRead();
 
-    // Always sync the filter dropdowns to match the notification's vacancy
+    // ── Atomic filter navigation ─────────────────────────────────────────────
+    // Setting selectedAssignment alone triggers a cascade useEffect that wipes
+    // selectedPosition and selectedItem to ''. We suppress those cascade resets
+    // with notifNavRef while all three values are set in the same render batch,
+    // then populate the dropdown option lists ourselves from vacancies so the
+    // dropdowns show the correct selected values after navigation.
+    notifNavRef.current = true;
+
+    // Pre-populate dropdown option lists so the selected values are valid choices
+    const positionsForAssignment = [
+      ...new Set(
+        vacancies
+          .filter(v => v.assignment === notif.assignment)
+          .map(v => v.position)
+          .filter(Boolean)
+      )
+    ].sort();
+    const itemsForPosition = [
+      ...new Set(
+        vacancies
+          .filter(v => v.assignment === notif.assignment && v.position === notif.position)
+          .map(v => v.itemNumber)
+          .filter(Boolean)
+      )
+    ].sort();
+
+    setPositions(positionsForAssignment);
+    setItems(itemsForPosition);
     setSelectedAssignment(notif.assignment);
     setSelectedPosition(notif.position);
     setSelectedItem(notif.itemNumber);
 
-    // Open the modal immediately — pass notif.itemNumber as an explicit override because
-    // the setSelectedItem above is async: React won't have flushed the new value into
-    // `selectedItem` by the time loadModalData runs, so we bypass the stale closure.
+    // Clear the guard after React has flushed this render batch
+    setTimeout(() => { notifNavRef.current = false; }, 0);
+
+    // Open the modal — pass notif.itemNumber explicitly to bypass stale closure
     setSelectedCandidate({ id: notif.candidateId, name: notif.candidateName });
     setModalOpen(true);
     setModalLoading(true);
