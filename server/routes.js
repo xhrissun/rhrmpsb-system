@@ -2429,7 +2429,9 @@ router.get('/pdf-cache/competencies', async (req, res) => {
 });
 
 router.post('/pdf-cache/competencies', authMiddleware, async (req, res) => {
-  if (req.user.userType !== 'admin') return res.status(403).json({ message: 'Access denied' });
+  // Allow any authenticated user to save cache (not just admin)
+  // This ensures the PDF is cached on first parse by any user
+  if (!req.user) return res.status(401).json({ message: 'Authentication required' });
   try {
     const { data, fingerprint, cachedAt } = req.body;
     if (!data || !fingerprint) {
@@ -2439,18 +2441,23 @@ router.post('/pdf-cache/competencies', authMiddleware, async (req, res) => {
       return res.status(400).json({ message: 'data must be an array' });
     }
 
-    const cached = await PDFCache.findOneAndUpdate(
-      { fingerprint },
-      {
-        data,
-        fingerprint,
-        schemaVersion: 1,
-        cachedAt: cachedAt || Date.now(),
-        source: 'server'
-      },
-      { upsert: true, new: true }
-    );
+    // Check if cache already exists for this fingerprint
+    const existing = await PDFCache.findOne({ fingerprint });
+    if (existing) {
+      // Cache already exists, return it without updating
+      return res.json({ message: 'PDF cache already exists', cached: existing });
+    }
 
+    // Create new cache entry
+    const cached = await PDFCache.create({
+      data,
+      fingerprint,
+      schemaVersion: 1,
+      cachedAt: cachedAt || Date.now(),
+      source: 'client'
+    });
+
+    console.info(`[POST /pdf-cache/competencies] Cached PDF with fingerprint: ${fingerprint}`);
     res.json({ message: 'PDF cache saved', cached });
   } catch (error) {
     console.error('[POST /pdf-cache/competencies]', error);
