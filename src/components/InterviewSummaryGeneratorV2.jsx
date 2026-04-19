@@ -146,6 +146,8 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
   const selectedItemRef = useRef(selectedItem);
   const selectedCandidateRef = useRef(selectedCandidate);
   const modalOpenRef = useRef(modalOpen);
+  // FIX: track the item the modal is ACTUALLY showing (not the dropdown selectedItem)
+  const modalItemNumberRef = useRef(modalItemNumber);
 
   // ── Load persisted notifications on mount ───────────────────────────────────
   useEffect(() => {
@@ -194,6 +196,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
   useEffect(() => { selectedItemRef.current = selectedItem; }, [selectedItem]);
   useEffect(() => { selectedCandidateRef.current = selectedCandidate; }, [selectedCandidate]);
   useEffect(() => { modalOpenRef.current = modalOpen; }, [modalOpen]);
+  useEffect(() => { modalItemNumberRef.current = modalItemNumber; }, [modalItemNumber]);
 
   // ─── System-wide notification polling (every 30s, admin + summary_viewer) ───
   useEffect(() => {
@@ -233,8 +236,11 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
           // 2. If a candidate modal is open, silently refresh it too
           if (modalOpenRef.current && selectedCandidateRef.current) {
             try {
-              // Use the ref (not the closure) so we always read the current selectedItem
-              await loadModalData(selectedCandidateRef.current.id, selectedItemRef.current);
+              // FIX: use modalItemNumberRef (the item the modal is actually showing),
+              // NOT selectedItemRef (the dropdown). They differ when the modal was
+              // opened via a notification while a different item was selected in
+              // the dropdown — using selectedItemRef caused a blank modal.
+              await loadModalData(selectedCandidateRef.current.id, modalItemNumberRef.current);
             } catch { /* silent */ }
           }
         }
@@ -563,13 +569,16 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     if (!autoRefresh || !selectedCandidate || !modalOpen) return;
     autoRefreshRef.current = setInterval(async () => {
       try {
-        await loadModalData(selectedCandidate.id);
+        // FIX: pass modalItemNumber explicitly — never let loadModalData fall back
+        // to selectedItem (the dropdown), which may differ when the modal was
+        // opened via a notification click while a different item was selected.
+        await loadModalData(selectedCandidate.id, modalItemNumber || undefined);
       } catch (err) {
         console.error('Auto-refresh failed:', err);
       }
     }, 30000);
     return () => { if (autoRefreshRef.current) clearInterval(autoRefreshRef.current); };
-  }, [autoRefresh, selectedCandidate, modalOpen]);
+  }, [autoRefresh, selectedCandidate, modalOpen, modalItemNumber]);
 
   // ─── Score calculation helpers ────────────────────────────────────────────────
   const getRaterTypeCode = (raterType) => {
