@@ -1118,6 +1118,83 @@ function RaterLoadingScreen({ pdfStatus, pdfProgress = 0, pdfMsg = '', onSkip })
   );
 }
 
+// ─── RadioRating Component (module scope — must NOT be inside RaterView)
+// Defining inside RaterView creates a new function identity each render → React error #300.
+const RadioRating = ({ competency, competencyType, currentRating, onChange, onInfoClick }) => {
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6 md:p-8 mb-4 shadow-sm hover:shadow-md transition-shadow">
+      <div className="text-center mb-6">
+        <div className="flex items-center justify-center gap-2 mb-3">
+          <h4 className="text-lg md:text-xl lg:text-2xl font-semibold text-gray-900">
+            {competency.name}
+          </h4>
+          <button
+            onClick={() => onInfoClick(competency, competencyType)}
+            title="View CBS proficiency levels"
+            className="flex-shrink-0 w-7 h-7 md:w-8 md:h-8 rounded-full bg-blue-100 hover:bg-blue-200 text-blue-600 hover:text-blue-800 flex items-center justify-center transition-all hover:scale-110 focus:outline-none focus:ring-2 focus:ring-blue-400"
+          >
+            <svg className="w-4 h-4 md:w-5 md:h-5" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+            </svg>
+          </button>
+        </div>
+        <div className={`flex justify-center items-center px-4 py-2 md:px-6 md:py-3 text-sm md:text-base lg:text-lg font-medium rounded-full text-center w-full max-w-xs mx-auto ${
+          currentRating ? 'bg-green-100 text-green-800 border border-green-200' : 'bg-gray-100 text-gray-600 border border-gray-200'
+        }`}>
+          {currentRating ? (
+            <>
+              <svg className="w-5 h-5 md:w-6 md:h-6 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/>
+              </svg>
+              Rated: {currentRating}/5
+            </>
+          ) : (
+            <>
+              <svg className="w-5 h-5 md:w-6 md:h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+              Not Rated
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="flex justify-center">
+        <div className="flex space-x-4 md:space-x-8">
+          {RATING_SCALE.map(({ value, label }) => (
+            <label key={value} className="flex flex-col items-center cursor-pointer group">
+              <div className={`relative w-16 h-16 md:w-24 md:h-24 lg:w-28 lg:h-28 rounded-full border-2 transition-all duration-200 ${
+                currentRating === value
+                  ? 'border-blue-600 bg-blue-600 shadow-lg scale-105'
+                  : 'border-gray-300 bg-white hover:border-blue-400 hover:bg-blue-50 hover:scale-102'
+              }`}>
+                <input
+                  type="radio"
+                  name={`rating_${competencyType}_${competency._id}`}
+                  value={value}
+                  checked={currentRating === value}
+                  onChange={() => onChange(competencyType, competency._id, value)}
+                  className="sr-only"
+                />
+                <div className={`absolute inset-0 flex items-center justify-center text-xl md:text-3xl lg:text-4xl font-bold ${
+                  currentRating === value ? 'text-white' : 'text-gray-700'
+                }`}>
+                  {value}
+                </div>
+              </div>
+              <span className={`text-sm md:text-lg lg:text-xl font-medium mt-3 text-center w-16 md:w-24 lg:w-28 ${
+                currentRating === value ? 'text-blue-600' : 'text-gray-500 hover:text-gray-700'
+              }`}>
+                {label}
+              </span>
+            </label>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── Main RaterView ───────────────────────────────────────────────────────────
 
 const RaterView = ({ user }) => {
@@ -2051,80 +2128,7 @@ const RaterView = ({ user }) => {
     }
   }, [selectedCandidate, selectedItemNumber]);
 
-  const RadioRating = ({ competency, competencyType, currentRating, onChange, onInfoClick }) => {
-    return (
-      <div className="bg-white rounded-xl border border-gray-200 p-6 md:p-8 mb-4 shadow-sm hover:shadow-md transition-shadow">
-        <div className="text-center mb-6">
-          <div className="flex items-center justify-center gap-2 mb-3">
-            <h4 className="text-lg md:text-xl lg:text-2xl font-semibold text-gray-900">
-              {competency.name}
-            </h4>
-            <button
-              onClick={() => onInfoClick(competency, competencyType)}
-              title="View CBS proficiency levels"
-              className="flex-shrink-0 w-7 h-7 md:w-8 md:h-8 rounded-full bg-blue-100 hover:bg-blue-200 text-blue-600 hover:text-blue-800 flex items-center justify-center transition-all hover:scale-110 focus:outline-none focus:ring-2 focus:ring-blue-400"
-            >
-              <svg className="w-4 h-4 md:w-5 md:h-5" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-              </svg>
-            </button>
-          </div>
-          <div className={`flex justify-center items-center px-4 py-2 md:px-6 md:py-3 text-sm md:text-base lg:text-lg font-medium rounded-full text-center w-full max-w-xs mx-auto ${
-            currentRating ? 'bg-green-100 text-green-800 border border-green-200' : 'bg-gray-100 text-gray-600 border border-gray-200'
-          }`}>
-            {currentRating ? (
-              <>
-                <svg className="w-5 h-5 md:w-6 md:h-6 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/>
-                </svg>
-                Rated: {currentRating}/5
-              </>
-            ) : (
-              <>
-                <svg className="w-5 h-5 md:w-6 md:h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                </svg>
-                Not Rated
-              </>
-            )}
-          </div>
-        </div>
 
-        <div className="flex justify-center">
-          <div className="flex space-x-4 md:space-x-8">
-            {RATING_SCALE.map(({ value, label }) => (
-              <label key={value} className="flex flex-col items-center cursor-pointer group">
-                <div className={`relative w-16 h-16 md:w-24 md:h-24 lg:w-28 lg:h-28 rounded-full border-2 transition-all duration-200 ${
-                  currentRating === value
-                    ? 'border-blue-600 bg-blue-600 shadow-lg scale-105'
-                    : 'border-gray-300 bg-white hover:border-blue-400 hover:bg-blue-50 hover:scale-102'
-                }`}>
-                  <input
-                    type="radio"
-                    name={`rating_${competencyType}_${competency._id}`}
-                    value={value}
-                    checked={currentRating === value}
-                    onChange={() => onChange(competencyType, competency._id, value)}
-                    className="sr-only"
-                  />
-                  <div className={`absolute inset-0 flex items-center justify-center text-xl md:text-3xl lg:text-4xl font-bold ${
-                    currentRating === value ? 'text-white' : 'text-gray-700'
-                  }`}>
-                    {value}
-                  </div>
-                </div>
-                <span className={`text-sm md:text-lg lg:text-xl font-medium mt-3 text-center w-16 md:w-24 lg:w-28 ${
-                  currentRating === value ? 'text-blue-600' : 'text-gray-500 hover:text-gray-700'
-                }`}>
-                  {label}
-                </span>
-              </label>
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  };
 
   // ✅ CHANGED: Show the rich loading screen while loading
   if (loading) {
