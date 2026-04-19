@@ -146,9 +146,6 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
   const selectedItemRef = useRef(selectedItem);
   const selectedCandidateRef = useRef(selectedCandidate);
   const modalOpenRef = useRef(modalOpen);
-  // When true the cascade useEffects skip their destructive resets so a
-  // notification click can set all three filter values atomically.
-  const notifNavRef = useRef(false);
 
   // ── Load persisted notifications on mount ───────────────────────────────────
   useEffect(() => {
@@ -297,8 +294,6 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
 
   // ─── Position loader ─────────────────────────────────────────────────────────
   useEffect(() => {
-    // Skip cascade resets when a notification click is setting all filters at once
-    if (notifNavRef.current) return;
     if (!selectedAssignment) {
       setPositions([]);
       setSelectedPosition('');
@@ -321,8 +316,6 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
 
   // ─── Item loader ─────────────────────────────────────────────────────────────
   useEffect(() => {
-    // Skip cascade resets when a notification click is setting all filters at once
-    if (notifNavRef.current) return;
     if (!selectedPosition) {
       setItems([]);
       setSelectedItem('');
@@ -967,42 +960,9 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     setNotifOpen(false);
     markAllNotificationsRead();
 
-    // ── Atomic filter navigation ─────────────────────────────────────────────
-    // Setting selectedAssignment alone triggers a cascade useEffect that wipes
-    // selectedPosition and selectedItem to ''. We suppress those cascade resets
-    // with notifNavRef while all three values are set in the same render batch,
-    // then populate the dropdown option lists ourselves from vacancies so the
-    // dropdowns show the correct selected values after navigation.
-    notifNavRef.current = true;
-
-    // Pre-populate dropdown option lists so the selected values are valid choices
-    const positionsForAssignment = [
-      ...new Set(
-        vacancies
-          .filter(v => v.assignment === notif.assignment)
-          .map(v => v.position)
-          .filter(Boolean)
-      )
-    ].sort();
-    const itemsForPosition = [
-      ...new Set(
-        vacancies
-          .filter(v => v.assignment === notif.assignment && v.position === notif.position)
-          .map(v => v.itemNumber)
-          .filter(Boolean)
-      )
-    ].sort();
-
-    setPositions(positionsForAssignment);
-    setItems(itemsForPosition);
-    setSelectedAssignment(notif.assignment);
-    setSelectedPosition(notif.position);
-    setSelectedItem(notif.itemNumber);
-
-    // Clear the guard after React has flushed this render batch
-    setTimeout(() => { notifNavRef.current = false; }, 0);
-
-    // Open the modal — pass notif.itemNumber explicitly to bypass stale closure
+    // Open the modal directly using the notification's data.
+    // loadModalData accepts explicit candidateId + itemNumber so it never
+    // reads from the dropdown filter state — the dropdowns are left untouched.
     setSelectedCandidate({ id: notif.candidateId, name: notif.candidateName });
     setModalOpen(true);
     setModalLoading(true);
@@ -1100,37 +1060,51 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
                     </div>
                   ) : (
                     <ul className="max-h-[480px] overflow-y-auto divide-y divide-gray-50">
-                      {notifications.map((notif, idx) => (
-                        <li key={`${notif._id || idx}`}>
-                          <button
-                            onClick={() => handleNotifClick(notif)}
-                            className="w-full text-left px-4 py-3 hover:bg-blue-50 transition-colors"
-                          >
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="flex-1 min-w-0">
-                                <p className="text-xs font-semibold text-gray-900 truncate">{notif.candidateName}</p>
-                                <p className="text-xs text-gray-500 truncate mt-0.5">
-                                  {notif.position} · {notif.assignment}
-                                </p>
-                                <p className={`text-xs mt-0.5 ${isDeleteAction(notif.action) ? 'text-red-500' : notif.action === 'updated' || notif.action === 'batch_updated' ? 'text-amber-600' : 'text-blue-600'}`}>
-                                  {actionLabel(notif.action)} by {notif.raterName}
-                                  {notif.raterType ? ` (${notif.raterType})` : ''}
-                                </p>
-                              </div>
-                              <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                                <span className="text-[10px] text-gray-400 whitespace-nowrap mt-0.5">
-                                  {formatNotifTime(notif.createdAt)}
-                                </span>
-                                {isDeleteAction(notif.action) && (
-                                  <span className="text-[9px] font-bold uppercase tracking-wide text-red-400 bg-red-50 border border-red-100 rounded px-1 py-0.5">
-                                    Deleted
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          </button>
-                        </li>
-                      ))}
+                      {(() => {
+                        const lastReadAt = localStorage.getItem('notif_lastReadAt') || '';
+                        return notifications.map((notif, idx) => {
+                          const isUnread = (notif.createdAt ?? '') > lastReadAt;
+                          return (
+                            <li key={`${notif._id || idx}`}>
+                              <button
+                                onClick={() => handleNotifClick(notif)}
+                                className={`w-full text-left px-4 py-3 transition-colors ${
+                                  isUnread ? 'bg-blue-50 hover:bg-blue-100' : 'bg-white hover:bg-gray-50'
+                                }`}
+                              >
+                                <div className="flex items-start justify-between gap-2">
+                                  {/* Unread dot */}
+                                  {isUnread && (
+                                    <div className="mt-1.5 w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />
+                                  )}
+                                  <div className="flex-1 min-w-0">
+                                    <p className={`text-xs truncate ${ isUnread ? 'font-bold text-gray-900' : 'font-medium text-gray-500' }`}>
+                                      {notif.candidateName}
+                                    </p>
+                                    <p className="text-xs text-gray-500 truncate mt-0.5">
+                                      {notif.position} · {notif.assignment}
+                                    </p>
+                                    <p className={`text-xs mt-0.5 ${isDeleteAction(notif.action) ? 'text-red-500' : notif.action === 'updated' || notif.action === 'batch_updated' ? 'text-amber-600' : 'text-blue-600'}`}>
+                                      {actionLabel(notif.action)} by {notif.raterName}
+                                      {notif.raterType ? ` (${notif.raterType})` : ''}
+                                    </p>
+                                  </div>
+                                  <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                                    <span className="text-[10px] text-gray-400 whitespace-nowrap mt-0.5">
+                                      {formatNotifTime(notif.createdAt)}
+                                    </span>
+                                    {isDeleteAction(notif.action) && (
+                                      <span className="text-[9px] font-bold uppercase tracking-wide text-red-400 bg-red-50 border border-red-100 rounded px-1 py-0.5">
+                                        Deleted
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </button>
+                            </li>
+                          );
+                        });
+                      })()}
                     </ul>
                   )}
                   <div className="px-4 py-2 border-t border-gray-100 bg-gray-50">

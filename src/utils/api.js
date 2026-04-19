@@ -40,7 +40,26 @@ api.interceptors.response.use(
   },
   (error) => {
     if (error.response?.status === 401) {
-      // Clear all localStorage keys
+      // ── Check if the rater has unsaved ratings in progress ───────────────
+      // The RaterView sets this flag whenever ratings are pending submission.
+      // We read it here (before clearing localStorage) to decide how to handle
+      // the session expiry without silently discarding the rater's work.
+      const userId = (() => { try { return JSON.parse(localStorage.getItem('user'))?._id; } catch { return null; } })();
+      const unsavedKey = userId ? `rater_${userId}_hasUnsavedRatings` : null;
+      const hasUnsaved = unsavedKey && sessionStorage.getItem(unsavedKey) === 'true';
+
+      if (hasUnsaved) {
+        // ── Ratings are in progress — do NOT hard-redirect immediately. ────
+        // Instead mark the session as expired and let RaterView show a modal
+        // so the rater can copy their notes before being redirected.
+        sessionStorage.setItem('auth_session_expired', 'true');
+        // Dispatch a custom event so RaterView can react without polling
+        window.dispatchEvent(new CustomEvent('auth:sessionExpired'));
+        // Still reject so the original call fails gracefully
+        return Promise.reject(error);
+      }
+
+      // No unsaved work — safe to clear and redirect immediately
       localStorage.removeItem('authToken');
       localStorage.removeItem('user');
       localStorage.removeItem('rater_selectedAssignment');
@@ -52,13 +71,31 @@ api.interceptors.response.use(
       localStorage.removeItem('secretariat_selectedItemNumber');
       localStorage.removeItem('secretariat_selectedCandidate');
       localStorage.removeItem('admin_activeTab');
-      // Use base path for redirect
       const basePath = import.meta.env.PROD ? '/rhrmpsb-system' : '';
       window.location.href = `${basePath}/login`;
     }
     return Promise.reject(error);
   }
 );
+
+// ── Keep-alive: export a function RaterView calls on mount/unmount ────────
+// Pings GET /auth/me every 7 hours to refresh the token while the rater page
+// is open, preventing the 8h idle expiry from ever being reached in practice.
+let _keepAliveTimer = null;
+export function startAuthKeepAlive() {
+  if (_keepAliveTimer) return; // already running
+  const SEVEN_HOURS = 7 * 60 * 60 * 1000;
+  _keepAliveTimer = setInterval(async () => {
+    try {
+      await api.get('/auth/me'); // any authenticated endpoint — just refreshes the token
+    } catch {
+      // If this fails with 401 the response interceptor above handles it
+    }
+  }, SEVEN_HOURS);
+}
+export function stopAuthKeepAlive() {
+  if (_keepAliveTimer) { clearInterval(_keepAliveTimer); _keepAliveTimer = null; }
+}
 
 // Auth API
 export const authAPI = {

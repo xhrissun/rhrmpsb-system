@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import usePersistedState from '../utils/usePersistedState';
-import { vacanciesAPI, candidatesAPI, ratingsAPI, competenciesAPI, authAPI, interviewSessionsAPI } from '../utils/api';
+import { vacanciesAPI, candidatesAPI, ratingsAPI, competenciesAPI, authAPI, interviewSessionsAPI, startAuthKeepAlive, stopAuthKeepAlive } from '../utils/api';
 import { calculateRatingScores, formatDate } from '../utils/helpers';
 import { RATING_SCALE, COMPETENCY_TYPES, CANDIDATE_STATUS } from '../utils/constants';
 import { useToast } from '../utils/ToastContext';
@@ -19,7 +19,7 @@ const FAB_BOTTOM = 28;
 const FAB_RIGHT  = 24;
 const FAB_SIZE   = 56;
 
-function InterviewTimer({ visible, running, hidden, candidateId, itemNumber, onSaveSession, restoredSession, elapsedRef }) {
+function InterviewTimer({ visible, running, hidden, candidateId, itemNumber, onSaveSession, restoredSession, elapsedRef, notesRef }) {
   const [elapsed,        setElapsed]        = useState(0);
   const [extraMs,        setExtraMs]        = useState(0);   // total extension added
   const [paused,         setPaused]         = useState(false);
@@ -34,6 +34,11 @@ function InterviewTimer({ visible, running, hidden, candidateId, itemNumber, onS
   const [resetOnNewCandidate, setResetOnNewCandidate] = useState(
     () => localStorage.getItem('timer_resetOnNewCandidate') === 'true'
   );
+  // Toggle: play a chime + vibrate when timer expires
+  const [alertOnExpiry, setAlertOnExpiry] = useState(
+    () => localStorage.getItem('timer_alertOnExpiry') !== 'false' // ON by default
+  );
+  const alertFiredRef = useRef(false); // prevents alert firing more than once per expiry
   const startRef  = useRef(null);
   const rafRef    = useRef(null);
   const panelRef  = useRef(null);
@@ -106,10 +111,13 @@ function InterviewTimer({ visible, running, hidden, candidateId, itemNumber, onS
     // Stable deps only — elapsed/notes read via ref to avoid interval restart churn
   }, [running, candidateId, itemNumber, onSaveSession]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Keep elapsedRef in sync so the parent can read current elapsed at any time
+  // Keep elapsedRef and notesRef in sync so the parent can read them at any time
   useEffect(() => {
     if (elapsedRef) elapsedRef.current = elapsed;
   }, [elapsed, elapsedRef]);
+  useEffect(() => {
+    if (notesRef) notesRef.current = notes;
+  }, [notes, notesRef]);
 
   // Reset everything when candidate is deselected or changed
   useEffect(() => {
@@ -236,6 +244,83 @@ function InterviewTimer({ visible, running, hidden, candidateId, itemNumber, onS
     setResetOnNewCandidate(next);
     localStorage.setItem('timer_resetOnNewCandidate', String(next));
   };
+
+  const handleToggleAlert = () => {
+    const next = !alertOnExpiry;
+    setAlertOnExpiry(next);
+    localStorage.setItem('timer_alertOnExpiry', String(next));
+
+    // Preview: single short tone + brief buzz so the rater knows the alert works
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc  = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sine';
+      // Turning ON → bright high note; turning OFF → low soft note
+      osc.frequency.value = next ? 880 : 440;
+      const t = ctx.currentTime;
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(0.25, t + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+      osc.start(t);
+      osc.stop(t + 0.3);
+      setTimeout(() => ctx.close(), 600);
+    } catch { /* Web Audio unavailable */ }
+
+    try {
+      if ('vibrate' in navigator) navigator.vibrate(next ? [80] : [40]);
+    } catch { /* vibrate unavailable */ }
+  };
+
+  // ── Play chime + vibrate when timer hits zero ──────────────────────────
+  // Uses Web Audio API (no files needed) and navigator.vibrate (Android/PWA).
+  // alertFiredRef ensures the alert fires exactly once per expiry event.
+  useEffect(() => {
+    if (!isOver) {
+      alertFiredRef.current = false; // reset so it can fire again after extend+expire
+      return;
+    }
+    if (!alertOnExpiry || alertFiredRef.current) return;
+    alertFiredRef.current = true;
+
+    // ── Vibration (Android Chrome / Firefox, silent no-op everywhere else) ──
+    try {
+      if ('vibrate' in navigator) {
+        // Three pulses: long-short-long
+        navigator.vibrate([400, 150, 200, 150, 400]);
+      }
+    } catch { /* silently ignore — some browsers block vibrate */ }
+
+    // ── Chime via Web Audio API ───────────────────────────────────────────
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      // Three descending tones: high → mid → low, each 0.4 s, slight overlap
+      const tones = [
+        { freq: 880, start: 0.00, duration: 0.5 },  // A5
+        { freq: 659, start: 0.35, duration: 0.5 },  // E5
+        { freq: 523, start: 0.70, duration: 0.8 },  // C5 — held longer
+      ];
+      tones.forEach(({ freq, start, duration }) => {
+        const osc  = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        // Fade in sharply, fade out gently
+        const t = ctx.currentTime + start;
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(0.35, t + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
+        osc.start(t);
+        osc.stop(t + duration);
+      });
+      // Close context after all tones finish
+      setTimeout(() => ctx.close(), 2000);
+    } catch { /* Web Audio unavailable — silent fallback */ }
+  }, [isOver, alertOnExpiry]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Progress ring colors
   const ringColor = finished ? '#16a34a' : isOver ? '#dc2626' : warn3 ? '#ea580c' : warn5 ? '#d97706' : paused ? '#7c3aed' : '#10b981';
@@ -504,7 +589,53 @@ function InterviewTimer({ visible, running, hidden, candidateId, itemNumber, onS
                 </div>
               </div>
 
-              {/* ── Row 5: Stats footer ── */}
+              {/* ── Row 5: Alert-on-expiry toggle ── */}
+              <div
+                onClick={handleToggleAlert}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '9px 12px', borderRadius: 10, cursor: 'pointer',
+                  background: alertOnExpiry ? '#f0fdf4' : '#f9fafb',
+                  border: `1.5px solid ${alertOnExpiry ? '#86efac' : '#e5e7eb'}`,
+                  transition: 'all 0.2s',
+                  userSelect: 'none',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                  {/* Bell icon */}
+                  <svg width='13' height='13' fill='none' stroke={alertOnExpiry ? '#16a34a' : '#9ca3af'} strokeWidth='2.3' viewBox='0 0 24 24'>
+                    <path d='M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9'/>
+                    <path d='M13.73 21a2 2 0 0 1-3.46 0'/>
+                  </svg>
+                  <div>
+                    <div style={{ fontSize: 11.5, fontWeight: 700, color: alertOnExpiry ? '#15803d' : '#374151' }}>
+                      Alert when time is up
+                    </div>
+                    <div style={{ fontSize: 10, color: alertOnExpiry ? '#16a34a' : '#9ca3af', marginTop: 1 }}>
+                      {alertOnExpiry
+                        ? `ON — chime${'vibrate' in navigator ? ' + vibration' : ''} at expiry`
+                        : 'OFF — silent when timer runs out'}
+                    </div>
+                  </div>
+                </div>
+                {/* Toggle pill */}
+                <div style={{
+                  width: 34, height: 20, borderRadius: 99, position: 'relative',
+                  background: alertOnExpiry ? '#22c55e' : '#d1d5db',
+                  transition: 'background 0.2s', flexShrink: 0,
+                }}>
+                  <div style={{
+                    position: 'absolute', top: 3,
+                    left: alertOnExpiry ? 17 : 3,
+                    width: 14, height: 14, borderRadius: '50%',
+                    background: '#fff',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                    transition: 'left 0.2s',
+                  }}/>
+                </div>
+              </div>
+
+              {/* ── Row 6: Stats footer ── */}
               <div style={{
                 display: 'flex', gap: 6, padding: '8px 10px',
                 background: '#f9fafb', borderRadius: 10,
@@ -610,6 +741,47 @@ function InterviewTimer({ visible, running, hidden, candidateId, itemNumber, onS
         </button>
       </div>
     </>
+  );
+}
+
+// ─── Session-expired copy button (needs local state for flash) ──────────────
+function SessionExpiredCopyButton({ clipboardText }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(clipboardText);
+    } catch {
+      // Fallback for browsers that block clipboard API
+      const ta = document.createElement('textarea');
+      ta.value = clipboardText;
+      ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
+  };
+  return (
+    <button
+      onClick={handleCopy}
+      style={{
+        width: '100%', padding: '11px 0', borderRadius: 10,
+        border: `1.5px solid ${copied ? '#86efac' : '#d1d5db'}`,
+        background: copied ? '#f0fdf4' : '#f9fafb',
+        color: copied ? '#15803d' : '#374151',
+        fontWeight: 700, fontSize: 13, cursor: 'pointer',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+        transition: 'all 0.2s',
+      }}
+    >
+      {copied ? (
+        <><svg width='13' height='13' fill='none' stroke='currentColor' strokeWidth='2.5' viewBox='0 0 24 24'><polyline points='20 6 9 17 4 12'/></svg> Copied to clipboard!</>
+      ) : (
+        <><svg width='13' height='13' fill='none' stroke='currentColor' strokeWidth='2.2' viewBox='0 0 24 24'><rect x='9' y='9' width='13' height='13' rx='2'/><path d='M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1'/></svg> Copy ratings &amp; notes to clipboard</>
+      )}
+    </button>
   );
 }
 
@@ -978,6 +1150,7 @@ const RaterView = ({ user }) => {
   const pdfSkipRef = useRef(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitSlowWarning, setSubmitSlowWarning] = useState(false); // true after 5 s of submitting
+  const [sessionExpired, setSessionExpired] = useState(false); // true when token expired mid-rating
   const [isModalMinimized, setIsModalMinimized] = useState(true);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
@@ -1015,6 +1188,7 @@ const RaterView = ({ user }) => {
   const [sessionReady, setSessionReady] = useState(false);
   const prevCandidateRef = useRef('');
   const timerElapsedRef = useRef(0); // live elapsed ms — written by InterviewTimer, read on submit
+  const timerNotesRef   = useRef(''); // live notes — written by InterviewTimer, read on session expiry
   // Callback ref: flips sentinelMounted→true the moment the sentinel div enters the DOM.
   // This re-triggers the IntersectionObserver effect on refresh when sessionReady
   // becomes true before the competency section has rendered.
@@ -1251,6 +1425,25 @@ const RaterView = ({ user }) => {
     const t = setTimeout(() => setSubmitSlowWarning(true), 5000);
     return () => clearTimeout(t);
   }, [submitting]);
+
+  // ── Keep-alive: refresh token every 7 h while rater page is open ────────
+  // Prevents the 8 h idle expiry from being reached during a long rating session.
+  useEffect(() => {
+    startAuthKeepAlive();
+    return () => stopAuthKeepAlive();
+  }, []);
+
+  // ── Listen for session-expired event dispatched by the 401 interceptor ──
+  // Only fires when the rater has unsaved ratings — safe to ignore otherwise.
+  useEffect(() => {
+    const handleExpired = () => setSessionExpired(true);
+    window.addEventListener('auth:sessionExpired', handleExpired);
+    // Also check if we landed here after a prior expiry (e.g. page still open)
+    if (sessionStorage.getItem('auth_session_expired') === 'true') {
+      setSessionExpired(true);
+    }
+    return () => window.removeEventListener('auth:sessionExpired', handleExpired);
+  }, []);
 
   const filterVacanciesByAssignment = useCallback((allVacancies, user) => {
     switch (user.assignedVacancies) {
@@ -1955,6 +2148,116 @@ const RaterView = ({ user }) => {
   return (
     <div className="min-h-screen bg-gray-50">
       <style>{shimmerKeyframes}</style>
+
+      {/* ── Session-expired modal ──────────────────────────────────────────── */}
+      {/* Blocks all interaction. No dismiss — expired token means no API calls  */}
+      {/* succeed anyway. Rater copies notes/scores then must log out.           */}
+      {sessionExpired && (() => {
+        // Build a clipboard-friendly summary of everything the rater entered
+        const notesTxt  = timerNotesRef.current?.trim() || '';
+        const ratingLines = Object.entries(ratings).map(([key, score]) => {
+          // key format: `${type}_${competencyId}` — look up name from loaded competencies
+          const compId = key.split('_').slice(1).join('_');
+          const comp = competencies.find(c => String(c._id) === compId);
+          return `${comp?.name ?? key}: ${score}`;
+        });
+        const candidateName = candidates.find(c => c._id === selectedCandidate)?.fullName ?? selectedCandidate ?? 'Unknown';
+        const clipboardText = [
+          `Session expired — unsaved ratings for: ${candidateName}`,
+          `Item: ${selectedItemNumber || '—'}`,
+          '',
+          ratingLines.length ? 'RATINGS:\n' + ratingLines.join('\n') : 'No ratings entered.',
+          notesTxt ? `\nINTERVIEW NOTES:\n${notesTxt}` : '',
+        ].filter(Boolean).join('\n');
+
+        const doLogout = () => {
+          sessionStorage.removeItem('auth_session_expired');
+          localStorage.removeItem('authToken');
+          localStorage.removeItem('user');
+          const basePath = import.meta.env.PROD ? '/rhrmpsb-system' : '';
+          window.location.href = `${basePath}/login`;
+        };
+
+        return (
+          <div style={{
+            position: 'fixed', inset: 0, zIndex: 9999,
+            background: 'rgba(0,0,0,0.75)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: 24,
+            // Block all pointer events on the page beneath
+            pointerEvents: 'all',
+          }}>
+            <div style={{
+              background: '#fff', borderRadius: 18, padding: '28px 28px 24px',
+              maxWidth: 460, width: '100%',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
+              fontFamily: "'Segoe UI', system-ui, sans-serif",
+            }}>
+
+              {/* Header */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                <div style={{ width: 44, height: 44, borderRadius: 12, background: '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <svg width='22' height='22' fill='none' stroke='#dc2626' strokeWidth='2.2' viewBox='0 0 24 24'>
+                    <path d='M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z'/>
+                    <line x1='12' y1='9' x2='12' y2='13'/>
+                    <line x1='12' y1='17' x2='12.01' y2='17'/>
+                  </svg>
+                </div>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#111827' }}>Session Expired</div>
+                  <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>Your session timed out — no further changes can be saved</div>
+                </div>
+              </div>
+
+              {/* Explanation */}
+              <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.6, marginBottom: 16 }}>
+                Your login session has expired. <strong>Any ratings you entered cannot be submitted</strong> until you log back in.
+                Copy your work below, then log out and re-login to re-enter your ratings.
+              </div>
+
+              {/* Unsaved data summary box */}
+              <div style={{ background: '#f9fafb', border: '1.5px solid #e5e7eb', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 12 }}>
+                <div style={{ fontWeight: 700, color: '#374151', marginBottom: 6 }}>
+                  Unsaved data for: {candidateName}
+                </div>
+                {ratingLines.length > 0 ? (
+                  <div style={{ color: '#6b7280', marginBottom: notesTxt ? 8 : 0 }}>
+                    {ratingLines.length} rating{ratingLines.length !== 1 ? 's' : ''} entered
+                  </div>
+                ) : (
+                  <div style={{ color: '#9ca3af' }}>No ratings entered.</div>
+                )}
+                {notesTxt && (
+                  <div style={{ marginTop: 4, paddingTop: 8, borderTop: '1px solid #e5e7eb' }}>
+                    <div style={{ fontWeight: 600, color: '#374151', marginBottom: 2 }}>Interview notes:</div>
+                    <div style={{ color: '#6b7280', whiteSpace: 'pre-wrap', maxHeight: 80, overflowY: 'auto' }}>{notesTxt}</div>
+                  </div>
+                )}
+              </div>
+
+              {/* Actions — Copy first, then forced logout */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <SessionExpiredCopyButton clipboardText={clipboardText} />
+                <button
+                  onClick={doLogout}
+                  style={{
+                    width: '100%', padding: '11px 0', borderRadius: 10, border: 'none',
+                    background: '#dc2626', color: '#fff', fontWeight: 700, fontSize: 13,
+                    cursor: 'pointer', letterSpacing: '0.01em',
+                  }}
+                >
+                  Log out and re-login
+                </button>
+                <div style={{ textAlign: 'center', fontSize: 11, color: '#9ca3af' }}>
+                  This page is locked — all API calls are rejected until you log in again.
+                </div>
+              </div>
+
+            </div>
+          </div>
+        );
+      })()}
+
 
       <div className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-6 py-4">
@@ -2788,6 +3091,7 @@ const RaterView = ({ user }) => {
             restoredSession={restoredSession}
             onSaveSession={handleSaveSession}
             elapsedRef={timerElapsedRef}
+            notesRef={timerNotesRef}
           />
 
           {selectedCandidate && !isRaterTypeConflictModalOpen && (
