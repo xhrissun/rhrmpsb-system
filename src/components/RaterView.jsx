@@ -165,17 +165,68 @@ function InterviewTimer({ visible, running, hidden, candidateId, itemNumber, onS
     return () => document.removeEventListener('mousedown', handler);
   }, [panelOpen]);
 
-  if (!visible) return null;
-
+  // ── Compute isOver BEFORE the early return so the chime useEffect below
+  // always runs (hooks must never be skipped by a conditional return). ──────
   const totalDuration = Math.min(INTERVIEW_DURATION_MS + extraMs, MAX_DURATION_MS);
   const remaining     = running ? Math.max(0, totalDuration - elapsed) : totalDuration;
-  
+  const isOver        = running && !finished && remaining === 0;
+
+  // ── Play chime + vibrate when timer hits zero ──────────────────────────
+  // Uses Web Audio API (no files needed) and navigator.vibrate (Android/PWA).
+  // alertFiredRef ensures the alert fires exactly once per expiry event.
+  // MUST be before `if (!visible) return null` — hooks cannot be after an early return.
+  useEffect(() => {
+    if (!isOver) {
+      alertFiredRef.current = false; // reset so it can fire again after extend+expire
+      return;
+    }
+    if (!alertOnExpiry || alertFiredRef.current) return;
+    alertFiredRef.current = true;
+
+    // ── Vibration (Android Chrome / Firefox, silent no-op everywhere else) ──
+    try {
+      if ('vibrate' in navigator) {
+        // Three pulses: long-short-long
+        navigator.vibrate([400, 150, 200, 150, 400]);
+      }
+    } catch { /* silently ignore — some browsers block vibrate */ }
+
+    // ── Chime via Web Audio API ───────────────────────────────────────────
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      // Three descending tones: high → mid → low, each 0.4 s, slight overlap
+      const tones = [
+        { freq: 880, start: 0.00, duration: 0.5 },  // A5
+        { freq: 659, start: 0.35, duration: 0.5 },  // E5
+        { freq: 523, start: 0.70, duration: 0.8 },  // C5 — held longer
+      ];
+      tones.forEach(({ freq, start, duration }) => {
+        const osc  = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        // Fade in sharply, fade out gently
+        const t = ctx.currentTime + start;
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(0.35, t + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
+        osc.start(t);
+        osc.stop(t + duration);
+      });
+      // Close context after all tones finish
+      setTimeout(() => ctx.close(), 2000);
+    } catch { /* Web Audio unavailable — silent fallback */ }
+  }, [isOver, alertOnExpiry]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!visible) return null;
+
   // FIX: When finished, show the time it took (elapsed) instead of remaining time.
   const displayMs     = finished ? elapsed : remaining;
   const totalSec      = Math.floor(displayMs / 1000);
   const mins          = Math.floor(totalSec / 60);
   const secs          = totalSec % 60;
-  const isOver        = running && !finished && remaining === 0;
   const warn3         = running && !paused && !isOver && remaining <= 3 * 60 * 1000;
   const warn5         = running && !paused && !isOver && remaining <= 5 * 60 * 1000 && !warn3;
   const timeStr       = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
@@ -273,54 +324,6 @@ function InterviewTimer({ visible, running, hidden, candidateId, itemNumber, onS
       if ('vibrate' in navigator) navigator.vibrate(next ? [80] : [40]);
     } catch { /* vibrate unavailable */ }
   };
-
-  // ── Play chime + vibrate when timer hits zero ──────────────────────────
-  // Uses Web Audio API (no files needed) and navigator.vibrate (Android/PWA).
-  // alertFiredRef ensures the alert fires exactly once per expiry event.
-  useEffect(() => {
-    if (!isOver) {
-      alertFiredRef.current = false; // reset so it can fire again after extend+expire
-      return;
-    }
-    if (!alertOnExpiry || alertFiredRef.current) return;
-    alertFiredRef.current = true;
-
-    // ── Vibration (Android Chrome / Firefox, silent no-op everywhere else) ──
-    try {
-      if ('vibrate' in navigator) {
-        // Three pulses: long-short-long
-        navigator.vibrate([400, 150, 200, 150, 400]);
-      }
-    } catch { /* silently ignore — some browsers block vibrate */ }
-
-    // ── Chime via Web Audio API ───────────────────────────────────────────
-    try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      // Three descending tones: high → mid → low, each 0.4 s, slight overlap
-      const tones = [
-        { freq: 880, start: 0.00, duration: 0.5 },  // A5
-        { freq: 659, start: 0.35, duration: 0.5 },  // E5
-        { freq: 523, start: 0.70, duration: 0.8 },  // C5 — held longer
-      ];
-      tones.forEach(({ freq, start, duration }) => {
-        const osc  = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.type = 'sine';
-        osc.frequency.value = freq;
-        // Fade in sharply, fade out gently
-        const t = ctx.currentTime + start;
-        gain.gain.setValueAtTime(0, t);
-        gain.gain.linearRampToValueAtTime(0.35, t + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
-        osc.start(t);
-        osc.stop(t + duration);
-      });
-      // Close context after all tones finish
-      setTimeout(() => ctx.close(), 2000);
-    } catch { /* Web Audio unavailable — silent fallback */ }
-  }, [isOver, alertOnExpiry]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Progress ring colors
   const ringColor = finished ? '#16a34a' : isOver ? '#dc2626' : warn3 ? '#ea580c' : warn5 ? '#d97706' : paused ? '#7c3aed' : '#10b981';
