@@ -746,19 +746,23 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       7: { cellWidth: colRating, halign: 'center' }
     };
 
-    const makeCompTable = (groupTitle, competencies, type, isLastInType = false) => {
+    const makeCompTable = (groupTitle, competencies, type) => {
       doc.autoTable({
         startY: doc.lastAutoTable ? doc.lastAutoTable.finalY + 4 : y + 4,
         head: [[groupTitle, 'CHAIR', 'VICE', 'GAD', 'DENREU', 'REGMEM', 'END-U', 'AVE']],
         body: competencies.map(comp => {
           const prefix = `${comp.ordinal}. `;
           const name = comp.name;
+          
+          // Use a fixed width for the prefix area to ensure alignment
+          const prefixWidth = 12; // Adjusted based on typical 5.2pt font width for "52. "
+          
           return [
             { 
               content: prefix + name,
               styles: { 
-                cellPadding: { top: 0.8, right: 0.8, bottom: 0.8, left: doc.getTextWidth(prefix) + 0.8 },
-                textIndent: -doc.getTextWidth(prefix)
+                cellPadding: { top: 0.8, right: 0.8, bottom: 0.8, left: prefixWidth },
+                textIndent: -prefixWidth + 0.8 // Negative indent to bring prefix back to the left
               }
             },
             getRatingDisplay(comp.code, 'CHAIR'),
@@ -770,20 +774,27 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
             { content: calculateRowAverage(comp.code, type).toFixed(2), styles: { fontStyle: 'bold' } }
           ];
         }),
-        // Only show TOTAL if isLastInType is true
-        foot: isLastInType ? [[
+        foot: [[
           { content: 'TOTAL', styles: { halign: 'center', fontStyle: 'bold' } },
           ...['CHAIR', 'VICE', 'GAD', 'DENREU', 'REGMEM', 'END-USER'].map(rt => ({
-            content: (calculateFinalScores().breakdown[type] || 0).toFixed(2),
+            content: (competencies.reduce((sum, comp) => {
+              const r = ratings.find(r =>
+                r.competencyId?.name?.toUpperCase().replace(/ /g, '_') === comp.code &&
+                getRaterTypeCode(r.raterId?.raterType) === rt &&
+                r.itemNumber === modalItemNumber
+              );
+              return sum + (r ? r.score : 0);
+            }, 0) / Math.max(1, competencies.length)).toFixed(2),
             styles: { halign: 'center' }
           })),
           { content: calculateFinalScores().breakdown[type].toFixed(2), styles: { fontStyle: 'bold', halign: 'center' } }
-        ]] : null,
+        ]],
         styles: { fontSize: 5.2, cellPadding: 0.8, valign: 'middle', overflow: 'linebreak' },
         headStyles: { halign: 'center', fontStyle: 'bold' },
         columnStyles: columnWidths,
         theme: 'grid',
-        margin: { left: 10, right: 14 }
+        margin: { left: 10, right: 14 },
+        showFoot: 'lastPage' // Industry standard: only show footer on the last page of the table
       });
       y = doc.lastAutoTable.finalY;
     };
@@ -801,8 +812,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     doc.setFontSize(10);
     doc.text(`CER SCORE: ${cerScore1}`, scoreBoxX + scoreBoxWidth / 2, y + 0.3, { align: 'center' });
     
-    // For Psycho-social, basic is the only group
-    makeCompTable('CORE COMPETENCIES', groupedCompetencies.basic, 'basic', true);
+    makeCompTable('CORE COMPETENCIES', groupedCompetencies.basic, 'basic');
 
     let potentialSectionY = doc.lastAutoTable.finalY + 8;
     // Check for page break before potential section
@@ -821,15 +831,12 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     doc.setFontSize(10);
     doc.text(`CER SCORE: ${cerScore2}`, scoreBox2X + scoreBoxWidth / 2, potentialSectionY + 0.3, { align: 'center' });
 
-    // For Potential, there might be multiple groups. Total only on the last one.
-    const hasLeadership = shouldShowLeadership();
-    makeCompTable('ORGANIZATIONAL COMPETENCIES', groupedCompetencies.organizational, 'organizational', !hasLeadership && false); // wait, organizational is part of potential
+    makeCompTable('ORGANIZATIONAL COMPETENCIES', groupedCompetencies.organizational, 'organizational');
     
-    if (hasLeadership) {
-      makeCompTable('LEADERSHIP COMPETENCIES', groupedCompetencies.leadership, 'leadership', false);
+    if (shouldShowLeadership()) {
+      makeCompTable('LEADERSHIP COMPETENCIES', groupedCompetencies.leadership, 'leadership');
     }
-    // Minimum is the last one in Potential section
-    makeCompTable('MINIMUM COMPETENCIES', groupedCompetencies.minimum, 'minimum', true);
+    makeCompTable('MINIMUM COMPETENCIES', groupedCompetencies.minimum, 'minimum');
 
     y = doc.lastAutoTable.finalY + 10;
     
