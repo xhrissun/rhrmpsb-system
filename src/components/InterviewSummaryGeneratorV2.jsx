@@ -685,27 +685,44 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     const pageWidth  = doc.internal.pageSize.width;
     const TOTAL_PAGES_PLACEHOLDER = '{total_pages_count_string}';
 
-    const xLeft       = 10;
+    const xLeft        = 10;
+    const xRight       = pageWidth - xLeft;
     const BOTTOM_MARGIN = 14;
-    const footerY     = pageHeight - 4;
+    const footerY      = pageHeight - 5;
+    const footerLineY  = footerY - 2;
 
     const footerName   = candidateDetails?.fullName || '';
     const footerItemNo = (modalAllItemNumbers.length > 0 ? modalAllItemNumbers : [modalItemNumber]).join(', ') || '';
 
-    // ── Footer: fully self-contained — sets every property it needs at the top
-    //    so autoTable's leftover font/color state can NEVER contaminate it.
+    // ── Footer guard: each physical page number gets drawn EXACTLY ONCE.
+    //    didDrawPage fires once per autoTable call per page, so when 4 tables
+    //    all touch page 2 the footer would stack 4 times without this guard.
+    const footerDrawnOnPage = new Set();
+
     const drawPageFooter = () => {
+      const pageNum = doc.internal.getCurrentPageInfo().pageNumber;
+      if (footerDrawnOnPage.has(pageNum)) return;
+      footerDrawnOnPage.add(pageNum);
+
+      // ── Set ALL properties explicitly — never trust prior state ──
       doc.setFont('helvetica', 'italic');
       doc.setFontSize(6);
-      doc.setTextColor(120, 120, 120);
-      doc.setLineWidth(0.1);
-      doc.line(xLeft, footerY - 2.5, pageWidth - xLeft, footerY - 2.5);
+      doc.setTextColor(100, 100, 100);
+      doc.setLineWidth(0.15);
+
+      // Thin separator line
+      doc.line(xLeft, footerLineY, xRight, footerLineY);
+
+      // Left side: candidate name | item number
       doc.text(`${footerName}  |  Item No.: ${footerItemNo}`, xLeft, footerY);
+
+      // Right side: page number — anchored to right margin with align:'right'
       doc.text(
-        `Page ${doc.internal.getCurrentPageInfo().pageNumber} of ${TOTAL_PAGES_PLACEHOLDER}`,
-        pageWidth - xLeft, footerY, { align: 'right' }
+        `Page ${pageNum} of ${TOTAL_PAGES_PLACEHOLDER}`,
+        xRight, footerY, { align: 'right' }
       );
-      // Restore clean baseline so drawing code after this call is unaffected
+
+      // ── Hard-restore to a safe baseline for all subsequent drawing ──
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
       doc.setTextColor(0, 0, 0);
@@ -758,68 +775,72 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       7: { cellWidth: colRating, halign: 'center' },
     };
 
-    // ── Hanging-indent helpers ────────────────────────────────────────────────────
-    // jsPDF works in mm. At 5.2pt, 1pt = 0.3528mm, so line height with leading:
-    const COMP_FONT_SIZE = 5.2;
-    const LINE_H   = COMP_FONT_SIZE * 0.3528 * 1.45; // pt→mm with leading ≈ 2.67mm
-    const CELL_PAD_L = 1.5;
-    const CELL_PAD_R = 0.8;
-    const CELL_PAD_V = 0.8;
+    // ── Hanging-indent constants ──────────────────────────────────────────────────
+    const COMP_FS = 5.2;                       // font size in pt
+    const LINE_H  = COMP_FS * 0.3528 * 1.5;   // pt → mm with leading  ≈ 2.76 mm
+    const PAD_L   = 1.5;                       // cell left padding  (mm)
+    const PAD_R   = 0.8;                       // cell right padding (mm)
+    const PAD_V   = 0.8;                       // cell top/bottom padding (mm)
 
-    // Measure the actual pixel-width of the prefix string using jsPDF's own engine.
-    // This is the only reliable way — character-count * constant is always wrong
-    // because Helvetica characters have variable widths.
-    const getPrefixWidth = (prefix) => {
-      doc.setFontSize(COMP_FONT_SIZE);
+    // Prime jsPDF to the competency font so getTextWidth / splitTextToSize are accurate.
+    const primeCompFont = () => {
+      doc.setFontSize(COMP_FS);
       doc.setFont('helvetica', 'normal');
-      return doc.getTextWidth(prefix); // returns mm
     };
 
-    // didParseCell: tell autoTable the correct row height so it reserves enough space
+    // Parse a competency cell's raw text and return the wrapped lines plus the
+    // indent width in mm.  Called identically from both hooks so heights match.
+    const splitCompCell = (raw, availMm) => {
+      primeCompFont();
+      const match    = raw.match(/^(\d+\.\s)/);   // "1. " … "52. "
+      const prefix   = match ? match[1] : '';
+      const rest     = match ? raw.slice(prefix.length) : raw;
+      const indentMm = doc.getTextWidth(prefix);  // real rendered width — variable per prefix
+      const lines    = doc.splitTextToSize(rest, availMm - indentMm);
+      return { prefix, indentMm, lines };
+    };
+
+    // didParseCell — runs first: set the correct minCellHeight so autoTable
+    // allocates enough row space BEFORE it starts drawing anything.
     const didParseCompetencyCell = (data) => {
       if (data.section !== 'body' || data.column.index !== 0) return;
-      const raw    = String(data.cell.raw ?? '');
-      const match  = raw.match(/^(\d+\.\s)/);
-      const prefix = match ? match[1] : '';
-      const rest   = match ? raw.slice(prefix.length) : raw;
-      const indent = getPrefixWidth(prefix);
-      const avail  = colCompetency - CELL_PAD_L - CELL_PAD_R;
-      const lines  = doc.splitTextToSize(rest, avail - indent);
-      data.cell.styles.minCellHeight = lines.length * LINE_H + CELL_PAD_V * 2;
-      // Suppress autoTable's own text rendering — willDrawCell handles it
-      data.cell.text = [];
+      const raw   = String(data.cell.raw ?? '');
+      const avail = colCompetency - PAD_L - PAD_R;  // fixed column width, same as willDrawCell
+      const { lines } = splitCompCell(raw, avail);
+      data.cell.styles.minCellHeight = lines.length * LINE_H + PAD_V * 2;
+      data.cell.text = [];  // stop autoTable rendering its own text
     };
 
-    // willDrawCell: manually render with correct hanging indent
+    // willDrawCell — runs second: draw the text manually with hanging indent.
     const willDrawCompetencyCell = (data) => {
       if (data.section !== 'body' || data.column.index !== 0) return;
-      data.cell.text = []; // suppress autoTable default
+      data.cell.text = [];  // belt-and-suspenders suppress
+
       const { x, y: cellY, width, height } = data.cell;
-      const avail  = width - CELL_PAD_L - CELL_PAD_R;
-      const raw    = String(data.cell.raw ?? '');
-      const match  = raw.match(/^(\d+\.\s)/);
-      const prefix = match ? match[1] : '';
-      const rest   = match ? raw.slice(prefix.length) : raw;
-      const indent = getPrefixWidth(prefix); // measured in mm — accurate for any prefix length
-      doc.setFontSize(COMP_FONT_SIZE);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(0);
-      // Wrap only the text after the prefix, constrained to the indented width
-      const restLines = doc.splitTextToSize(rest, avail - indent);
-      // Line 0: "1. " + first wrapped line; subsequent lines: indented by prefix width
-      const allLines  = [prefix + restLines[0], ...restLines.slice(1)];
-      const totalH    = allLines.length * LINE_H;
-      // Vertically centre the text block inside the cell
+      const avail = width - PAD_L - PAD_R;   // actual rendered cell width
+      const raw   = String(data.cell.raw ?? '');
+      const { prefix, indentMm, lines } = splitCompCell(raw, avail);
+
+      // Build display lines:
+      //   line 0  → "1. " + first wrapped segment   (no extra x-shift)
+      //   line 1+ → continuation, x-shifted by indentMm so text aligns under text, not number
+      const allLines = [prefix + lines[0], ...lines.slice(1)];
+      const totalH   = allLines.length * LINE_H;
+
+      // Vertically centre the block inside the cell
       let lineY = cellY + (height - totalH) / 2 + LINE_H * 0.75;
+
+      primeCompFont();
+      doc.setTextColor(0, 0, 0);
+
       allLines.forEach((line, i) => {
-        // First line: no extra indent (prefix is already part of the string)
-        // Continuation lines: shifted right by the prefix width so they align with the text
-        doc.text(line, x + CELL_PAD_L + (i === 0 ? 0 : indent), lineY);
+        doc.text(line, x + PAD_L + (i === 0 ? 0 : indentMm), lineY);
         lineY += LINE_H;
       });
-      // Restore font so nothing leaks into adjacent cells or the footer
+
+      // Restore clean state so nothing leaks to the next cell or footer
       doc.setFont('helvetica', 'normal');
-      doc.setTextColor(0);
+      doc.setTextColor(0, 0, 0);
     };
 
     // ── Shared table builder ──────────────────────────────────────────────────────
@@ -855,7 +876,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
         ]],
         // FIX 1: TOTAL row only on the last page of the table
         showFoot: 'lastPage',
-        styles: { fontSize: 5.2, cellPadding: { top: CELL_PAD_V, right: CELL_PAD_R, bottom: CELL_PAD_V, left: CELL_PAD_L }, valign: 'middle', overflow: 'linebreak' },
+        styles: { fontSize: COMP_FS, cellPadding: { top: PAD_V, right: PAD_R, bottom: PAD_V, left: PAD_L }, valign: 'middle', overflow: 'linebreak' },
         headStyles: { halign: 'center', fontStyle: 'bold', cellPadding: 0.8 },
         columnStyles: columnWidths,
         theme: 'grid',
