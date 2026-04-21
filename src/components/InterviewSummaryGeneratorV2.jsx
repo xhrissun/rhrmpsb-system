@@ -778,43 +778,67 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     };
 
     // ── Parse "N. competency name" into { prefix, bodyText } ─────────────────────
-    // Inside exportToPDF function — replace the parsing, measurement, and drawing helpers
-
-    // ── Parse "N. competency name" into { prefix, bodyText } ─────────────────────
     const parseCompetencyText = (raw) => {
       const dotIdx = raw.indexOf('. ');
       if (dotIdx === -1) return { prefix: '', bodyText: raw };
-
-      let prefix = raw.slice(0, dotIdx + 2);           // e.g. "35. "
-      let body = raw.slice(dotIdx + 2).trim();         // e.g. "(SUP)- PROCESSING OF..."
-
-      // Remove excess space after dash if present (e.g. " (SUP) - " → " (SUP)- ")
-      body = body.replace(/\)\s*-\s*/g, ')- ');
-
-      return { prefix, bodyText: body };
+      return { prefix: raw.slice(0, dotIdx + 2), bodyText: raw.slice(dotIdx + 2) };
     };
 
-    // ── didParseCell: calculate correct row height (prevents cutting) ────────────
+    // ── Build body rows — column 0 carries the full text; hooks handle rendering ──
+    const buildBody = (competencies, type) =>
+      competencies.map(comp => [
+        `${comp.ordinal}. ${comp.name}`,
+        getRatingDisplay(comp.code, 'CHAIR'),
+        getRatingDisplay(comp.code, 'VICE'),
+        getRatingDisplay(comp.code, 'GAD'),
+        getRatingDisplay(comp.code, 'DENREU'),
+        getRatingDisplay(comp.code, 'REGMEM'),
+        getRatingDisplay(comp.code, 'END-USER'),
+        { content: calculateRowAverage(comp.code, type).toFixed(2), styles: { fontStyle: 'bold' } }
+      ]);
+
+    const buildFoot = (competencies, type) => [[
+      { content: 'TOTAL', styles: { halign: 'center', fontStyle: 'bold' } },
+      ...['CHAIR', 'VICE', 'GAD', 'DENREU', 'REGMEM', 'END-USER'].map(rt => ({
+        content: (competencies.reduce((sum, comp) => {
+          const r = ratings.find(r =>
+            r.competencyId?.name?.toUpperCase().replace(/ /g, '_') === comp.code &&
+            getRaterTypeCode(r.raterId?.raterType) === rt &&
+            r.itemNumber === modalItemNumber
+          );
+          return sum + (r ? r.score : 0);
+        }, 0) / Math.max(1, competencies.length)).toFixed(2),
+        styles: { halign: 'center' }
+      })),
+      { content: calculateFinalScores().breakdown[type].toFixed(2), styles: { fontStyle: 'bold', halign: 'center' } }
+    ]];
+
+    // ── didParseCell: blank column-0 body text so AutoTable draws nothing there ───
+    // AutoTable sizes the row height based on the text it sees here, so we must
+    // pre-calculate the correct height for the hanging-indent layout and set it.
     const didParseCell = (data) => {
       if (data.section !== 'body' || data.column.index !== 0) return;
 
       const raw = typeof data.cell.raw === 'string' ? data.cell.raw : (data.cell.raw?.content ?? '');
       const { prefix, bodyText } = parseCompetencyText(raw);
 
+      // Available inner width = cell width minus left+right padding.
+      // cell.width may not be final yet at parse time, so use colCompetency.
       const innerWidth = colCompetency - CELL_PADDING * 2;
       const prefixWidth = measurePrefix(prefix);
-      const availableBodyWidth = innerWidth - prefixWidth;
-      const lines = wrapBodyText(bodyText, availableBodyWidth);
+      const lines = wrapBodyText(bodyText, innerWidth - prefixWidth);
 
+      // Required height: padding top + all lines + padding bottom
       const neededHeight = CELL_PADDING * 2 + lines.length * LINE_HEIGHT_MM;
 
+      // Store original text for the draw hook, then blank the cell text.
       data.cell._hangingRaw = raw;
-      data.cell.text = []; // suppress default text rendering
+      data.cell.text = []; // suppress AutoTable's own text rendering
+      // Override minCellHeight so the row is tall enough
       data.cell.styles.minCellHeight = Math.max(neededHeight, CELL_PADDING * 2 + LINE_HEIGHT_MM);
-      data.cell.styles.valign = 'middle';   // helps with vertical centering
     };
 
-    // ── didDrawCell: custom rendering with hanging indent + vertical centering ───
+    // ── didDrawCell: manually render column-0 body cells with hanging indent ──────
     const didDrawCell = (data) => {
       if (data.section !== 'body' || data.column.index !== 0) return;
 
@@ -823,44 +847,31 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       const { prefix, bodyText } = parseCompetencyText(raw);
 
       const cellX = cell.x + CELL_PADDING;
-      const cellY = cell.y + CELL_PADDING;                    // start from top padding
-      const cellHeight = cell.height;
-      const cellWidth = cell.width - CELL_PADDING * 2;
+      // Align text to top of cell (valign: top equivalent)
+      const cellY = cell.y + CELL_PADDING + FONT_SIZE_TABLE * PT_TO_MM;
 
       doc.setFontSize(FONT_SIZE_TABLE);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(0, 0, 0);
 
       const prefixWidth = measurePrefix(prefix);
-      const lines = wrapBodyText(bodyText, cellWidth - prefixWidth);
+      const innerWidth = cell.width - CELL_PADDING * 2;
+      const lines = wrapBodyText(bodyText, innerWidth - prefixWidth);
 
-      // Vertical centering offset
-      const totalTextHeight = lines.length * LINE_HEIGHT_MM;
-      const verticalOffset = (cellHeight - totalTextHeight) / 2 + (FONT_SIZE_TABLE * 0.3528); // slight top bias
+      // Draw number prefix on the first line
+      if (prefix) doc.text(prefix, cellX, cellY);
 
-      const startY = cellY + verticalOffset;
-
-      // Draw prefix on first line
-      if (prefix) {
-        doc.text(prefix, cellX, startY);
-      }
-
-      // Draw body lines with hanging indent
+      // Draw wrapped body lines, each indented by prefixWidth
       lines.forEach((line, i) => {
-        doc.text(line, cellX + prefixWidth, startY + i * LINE_HEIGHT_MM);
+        doc.text(line, cellX + prefixWidth, cellY + i * LINE_HEIGHT_MM);
       });
     };
 
     // ── Shared autoTable options ──────────────────────────────────────────────────
     const sharedOptions = {
-      styles: { 
-        fontSize: FONT_SIZE_TABLE, 
-        cellPadding: CELL_PADDING, 
-        valign: 'middle',           // ← changed to middle
-        overflow: 'linebreak' 
-      },
-      headStyles: { halign: 'center', fontStyle: 'bold', valign: 'middle' },
-      footStyles: { halign: 'center', fontStyle: 'bold', valign: 'middle' },
+      styles: { fontSize: FONT_SIZE_TABLE, cellPadding: CELL_PADDING, valign: 'top', overflow: 'linebreak' },
+      headStyles: { halign: 'center', fontStyle: 'bold' },
+      footStyles: { halign: 'center', fontStyle: 'bold' },
       columnStyles: columnWidths,
       theme: 'grid',
       margin: { left: MARGIN_LEFT, right: MARGIN_RIGHT, bottom: MARGIN_BOTTOM },
