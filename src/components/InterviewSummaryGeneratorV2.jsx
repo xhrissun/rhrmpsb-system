@@ -755,22 +755,39 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       7: { cellWidth: colRating, halign: 'center' }
     };
 
-    // ── Hanging-indent cell content builder ───────────────────────────────────────
-    // jsPDF-AutoTable does not natively support hanging indents, so we implement it
-    // with a didDrawCell hook: render the number prefix, then wrap the remaining
-    // text with an indent equal to the rendered prefix width.
+    // ── Table rendering constants ─────────────────────────────────────────────────
     const FONT_SIZE_TABLE = 5.2;
     const CELL_PADDING = 0.8;
+    // pt → mm conversion: 1pt = 0.3528mm; line-height multiplier ~1.15
+    const PT_TO_MM = 0.3528;
+    const LINE_HEIGHT_MM = FONT_SIZE_TABLE * PT_TO_MM * 1.15;
 
-    // Pre-compute the width of the widest prefix ("10. " at FONT_SIZE_TABLE pt) once.
-    // We use a fixed indent of ~5 mm which comfortably clears "10. " at 5.2pt.
-    const PREFIX_INDENT_MM = 5.2; // horizontal space reserved for "N. "
+    // ── Helpers to compute prefix width and wrapped lines (used in both hooks) ────
+    // We must set the font on doc before calling getTextWidth / splitTextToSize
+    // because jsPDF uses the current font state for measurement.
+    const measurePrefix = (prefix) => {
+      doc.setFontSize(FONT_SIZE_TABLE);
+      doc.setFont('helvetica', 'normal');
+      return doc.getTextWidth(prefix);
+    };
 
-    // Build the body rows for a competency table.
-    // Each cell in column 0 stores the raw text; the hook handles rendering.
+    const wrapBodyText = (bodyText, availableWidth) => {
+      doc.setFontSize(FONT_SIZE_TABLE);
+      doc.setFont('helvetica', 'normal');
+      return doc.splitTextToSize(bodyText, availableWidth);
+    };
+
+    // ── Parse "N. competency name" into { prefix, bodyText } ─────────────────────
+    const parseCompetencyText = (raw) => {
+      const dotIdx = raw.indexOf('. ');
+      if (dotIdx === -1) return { prefix: '', bodyText: raw };
+      return { prefix: raw.slice(0, dotIdx + 2), bodyText: raw.slice(dotIdx + 2) };
+    };
+
+    // ── Build body rows — column 0 carries the full text; hooks handle rendering ──
     const buildBody = (competencies, type) =>
       competencies.map(comp => [
-        `${comp.ordinal}. ${comp.name}`,   // stored as-is; hook splits it
+        `${comp.ordinal}. ${comp.name}`,
         getRatingDisplay(comp.code, 'CHAIR'),
         getRatingDisplay(comp.code, 'VICE'),
         getRatingDisplay(comp.code, 'GAD'),
@@ -796,68 +813,71 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       { content: calculateFinalScores().breakdown[type].toFixed(2), styles: { fontStyle: 'bold', halign: 'center' } }
     ]];
 
-    // ── didDrawCell hook: hanging-indent for column 0 body cells ─────────────────
-    // AutoTable already wraps text for us, but it does so without any indent on
-    // continuation lines.  Instead, we suppress AutoTable's own text draw for
-    // column-0 body cells and redraw with proper hanging indent.
-    const hangingIndentHook = (data) => {
+    // ── didParseCell: blank column-0 body text so AutoTable draws nothing there ───
+    // AutoTable sizes the row height based on the text it sees here, so we must
+    // pre-calculate the correct height for the hanging-indent layout and set it.
+    const didParseCell = (data) => {
+      if (data.section !== 'body' || data.column.index !== 0) return;
+
+      const raw = typeof data.cell.raw === 'string' ? data.cell.raw : (data.cell.raw?.content ?? '');
+      const { prefix, bodyText } = parseCompetencyText(raw);
+
+      // Available inner width = cell width minus left+right padding.
+      // cell.width may not be final yet at parse time, so use colCompetency.
+      const innerWidth = colCompetency - CELL_PADDING * 2;
+      const prefixWidth = measurePrefix(prefix);
+      const lines = wrapBodyText(bodyText, innerWidth - prefixWidth);
+
+      // Required height: padding top + all lines + padding bottom
+      const neededHeight = CELL_PADDING * 2 + lines.length * LINE_HEIGHT_MM;
+
+      // Store original text for the draw hook, then blank the cell text.
+      data.cell._hangingRaw = raw;
+      data.cell.text = []; // suppress AutoTable's own text rendering
+      // Override minCellHeight so the row is tall enough
+      data.cell.styles.minCellHeight = Math.max(neededHeight, CELL_PADDING * 2 + LINE_HEIGHT_MM);
+    };
+
+    // ── didDrawCell: manually render column-0 body cells with hanging indent ──────
+    const didDrawCell = (data) => {
       if (data.section !== 'body' || data.column.index !== 0) return;
 
       const cell = data.cell;
-      const raw = typeof cell.raw === 'string' ? cell.raw : (cell.raw?.content ?? '');
+      const raw = cell._hangingRaw ?? (typeof cell.raw === 'string' ? cell.raw : (cell.raw?.content ?? ''));
+      const { prefix, bodyText } = parseCompetencyText(raw);
 
-      // Parse "N. rest of text"
-      const dotIdx = raw.indexOf('. ');
-      if (dotIdx === -1) return; // no prefix found, let AutoTable handle it
-
-      const prefix = raw.slice(0, dotIdx + 2);   // e.g. "3. "
-      const bodyText = raw.slice(dotIdx + 2);     // the competency name
-
-      // Cell geometry
       const cellX = cell.x + CELL_PADDING;
-      const cellY = cell.y + CELL_PADDING;
-      const cellW = cell.width - CELL_PADDING * 2;
-
-      // Erase AutoTable's own rendering by drawing a white rectangle over the text area.
-      doc.setFillColor(255, 255, 255);
-      doc.rect(cell.x + 0.1, cell.y + 0.1, cell.width - 0.2, cell.height - 0.2, 'F');
+      // Align text to top of cell (valign: top equivalent)
+      const cellY = cell.y + CELL_PADDING + FONT_SIZE_TABLE * PT_TO_MM;
 
       doc.setFontSize(FONT_SIZE_TABLE);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(0, 0, 0);
 
-      // Measure the prefix width at this font size
-      const prefixWidth = doc.getTextWidth(prefix);
+      const prefixWidth = measurePrefix(prefix);
+      const innerWidth = cell.width - CELL_PADDING * 2;
+      const lines = wrapBodyText(bodyText, innerWidth - prefixWidth);
 
-      // Draw the prefix at the top-left of the cell
-      doc.text(prefix, cellX, cellY + FONT_SIZE_TABLE * 0.352); // 0.352 ≈ pt→mm baseline offset
+      // Draw number prefix on the first line
+      if (prefix) doc.text(prefix, cellX, cellY);
 
-      // Wrap the body text within (cellW - prefixWidth) starting at (cellX + prefixWidth)
-      const wrapWidth = cellW - prefixWidth;
-      const lines = doc.splitTextToSize(bodyText, wrapWidth);
-      const lineHeight = FONT_SIZE_TABLE * 0.352 * 2.2; // comfortable line spacing
-
+      // Draw wrapped body lines, each indented by prefixWidth
       lines.forEach((line, i) => {
-        const lx = cellX + prefixWidth;
-        const ly = cellY + FONT_SIZE_TABLE * 0.352 + i * lineHeight;
-        doc.text(line, lx, ly);
+        doc.text(line, cellX + prefixWidth, cellY + i * LINE_HEIGHT_MM);
       });
     };
 
     // ── Shared autoTable options ──────────────────────────────────────────────────
     const sharedOptions = {
-      styles: { fontSize: FONT_SIZE_TABLE, cellPadding: CELL_PADDING, valign: 'middle', overflow: 'linebreak' },
+      styles: { fontSize: FONT_SIZE_TABLE, cellPadding: CELL_PADDING, valign: 'top', overflow: 'linebreak' },
       headStyles: { halign: 'center', fontStyle: 'bold' },
       footStyles: { halign: 'center', fontStyle: 'bold' },
       columnStyles: columnWidths,
       theme: 'grid',
       margin: { left: MARGIN_LEFT, right: MARGIN_RIGHT, bottom: MARGIN_BOTTOM },
-      showFoot: 'lastPage',   // TOTAL row only on the last page of that table
-      didDrawCell: hangingIndentHook,
-      didDrawPage: (data) => {
-        // Footer is added after every page autoTable draws
-        // We will retroactively number pages after all tables are done
-      },
+      showFoot: 'lastPage',
+      didParseCell,
+      didDrawCell,
     };
 
     // ── Helper: draw a section heading, checking for page overflow ───────────────
