@@ -696,19 +696,18 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
 
     // ── Draw footer on a given page ──────────────────────────────────────────────
     const drawFooter = (pageNum, totalPages) => {
-      const footerTextY = PAGE_HEIGHT - 5;
-      const footerLineY = footerTextY - 4; // clear gap between rule and text
+      const footerY = PAGE_HEIGHT - 6;
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(6.5);
-      doc.setTextColor(100, 100, 100);
+      doc.setTextColor(80, 80, 80);
       // Left: candidate name and item number
-      doc.text(`${footerCandidateName}  |  Item No.: ${footerItemNumber}`, MARGIN_LEFT, footerTextY);
+      doc.text(`${footerCandidateName}  |  Item No.: ${footerItemNumber}`, MARGIN_LEFT, footerY);
       // Right: page number
-      doc.text(`Page ${pageNum} of ${totalPages}`, PAGE_WIDTH - MARGIN_RIGHT, footerTextY, { align: 'right' });
-      // Thin rule above footer — with clear breathing room from the text
-      doc.setDrawColor(200, 200, 200);
-      doc.setLineWidth(0.15);
-      doc.line(MARGIN_LEFT, footerLineY, PAGE_WIDTH - MARGIN_RIGHT, footerLineY);
+      doc.text(`Page ${pageNum} of ${totalPages}`, PAGE_WIDTH - MARGIN_RIGHT, footerY, { align: 'right' });
+      // Thin rule above footer
+      doc.setDrawColor(180, 180, 180);
+      doc.setLineWidth(0.2);
+      doc.line(MARGIN_LEFT, footerY - 2, PAGE_WIDTH - MARGIN_RIGHT, footerY - 2);
       doc.setTextColor(0, 0, 0);
     };
 
@@ -758,7 +757,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
 
     // ── Table rendering constants ─────────────────────────────────────────────────
     const FONT_SIZE_TABLE = 5.2;
-    const CELL_PADDING = 0.8;
+    const CELL_PADDING = 1.5;
     // pt → mm conversion: 1pt = 0.3528mm; line-height multiplier ~1.15
     const PT_TO_MM = 0.3528;
     const LINE_HEIGHT_MM = FONT_SIZE_TABLE * PT_TO_MM * 1.15;
@@ -827,7 +826,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       const raw = typeof data.cell.raw === 'string' ? data.cell.raw : (data.cell.raw?.content ?? '');
       const { prefix, bodyText } = parseCompetencyText(raw);
 
-      const innerWidth = colCompetency - CELL_PADDING * 2;
+      const innerWidth = colCompetency - CELL_PADDING * 2 - 0.5; // match didDrawCell safety margin
       const prefixWidth = measurePrefix(prefix);
       const lines = wrapBodyText(bodyText, innerWidth - prefixWidth);
 
@@ -848,7 +847,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       const { prefix, bodyText } = parseCompetencyText(raw);
 
       const cellX = cell.x + CELL_PADDING;
-      const cellWidth = cell.width - CELL_PADDING * 2;
+      const cellWidth = cell.width - CELL_PADDING * 2 - 0.5; // 0.5 mm safety margin from right border
 
       doc.setFontSize(FONT_SIZE_TABLE);
       doc.setFont('helvetica', 'normal');
