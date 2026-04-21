@@ -692,19 +692,24 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     const footerName   = candidateDetails?.fullName || '';
     const footerItemNo = (modalAllItemNumbers.length > 0 ? modalAllItemNumbers : [modalItemNumber]).join(', ') || '';
 
-    // ── Footer: always explicit fonts, no save/restore — guarantees identical appearance on every page ──
+    // ── Footer: fully self-contained — sets every property it needs at the top
+    //    so autoTable's leftover font/color state can NEVER contaminate it.
     const drawPageFooter = () => {
-      doc.setFontSize(6);
       doc.setFont('helvetica', 'italic');
-      doc.setTextColor(100);
+      doc.setFontSize(6);
+      doc.setTextColor(120, 120, 120);
+      doc.setLineWidth(0.1);
+      doc.line(xLeft, footerY - 2.5, pageWidth - xLeft, footerY - 2.5);
       doc.text(`${footerName}  |  Item No.: ${footerItemNo}`, xLeft, footerY);
       doc.text(
         `Page ${doc.internal.getCurrentPageInfo().pageNumber} of ${TOTAL_PAGES_PLACEHOLDER}`,
         pageWidth - xLeft, footerY, { align: 'right' }
       );
-      doc.setTextColor(0);
-      doc.setFontSize(8);
+      // Restore clean baseline so drawing code after this call is unaffected
       doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(0, 0, 0);
+      doc.setLineWidth(0.2);
     };
 
     // ── Page 1 header ────────────────────────────────────────────────────────────
@@ -754,25 +759,32 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     };
 
     // ── Hanging-indent helpers ────────────────────────────────────────────────────
-    // At fontSize 5.2pt, average glyph width ≈ 5.2 * 0.0556 mm ≈ 0.289 mm/char
-    const CHAR_W = 5.2 * 0.0556;
-    const LINE_H = 5.2 * 0.3528 * 1.15; // pt→mm with leading factor ≈ 2.1 mm
+    // jsPDF works in mm. At 5.2pt, 1pt = 0.3528mm, so line height with leading:
+    const COMP_FONT_SIZE = 5.2;
+    const LINE_H   = COMP_FONT_SIZE * 0.3528 * 1.45; // pt→mm with leading ≈ 2.67mm
     const CELL_PAD_L = 1.5;
     const CELL_PAD_R = 0.8;
     const CELL_PAD_V = 0.8;
 
+    // Measure the actual pixel-width of the prefix string using jsPDF's own engine.
+    // This is the only reliable way — character-count * constant is always wrong
+    // because Helvetica characters have variable widths.
+    const getPrefixWidth = (prefix) => {
+      doc.setFontSize(COMP_FONT_SIZE);
+      doc.setFont('helvetica', 'normal');
+      return doc.getTextWidth(prefix); // returns mm
+    };
+
     // didParseCell: tell autoTable the correct row height so it reserves enough space
     const didParseCompetencyCell = (data) => {
       if (data.section !== 'body' || data.column.index !== 0) return;
-      const raw     = String(data.cell.raw ?? '');
-      const match   = raw.match(/^(\d+\.\s)/);
-      const prefix  = match ? match[1] : '';
-      const rest    = match ? raw.slice(prefix.length) : raw;
-      const indent  = prefix.length * CHAR_W;
-      const avail   = colCompetency - CELL_PAD_L - CELL_PAD_R;
-      doc.setFontSize(5.2);
-      doc.setFont('helvetica', 'normal');
-      const lines   = doc.splitTextToSize(rest, avail - indent);
+      const raw    = String(data.cell.raw ?? '');
+      const match  = raw.match(/^(\d+\.\s)/);
+      const prefix = match ? match[1] : '';
+      const rest   = match ? raw.slice(prefix.length) : raw;
+      const indent = getPrefixWidth(prefix);
+      const avail  = colCompetency - CELL_PAD_L - CELL_PAD_R;
+      const lines  = doc.splitTextToSize(rest, avail - indent);
       data.cell.styles.minCellHeight = lines.length * LINE_H + CELL_PAD_V * 2;
       // Suppress autoTable's own text rendering — willDrawCell handles it
       data.cell.text = [];
@@ -783,25 +795,31 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       if (data.section !== 'body' || data.column.index !== 0) return;
       data.cell.text = []; // suppress autoTable default
       const { x, y: cellY, width, height } = data.cell;
-      const avail   = width - CELL_PAD_L - CELL_PAD_R;
-      const raw     = String(data.cell.raw ?? '');
-      const match   = raw.match(/^(\d+\.\s)/);
-      const prefix  = match ? match[1] : '';
-      const rest    = match ? raw.slice(prefix.length) : raw;
-      const indent  = prefix.length * CHAR_W;
-      doc.setFontSize(5.2);
+      const avail  = width - CELL_PAD_L - CELL_PAD_R;
+      const raw    = String(data.cell.raw ?? '');
+      const match  = raw.match(/^(\d+\.\s)/);
+      const prefix = match ? match[1] : '';
+      const rest   = match ? raw.slice(prefix.length) : raw;
+      const indent = getPrefixWidth(prefix); // measured in mm — accurate for any prefix length
+      doc.setFontSize(COMP_FONT_SIZE);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(0);
+      // Wrap only the text after the prefix, constrained to the indented width
       const restLines = doc.splitTextToSize(rest, avail - indent);
+      // Line 0: "1. " + first wrapped line; subsequent lines: indented by prefix width
       const allLines  = [prefix + restLines[0], ...restLines.slice(1)];
       const totalH    = allLines.length * LINE_H;
-      // Vertically center the text block within the cell
-      let lineY = cellY + CELL_PAD_V + LINE_H * 0.8 + (height - CELL_PAD_V * 2 - totalH) / 2;
+      // Vertically centre the text block inside the cell
+      let lineY = cellY + (height - totalH) / 2 + LINE_H * 0.75;
       allLines.forEach((line, i) => {
-        // First line starts at left pad; continuation lines are indented past the prefix
+        // First line: no extra indent (prefix is already part of the string)
+        // Continuation lines: shifted right by the prefix width so they align with the text
         doc.text(line, x + CELL_PAD_L + (i === 0 ? 0 : indent), lineY);
         lineY += LINE_H;
       });
+      // Restore font so nothing leaks into adjacent cells or the footer
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(0);
     };
 
     // ── Shared table builder ──────────────────────────────────────────────────────
@@ -897,7 +915,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     const signatories = sortedRaters.map(r => [r.name.toUpperCase(), r.position, r.designation]);
 
     const sigRows        = Math.ceil(signatories.length / 2);
-    const sigBlockHeight = 7 + sigRows * 16; // "Certified" label + rows
+    const sigBlockHeight = 12 + sigRows * 16 + 6; // label(12) + rows + safety buffer(6)
     y = doc.lastAutoTable.finalY + 6;
     if (y + sigBlockHeight > pageHeight - BOTTOM_MARGIN) {
       doc.addPage();
