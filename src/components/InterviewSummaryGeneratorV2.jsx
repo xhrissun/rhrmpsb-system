@@ -782,11 +782,11 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       const dotIdx = raw.indexOf('. ');
       if (dotIdx === -1) return { prefix: '', bodyText: raw };
 
-      const prefix = raw.slice(0, dotIdx + 2);           // e.g. "35. "
+      const prefix = raw.slice(0, dotIdx + 2);     // e.g. "42. "
       let body = raw.slice(dotIdx + 2).trim();
 
-      // Normalize dash spacing: "(SUP)-TEXT" or "(SUP) - TEXT" → "(SUP)- TEXT"
-      body = body.replace(/\)\s*-\s*/g, ')- ');
+      // Normalize any variant of "(SUP)-", "(SUP) -", "(SUP)- " → "(SUP) - "
+      body = body.replace(/\)\s*-\s*/g, ') - ');
 
       return { prefix, bodyText: body };
     };
@@ -820,29 +820,22 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       { content: calculateFinalScores().breakdown[type].toFixed(2), styles: { fontStyle: 'bold', halign: 'center' } }
     ]];
 
-    // ── didParseCell: blank column-0 body text so AutoTable draws nothing there ───
-    // AutoTable sizes the row height based on the text it sees here, so we must
-    // pre-calculate the correct height for the hanging-indent layout and set it.
     const didParseCell = (data) => {
       if (data.section !== 'body' || data.column.index !== 0) return;
 
       const raw = typeof data.cell.raw === 'string' ? data.cell.raw : (data.cell.raw?.content ?? '');
       const { prefix, bodyText } = parseCompetencyText(raw);
 
-      // Available inner width = cell width minus left+right padding.
-      // cell.width may not be final yet at parse time, so use colCompetency.
       const innerWidth = colCompetency - CELL_PADDING * 2;
       const prefixWidth = measurePrefix(prefix);
       const lines = wrapBodyText(bodyText, innerWidth - prefixWidth);
 
-      // Required height: padding top + all lines + padding bottom
       const neededHeight = CELL_PADDING * 2 + lines.length * LINE_HEIGHT_MM;
 
-      // Store original text for the draw hook, then blank the cell text.
       data.cell._hangingRaw = raw;
-      data.cell.text = []; // suppress AutoTable's own text rendering
-      // Override minCellHeight so the row is tall enough
+      data.cell.text = [];
       data.cell.styles.minCellHeight = Math.max(neededHeight, CELL_PADDING * 2 + LINE_HEIGHT_MM);
+      data.cell.styles.valign = 'middle';
     };
 
     // ── didDrawCell: manually render column-0 body cells with hanging indent ──────
@@ -863,25 +856,23 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       const prefixWidth = measurePrefix(prefix);
       const lines = wrapBodyText(bodyText, cellWidth - prefixWidth);
 
-      // Vertically center the text block within the cell.
-      // jsPDF text y is the baseline, so add one full line-height from the top of the text block.
+      // Vertically center the text block in the cell.
+      // (cell.height - totalTextHeight) / 2 gives the top margin of the text block.
+      // Add FONT_SIZE_TABLE * PT_TO_MM to shift from top-of-line to baseline (where jsPDF draws).
       const totalTextHeight = lines.length * LINE_HEIGHT_MM;
-      const startY = cell.y + (cell.height - totalTextHeight) / 2 + LINE_HEIGHT_MM * 0.85;
+      const topMargin = (cell.height - totalTextHeight) / 2;
+      const startY = cell.y + topMargin + FONT_SIZE_TABLE * PT_TO_MM;
 
-      // Draw number prefix on the first line
       if (prefix) doc.text(prefix, cellX, startY);
-
-      // Draw wrapped body lines, each indented by prefixWidth
       lines.forEach((line, i) => {
         doc.text(line, cellX + prefixWidth, startY + i * LINE_HEIGHT_MM);
       });
     };
 
-    // ── Shared autoTable options ──────────────────────────────────────────────────
     const sharedOptions = {
-      styles: { fontSize: FONT_SIZE_TABLE, cellPadding: CELL_PADDING, valign: 'top', overflow: 'linebreak' },
-      headStyles: { halign: 'center', fontStyle: 'bold' },
-      footStyles: { halign: 'center', fontStyle: 'bold' },
+      styles: { fontSize: FONT_SIZE_TABLE, cellPadding: CELL_PADDING, valign: 'middle', overflow: 'linebreak' },
+      headStyles: { halign: 'center', fontStyle: 'bold', valign: 'middle' },
+      footStyles: { halign: 'center', fontStyle: 'bold', valign: 'middle' },
       columnStyles: columnWidths,
       theme: 'grid',
       margin: { left: MARGIN_LEFT, right: MARGIN_RIGHT, bottom: MARGIN_BOTTOM },
