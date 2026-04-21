@@ -758,11 +758,68 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     // ── Table rendering constants ─────────────────────────────────────────────────
     const FONT_SIZE_TABLE = 5.2;
     const CELL_PADDING = 0.8;
+    const PT_TO_MM = 0.3528;
+    const LINE_HEIGHT_MM = FONT_SIZE_TABLE * PT_TO_MM * 1.15;
+
+    // ── Parse competency text into { prefix, bodyText } ───────────────────────────
+    // prefix = everything up to and including the "- " e.g. "34. (SUP) - "
+    // bodyText = the actual competency name after the dash
+    const parseCompetencyText = (raw) => {
+      const dashIdx = raw.indexOf(' - ');
+      if (dashIdx === -1) return { prefix: '', bodyText: raw };
+      return { prefix: raw.slice(0, dashIdx + 3), bodyText: raw.slice(dashIdx + 3) };
+    };
+
+    const measurePrefix = (prefix) => {
+      doc.setFontSize(FONT_SIZE_TABLE);
+      doc.setFont('helvetica', 'normal');
+      return doc.getTextWidth(prefix);
+    };
+
+    const wrapBodyText = (bodyText, availableWidth) => {
+      doc.setFontSize(FONT_SIZE_TABLE);
+      doc.setFont('helvetica', 'normal');
+      return doc.splitTextToSize(bodyText, availableWidth);
+    };
+
+    // ── didParseCell: compute correct row height for hanging indent layout ────────
+    const didParseCell = (data) => {
+      if (data.section !== 'body' || data.column.index !== 0) return;
+      const raw = typeof data.cell.raw === 'string' ? data.cell.raw : (data.cell.raw?.content ?? '');
+      const { prefix, bodyText } = parseCompetencyText(raw);
+      const innerWidth = colCompetency - CELL_PADDING * 2;
+      const prefixWidth = measurePrefix(prefix);
+      const lines = wrapBodyText(bodyText, innerWidth - prefixWidth);
+      const neededHeight = CELL_PADDING * 2 + lines.length * LINE_HEIGHT_MM;
+      data.cell._hangingRaw = raw;
+      data.cell.text = [];
+      data.cell.styles.minCellHeight = Math.max(neededHeight, CELL_PADDING * 2 + LINE_HEIGHT_MM);
+    };
+
+    // ── didDrawCell: render with hanging indent — second line aligns with text ────
+    const didDrawCell = (data) => {
+      if (data.section !== 'body' || data.column.index !== 0) return;
+      const cell = data.cell;
+      const raw = cell._hangingRaw ?? (typeof cell.raw === 'string' ? cell.raw : (cell.raw?.content ?? ''));
+      const { prefix, bodyText } = parseCompetencyText(raw);
+      const cellX = cell.x + CELL_PADDING;
+      const cellY = cell.y + CELL_PADDING + FONT_SIZE_TABLE * PT_TO_MM;
+      doc.setFontSize(FONT_SIZE_TABLE);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(0, 0, 0);
+      const prefixWidth = measurePrefix(prefix);
+      const innerWidth = cell.width - CELL_PADDING * 2;
+      const lines = wrapBodyText(bodyText, innerWidth - prefixWidth);
+      if (prefix) doc.text(prefix, cellX, cellY);
+      lines.forEach((line, i) => {
+        doc.text(line, cellX + prefixWidth, cellY + i * LINE_HEIGHT_MM);
+      });
+    };
 
     // ── Build body rows ───────────────────────────────────────────────────────────
     const buildBody = (competencies, type) =>
       competencies.map(comp => [
-        `${comp.ordinal}. ${comp.name}`,
+        `${comp.ordinal}. ${comp.name.trim()}`,
         getRatingDisplay(comp.code, 'CHAIR'),
         getRatingDisplay(comp.code, 'VICE'),
         getRatingDisplay(comp.code, 'GAD'),
@@ -797,6 +854,8 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       theme: 'grid',
       margin: { left: MARGIN_LEFT, right: MARGIN_RIGHT, bottom: MARGIN_BOTTOM },
       showFoot: 'lastPage',
+      didParseCell,
+      didDrawCell,
     };
 
     // ── Helper: draw a section heading, checking for page overflow ───────────────
