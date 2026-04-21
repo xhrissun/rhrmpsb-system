@@ -682,6 +682,36 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     const scores = calculateFinalScores();
 
+    // ── Page geometry ────────────────────────────────────────────────────────────
+    const PAGE_WIDTH = 210;
+    const PAGE_HEIGHT = 297;
+    const MARGIN_LEFT = 10;
+    const MARGIN_RIGHT = 14;
+    const MARGIN_BOTTOM = 14; // space reserved for footer
+    const CONTENT_BOTTOM = PAGE_HEIGHT - MARGIN_BOTTOM; // last usable Y before footer
+
+    // ── Footer metadata (set once, used by the footer writer) ───────────────────
+    const footerCandidateName = candidateDetails?.fullName || '';
+    const footerItemNumber = (modalAllItemNumbers.length > 0 ? modalAllItemNumbers : [modalItemNumber]).join(', ') || '';
+
+    // ── Draw footer on a given page ──────────────────────────────────────────────
+    const drawFooter = (pageNum, totalPages) => {
+      const footerY = PAGE_HEIGHT - 6;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.5);
+      doc.setTextColor(80, 80, 80);
+      // Left: candidate name and item number
+      doc.text(`${footerCandidateName}  |  Item No.: ${footerItemNumber}`, MARGIN_LEFT, footerY);
+      // Right: page number
+      doc.text(`Page ${pageNum} of ${totalPages}`, PAGE_WIDTH - MARGIN_RIGHT, footerY, { align: 'right' });
+      // Thin rule above footer
+      doc.setDrawColor(180, 180, 180);
+      doc.setLineWidth(0.2);
+      doc.line(MARGIN_LEFT, footerY - 2, PAGE_WIDTH - MARGIN_RIGHT, footerY - 2);
+      doc.setTextColor(0, 0, 0);
+    };
+
+    // ── Header block ─────────────────────────────────────────────────────────────
     doc.setFontSize(7.5);
     doc.setFont('helvetica', 'bold');
     doc.text('Department of Environment and Natural Resources', 105, 10, { align: 'center' });
@@ -699,7 +729,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       ['Name of Candidate:', candidateDetails?.fullName || ''],
       ['Office:', vacancyDetails?.assignment || ''],
       ['Vacancy:', vacancyDetails?.position || ''],
-      ['Item Number:', (modalAllItemNumbers.length > 0 ? modalAllItemNumbers : [modalItemNumber]).join(', ') || ''],
+      ['Item Number:', footerItemNumber],
       ['Date of Interview:', new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })]
     ];
 
@@ -711,6 +741,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       y += 3.5;
     });
 
+    // ── Column layout ────────────────────────────────────────────────────────────
     const colCompetency = 116;
     const colRating = 10.5;
     const columnWidths = {
@@ -724,114 +755,174 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       7: { cellWidth: colRating, halign: 'center' }
     };
 
-    const makeCompTable = (groupTitle, competencies, type) => {
-      doc.autoTable({
-        startY: doc.lastAutoTable ? doc.lastAutoTable.finalY + 4 : y + 4,
-        head: [[groupTitle, 'CHAIR', 'VICE', 'GAD', 'DENREU', 'REGMEM', 'END-U', 'AVE']],
-        body: competencies.map(comp => [
-          `${comp.ordinal}. ${comp.name}`,
-          getRatingDisplay(comp.code, 'CHAIR'),
-          getRatingDisplay(comp.code, 'VICE'),
-          getRatingDisplay(comp.code, 'GAD'),
-          getRatingDisplay(comp.code, 'DENREU'),
-          getRatingDisplay(comp.code, 'REGMEM'),
-          getRatingDisplay(comp.code, 'END-USER'),
-          { content: calculateRowAverage(comp.code, type).toFixed(2), styles: { fontStyle: 'bold' } }
-        ]),
-        foot: [[
-          { content: 'TOTAL', styles: { halign: 'center', fontStyle: 'bold' } },
-          ...['CHAIR', 'VICE', 'GAD', 'DENREU', 'REGMEM', 'END-USER'].map(rt => ({
-            content: (competencies.reduce((sum, comp) => {
-              const r = ratings.find(r =>
-                r.competencyId?.name?.toUpperCase().replace(/ /g, '_') === comp.code &&
-                getRaterTypeCode(r.raterId?.raterType) === rt &&
-                r.itemNumber === modalItemNumber
-              );
-              return sum + (r ? r.score : 0);
-            }, 0) / Math.max(1, competencies.length)).toFixed(2),
-            styles: { halign: 'center' }
-          })),
-          { content: calculateFinalScores().breakdown[type].toFixed(2), styles: { fontStyle: 'bold', halign: 'center' } }
-        ]],
-        styles: { fontSize: 5.2, cellPadding: 0.8, valign: 'middle' },
-        headStyles: { halign: 'center', fontStyle: 'bold' },
-        columnStyles: columnWidths,
-        theme: 'grid',
-        margin: { left: 10, right: 14 }
-      });
-      y = doc.lastAutoTable.finalY;
-    };
+    // ── Hanging-indent cell content builder ───────────────────────────────────────
+    // jsPDF-AutoTable does not natively support hanging indents, so we implement it
+    // with a didDrawCell hook: render the number prefix, then wrap the remaining
+    // text with an indent equal to the rendered prefix width.
+    const FONT_SIZE_TABLE = 5.2;
+    const CELL_PADDING = 0.8;
 
-    y += 4;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.text('I. PSYCHO-SOCIAL ATTRIBUTES AND PERSONALITY TRAITS', xLeft, y);
-    const cerScore1 = scores.psychoSocial.toFixed(2);
-    const scoreBoxWidth = 40, scoreBoxHeight = 6;
-    const scoreBoxX = 190 - scoreBoxWidth, scoreBoxY = y - 4;
-    doc.setLineWidth(0.3);
-    doc.rect(scoreBoxX, scoreBoxY, scoreBoxWidth, scoreBoxHeight);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.text(`CER SCORE: ${cerScore1}`, scoreBoxX + scoreBoxWidth / 2, y + 0.3, { align: 'center' });
-    makeCompTable('CORE COMPETENCIES', groupedCompetencies.basic, 'basic');
+    // Pre-compute the width of the widest prefix ("10. " at FONT_SIZE_TABLE pt) once.
+    // We use a fixed indent of ~5 mm which comfortably clears "10. " at 5.2pt.
+    const PREFIX_INDENT_MM = 5.2; // horizontal space reserved for "N. "
 
-    let potentialSectionY = doc.lastAutoTable.finalY + 8;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.text('II. POTENTIAL', xLeft, potentialSectionY);
-    const cerScore2 = scores.potential.toFixed(2);
-    const scoreBox2X = 190 - scoreBoxWidth, scoreBox2Y = potentialSectionY - 4;
-    doc.setLineWidth(0.3);
-    doc.rect(scoreBox2X, scoreBox2Y, scoreBoxWidth, scoreBoxHeight);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.text(`CER SCORE: ${cerScore2}`, scoreBox2X + scoreBoxWidth / 2, potentialSectionY + 0.3, { align: 'center' });
-
-    doc.autoTable({
-      startY: potentialSectionY + 4,
-      head: [['ORGANIZATIONAL COMPETENCIES', 'CHAIR', 'VICE', 'GAD', 'DENREU', 'REGMEM', 'END-U', 'AVE']],
-      body: groupedCompetencies.organizational.map(comp => [
-        `${comp.ordinal}. ${comp.name}`,
+    // Build the body rows for a competency table.
+    // Each cell in column 0 stores the raw text; the hook handles rendering.
+    const buildBody = (competencies, type) =>
+      competencies.map(comp => [
+        `${comp.ordinal}. ${comp.name}`,   // stored as-is; hook splits it
         getRatingDisplay(comp.code, 'CHAIR'),
         getRatingDisplay(comp.code, 'VICE'),
         getRatingDisplay(comp.code, 'GAD'),
         getRatingDisplay(comp.code, 'DENREU'),
         getRatingDisplay(comp.code, 'REGMEM'),
         getRatingDisplay(comp.code, 'END-USER'),
-        { content: calculateRowAverage(comp.code, 'organizational').toFixed(2), styles: { fontStyle: 'bold' } }
-      ]),
-      foot: [[
-        { content: 'TOTAL', styles: { halign: 'center', fontStyle: 'bold' } },
-        ...['CHAIR', 'VICE', 'GAD', 'DENREU', 'REGMEM', 'END-USER'].map(rt => ({
-          content: (groupedCompetencies.organizational.reduce((sum, comp) => {
-            const r = ratings.find(r =>
-              r.competencyId?.name?.toUpperCase().replace(/ /g, '_') === comp.code &&
-              getRaterTypeCode(r.raterId?.raterType) === rt &&
-              r.itemNumber === modalItemNumber
-            );
-            return sum + (r ? r.score : 0);
-          }, 0) / Math.max(1, groupedCompetencies.organizational.length)).toFixed(2),
-          styles: { halign: 'center' }
-        })),
-        { content: calculateFinalScores().breakdown.organizational.toFixed(2), styles: { fontStyle: 'bold', halign: 'center' } }
-      ]],
-      styles: { fontSize: 5.2, cellPadding: 0.8, valign: 'middle' },
+        { content: calculateRowAverage(comp.code, type).toFixed(2), styles: { fontStyle: 'bold' } }
+      ]);
+
+    const buildFoot = (competencies, type) => [[
+      { content: 'TOTAL', styles: { halign: 'center', fontStyle: 'bold' } },
+      ...['CHAIR', 'VICE', 'GAD', 'DENREU', 'REGMEM', 'END-USER'].map(rt => ({
+        content: (competencies.reduce((sum, comp) => {
+          const r = ratings.find(r =>
+            r.competencyId?.name?.toUpperCase().replace(/ /g, '_') === comp.code &&
+            getRaterTypeCode(r.raterId?.raterType) === rt &&
+            r.itemNumber === modalItemNumber
+          );
+          return sum + (r ? r.score : 0);
+        }, 0) / Math.max(1, competencies.length)).toFixed(2),
+        styles: { halign: 'center' }
+      })),
+      { content: calculateFinalScores().breakdown[type].toFixed(2), styles: { fontStyle: 'bold', halign: 'center' } }
+    ]];
+
+    // ── didDrawCell hook: hanging-indent for column 0 body cells ─────────────────
+    // AutoTable already wraps text for us, but it does so without any indent on
+    // continuation lines.  Instead, we suppress AutoTable's own text draw for
+    // column-0 body cells and redraw with proper hanging indent.
+    const hangingIndentHook = (data) => {
+      if (data.section !== 'body' || data.column.index !== 0) return;
+
+      const cell = data.cell;
+      const raw = typeof cell.raw === 'string' ? cell.raw : (cell.raw?.content ?? '');
+
+      // Parse "N. rest of text"
+      const dotIdx = raw.indexOf('. ');
+      if (dotIdx === -1) return; // no prefix found, let AutoTable handle it
+
+      const prefix = raw.slice(0, dotIdx + 2);   // e.g. "3. "
+      const bodyText = raw.slice(dotIdx + 2);     // the competency name
+
+      // Cell geometry
+      const cellX = cell.x + CELL_PADDING;
+      const cellY = cell.y + CELL_PADDING;
+      const cellW = cell.width - CELL_PADDING * 2;
+
+      // Erase AutoTable's own rendering by drawing a white rectangle over the text area.
+      doc.setFillColor(255, 255, 255);
+      doc.rect(cell.x + 0.1, cell.y + 0.1, cell.width - 0.2, cell.height - 0.2, 'F');
+
+      doc.setFontSize(FONT_SIZE_TABLE);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(0, 0, 0);
+
+      // Measure the prefix width at this font size
+      const prefixWidth = doc.getTextWidth(prefix);
+
+      // Draw the prefix at the top-left of the cell
+      doc.text(prefix, cellX, cellY + FONT_SIZE_TABLE * 0.352); // 0.352 ≈ pt→mm baseline offset
+
+      // Wrap the body text within (cellW - prefixWidth) starting at (cellX + prefixWidth)
+      const wrapWidth = cellW - prefixWidth;
+      const lines = doc.splitTextToSize(bodyText, wrapWidth);
+      const lineHeight = FONT_SIZE_TABLE * 0.352 * 2.2; // comfortable line spacing
+
+      lines.forEach((line, i) => {
+        const lx = cellX + prefixWidth;
+        const ly = cellY + FONT_SIZE_TABLE * 0.352 + i * lineHeight;
+        doc.text(line, lx, ly);
+      });
+    };
+
+    // ── Shared autoTable options ──────────────────────────────────────────────────
+    const sharedOptions = {
+      styles: { fontSize: FONT_SIZE_TABLE, cellPadding: CELL_PADDING, valign: 'middle', overflow: 'linebreak' },
       headStyles: { halign: 'center', fontStyle: 'bold' },
+      footStyles: { halign: 'center', fontStyle: 'bold' },
       columnStyles: columnWidths,
       theme: 'grid',
-      margin: { left: 10, right: 14 }
+      margin: { left: MARGIN_LEFT, right: MARGIN_RIGHT, bottom: MARGIN_BOTTOM },
+      showFoot: 'lastPage',   // TOTAL row only on the last page of that table
+      didDrawCell: hangingIndentHook,
+      didDrawPage: (data) => {
+        // Footer is added after every page autoTable draws
+        // We will retroactively number pages after all tables are done
+      },
+    };
+
+    // ── Helper: draw a section heading, checking for page overflow ───────────────
+    const drawSectionHeading = (text, currentY) => {
+      // If heading + at least one table row won't fit, add a page first
+      const minHeadingSpace = 14;
+      if (currentY + minHeadingSpace > CONTENT_BOTTOM) {
+        doc.addPage();
+        currentY = 18;
+      }
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.text(text, xLeft, currentY);
+      return currentY;
+    };
+
+    // ── Helper: draw score box to the right of a heading ─────────────────────────
+    const drawScoreBox = (cerScore, headingY) => {
+      const scoreBoxWidth = 40, scoreBoxHeight = 6;
+      const scoreBoxX = PAGE_WIDTH - MARGIN_RIGHT - scoreBoxWidth;
+      const scoreBoxY = headingY - 4;
+      doc.setLineWidth(0.3);
+      doc.rect(scoreBoxX, scoreBoxY, scoreBoxWidth, scoreBoxHeight);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.text(`CER SCORE: ${cerScore}`, scoreBoxX + scoreBoxWidth / 2, headingY + 0.3, { align: 'center' });
+    };
+
+    // ── Generic makeCompTable ─────────────────────────────────────────────────────
+    const makeCompTable = (groupTitle, competencies, type) => {
+      const startY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 4 : y + 4;
+      doc.autoTable({
+        startY,
+        head: [[groupTitle, 'CHAIR', 'VICE', 'GAD', 'DENREU', 'REGMEM', 'END-U', 'AVE']],
+        body: buildBody(competencies, type),
+        foot: buildFoot(competencies, type),
+        ...sharedOptions,
+      });
+      y = doc.lastAutoTable.finalY;
+    };
+
+    // ── Section I: Psycho-Social ──────────────────────────────────────────────────
+    y += 4;
+    y = drawSectionHeading('I. PSYCHO-SOCIAL ATTRIBUTES AND PERSONALITY TRAITS', y);
+    drawScoreBox(scores.psychoSocial.toFixed(2), y);
+    makeCompTable('CORE COMPETENCIES', groupedCompetencies.basic, 'basic');
+
+    // ── Section II: Potential ─────────────────────────────────────────────────────
+    let potentialSectionY = doc.lastAutoTable.finalY + 8;
+    potentialSectionY = drawSectionHeading('II. POTENTIAL', potentialSectionY);
+    drawScoreBox(scores.potential.toFixed(2), potentialSectionY);
+
+    // Organizational table (inline, not via makeCompTable so we control startY)
+    doc.autoTable({
+      startY: potentialSectionY + 4,
+      head: [['ORGANIZATIONAL COMPETENCIES', 'CHAIR', 'VICE', 'GAD', 'DENREU', 'REGMEM', 'END-U', 'AVE']],
+      body: buildBody(groupedCompetencies.organizational, 'organizational'),
+      foot: buildFoot(groupedCompetencies.organizational, 'organizational'),
+      ...sharedOptions,
     });
 
     if (shouldShowLeadership()) makeCompTable('LEADERSHIP COMPETENCIES', groupedCompetencies.leadership, 'leadership');
     makeCompTable('MINIMUM COMPETENCIES', groupedCompetencies.minimum, 'minimum');
 
-    y = doc.lastAutoTable.finalY + 6;
-    doc.setFont('helvetica', 'italic');
-    doc.setFontSize(7);
-    doc.text('Certified True and Correct:', xLeft, y);
-    y += 10;
-
+    // ── Signatories ───────────────────────────────────────────────────────────────
     const raterIdsWhoRated = [...new Set(ratings.map(r => r.raterId?._id?.toString()))];
     const ratersWhoRated = raters.filter(r => r && r.name && r.raterType && raterIdsWhoRated.includes(r._id?.toString()));
     const raterTypeOrder = ['Chairperson', 'Vice-Chairperson', 'End-User', 'Regular Member', 'DENREU', 'Gender and Development'];
@@ -844,6 +935,24 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       return ia - ib;
     });
     const signatories = sortedRaters.map(r => [r.name.toUpperCase(), r.position, r.designation]);
+
+    // Estimate total height needed for the signatory block so we can keep it together.
+    // Each pair of signatories occupies one row (16 mm); add header line (10 mm).
+    const sigRowCount = Math.ceil(signatories.length / 2);
+    const sigBlockHeight = 10 + sigRowCount * 16 + 4; // label + rows + buffer
+
+    y = doc.lastAutoTable.finalY + 6;
+
+    // If the block won't fit on the current page, push to a new page.
+    if (y + sigBlockHeight > CONTENT_BOTTOM) {
+      doc.addPage();
+      y = 18;
+    }
+
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(7);
+    doc.text('Certified True and Correct:', xLeft, y);
+    y += 10;
 
     const colWidth = 90;
     let col = 0, rowY = y;
@@ -859,6 +968,13 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       col++;
       if (col === 2) { col = 0; rowY += 16; }
     });
+
+    // ── Add footers to every page now that page count is known ───────────────────
+    const totalPages = doc.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p);
+      drawFooter(p, totalPages);
+    }
 
     doc.save(`Interview_Summary_${candidateDetails?.fullName || 'Report'}.pdf`);
   };
