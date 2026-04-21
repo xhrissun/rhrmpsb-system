@@ -594,10 +594,10 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
   };
 
   const isRaterRequired = (raterType) => {
-    if (!salaryGrade) return false;
+    const sg = salaryGrade ?? 15; // default to SG≥15 (show all raters) if unknown
     const requiredSG14 = ['REGMEM', 'END-USER'];
     const all = ['CHAIR', 'VICE', 'GAD', 'DENREU', 'REGMEM', 'END-USER'];
-    return salaryGrade <= 14 ? requiredSG14.includes(raterType) : all.includes(raterType);
+    return sg <= 14 ? requiredSG14.includes(raterType) : all.includes(raterType);
   };
 
   const getRatingDisplay = (competencyCode, raterType) => {
@@ -700,9 +700,6 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     // Called by autoTable's didDrawPage AND manually for manually-added pages.
     // No separator line. Saves/restores font state so nothing bleeds out.
     const drawPageFooter = () => {
-      const prevSize  = doc.getFontSize();
-      const prevStyle = doc.getFont().fontStyle;
-
       doc.setFontSize(6);
       doc.setFont('helvetica', 'italic');
       doc.setTextColor(100);
@@ -717,10 +714,9 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
         footerY,
         { align: 'right' }
       );
-
       doc.setTextColor(0);
-      doc.setFontSize(prevSize);
-      doc.setFont('helvetica', prevStyle);
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
     };
 
     // ── Page 1 header + candidate details ────────────────────────────────────────
@@ -797,7 +793,11 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       const avail = width - pad - rPad;
       const lineH = 5.2 * 0.3528 * 1.15; // pt→mm * leading factor ≈ 2.1mm
 
-      const raw = String(data.cell.raw?.content ?? data.cell.raw ?? '');
+      const raw = String(
+        data.cell.raw?.content ??
+        (typeof data.cell.raw === 'string' ? data.cell.raw : '') ??
+        ''
+      );
 
       // Split prefix (e.g. "21. ") from the rest
       const prefixMatch = raw.match(/^(\d+\.\s)/);
