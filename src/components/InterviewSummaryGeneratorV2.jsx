@@ -696,16 +696,18 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
 
     // ── Draw footer on a given page ──────────────────────────────────────────────
     const drawFooter = (pageNum, totalPages) => {
-      const ruleY = PAGE_HEIGHT - 8;        // rule sits higher
-      const textY  = PAGE_HEIGHT - 5;       // text sits below the rule with clear gap
-      doc.setDrawColor(180, 180, 180);
-      doc.setLineWidth(0.2);
-      doc.line(MARGIN_LEFT, ruleY, PAGE_WIDTH - MARGIN_RIGHT, ruleY);
+      const footerY = PAGE_HEIGHT - 6;
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(6.5);
       doc.setTextColor(80, 80, 80);
-      doc.text(`${footerCandidateName}  |  Item No.: ${footerItemNumber}`, MARGIN_LEFT, textY);
-      doc.text(`Page ${pageNum} of ${totalPages}`, PAGE_WIDTH - MARGIN_RIGHT, textY, { align: 'right' });
+      // Left: candidate name and item number
+      doc.text(`${footerCandidateName}  |  Item No.: ${footerItemNumber}`, MARGIN_LEFT, footerY);
+      // Right: page number
+      doc.text(`Page ${pageNum} of ${totalPages}`, PAGE_WIDTH - MARGIN_RIGHT, footerY, { align: 'right' });
+      // Thin rule above footer
+      doc.setDrawColor(180, 180, 180);
+      doc.setLineWidth(0.2);
+      doc.line(MARGIN_LEFT, footerY - 2, PAGE_WIDTH - MARGIN_RIGHT, footerY - 2);
       doc.setTextColor(0, 0, 0);
     };
 
@@ -779,7 +781,14 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     const parseCompetencyText = (raw) => {
       const dotIdx = raw.indexOf('. ');
       if (dotIdx === -1) return { prefix: '', bodyText: raw };
-      return { prefix: raw.slice(0, dotIdx + 2), bodyText: raw.slice(dotIdx + 2) };
+
+      const prefix = raw.slice(0, dotIdx + 2);     // e.g. "42. "
+      let body = raw.slice(dotIdx + 2).trim();
+
+      // Normalize any variant of "(SUP)-", "(SUP) -", "(SUP)- " → "(SUP) - "
+      body = body.replace(/\)\s*-\s*/g, ') - ');
+
+      return { prefix, bodyText: body };
     };
 
     // ── Build body rows — column 0 carries the full text; hooks handle rendering ──
@@ -811,29 +820,22 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       { content: calculateFinalScores().breakdown[type].toFixed(2), styles: { fontStyle: 'bold', halign: 'center' } }
     ]];
 
-    // ── didParseCell: blank column-0 body text so AutoTable draws nothing there ───
-    // AutoTable sizes the row height based on the text it sees here, so we must
-    // pre-calculate the correct height for the hanging-indent layout and set it.
     const didParseCell = (data) => {
       if (data.section !== 'body' || data.column.index !== 0) return;
 
       const raw = typeof data.cell.raw === 'string' ? data.cell.raw : (data.cell.raw?.content ?? '');
       const { prefix, bodyText } = parseCompetencyText(raw);
 
-      // Available inner width = cell width minus left+right padding.
-      // cell.width may not be final yet at parse time, so use colCompetency.
       const innerWidth = colCompetency - CELL_PADDING * 2;
       const prefixWidth = measurePrefix(prefix);
       const lines = wrapBodyText(bodyText, innerWidth - prefixWidth);
 
-      // Required height: padding top + all lines + padding bottom
       const neededHeight = CELL_PADDING * 2 + lines.length * LINE_HEIGHT_MM;
 
-      // Store original text for the draw hook, then blank the cell text.
       data.cell._hangingRaw = raw;
-      data.cell.text = []; // suppress AutoTable's own text rendering
-      // Override minCellHeight so the row is tall enough
+      data.cell.text = [];
       data.cell.styles.minCellHeight = Math.max(neededHeight, CELL_PADDING * 2 + LINE_HEIGHT_MM);
+      data.cell.styles.valign = 'middle';
     };
 
     // ── didDrawCell: manually render column-0 body cells with hanging indent ──────
@@ -845,31 +847,32 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       const { prefix, bodyText } = parseCompetencyText(raw);
 
       const cellX = cell.x + CELL_PADDING;
-      // Align text to top of cell (valign: top equivalent)
-      const cellY = cell.y + CELL_PADDING + FONT_SIZE_TABLE * PT_TO_MM;
+      const cellWidth = cell.width - CELL_PADDING * 2;
 
       doc.setFontSize(FONT_SIZE_TABLE);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(0, 0, 0);
 
       const prefixWidth = measurePrefix(prefix);
-      const innerWidth = cell.width - CELL_PADDING * 2;
-      const lines = wrapBodyText(bodyText, innerWidth - prefixWidth);
+      const lines = wrapBodyText(bodyText, cellWidth - prefixWidth);
 
-      // Draw number prefix on the first line
-      if (prefix) doc.text(prefix, cellX, cellY);
+      // Vertically center the text block in the cell.
+      // (cell.height - totalTextHeight) / 2 gives the top margin of the text block.
+      // Add FONT_SIZE_TABLE * PT_TO_MM to shift from top-of-line to baseline (where jsPDF draws).
+      const totalTextHeight = lines.length * LINE_HEIGHT_MM;
+      const topMargin = (cell.height - totalTextHeight) / 2;
+      const startY = cell.y + topMargin + FONT_SIZE_TABLE * PT_TO_MM;
 
-      // Draw wrapped body lines, each indented by prefixWidth
+      if (prefix) doc.text(prefix, cellX, startY);
       lines.forEach((line, i) => {
-        doc.text(line, cellX + prefixWidth, cellY + i * LINE_HEIGHT_MM);
+        doc.text(line, cellX + prefixWidth, startY + i * LINE_HEIGHT_MM);
       });
     };
 
-    // ── Shared autoTable options ──────────────────────────────────────────────────
     const sharedOptions = {
-      styles: { fontSize: FONT_SIZE_TABLE, cellPadding: CELL_PADDING, valign: 'top', overflow: 'linebreak' },
-      headStyles: { halign: 'center', fontStyle: 'bold' },
-      footStyles: { halign: 'center', fontStyle: 'bold' },
+      styles: { fontSize: FONT_SIZE_TABLE, cellPadding: CELL_PADDING, valign: 'middle', overflow: 'linebreak' },
+      headStyles: { halign: 'center', fontStyle: 'bold', valign: 'middle' },
+      footStyles: { halign: 'center', fontStyle: 'bold', valign: 'middle' },
       columnStyles: columnWidths,
       theme: 'grid',
       margin: { left: MARGIN_LEFT, right: MARGIN_RIGHT, bottom: MARGIN_BOTTOM },
