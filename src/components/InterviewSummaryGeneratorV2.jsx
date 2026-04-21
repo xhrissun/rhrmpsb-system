@@ -693,10 +693,23 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     const footerY        = pageHeight - 4;
 
     // Shared footer renderer injected into every autoTable via didDrawPage
+    // Always saves/restores font state so the calling context is never corrupted,
+    // and the footer itself is always rendered at the correct size regardless of
+    // what font size was last set by header/detail drawing code.
     const drawPageFooter = () => {
+      // Save current state
+      const prevFontSize  = doc.getFontSize();
+      const prevFontStyle = doc.getFont().fontStyle;
+
       doc.setFontSize(6);
       doc.setFont('helvetica', 'italic');
       doc.setTextColor(100);
+      // Thin separator line above footer
+      doc.setLineWidth(0.1);
+      doc.setDrawColor(180);
+      doc.line(10, footerY - 2, pageWidth - 10, footerY - 2);
+      doc.setDrawColor(0);
+
       doc.text(
         `${footerName}  |  Item No.: ${footerItemNo}`,
         10,
@@ -708,7 +721,11 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
         footerY,
         { align: 'right' }
       );
-      doc.setTextColor(0); // reset to black
+
+      // Restore previous state
+      doc.setTextColor(0);
+      doc.setFontSize(prevFontSize);
+      doc.setFont('helvetica', prevFontStyle);
     };
 
     doc.setFontSize(7.5);
@@ -740,6 +757,9 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       y += 3.5;
     });
 
+    // Draw the footer on page 1 (before any autoTable fires didDrawPage)
+    drawPageFooter();
+
     const colCompetency = 116;
     const colRating = 10.5;
     const columnWidths = {
@@ -757,7 +777,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       doc.autoTable({
         startY: doc.lastAutoTable ? doc.lastAutoTable.finalY + 4 : y + 4,
         // Reserve space at bottom for our footer line (6 mm)
-        margin: { left: 10, right: 14, bottom: 10 },
+        margin: { left: 10, right: 14, bottom: 14 },
         head: [[groupTitle, 'CHAIR', 'VICE', 'GAD', 'DENREU', 'REGMEM', 'END-U', 'AVE']],
         body: competencies.map(comp => [
           `${comp.ordinal}. ${comp.name}`,
@@ -811,6 +831,16 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     makeCompTable('CORE COMPETENCIES', groupedCompetencies.basic, 'basic');
 
     let potentialSectionY = doc.lastAutoTable.finalY + 8;
+
+    // If the section header + CER box would land too close to the bottom margin,
+    // push it to a new page so it never gets orphaned or clipped.
+    const bottomSafeLimit = pageHeight - 20; // 20 mm from bottom
+    if (potentialSectionY > bottomSafeLimit) {
+      doc.addPage();
+      drawPageFooter();
+      potentialSectionY = 15; // top margin on the new page
+    }
+
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
     doc.text('II. POTENTIAL', xLeft, potentialSectionY);
@@ -824,7 +854,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
 
     doc.autoTable({
       startY: potentialSectionY + 4,
-      margin: { left: 10, right: 14, bottom: 10 },
+      margin: { left: 10, right: 14, bottom: 14 },
       head: [['ORGANIZATIONAL COMPETENCIES', 'CHAIR', 'VICE', 'GAD', 'DENREU', 'REGMEM', 'END-U', 'AVE']],
       body: groupedCompetencies.organizational.map(comp => [
         `${comp.ordinal}. ${comp.name}`,
