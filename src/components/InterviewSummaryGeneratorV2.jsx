@@ -681,6 +681,35 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
   const exportToPDF = () => {
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     const scores = calculateFinalScores();
+    const pageHeight = doc.internal.pageSize.height;
+    const pageWidth  = doc.internal.pageSize.width;
+
+    // Two-pass placeholder so "Page X of Y" can be resolved after all tables are drawn
+    const TOTAL_PAGES_PLACEHOLDER = '{total_pages_count_string}';
+
+    // Footer identity strings — built once, reused in every didDrawPage callback
+    const footerName     = candidateDetails?.fullName || '';
+    const footerItemNo   = (modalAllItemNumbers.length > 0 ? modalAllItemNumbers : [modalItemNumber]).join(', ') || '';
+    const footerY        = pageHeight - 4;
+
+    // Shared footer renderer injected into every autoTable via didDrawPage
+    const drawPageFooter = () => {
+      doc.setFontSize(6);
+      doc.setFont('helvetica', 'italic');
+      doc.setTextColor(100);
+      doc.text(
+        `${footerName}  |  Item No.: ${footerItemNo}`,
+        10,
+        footerY
+      );
+      doc.text(
+        `Page ${doc.internal.getCurrentPageInfo().pageNumber} of ${TOTAL_PAGES_PLACEHOLDER}`,
+        pageWidth - 10,
+        footerY,
+        { align: 'right' }
+      );
+      doc.setTextColor(0); // reset to black
+    };
 
     doc.setFontSize(7.5);
     doc.setFont('helvetica', 'bold');
@@ -699,7 +728,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       ['Name of Candidate:', candidateDetails?.fullName || ''],
       ['Office:', vacancyDetails?.assignment || ''],
       ['Vacancy:', vacancyDetails?.position || ''],
-      ['Item Number:', (modalAllItemNumbers.length > 0 ? modalAllItemNumbers : [modalItemNumber]).join(', ') || ''],
+      ['Item Number:', footerItemNo],
       ['Date of Interview:', new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })]
     ];
 
@@ -727,6 +756,8 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     const makeCompTable = (groupTitle, competencies, type) => {
       doc.autoTable({
         startY: doc.lastAutoTable ? doc.lastAutoTable.finalY + 4 : y + 4,
+        // Reserve space at bottom for our footer line (6 mm)
+        margin: { left: 10, right: 14, bottom: 10 },
         head: [[groupTitle, 'CHAIR', 'VICE', 'GAD', 'DENREU', 'REGMEM', 'END-U', 'AVE']],
         body: competencies.map(comp => [
           `${comp.ordinal}. ${comp.name}`,
@@ -753,11 +784,14 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
           })),
           { content: calculateFinalScores().breakdown[type].toFixed(2), styles: { fontStyle: 'bold', halign: 'center' } }
         ]],
+        // ── KEY FIX: TOTAL row only prints on the LAST page of this table ──
+        showFoot: 'lastPage',
         styles: { fontSize: 5.2, cellPadding: 0.8, valign: 'middle' },
         headStyles: { halign: 'center', fontStyle: 'bold' },
         columnStyles: columnWidths,
         theme: 'grid',
-        margin: { left: 10, right: 14 }
+        // ── Running page footer on every page this table touches ──
+        didDrawPage: drawPageFooter,
       });
       y = doc.lastAutoTable.finalY;
     };
@@ -774,7 +808,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
     doc.text(`CER SCORE: ${cerScore1}`, scoreBoxX + scoreBoxWidth / 2, y + 0.3, { align: 'center' });
-    makeCompTable('BASIC COMPETENCIES', groupedCompetencies.basic, 'basic');
+    makeCompTable('CORE COMPETENCIES', groupedCompetencies.basic, 'basic');
 
     let potentialSectionY = doc.lastAutoTable.finalY + 8;
     doc.setFont('helvetica', 'bold');
@@ -790,6 +824,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
 
     doc.autoTable({
       startY: potentialSectionY + 4,
+      margin: { left: 10, right: 14, bottom: 10 },
       head: [['ORGANIZATIONAL COMPETENCIES', 'CHAIR', 'VICE', 'GAD', 'DENREU', 'REGMEM', 'END-U', 'AVE']],
       body: groupedCompetencies.organizational.map(comp => [
         `${comp.ordinal}. ${comp.name}`,
@@ -816,11 +851,14 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
         })),
         { content: calculateFinalScores().breakdown.organizational.toFixed(2), styles: { fontStyle: 'bold', halign: 'center' } }
       ]],
+      // ── KEY FIX: TOTAL row only prints on the LAST page of this table ──
+      showFoot: 'lastPage',
       styles: { fontSize: 5.2, cellPadding: 0.8, valign: 'middle' },
       headStyles: { halign: 'center', fontStyle: 'bold' },
       columnStyles: columnWidths,
       theme: 'grid',
-      margin: { left: 10, right: 14 }
+      // ── Running page footer on every page this table touches ──
+      didDrawPage: drawPageFooter,
     });
 
     if (shouldShowLeadership()) makeCompTable('LEADERSHIP COMPETENCIES', groupedCompetencies.leadership, 'leadership');
@@ -859,6 +897,11 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       col++;
       if (col === 2) { col = 0; rowY += 16; }
     });
+
+    // ── Two-pass: replace placeholder with the actual total page count ──
+    if (typeof doc.putTotalPages === 'function') {
+      doc.putTotalPages(TOTAL_PAGES_PLACEHOLDER);
+    }
 
     doc.save(`Interview_Summary_${candidateDetails?.fullName || 'Report'}.pdf`);
   };
@@ -1595,7 +1638,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
                         <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3 border-b border-gray-100 pb-2">
                           I. Psycho-Social Attributes
                         </p>
-                        {renderCompetencyTable('Basic Competencies', groupedCompetencies.basic, 'basic')}
+                        {renderCompetencyTable('Core Competencies', groupedCompetencies.basic, 'basic')}
                       </div>
                     )}
 
