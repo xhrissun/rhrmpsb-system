@@ -794,19 +794,6 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       return { prefix, bodyText: body };
     };
 
-    // ── Helpers ─────────────────────────────────────────────────────────────────
-    const measurePrefix = (prefix) => {
-      doc.setFontSize(FONT_SIZE_TABLE);
-      doc.setFont('helvetica', 'normal');
-      return doc.getTextWidth(prefix);
-    };
-
-    const wrapBodyText = (bodyText, availableWidth) => {
-      doc.setFontSize(FONT_SIZE_TABLE);
-      doc.setFont('helvetica', 'normal');
-      return doc.splitTextToSize(bodyText, availableWidth);
-    };
-
     // ── didParseCell: calculate correct row height (prevents cutting) ────────────
     const didParseCell = (data) => {
       if (data.section !== 'body' || data.column.index !== 0) return;
