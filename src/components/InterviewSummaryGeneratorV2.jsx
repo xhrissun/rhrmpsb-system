@@ -681,28 +681,6 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
   const exportToPDF = () => {
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     const scores = calculateFinalScores();
-    const candidateName = candidateDetails?.fullName || '';
-    const itemNumber = (modalAllItemNumbers.length > 0 ? modalAllItemNumbers : [modalItemNumber]).join(', ') || '';
-
-    // Helper for footers on every page
-    const addFooters = (pdf) => {
-      const pageCount = pdf.internal.getNumberOfPages();
-      for (let i = 1; i <= pageCount; i++) {
-        pdf.setPage(i);
-        pdf.setFont('helvetica', 'normal');
-        pdf.setFontSize(6);
-        const pageHeight = pdf.internal.pageSize.getHeight();
-        const pageWidth = pdf.internal.pageSize.getWidth();
-        const margin = 14;
-        
-        // Left footer: Name and Item Number
-        pdf.text(`${candidateName} - Item No. ${itemNumber}`, margin, pageHeight - 10);
-        
-        // Right footer: Page Number
-        const pageText = `Page ${i} of ${pageCount}`;
-        pdf.text(pageText, pageWidth - margin - pdf.getTextWidth(pageText), pageHeight - 10);
-      }
-    };
 
     doc.setFontSize(7.5);
     doc.setFont('helvetica', 'bold');
@@ -718,10 +696,10 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     const xTab = 70;
 
     const details = [
-      ['Name of Candidate:', candidateName],
+      ['Name of Candidate:', candidateDetails?.fullName || ''],
       ['Office:', vacancyDetails?.assignment || ''],
       ['Vacancy:', vacancyDetails?.position || ''],
-      ['Item Number:', itemNumber],
+      ['Item Number:', (modalAllItemNumbers.length > 0 ? modalAllItemNumbers : [modalItemNumber]).join(', ') || ''],
       ['Date of Interview:', new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })]
     ];
 
@@ -750,33 +728,16 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       doc.autoTable({
         startY: doc.lastAutoTable ? doc.lastAutoTable.finalY + 4 : y + 4,
         head: [[groupTitle, 'CHAIR', 'VICE', 'GAD', 'DENREU', 'REGMEM', 'END-U', 'AVE']],
-        body: competencies.map(comp => {
-          const prefix = `${comp.ordinal}. `;
-          const name = comp.name;
-          
-          // Using splitTextToSize to calculate the required space for the prefix area
-          // to achieve a perfect hanging indent regardless of font size.
-          const tempDoc = new jsPDF();
-          tempDoc.setFontSize(5.2);
-          const prefixWidth = tempDoc.getTextWidth(prefix) + 1; // +1 for small buffer
-          
-          return [
-            { 
-              content: prefix + name,
-              styles: { 
-                cellPadding: { top: 0.8, right: 0.8, bottom: 0.8, left: prefixWidth },
-                textIndent: -prefixWidth + 0.8 // Bring the prefix back to the left margin
-              }
-            },
-            getRatingDisplay(comp.code, 'CHAIR'),
-            getRatingDisplay(comp.code, 'VICE'),
-            getRatingDisplay(comp.code, 'GAD'),
-            getRatingDisplay(comp.code, 'DENREU'),
-            getRatingDisplay(comp.code, 'REGMEM'),
-            getRatingDisplay(comp.code, 'END-USER'),
-            { content: calculateRowAverage(comp.code, type).toFixed(2), styles: { fontStyle: 'bold' } }
-          ];
-        }),
+        body: competencies.map(comp => [
+          `${comp.ordinal}. ${comp.name}`,
+          getRatingDisplay(comp.code, 'CHAIR'),
+          getRatingDisplay(comp.code, 'VICE'),
+          getRatingDisplay(comp.code, 'GAD'),
+          getRatingDisplay(comp.code, 'DENREU'),
+          getRatingDisplay(comp.code, 'REGMEM'),
+          getRatingDisplay(comp.code, 'END-USER'),
+          { content: calculateRowAverage(comp.code, type).toFixed(2), styles: { fontStyle: 'bold' } }
+        ]),
         foot: [[
           { content: 'TOTAL', styles: { halign: 'center', fontStyle: 'bold' } },
           ...['CHAIR', 'VICE', 'GAD', 'DENREU', 'REGMEM', 'END-USER'].map(rt => ({
@@ -792,12 +753,11 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
           })),
           { content: calculateFinalScores().breakdown[type].toFixed(2), styles: { fontStyle: 'bold', halign: 'center' } }
         ]],
-        styles: { fontSize: 5.2, cellPadding: 0.8, valign: 'middle', overflow: 'linebreak' },
+        styles: { fontSize: 5.2, cellPadding: 0.8, valign: 'middle' },
         headStyles: { halign: 'center', fontStyle: 'bold' },
         columnStyles: columnWidths,
         theme: 'grid',
-        margin: { left: 10, right: 14 },
-        showFoot: 'lastPage' // Only show footer on the last page of the table
+        margin: { left: 10, right: 14 }
       });
       y = doc.lastAutoTable.finalY;
     };
@@ -814,15 +774,9 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
     doc.text(`CER SCORE: ${cerScore1}`, scoreBoxX + scoreBoxWidth / 2, y + 0.3, { align: 'center' });
-    
     makeCompTable('CORE COMPETENCIES', groupedCompetencies.basic, 'basic');
 
     let potentialSectionY = doc.lastAutoTable.finalY + 8;
-    // Check for page break before potential section
-    if (potentialSectionY > 270) {
-      doc.addPage();
-      potentialSectionY = 20;
-    }
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
     doc.text('II. POTENTIAL', xLeft, potentialSectionY);
@@ -834,16 +788,50 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     doc.setFontSize(10);
     doc.text(`CER SCORE: ${cerScore2}`, scoreBox2X + scoreBoxWidth / 2, potentialSectionY + 0.3, { align: 'center' });
 
-    makeCompTable('ORGANIZATIONAL COMPETENCIES', groupedCompetencies.organizational, 'organizational');
-    
-    if (shouldShowLeadership()) {
-      makeCompTable('LEADERSHIP COMPETENCIES', groupedCompetencies.leadership, 'leadership');
-    }
+    doc.autoTable({
+      startY: potentialSectionY + 4,
+      head: [['ORGANIZATIONAL COMPETENCIES', 'CHAIR', 'VICE', 'GAD', 'DENREU', 'REGMEM', 'END-U', 'AVE']],
+      body: groupedCompetencies.organizational.map(comp => [
+        `${comp.ordinal}. ${comp.name}`,
+        getRatingDisplay(comp.code, 'CHAIR'),
+        getRatingDisplay(comp.code, 'VICE'),
+        getRatingDisplay(comp.code, 'GAD'),
+        getRatingDisplay(comp.code, 'DENREU'),
+        getRatingDisplay(comp.code, 'REGMEM'),
+        getRatingDisplay(comp.code, 'END-USER'),
+        { content: calculateRowAverage(comp.code, 'organizational').toFixed(2), styles: { fontStyle: 'bold' } }
+      ]),
+      foot: [[
+        { content: 'TOTAL', styles: { halign: 'center', fontStyle: 'bold' } },
+        ...['CHAIR', 'VICE', 'GAD', 'DENREU', 'REGMEM', 'END-USER'].map(rt => ({
+          content: (groupedCompetencies.organizational.reduce((sum, comp) => {
+            const r = ratings.find(r =>
+              r.competencyId?.name?.toUpperCase().replace(/ /g, '_') === comp.code &&
+              getRaterTypeCode(r.raterId?.raterType) === rt &&
+              r.itemNumber === modalItemNumber
+            );
+            return sum + (r ? r.score : 0);
+          }, 0) / Math.max(1, groupedCompetencies.organizational.length)).toFixed(2),
+          styles: { halign: 'center' }
+        })),
+        { content: calculateFinalScores().breakdown.organizational.toFixed(2), styles: { fontStyle: 'bold', halign: 'center' } }
+      ]],
+      styles: { fontSize: 5.2, cellPadding: 0.8, valign: 'middle' },
+      headStyles: { halign: 'center', fontStyle: 'bold' },
+      columnStyles: columnWidths,
+      theme: 'grid',
+      margin: { left: 10, right: 14 }
+    });
+
+    if (shouldShowLeadership()) makeCompTable('LEADERSHIP COMPETENCIES', groupedCompetencies.leadership, 'leadership');
     makeCompTable('MINIMUM COMPETENCIES', groupedCompetencies.minimum, 'minimum');
 
-    y = doc.lastAutoTable.finalY + 10;
-    
-    // Signatories logic with page break prevention
+    y = doc.lastAutoTable.finalY + 6;
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(7);
+    doc.text('Certified True and Correct:', xLeft, y);
+    y += 10;
+
     const raterIdsWhoRated = [...new Set(ratings.map(r => r.raterId?._id?.toString()))];
     const ratersWhoRated = raters.filter(r => r && r.name && r.raterType && raterIdsWhoRated.includes(r._id?.toString()));
     const raterTypeOrder = ['Chairperson', 'Vice-Chairperson', 'End-User', 'Regular Member', 'DENREU', 'Gender and Development'];
@@ -856,20 +844,6 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       return ia - ib;
     });
     const signatories = sortedRaters.map(r => [r.name.toUpperCase(), r.position, r.designation]);
-    
-    // Estimate height of signatories (approx 16mm per row of 2)
-    const sigRows = Math.ceil(signatories.length / 2);
-    const totalSigHeight = 10 + (sigRows * 16) + 10; // "Certified True" + rows + padding
-    
-    if (y + totalSigHeight > 275) {
-      doc.addPage();
-      y = 20;
-    }
-
-    doc.setFont('helvetica', 'italic');
-    doc.setFontSize(7);
-    doc.text('Certified True and Correct:', xLeft, y);
-    y += 10;
 
     const colWidth = 90;
     let col = 0, rowY = y;
@@ -886,8 +860,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       if (col === 2) { col = 0; rowY += 16; }
     });
 
-    addFooters(doc);
-    doc.save(`Interview_Summary_${candidateName || 'Report'}.pdf`);
+    doc.save(`Interview_Summary_${candidateDetails?.fullName || 'Report'}.pdf`);
   };
 
   // ─── Competency score table renderer ─────────────────────────────────────────
