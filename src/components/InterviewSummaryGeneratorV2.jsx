@@ -696,18 +696,19 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
 
     // ── Draw footer on a given page ──────────────────────────────────────────────
     const drawFooter = (pageNum, totalPages) => {
-      const footerY = PAGE_HEIGHT - 6;
+      const footerTextY = PAGE_HEIGHT - 5;
+      const footerLineY = footerTextY - 4; // clear gap between rule and text
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(6.5);
-      doc.setTextColor(80, 80, 80);
+      doc.setTextColor(100, 100, 100);
       // Left: candidate name and item number
-      doc.text(`${footerCandidateName}  |  Item No.: ${footerItemNumber}`, MARGIN_LEFT, footerY);
+      doc.text(`${footerCandidateName}  |  Item No.: ${footerItemNumber}`, MARGIN_LEFT, footerTextY);
       // Right: page number
-      doc.text(`Page ${pageNum} of ${totalPages}`, PAGE_WIDTH - MARGIN_RIGHT, footerY, { align: 'right' });
-      // Thin rule above footer
-      doc.setDrawColor(180, 180, 180);
-      doc.setLineWidth(0.2);
-      doc.line(MARGIN_LEFT, footerY - 2, PAGE_WIDTH - MARGIN_RIGHT, footerY - 2);
+      doc.text(`Page ${pageNum} of ${totalPages}`, PAGE_WIDTH - MARGIN_RIGHT, footerTextY, { align: 'right' });
+      // Thin rule above footer — with clear breathing room from the text
+      doc.setDrawColor(200, 200, 200);
+      doc.setLineWidth(0.15);
+      doc.line(MARGIN_LEFT, footerLineY, PAGE_WIDTH - MARGIN_RIGHT, footerLineY);
       doc.setTextColor(0, 0, 0);
     };
 
