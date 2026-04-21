@@ -754,15 +754,18 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
           const prefix = `${comp.ordinal}. `;
           const name = comp.name;
           
-          // Use a fixed width for the prefix area to ensure alignment
-          const prefixWidth = 12; // Adjusted based on typical 5.2pt font width for "52. "
+          // Using splitTextToSize to calculate the required space for the prefix area
+          // to achieve a perfect hanging indent regardless of font size.
+          const tempDoc = new jsPDF();
+          tempDoc.setFontSize(5.2);
+          const prefixWidth = tempDoc.getTextWidth(prefix) + 1; // +1 for small buffer
           
           return [
             { 
               content: prefix + name,
               styles: { 
                 cellPadding: { top: 0.8, right: 0.8, bottom: 0.8, left: prefixWidth },
-                textIndent: -prefixWidth + 0.8 // Negative indent to bring prefix back to the left
+                textIndent: -prefixWidth + 0.8 // Bring the prefix back to the left margin
               }
             },
             getRatingDisplay(comp.code, 'CHAIR'),
@@ -794,7 +797,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
         columnStyles: columnWidths,
         theme: 'grid',
         margin: { left: 10, right: 14 },
-        showFoot: 'lastPage' // Industry standard: only show footer on the last page of the table
+        showFoot: 'lastPage' // Only show footer on the last page of the table
       });
       y = doc.lastAutoTable.finalY;
     };
