@@ -724,68 +724,12 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       7: { cellWidth: colRating, halign: 'center' }
     };
 
-    // ── Footer drawn on every page ──────────────────────────────────────────────
-    const candidateName = candidateDetails?.fullName || '';
-    const itemNo = (modalAllItemNumbers.length > 0 ? modalAllItemNumbers : [modalItemNumber]).join(', ') || '';
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const footerLineY = pageHeight - 12;
-    const footerTextY = pageHeight - 8;
-
-    const drawFooter = (data) => {
-      const totalPages = doc.internal.getNumberOfPages();
-      const currentPage = data.pageNumber;
-      // Reset ALL font state before drawing — prevents bold/size bleed from table headers
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6);
-      doc.setTextColor(0, 0, 0);
-      doc.setLineWidth(0.2);
-      doc.setDrawColor(0, 0, 0);
-      doc.line(10, footerLineY, pageWidth - 10, footerLineY);
-      doc.text(`${candidateName} | Item No.: ${itemNo}`, 10, footerTextY);
-      doc.text(`Page ${currentPage} of ${totalPages}`, pageWidth - 10, footerTextY, { align: 'right' });
-    };
-
-    // ── Clean extra whitespace from competency names eg "(SUP) -  NAME" ─────────
-    const cleanCompName = (name) => name.replace(/\s{2,}/g, ' ').trim();
-
-    // ── Score colour helpers for PDF cell backgrounds ─────────────────────────────
-    const pdfScoreColor = (score) => {
-      if (!score || score === 0) return null;
-      if (score >= 4.0) return [220, 252, 231];
-      if (score >= 3.5) return [209, 250, 229];
-      if (score >= 3.0) return [254, 249, 195];
-      if (score >= 2.5) return [255, 237, 213];
-      return [254, 226, 226];
-    };
-
-    // ── Build competency label with hanging indent for wrapped lines ─────────────
-    // jsPDF-autotable wraps text but doesn't support CSS hanging-indent natively.
-    // We pre-split the label and prefix continuation lines with spaces so wrapped
-    // text aligns under the competency name, not the ordinal number.
-    const INDENT = '     '; // visual indent for continuation lines
-    const buildCompLabel = (comp) => {
-      const label = `${comp.ordinal}. ${cleanCompName(comp.name)}`;
-      // Estimate chars per line: colCompetency mm wide, font 5.2pt ~ 1.835mm per char avg
-      const charsPerLine = Math.floor((colCompetency - 1.6) / (5.2 * 0.3528 * 0.55));
-      const words = label.split(' ');
-      const lines = [];
-      let cur = '';
-      for (const word of words) {
-        const test = cur ? `${cur} ${word}` : word;
-        if (test.length > charsPerLine && cur) { lines.push(cur); cur = word; }
-        else cur = test;
-      }
-      if (cur) lines.push(cur);
-      return lines.map((l, i) => (i === 0 ? l : `${INDENT}${l}`)).join('\n');
-    };
-
     const makeCompTable = (groupTitle, competencies, type) => {
       doc.autoTable({
         startY: doc.lastAutoTable ? doc.lastAutoTable.finalY + 4 : y + 4,
         head: [[groupTitle, 'CHAIR', 'VICE', 'GAD', 'DENREU', 'REGMEM', 'END-U', 'AVE']],
         body: competencies.map(comp => [
-          { content: buildCompLabel(comp), styles: { overflow: 'linebreak' } },
+          `${comp.ordinal}. ${comp.name}`,
           getRatingDisplay(comp.code, 'CHAIR'),
           getRatingDisplay(comp.code, 'VICE'),
           getRatingDisplay(comp.code, 'GAD'),
@@ -809,22 +753,11 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
           })),
           { content: calculateFinalScores().breakdown[type].toFixed(2), styles: { fontStyle: 'bold', halign: 'center' } }
         ]],
-        styles: { fontSize: 5.2, cellPadding: 0.8, valign: 'middle', textColor: [0, 0, 0], overflow: 'linebreak' },
-        headStyles: { halign: 'center', fontStyle: 'bold', fillColor: [220, 220, 220], textColor: [0, 0, 0] },
-        footStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0] },
+        styles: { fontSize: 5.2, cellPadding: 0.8, valign: 'middle' },
+        headStyles: { halign: 'center', fontStyle: 'bold' },
         columnStyles: columnWidths,
         theme: 'grid',
-        margin: { left: 10, right: 14, bottom: 18 },
-        didParseCell: (data) => {
-          if (data.section === 'body' && data.column.index >= 1 && data.column.index <= 7) {
-            const raw = typeof data.cell.raw === 'string' ? data.cell.raw
-              : (data.cell.raw?.content ?? '');
-            const val = parseFloat(raw);
-            const bg = !isNaN(val) ? pdfScoreColor(val) : null;
-            if (bg) data.cell.styles.fillColor = bg;
-          }
-        },
-        didDrawPage: drawFooter
+        margin: { left: 10, right: 14 }
       });
       y = doc.lastAutoTable.finalY;
     };
@@ -859,7 +792,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       startY: potentialSectionY + 4,
       head: [['ORGANIZATIONAL COMPETENCIES', 'CHAIR', 'VICE', 'GAD', 'DENREU', 'REGMEM', 'END-U', 'AVE']],
       body: groupedCompetencies.organizational.map(comp => [
-        { content: buildCompLabel(comp), styles: { overflow: 'linebreak' } },
+        `${comp.ordinal}. ${comp.name}`,
         getRatingDisplay(comp.code, 'CHAIR'),
         getRatingDisplay(comp.code, 'VICE'),
         getRatingDisplay(comp.code, 'GAD'),
@@ -883,22 +816,11 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
         })),
         { content: calculateFinalScores().breakdown.organizational.toFixed(2), styles: { fontStyle: 'bold', halign: 'center' } }
       ]],
-      styles: { fontSize: 5.2, cellPadding: 0.8, valign: 'middle', textColor: [0, 0, 0], overflow: 'linebreak' },
-      headStyles: { halign: 'center', fontStyle: 'bold', fillColor: [220, 220, 220], textColor: [0, 0, 0] },
-      footStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0] },
+      styles: { fontSize: 5.2, cellPadding: 0.8, valign: 'middle' },
+      headStyles: { halign: 'center', fontStyle: 'bold' },
       columnStyles: columnWidths,
       theme: 'grid',
-      margin: { left: 10, right: 14, bottom: 18 },
-      didParseCell: (data) => {
-        if (data.section === 'body' && data.column.index >= 1 && data.column.index <= 7) {
-          const raw = typeof data.cell.raw === 'string' ? data.cell.raw
-            : (data.cell.raw?.content ?? '');
-          const val = parseFloat(raw);
-          const bg = !isNaN(val) ? pdfScoreColor(val) : null;
-          if (bg) data.cell.styles.fillColor = bg;
-        }
-      },
-      didDrawPage: drawFooter
+      margin: { left: 10, right: 14 }
     });
 
     if (shouldShowLeadership()) makeCompTable('LEADERSHIP COMPETENCIES', groupedCompetencies.leadership, 'leadership');
