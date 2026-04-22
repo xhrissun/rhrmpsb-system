@@ -757,7 +757,8 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
 
     // ── Table rendering constants ─────────────────────────────────────────────────
     const FONT_SIZE_TABLE = 5.2;
-    const CELL_PADDING = 1.5;
+    const CELL_PADDING = 0.8; // top/bottom — kept compact
+    const CELL_PADDING_H = 1.5; // left/right — prevents text from touching border
     // pt → mm conversion: 1pt = 0.3528mm; line-height multiplier ~1.15
     const PT_TO_MM = 0.3528;
     const LINE_HEIGHT_MM = FONT_SIZE_TABLE * PT_TO_MM * 1.15;
@@ -826,7 +827,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       const raw = typeof data.cell.raw === 'string' ? data.cell.raw : (data.cell.raw?.content ?? '');
       const { prefix, bodyText } = parseCompetencyText(raw);
 
-      const innerWidth = colCompetency - CELL_PADDING * 2 - 0.5; // match didDrawCell safety margin
+      const innerWidth = colCompetency - CELL_PADDING_H * 2;
       const prefixWidth = measurePrefix(prefix);
       const lines = wrapBodyText(bodyText, innerWidth - prefixWidth);
 
@@ -846,8 +847,8 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       const raw = cell._hangingRaw ?? (typeof cell.raw === 'string' ? cell.raw : (cell.raw?.content ?? ''));
       const { prefix, bodyText } = parseCompetencyText(raw);
 
-      const cellX = cell.x + CELL_PADDING;
-      const cellWidth = cell.width - CELL_PADDING * 2 - 0.5; // 0.5 mm safety margin from right border
+      const cellX = cell.x + CELL_PADDING_H;
+      const cellWidth = cell.width - CELL_PADDING_H * 2;
 
       doc.setFontSize(FONT_SIZE_TABLE);
       doc.setFont('helvetica', 'normal');
@@ -870,7 +871,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     };
 
     const sharedOptions = {
-      styles: { fontSize: FONT_SIZE_TABLE, cellPadding: CELL_PADDING, valign: 'middle', overflow: 'linebreak' },
+      styles: { fontSize: FONT_SIZE_TABLE, cellPadding: { top: CELL_PADDING, bottom: CELL_PADDING, left: CELL_PADDING_H, right: CELL_PADDING_H }, valign: 'middle', overflow: 'linebreak' },
       headStyles: { halign: 'center', fontStyle: 'bold', valign: 'middle' },
       footStyles: { halign: 'center', fontStyle: 'bold', valign: 'middle' },
       columnStyles: columnWidths,
