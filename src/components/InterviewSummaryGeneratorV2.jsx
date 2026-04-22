@@ -974,47 +974,37 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     doc.setFont('helvetica', 'italic');
     doc.setFontSize(7);
     doc.text('Certified True and Correct:', xLeft, y);
-    // ── E-signature lookup: name → public folder path ────────────────────────────
-    // Drop the image file into your project's /public/esigs/ folder, then add an
-    // entry here. The path is relative to the public root, e.g. /esigs/rhoda.png
-    const ESIG_URLS = {
-      'RHODA P. CANTOS': '/esigs/rhoda-esig.png',
-      // 'JUAN DELA CRUZ': '/esigs/juan-esig.png',
+    // ── E-signature lookup: name → imported asset ───────────────────────────────
+    // Images are imported at the top of the file so the bundler (Vite/CRA)
+    // resolves the correct URL at build time — works on any deploy path.
+    const ESIG_ASSETS = {
+      'RHODA P. CANTOS': '/rhrmpsb-system/esigs/rhoda-esig.png',
+      // 'JUAN DELA CRUZ': '/rhrmpsb-system/esigs/juan-esig.png',
     };
 
-    // Pre-fetch all needed e-signatures as base64 so jsPDF can embed them.
-    // Uses fetch() + FileReader — reliable for same-origin public folder assets.
-    const esigCache = {};
-    const fetchEsig = async (url) => {
-      try {
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const blob = await res.blob();
-        return await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result); // data:image/png;base64,...
-          reader.onerror = reject;
-          reader.readAsDataURL(blob);
-        });
-      } catch (e) {
-        console.warn('E-sig fetch failed for', url, e);
-        return null;
-      }
-    };
-
-    // Only fetch sigs for raters who actually signed this document
+    // Only include sigs for raters who actually signed this document
     const signerNames = signatories.map(([name]) => name);
+
+    // Fetch only what's needed and convert to data URL for jsPDF
+    const esigCache = {};
     await Promise.all(
-      Object.entries(ESIG_URLS)
+      Object.entries(ESIG_ASSETS)
         .filter(([name]) => signerNames.includes(name))
-        .map(async ([name, url]) => {
-          esigCache[name] = await fetchEsig(url);
-        })
+        .map(([name, url]) => fetch(url)
+          .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.blob(); })
+          .then(blob => new Promise((res, rej) => {
+            const reader = new FileReader();
+            reader.onload = () => { esigCache[name] = reader.result; res(); };
+            reader.onerror = rej;
+            reader.readAsDataURL(blob);
+          }))
+          .catch(e => console.warn('E-sig load failed for', name, e))
+        )
     );
     // ─────────────────────────────────────────────────────────────────────────────
 
     // Determine whether any sigs were actually loaded (affects vertical spacing)
-    const hasSigs = Object.values(esigCache).some(v => v !== null);
+    const hasSigs = Object.keys(esigCache).length > 0;
     const SIG_H = 12; // mm — height reserved for e-sig image
     const SIG_GAP = 2; // mm — gap between image bottom and name line
 
