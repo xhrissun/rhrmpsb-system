@@ -694,7 +694,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     const footerCandidateName = candidateDetails?.fullName || '';
     const footerItemNumber = (modalAllItemNumbers.length > 0 ? modalAllItemNumbers : [modalItemNumber]).join(', ') || '';
 
-    // ── Draw footer on a given page ──────────────────────────────────────────────
+// ── Draw footer on a given page ──────────────────────────────────────────────
     const drawFooter = (pageNum, totalPages) => {
       const footerY = PAGE_HEIGHT - 6;
       doc.setFont('helvetica', 'normal');
@@ -707,7 +707,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       // Thin rule above footer
       doc.setDrawColor(180, 180, 180);
       doc.setLineWidth(0.2);
-      doc.line(MARGIN_LEFT, footerY - 2, PAGE_WIDTH - MARGIN_RIGHT, footerY - 2);
+      doc.line(MARGIN_LEFT, footerY - 4, PAGE_WIDTH - MARGIN_RIGHT, footerY - 4);
       doc.setTextColor(0, 0, 0);
     };
 
