@@ -974,7 +974,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     doc.setFont('helvetica', 'italic');
     doc.setFontSize(7);
     doc.text('Certified True and Correct:', xLeft, y);
-    y += 10;
+    y += 22; // increased from 10 → 22 to reserve space for e-signature image above names
 
     const colWidth = 90;
 
@@ -989,9 +989,9 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
 
       // ── Temporarily embed Rhoda P. Cantos e-signature above her name ──────────
       if (name === 'RHODA P. CANTOS') {
-        const sigW = 30, sigH = 10;
+        const sigW = 30, sigH = 12;
         const sigX = x + (colWidth - sigW) / 2;
-        const sigY = rowY - sigH - 1;
+        const sigY = rowY - sigH; // sits directly above the printed name
         try {
           doc.addImage('data:image/jpeg;base64,' + RHODA_ESIG_B64, 'JPEG', sigX, sigY, sigW, sigH);
         } catch (e) { /* silently skip if image fails */ }
