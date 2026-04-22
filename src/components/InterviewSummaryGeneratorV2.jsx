@@ -982,25 +982,25 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       // 'JUAN DELA CRUZ': '/esigs/juan-esig.png',
     };
 
-    // Pre-fetch all needed e-signatures as base64 so jsPDF can embed them
+    // Pre-fetch all needed e-signatures as base64 so jsPDF can embed them.
+    // Uses fetch() + FileReader — reliable for same-origin public folder assets.
     const esigCache = {};
-    const fetchEsig = (url) => new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => {
-        try {
-          const canvas = document.createElement('canvas');
-          canvas.width = img.naturalWidth;
-          canvas.height = img.naturalHeight;
-          canvas.getContext('2d').drawImage(img, 0, 0);
-          resolve(canvas.toDataURL('image/png'));
-        } catch (e) {
-          console.warn('E-sig canvas conversion failed:', e);
-          resolve(null);
-        }
-      };
-      img.onerror = () => { console.warn('E-sig fetch failed for URL:', url); resolve(null); };
-      img.src = url;
-    });
+    const fetchEsig = async (url) => {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        return await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result); // data:image/png;base64,...
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      } catch (e) {
+        console.warn('E-sig fetch failed for', url, e);
+        return null;
+      }
+    };
 
     // Only fetch sigs for raters who actually signed this document
     const signerNames = signatories.map(([name]) => name);
@@ -1034,7 +1034,9 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
         const sigX = x + (colWidth - sigW) / 2;
         const sigY = rowY - SIG_H - SIG_GAP;
         try {
-          doc.addImage(esigDataUrl, 'PNG', sigX, sigY, sigW, SIG_H);
+          // Let jsPDF auto-detect format from the data URL prefix
+          const fmt = esigDataUrl.startsWith('data:image/jpeg') ? 'JPEG' : 'PNG';
+          doc.addImage(esigDataUrl, fmt, sigX, sigY, sigW, SIG_H);
         } catch (e) {
           console.warn('E-sig render failed for', name, e);
         }
