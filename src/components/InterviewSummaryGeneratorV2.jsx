@@ -758,7 +758,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     // ── Table rendering constants ─────────────────────────────────────────────────
     const FONT_SIZE_TABLE = 5.2;
     const CELL_PADDING = 0.8; // top/bottom — kept compact
-    const CELL_PADDING_H = 2; // left/right — prevents text from touching border
+    const CELL_PADDING_H = 1.5; // left/right — prevents text from touching border
     // pt → mm conversion: 1pt = 0.3528mm; line-height multiplier ~1.15
     const PT_TO_MM = 0.3528;
     const LINE_HEIGHT_MM = FONT_SIZE_TABLE * PT_TO_MM * 1.15;
@@ -1070,7 +1070,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
               <tr className="bg-gray-50 border-b border-gray-200">
                 <th className="px-4 py-2 text-left font-semibold text-gray-600">Competency</th>
                 {raterCols.map(rt => (
-                  <th key={rt} className={`px-2 py-2 text-center font-semibold w-14 whitespace-nowrap ${!isRaterRequired(rt) ? 'text-gray-300' : 'text-gray-600'}`}>{rt}</th>
+                  <th key={rt} className={`px-2 py-2 text-center font-semibold w-14 ${!isRaterRequired(rt) ? 'text-gray-300' : 'text-gray-600'}`}>{rt}</th>
                 ))}
                 <th className="px-2 py-2 text-center font-bold text-blue-700 w-16">AVG</th>
               </tr>
