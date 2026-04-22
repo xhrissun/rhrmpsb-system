@@ -758,7 +758,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     // ── Table rendering constants ─────────────────────────────────────────────────
     const FONT_SIZE_TABLE = 5.2;
     const CELL_PADDING = 0.8; // top/bottom — kept compact
-    const CELL_PADDING_H = 1.5; // left/right — prevents text from touching border
+    const CELL_PADDING_H = 1.3; // left/right — prevents text from touching border
     // pt → mm conversion: 1pt = 0.3528mm; line-height multiplier ~1.15
     const PT_TO_MM = 0.3528;
     const LINE_HEIGHT_MM = FONT_SIZE_TABLE * PT_TO_MM * 1.15;
