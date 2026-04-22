@@ -2466,24 +2466,33 @@ router.post('/pdf-cache/competencies', authMiddleware, async (req, res) => {
       return res.status(400).json({ message: 'data must be an array' });
     }
 
-    // Check if cache already exists for this fingerprint
-    const existing = await PDFCache.findOne({ fingerprint });
-    if (existing) {
-      // Cache already exists, return it without updating
-      return res.json({ message: 'PDF cache already exists', cached: existing });
+    // Upsert: replace any existing entry for this fingerprint in-place,
+    // or create a new one. Then delete any stale entries with a different
+    // fingerprint so the collection never balloons.
+    const cached = await PDFCache.findOneAndUpdate(
+      { fingerprint },
+      {
+        $set: {
+          data,
+          fingerprint,
+          schemaVersion: 1,
+          cachedAt: cachedAt || Date.now(),
+          source: 'client',
+          // Reset TTL on every refresh
+          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        },
+      },
+      { upsert: true, new: true }
+    );
+
+    // Purge all stale cache entries that belong to a different fingerprint
+    const purgeResult = await PDFCache.deleteMany({ fingerprint: { $ne: fingerprint } });
+    if (purgeResult.deletedCount > 0) {
+      console.info(`[POST /pdf-cache/competencies] Purged ${purgeResult.deletedCount} stale cache entry/entries`);
     }
 
-    // Create new cache entry
-    const cached = await PDFCache.create({
-      data,
-      fingerprint,
-      schemaVersion: 1,
-      cachedAt: cachedAt || Date.now(),
-      source: 'client'
-    });
-
     console.info(`[POST /pdf-cache/competencies] Cached PDF with fingerprint: ${fingerprint}`);
-    res.json({ message: 'PDF cache saved', cached });
+    res.json({ message: 'PDF cache saved (upserted)', cached });
   } catch (error) {
     console.error('[POST /pdf-cache/competencies]', error);
     res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
