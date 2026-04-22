@@ -1070,7 +1070,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
               <tr className="bg-gray-50 border-b border-gray-200">
                 <th className="px-4 py-2 text-left font-semibold text-gray-600">Competency</th>
                 {raterCols.map(rt => (
-                  <th key={rt} className={`px-2 py-2 text-center font-semibold w-14 ${!isRaterRequired(rt) ? 'text-gray-300' : 'text-gray-600'}`}>{rt}</th>
+                  <th key={rt} className={`px-2 py-2 text-center font-semibold w-14 whitespace-nowrap ${!isRaterRequired(rt) ? 'text-gray-300' : 'text-gray-600'}`}>{rt}</th>
                 ))}
                 <th className="px-2 py-2 text-center font-bold text-blue-700 w-16">AVG</th>
               </tr>
