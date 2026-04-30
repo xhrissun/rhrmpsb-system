@@ -116,7 +116,7 @@ const ISGv2AccessGate = ({ onGranted }) => {
     setLoading(true);
     setError('');
     try {
-      const result = await authAPI.login({ email: email.trim().toLowerCase(), password });
+      const result = await authAPI.loginSafe({ email: email.trim().toLowerCase(), password });
       const loggedInUser = result.user;
 
       // Enforce that the claimed role matches the actual userType

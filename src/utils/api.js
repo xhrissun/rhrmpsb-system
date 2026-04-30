@@ -103,6 +103,14 @@ export const authAPI = {
     const response = await api.post('/auth/login', credentials);
     return response.data;
   },
+  // Safe login for in-app gates: uses a bare axios call so a wrong password (401)
+  // does NOT trigger the global interceptor that wipes localStorage and redirects.
+  loginSafe: async (credentials) => {
+    const response = await axios.post(`${API_BASE_URL}/auth/login`, credentials, {
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return response.data;
+  },
   register: async (userData) => {
     const response = await api.post('/auth/register', userData);
     return response.data;
