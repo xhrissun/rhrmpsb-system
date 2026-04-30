@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { vacanciesAPI, candidatesAPI, competenciesAPI, ratingsAPI, usersAPI, publicationRangesAPI, ratingLogsAPI } from '../utils/api';
+import { vacanciesAPI, candidatesAPI, competenciesAPI, ratingsAPI, usersAPI, publicationRangesAPI, ratingLogsAPI, authAPI } from '../utils/api';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 
@@ -90,8 +90,204 @@ const MetricCard = ({ icon, label, value, sub, color = 'blue' }) => {
   );
 };
 
+// ─── ISGv2 Access Gate ─────────────────────────────────────────────────────────
+const ISGv2AccessGate = ({ onGranted }) => {
+  const [step, setStep] = useState('select'); // 'select' | 'credentials'
+  const [role, setRole] = useState(''); // 'admin' | 'secretariat'
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleRoleSelect = (selectedRole) => {
+    setRole(selectedRole);
+    setEmail('');
+    setPassword('');
+    setError('');
+    setStep('credentials');
+  };
+
+  const handleVerify = async () => {
+    if (!email.trim() || !password.trim()) {
+      setError('Please enter your email and password.');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      const result = await authAPI.login({ email: email.trim().toLowerCase(), password });
+      const loggedInUser = result.user;
+
+      // Enforce that the claimed role matches the actual userType
+      if (role === 'admin' && loggedInUser.userType !== 'admin') {
+        setError('These credentials do not belong to an Admin account.');
+        return;
+      }
+      if (role === 'secretariat' && loggedInUser.userType !== 'secretariat') {
+        setError('These credentials do not belong to a Secretariat account.');
+        return;
+      }
+
+      // Grant access — pass the verified user so the main component can scope the data
+      onGranted({ role, scopedUser: loggedInUser });
+    } catch (err) {
+      setError('Invalid email or password. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+
+        {/* Header */}
+        <div className="bg-gradient-to-r from-blue-700 to-blue-600 px-6 py-5">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-white bg-opacity-20 flex items-center justify-center flex-shrink-0">
+              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+            </div>
+            <div>
+              <h1 className="text-base font-bold text-white leading-tight">Interview Summary Generator</h1>
+              <p className="text-blue-200 text-xs leading-tight">HRMPSB · DENR Region IV-A</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-6 py-6">
+          {step === 'select' ? (
+            <>
+              <p className="text-sm font-semibold text-gray-700 mb-1">Who are you?</p>
+              <p className="text-xs text-gray-500 mb-5">Select your role to continue. You will need to verify your credentials.</p>
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={() => handleRoleSelect('admin')}
+                  className="flex items-center gap-4 w-full border-2 border-gray-200 hover:border-blue-400 hover:bg-blue-50 rounded-xl px-5 py-4 transition-all text-left group"
+                >
+                  <div className="w-10 h-10 rounded-lg bg-blue-100 group-hover:bg-blue-200 flex items-center justify-center flex-shrink-0 transition-colors">
+                    <svg className="w-5 h-5 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-gray-800">Admin</p>
+                    <p className="text-xs text-gray-500">Full access to all assignments and item numbers</p>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => handleRoleSelect('secretariat')}
+                  className="flex items-center gap-4 w-full border-2 border-gray-200 hover:border-green-400 hover:bg-green-50 rounded-xl px-5 py-4 transition-all text-left group"
+                >
+                  <div className="w-10 h-10 rounded-lg bg-green-100 group-hover:bg-green-200 flex items-center justify-center flex-shrink-0 transition-colors">
+                    <svg className="w-5 h-5 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-gray-800">Secretariat</p>
+                    <p className="text-xs text-gray-500">Access limited to your assigned item numbers only</p>
+                  </div>
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => { setStep('select'); setError(''); }}
+                className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 mb-4 transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+                Back
+              </button>
+
+              <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg mb-4 text-xs font-semibold ${role === 'admin' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={role === 'admin' ? "M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" : "M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"} />
+                </svg>
+                {role === 'admin' ? 'Admin' : 'Secretariat'} Verification
+              </div>
+
+              <p className="text-xs text-gray-500 mb-4">Enter your {role === 'admin' ? 'admin' : 'secretariat'} account credentials to continue.</p>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Email</label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleVerify()}
+                    placeholder="Enter your email"
+                    className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    disabled={loading}
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Password</label>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleVerify()}
+                      placeholder="Enter your password"
+                      className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2.5 pr-10 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                      disabled={loading}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(s => !s)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      tabIndex={-1}
+                    >
+                      {showPassword
+                        ? <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 4.411m0 0L21 21" /></svg>
+                        : <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                      }
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {error && (
+                <div className="mt-3 flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">
+                  <svg className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <p className="text-xs text-red-600">{error}</p>
+                </div>
+              )}
+
+              <button
+                onClick={handleVerify}
+                disabled={loading}
+                className={`w-full mt-4 py-2.5 rounded-lg text-sm font-semibold text-white transition-all flex items-center justify-center gap-2 ${role === 'admin' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'} disabled:opacity-60 disabled:cursor-not-allowed`}
+              >
+                {loading
+                  ? <><svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg> Verifying...</>
+                  : 'Verify & Continue'
+                }
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── Main Component ────────────────────────────────────────────────────────────
 const InterviewSummaryGeneratorV2 = ({ user }) => {
+  // ─── Gate state ──────────────────────────────────────────────────────────────
+  const [gateAccess, setGateAccess] = useState(null); // null = not yet verified; { role, scopedUser }
+
   // Filter state
   const [publicationRanges, setPublicationRanges] = useState([]);
   const [selectedPublicationRange, setSelectedPublicationRange] = useState('');
@@ -273,6 +469,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
 
   // ─── Initial load ────────────────────────────────────────────────────────────
   useEffect(() => {
+    if (!gateAccess) return; // Don't load until gate is cleared
     const fetchInitialData = async () => {
       try {
         setInitLoading(true);
@@ -281,7 +478,20 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
           usersAPI.getRaters(),
           publicationRangesAPI.getActive()
         ]);
-        const activeVacancies = vacanciesRes.filter(v => !v.isArchived);
+        let activeVacancies = vacanciesRes.filter(v => !v.isArchived);
+
+        // ── Secretariat scoping: mirror SecretariatView assignment logic ──────
+        if (gateAccess.role === 'secretariat') {
+          const su = gateAccess.scopedUser;
+          if (su.assignedVacancies === 'specific') {
+            const allowed = su.assignedItemNumbers || [];
+            activeVacancies = activeVacancies.filter(v => allowed.includes(v.itemNumber));
+          } else if (su.assignedVacancies === 'assignment') {
+            activeVacancies = activeVacancies.filter(v => v.assignment === su.assignedAssignment);
+          }
+          // 'all' falls through unfiltered
+        }
+
         setVacancies(activeVacancies);
         const uniqueAssignments = [...new Set(
           activeVacancies.map(v => v.assignment).filter(a => a && a.trim())
@@ -296,7 +506,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       }
     };
     fetchInitialData();
-  }, []);
+  }, [gateAccess]);
 
   // ─── Position loader ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1192,6 +1402,11 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     action === 'deleted' || action === 'batch_deleted';
 
   // ─── Render ───────────────────────────────────────────────────────────────────
+  // Show gate if not yet verified
+  if (!gateAccess) {
+    return <ISGv2AccessGate onGranted={setGateAccess} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-50">
       {/* ── Top Header Bar ───────────────────────────────────────────────────── */}
@@ -1207,8 +1422,31 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
               <h1 className="text-base font-bold text-gray-900 leading-tight">Interview Summary</h1>
               <p className="text-xs text-gray-500 leading-tight">HRMPSB · DENR Region IV-A</p>
             </div>
+            {/* ── Scoped user badge ─────────────────────────────────────── */}
+            <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold ${gateAccess.role === 'admin' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+              {gateAccess.scopedUser.name}
+            </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* ── Switch Account ───────────────────────────────────────── */}
+            <button
+              onClick={() => {
+                setGateAccess(null);
+                setVacancies([]); setAssignments([]); setPositions([]); setItems([]);
+                setSelectedPublicationRange(''); setSelectedAssignment('');
+                setSelectedPosition(''); setSelectedItem(''); setCandidateBoard([]);
+              }}
+              className="text-xs text-gray-500 hover:text-blue-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50"
+              title="Switch account"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
+              Switch
+            </button>
             {hasFilters && (
               <button onClick={resetFilters} className="text-xs text-gray-500 hover:text-red-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg border border-gray-200 hover:border-red-300 hover:bg-red-50">
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
