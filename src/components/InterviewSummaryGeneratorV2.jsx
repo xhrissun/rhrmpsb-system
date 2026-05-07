@@ -889,11 +889,182 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
 
   // ─── Long Evaluator CSV Export ────────────────────────────────────────────────
   const [csvExporting, setCsvExporting] = useState(false);
+  const [exportAllCsvExporting, setExportAllCsvExporting] = useState(false);
 
-  const exportToLongEvaluatorCSV = async () => {
-    if (!selectedItem || !selectedAssignment || !selectedPosition) return;
-    setCsvExporting(true);
+  const exportToLongEvaluatorCSV = async ({ exportAll = false } = {}) => {
+    if (!exportAll && (!selectedItem || !selectedAssignment || !selectedPosition)) return;
+    if (exportAll) setExportAllCsvExporting(true);
+    else setCsvExporting(true);
     try {
+      // ── EXPORT ALL MODE: iterate every unique position+assignment group ──────
+      if (exportAll) {
+        // Collect all secretariats once
+        let secretariats = [];
+        try { secretariats = await usersAPI.getSecretariats(); } catch { /* leave empty */ }
+
+        // Rater list
+        const raterList = raters.length > 0 ? raters : (await usersAPI.getRaters().catch(() => []));
+
+        // Fetch all candidates once
+        const allCandidatesData = await candidatesAPI.getAll();
+
+        // Group vacancies by position+assignment to get unique groups
+        const groups = {};
+        vacancies.forEach(v => {
+          const key = `${v.position}||${v.assignment}`;
+          if (!groups[key]) groups[key] = [];
+          groups[key].push(v);
+        });
+
+        const allRows = [];
+        for (const [, groupVacancies] of Object.entries(groups)) {
+          const firstVacancy = groupVacancies[0];
+          const groupPosition = firstVacancy.position;
+          const groupAssignment = firstVacancy.assignment;
+          const allItemNumbers = [...new Set(groupVacancies.map(v => v.itemNumber).filter(Boolean))].sort();
+          const itemCell = allItemNumbers.join(' / ');
+          const sg = firstVacancy.salaryGrade || null;
+
+          const pubRange = publicationRanges.find(pr =>
+            groupVacancies.some(v => String(v.publicationRangeId) === String(pr._id))
+          );
+          const publicationName = pubRange?.name || '';
+
+          const assignedSec = secretariats.find(s => {
+            if (s.assignedVacancies === 'all') return true;
+            if (s.assignedVacancies === 'assignment') return s.assignedAssignment === groupAssignment;
+            if (s.assignedVacancies === 'specific') return allItemNumbers.some(n => (s.assignedItemNumbers || []).includes(n));
+            return false;
+          });
+          const secretariatName = assignedSec?.name || '';
+
+          const requiredSG14Types = new Set(['Regular Member', 'End-User']);
+          const allRaterTypes = new Set(['Chairperson', 'Vice-Chairperson', 'Regular Member', 'DENREU', 'Gender and Development', 'End-User']);
+          const requiredTypes = sg && sg <= 14 ? requiredSG14Types : allRaterTypes;
+          const requiredRaterCount = requiredTypes.size;
+
+          let competencyData = [];
+          try { competencyData = await competenciesAPI.getByVacancy(firstVacancy._id); } catch { /* skip */ }
+          const compsByType = { basic: [], organizational: [], leadership: [], minimum: [] };
+          competencyData.forEach(c => {
+            if (compsByType[c.type]) compsByType[c.type].push({ ...c, code: c.name.toUpperCase().replace(/ /g, '_') });
+          });
+
+          const relevantCandidates = allCandidatesData.filter(
+            c => !c.isArchived && allItemNumbers.includes(c.itemNumber) && c.status === 'long_list'
+          );
+
+          const raterIdToType = {};
+          raterList.forEach(r => { raterIdToType[String(r._id)] = r.raterType; });
+
+          const groupRows = await Promise.all(relevantCandidates.map(async (candidate) => {
+            const candidateItemNum = candidate.itemNumber;
+            let candidateRatings = [];
+            try { candidateRatings = await ratingsAPI.getByCandidate(candidate._id); } catch { /* skip */ }
+            const itemRatings = candidateRatings.filter(r => r.itemNumber === candidateItemNum);
+
+            const qualifiedRaterIds = new Set();
+            itemRatings.forEach(r => {
+              if (r.score > 0) {
+                const rid = String(r.raterId?._id || r.raterId);
+                const rType = r.raterId?.raterType || raterIdToType[rid] || '';
+                if (requiredTypes.has(rType)) qualifiedRaterIds.add(rid);
+              }
+            });
+            const raterCount = qualifiedRaterIds.size;
+            const hasAnyRating = raterCount > 0;
+            const isComplete = raterCount >= requiredRaterCount;
+
+            let psychoSocial = '', potential = '';
+            if (hasAnyRating) {
+              if (!isComplete) {
+                psychoSocial = 'INCOMPLETE'; potential = 'INCOMPLETE';
+              } else {
+                const avgForType = (type) => {
+                  const comps = compsByType[type] || [];
+                  if (!comps.length) return 0;
+                  let total = 0, rated = 0;
+                  comps.forEach(comp => {
+                    const raterTypesList = Array.from(requiredTypes);
+                    const validScores = raterTypesList.map(rt => {
+                      const r = itemRatings.find(rating =>
+                        rating.competencyId?.name?.toUpperCase().replace(/ /g, '_') === comp.code &&
+                        (rating.raterId?.raterType || raterIdToType[String(rating.raterId?._id || rating.raterId)]) === rt &&
+                        rating.competencyType === type && rating.score > 0
+                      );
+                      return r ? r.score : null;
+                    }).filter(s => s !== null);
+                    const compAvg = validScores.length > 0 ? validScores.reduce((a, b) => a + b, 0) / validScores.length : 0;
+                    if (compAvg > 0) { total += compAvg; rated++; }
+                  });
+                  if (!rated) return 0;
+                  return type === 'minimum' ? total / comps.length : total / 5;
+                };
+                const ps = avgForType('basic') * 2;
+                const pot = sg && sg >= 18
+                  ? ((avgForType('organizational') + avgForType('leadership') + avgForType('minimum')) / 3) * 2
+                  : ((avgForType('organizational') + avgForType('minimum')) / 2) * 2;
+                psychoSocial = ps > 0 ? (Math.round(ps * 100) / 100) : '';
+                potential = pot > 0 ? (Math.round(pot * 100) / 100) : '';
+              }
+            }
+
+            return {
+              code: publicationName, assignedTo: secretariatName,
+              position: groupPosition, item: itemCell, salaryGrade: sg || '',
+              assignment: groupAssignment, fullName: candidate.fullName,
+              email: '', phone: '', preAssessment: '',
+              link1: candidate.personalDataSheet || '',
+              link2: candidate.workExperienceSheet || '',
+              pds: candidate.personalDataSheet ? `=HYPERLINK("${candidate.personalDataSheet}","PDS")` : '',
+              wes: candidate.workExperienceSheet ? `=HYPERLINK("${candidate.workExperienceSheet}","WES")` : '',
+              examNumber: '', interview: hasAnyRating ? 'YES' : 'NO',
+              jktScore: '', psycho: psychoSocial, potential: potential,
+            };
+          }));
+          allRows.push(...groupRows);
+        }
+
+        allRows.sort((a, b) => {
+          const posComp = a.position.localeCompare(b.position);
+          if (posComp !== 0) return posComp;
+          const assComp = a.assignment.localeCompare(b.assignment);
+          if (assComp !== 0) return assComp;
+          return a.fullName.localeCompare(b.fullName);
+        });
+
+        const headers = [
+          'CODE','ASSIGNED TO','POSITION','ITEM','SALARY GRADE','ASSIGNMENT',
+          'FULL NAME','EMAIL','PHONE NUMBER','PRE-ASSESSMENT','1','2','PDS','WES',
+          'EXAMINEE NUMBER','INTERVIEW','JKT SCORE','PSYCHO','POTENTIAL'
+        ];
+        const escapeCSV = (val) => {
+          const s = String(val ?? '');
+          if (s.includes(',') || s.includes('"') || s.includes('\n')) return `"${s.replace(/"/g, '""')}"`;
+          return s;
+        };
+        const csvLines = [
+          headers.map(escapeCSV).join(','),
+          ...allRows.map(r => [
+            r.code, r.assignedTo, r.position, r.item, r.salaryGrade, r.assignment,
+            r.fullName, r.email, r.phone, r.preAssessment, r.link1, r.link2,
+            r.pds, r.wes, r.examNumber, r.interview, r.jktScore, r.psycho, r.potential
+          ].map(escapeCSV).join(','))
+        ];
+        const csvContent = '\uFEFF' + csvLines.join('\r\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `LONG_EVALUATOR_ALL_${new Date().toISOString().slice(0,10)}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        return;
+      }
+
+      // ── SINGLE-ITEM MODE (original behaviour) ────────────────────────────────
       // 1. Gather vacancy info — find all sibling item numbers (same position + assignment)
       const siblingVacancies = vacancies.filter(
         v => v.position === selectedPosition && v.assignment === selectedAssignment
@@ -1043,10 +1214,10 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
           email: '',
           phone: '',
           preAssessment: '',
-          link1: '',
-          link2: '',
-          pds: candidate.personalDataSheet || '',
-          wes: candidate.workExperienceSheet || '',
+          link1: candidate.personalDataSheet || '',
+          link2: candidate.workExperienceSheet || '',
+          pds: candidate.personalDataSheet ? `=HYPERLINK("${candidate.personalDataSheet}","PDS")` : '',
+          wes: candidate.workExperienceSheet ? `=HYPERLINK("${candidate.workExperienceSheet}","WES")` : '',
           examNumber: '',
           interview: hasAnyRating ? 'YES' : 'NO',
           jktScore: '',
@@ -1097,6 +1268,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       console.error('CSV export failed:', err);
     } finally {
       setCsvExporting(false);
+      setExportAllCsvExporting(false);
     }
   };
 
@@ -1622,6 +1794,30 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
 
   return (
     <div className="min-h-screen bg-slate-50">
+      {/* ── Export All Loading Overlay ───────────────────────────────────────── */}
+      {exportAllCsvExporting && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl px-10 py-8 flex flex-col items-center gap-4 max-w-xs w-full mx-4">
+            <div className="w-14 h-14 rounded-full border-4 border-purple-100 border-t-purple-600 animate-spin"></div>
+            <div className="text-center">
+              <p className="text-sm font-bold text-gray-900">Exporting All Data</p>
+              <p className="text-xs text-gray-500 mt-1">Fetching all candidates and ratings across every position. This may take a moment…</p>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ── Per-Item Export Loading Overlay ─────────────────────────────────── */}
+      {csvExporting && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl px-10 py-8 flex flex-col items-center gap-4 max-w-xs w-full mx-4">
+            <div className="w-14 h-14 rounded-full border-4 border-green-100 border-t-green-600 animate-spin"></div>
+            <div className="text-center">
+              <p className="text-sm font-bold text-gray-900">Exporting CSV</p>
+              <p className="text-xs text-gray-500 mt-1">Fetching ratings for all candidates in this position. Please wait…</p>
+            </div>
+          </div>
+        </div>
+      )}
       {/* ── Top Header Bar ───────────────────────────────────────────────────── */}
       <div className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-20 shadow-sm">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
@@ -1668,6 +1864,24 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
                 Clear filters
               </button>
             )}
+
+            {/* ── Export All (admin + secretariat, scoped to their assigned vacancies) ── */}
+            <button
+              onClick={() => exportToLongEvaluatorCSV({ exportAll: true })}
+              disabled={exportAllCsvExporting || initLoading}
+              className="flex items-center gap-1.5 text-xs text-purple-700 hover:text-purple-900 px-3 py-1.5 rounded-lg border border-purple-300 hover:bg-purple-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              title={gateAccess.role === 'secretariat'
+                ? 'Export all your assigned positions in Long Evaluator format'
+                : 'Export all positions and assignments in Long Evaluator format'}
+            >
+              <svg className={`w-3.5 h-3.5 ${exportAllCsvExporting ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                {exportAllCsvExporting
+                  ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  : <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                }
+              </svg>
+              {exportAllCsvExporting ? 'Exporting All…' : 'Export All'}
+            </button>
 
             {/* ── Notification Bell ─────────────────────────────────────── */}
             <div className="relative" ref={notifPanelRef}>
@@ -1960,7 +2174,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
                     </svg>
                     Refresh
                   </button>
-                  <button onClick={exportToLongEvaluatorCSV} disabled={csvExporting || boardLoading}
+                  <button onClick={() => exportToLongEvaluatorCSV()} disabled={csvExporting || boardLoading}
                     className="flex items-center gap-1.5 text-xs text-green-700 hover:text-green-900 px-3 py-1.5 rounded-lg border border-green-300 hover:bg-green-50 transition-all disabled:opacity-50"
                     title="Export all candidates for this position in Long Evaluator format">
                     <svg className={`w-3.5 h-3.5 ${csvExporting ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
