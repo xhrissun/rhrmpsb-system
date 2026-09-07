@@ -937,7 +937,7 @@ const loadDataForCurrentTab = useCallback(async () => {
           certificateOfEmployment: 'https://drive.google.com/file/d/example8',
           diploma: 'https://drive.google.com/file/d/example9',
           transcriptOfRecords: 'https://drive.google.com/file/d/example10',
-          status: 'general_list'
+          status: 'general_list' // other accepted values: long_list, for_review, disqualified, late
         };
         filename = 'candidates_empty_template.csv';
         break;
@@ -1493,7 +1493,12 @@ const loadDataForCurrentTab = useCallback(async () => {
     return (
       <div className="space-y-4">
         <div className="flex justify-between items-center">
-          <h2 className="text-xl font-bold text-gray-900">Candidates Management</h2>
+          <div>
+            <h2 className="text-xl font-bold text-gray-900">Candidates Management</h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              CSV "status" column accepts: general_list, long_list, for_review, disqualified, or <span className="font-semibold text-red-500">late</span> (auto-marks as Late Applicant in Secretariat view)
+            </p>
+          </div>
           <div className="flex space-x-2">
             <button
               onClick={() => handleExportCSV('candidates')}

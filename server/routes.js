@@ -96,6 +96,27 @@ const validateCsvFile = (file) => {
   }
 };
 
+// ── CSV status resolver ────────────────────────────────────────────────────────
+// The Candidate.status schema field only accepts: general_list, long_list,
+// for_review, disqualified. "Late" applicants are tracked separately via the
+// isLateApplicant boolean. This lets the CSV `status` column accept "late"
+// (or "general_list-late" style values) as a convenience — it gets split into
+// the real status plus the isLateApplicant flag before the doc is built.
+const VALID_CANDIDATE_STATUSES = ['general_list', 'long_list', 'for_review', 'disqualified'];
+const resolveStatusAndLate = (rawStatus) => {
+  const normalized = String(rawStatus || '').trim().toLowerCase().replace(/\s+/g, '_');
+  if (!normalized) return { status: 'general_list', isLateApplicant: false };
+  if (normalized === 'late' || normalized === 'late_applicant') {
+    return { status: 'general_list', isLateApplicant: true };
+  }
+  if (VALID_CANDIDATE_STATUSES.includes(normalized)) {
+    return { status: normalized, isLateApplicant: false };
+  }
+  // Unrecognized value — fall back to general_list rather than let it hit
+  // Mongoose enum validation and crash the whole import.
+  return { status: 'general_list', isLateApplicant: false };
+};
+
 // ── Fuzzy-match helpers ───────────────────────────────────────────────────────
 const normalizeCompetencyName = (name) =>
   name.trim().toUpperCase().replace(/\s+/g, ' ').replace(/[^A-Z0-9\s()\/]/g, '').trim();
@@ -1131,6 +1152,7 @@ router.post('/candidates/upload-csv/:publicationRangeId', authMiddleware, async 
         });
         continue;
       }
+      const { status: resolvedStatus, isLateApplicant } = resolveStatusAndLate(candidate.status);
       processedCandidates.push({
         fullName: candidate.fullName || '', itemNumber: candidate.itemNumber.trim(),
         gender: candidate.gender || '', dateOfBirth: candidate.dateOfBirth || null,
@@ -1143,7 +1165,7 @@ router.post('/candidates/upload-csv/:publicationRangeId', authMiddleware, async 
         certificates: candidate.certificates || '', ipcr: candidate.ipcr || '',
         certificateOfEmployment: candidate.certificateOfEmployment || '',
         diploma: candidate.diploma || '', transcriptOfRecords: candidate.transcriptOfRecords || '',
-        status: candidate.status || 'general_list', publicationRangeId: publicationRange._id,
+        status: resolvedStatus, isLateApplicant, publicationRangeId: publicationRange._id,
         comments: {
           education: candidate.educationComments || '', training: candidate.trainingComments || '',
           experience: candidate.experienceComments || '', eligibility: candidate.eligibilityComments || ''
@@ -1178,24 +1200,27 @@ router.post('/candidates/upload-csv', authMiddleware, async (req, res) => {
       return res.status(400).json({ message: e.message });
     }
     const candidatesData = parseCSV(req.files.csv.data);
-    const processedCandidates = candidatesData.map(candidate => ({
-      fullName: candidate.fullName || '', itemNumber: candidate.itemNumber || '',
-      gender: candidate.gender || '', dateOfBirth: candidate.dateOfBirth || null,
-      age: candidate.age || null, eligibility: candidate.eligibility || '',
-      professionalLicense: candidate.professionalLicense || '',
-      letterOfIntent: candidate.letterOfIntent || '',
-      personalDataSheet: candidate.personalDataSheet || '',
-      workExperienceSheet: candidate.workExperienceSheet || '',
-      proofOfEligibility: candidate.proofOfEligibility || '',
-      certificates: candidate.certificates || '', ipcr: candidate.ipcr || '',
-      certificateOfEmployment: candidate.certificateOfEmployment || '',
-      diploma: candidate.diploma || '', transcriptOfRecords: candidate.transcriptOfRecords || '',
-      status: candidate.status || 'general_list',
-      comments: {
-        education: candidate.educationComments || '', training: candidate.trainingComments || '',
-        experience: candidate.experienceComments || '', eligibility: candidate.eligibilityComments || ''
-      }
-    }));
+    const processedCandidates = candidatesData.map(candidate => {
+      const { status: resolvedStatus, isLateApplicant } = resolveStatusAndLate(candidate.status);
+      return {
+        fullName: candidate.fullName || '', itemNumber: candidate.itemNumber || '',
+        gender: candidate.gender || '', dateOfBirth: candidate.dateOfBirth || null,
+        age: candidate.age || null, eligibility: candidate.eligibility || '',
+        professionalLicense: candidate.professionalLicense || '',
+        letterOfIntent: candidate.letterOfIntent || '',
+        personalDataSheet: candidate.personalDataSheet || '',
+        workExperienceSheet: candidate.workExperienceSheet || '',
+        proofOfEligibility: candidate.proofOfEligibility || '',
+        certificates: candidate.certificates || '', ipcr: candidate.ipcr || '',
+        certificateOfEmployment: candidate.certificateOfEmployment || '',
+        diploma: candidate.diploma || '', transcriptOfRecords: candidate.transcriptOfRecords || '',
+        status: resolvedStatus, isLateApplicant,
+        comments: {
+          education: candidate.educationComments || '', training: candidate.trainingComments || '',
+          experience: candidate.experienceComments || '', eligibility: candidate.eligibilityComments || ''
+        }
+      };
+    });
     await Candidate.insertMany(processedCandidates);
     res.json({ message: 'Candidates uploaded successfully' });
   } catch (error) {
