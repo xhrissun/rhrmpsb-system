@@ -1,5 +1,4 @@
 // server/lib/aiEvaluation.js
-// server/lib/aiEvaluation.js
 //
 // Calls the Gemini API (Google AI Studio) to draft Secretariat review
 // comments for a candidate, weighed against:
@@ -9,6 +8,13 @@
 // This module NEVER writes to the database. It only returns a draft object
 // for the Secretariat to review, edit, and save through the normal
 // PUT /candidates/:id flow.
+//
+// PRIVACY: this module no longer sends raw document files (images/PDFs) or
+// the candidate's name to Gemini. The route calling this (server/routes.js)
+// extracts text locally (server/lib/textExtraction.js) and redacts direct
+// identifiers (server/lib/redact.js) before this function ever sees it —
+// only redacted text plus a non-identifying case reference goes over the
+// wire to Google.
 
 // Models to try, in order. If GEMINI_MODEL is set, it's tried first; the rest
 // of this default chain is appended after it (deduplicated) as automatic
@@ -45,9 +51,6 @@ function getModelChain() {
 const geminiUrlFor = (model) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
-// Keep the total inline payload well under Gemini's request size limits.
-const MAX_TOTAL_INLINE_BYTES = 18 * 1024 * 1024; // ~18MB of base64-decoded bytes
-
 const RESPONSE_SCHEMA = {
   type: 'OBJECT',
   properties: {
@@ -75,23 +78,32 @@ const RESPONSE_SCHEMA = {
   required: ['comments', 'suggestedStatus', 'suggestedStatusRationale', 'flags']
 };
 
-function buildSystemPrompt({ candidate, vacancy, competencies, unavailableDocs }) {
+// `caseRef` replaces the candidate's name in anything sent to Gemini — it's
+// just the item number plus a short non-reversible-looking suffix, enough
+// for the model to keep one candidate's documents straight within a single
+// request, but it carries no name/address/PII on its own.
+function buildSystemPrompt({ caseRef, vacancy, competencies, documentTexts, unavailableDocs }) {
   const qs = vacancy?.qualifications || {};
   const competencyLines = (competencies || [])
     .map(c => `- [${c.type}] ${c.name}`)
     .join('\n') || '(none on file for this item)';
 
   const missingDocsNote = unavailableDocs.length
-    ? `\nThe following documents could NOT be retrieved (missing, unshared, or deleted) and must be treated as absent evidence, not as disqualifying by themselves unless the Qualification Standards require them: ${unavailableDocs.map(d => d.label).join(', ')}.`
+    ? `\nThe following documents could NOT be used as evidence (missing, unshared, deleted, illegible, or no extractable text) and must be treated as absent evidence, not as disqualifying by themselves unless the Qualification Standards require them: ${unavailableDocs.map(d => d.label).join(', ')}.`
     : '';
+
+  const documentSections = documentTexts.length
+    ? documentTexts.map(d => `--- Document: ${d.label} ---\n${d.text}`).join('\n\n')
+    : '(no usable document text was extracted)';
 
   return `You are assisting the Secretariat of a Philippine government agency's Recruitment, Selection and Placement Board in reviewing a candidate's application documents.
 
-Your job is to draft — NOT finalize — the four Secretariat review comments (Education, Training, Experience, Eligibility) by comparing the attached candidate documents against the Qualification Standards (QS) and required competencies for the item below. A human Secretariat officer will review, edit, and approve everything you write before it is saved.
+Your job is to draft — NOT finalize — the four Secretariat review comments (Education, Training, Experience, Eligibility) by comparing the candidate documents below against the Qualification Standards (QS) and required competencies for the item below. A human Secretariat officer will review, edit, and approve everything you write before it is saved.
 
-CANDIDATE
-Name: ${candidate.fullName}
-Item Number: ${candidate.itemNumber}
+Note: names, dates of birth, addresses, and ID numbers have been redacted from the text below before it reached you — this is intentional and not a data quality issue. Evaluate the substance (education, training, experience, eligibility) without needing the candidate's identity.
+
+CASE REFERENCE
+Reference: ${caseRef}
 Position: ${vacancy?.position || '(unknown)'}
 Salary Grade: ${vacancy?.salaryGrade ?? '(unknown)'}
 
@@ -105,6 +117,9 @@ REQUIRED COMPETENCIES FOR THIS ITEM
 ${competencyLines}
 ${missingDocsNote}
 
+CANDIDATE DOCUMENTS (extracted text, redacted)
+${documentSections}
+
 INSTRUCTIONS
 1. Education: Compare the Diploma / Transcript of Records / PDS education section against the QS education requirement. State plainly whether it is met, partially met, or not met, and why.
 2. Training: Compare Certificates and the PDS training section against the QS training requirement. Where a training clearly relates to one of the required competencies above, name that competency. Do not require certificates for a competency the QS doesn't ask for.
@@ -113,13 +128,9 @@ INSTRUCTIONS
 5. Write each comment in plain, factual, administrative language — 2-4 sentences, no bullet points, no markdown. Cite which document supports each claim (e.g., "Per TOR..."). If evidence is missing or a document was unavailable, say so plainly instead of guessing.
 6. Do not invent facts not present in the documents. If a document is unreadable or absent, note the gap rather than assuming the candidate meets the requirement.
 7. suggestedStatus is only a recommendation for a human to review — choose "long_list" if all four areas are adequately met, "for_review" if there is a genuine ambiguity or borderline case needing board discussion, or "disqualified" if a QS requirement is clearly and verifiably not met. Never choose "disqualified" on the basis of a merely missing/unretrieved document alone — flag it instead and default to "for_review".
-8. flags should list anything the Secretariat should manually double-check (missing documents, illegible scans, expired eligibility dates, mismatched names, etc).
+8. flags should list anything the Secretariat should manually double-check (missing documents, illegible scans, expired eligibility dates, redacted fields that need the human reviewer's own verification, etc).
 
 Respond ONLY with JSON matching the provided schema.`;
-}
-
-function base64ToBytes(base64) {
-  return Buffer.byteLength(base64, 'base64');
 }
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -193,45 +204,42 @@ async function fetchGeminiWithFallback(body, apiKey) {
   }
 }
 
-export async function evaluateCandidateWithAI({ candidate, vacancy, competencies, files, unavailableDocs }) {
+// `documentTexts` is an array of { key, label, name, text } — already
+// extracted locally (server/lib/textExtraction.js) and already redacted
+// (server/lib/redact.js) by the time it reaches this function. This
+// function no longer sends any raw file bytes (no inlineData) to Gemini at
+// all — only the redacted text goes over the wire, plus a non-identifying
+// case reference in place of the candidate's name.
+export async function evaluateCandidateWithAI({ caseRef, vacancy, competencies, documentTexts, unavailableDocs }) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY environment variable is not set');
   }
 
-  // Guard against oversized requests: drop the largest files first (and
-  // report them as unavailable) until we're under the inline size budget.
-  const includedFiles = [...files].sort((a, b) => a.base64.length - b.base64.length);
-  let totalBytes = 0;
-  const finalFiles = [];
+  // Guard against oversized requests: drop the longest texts first (and
+  // report them as unavailable) until we're under the character budget.
+  // (Text is far smaller than the equivalent base64 file, so this budget is
+  // generous compared to the old inline-file limit.)
+  const MAX_TOTAL_CHARS = 400_000;
+  const sortedByLength = [...documentTexts].sort((a, b) => a.text.length - b.text.length);
+  let totalChars = 0;
+  const finalTexts = [];
   const droppedForSize = [];
-  for (const file of includedFiles) {
-    const bytes = base64ToBytes(file.base64);
-    if (totalBytes + bytes > MAX_TOTAL_INLINE_BYTES) {
-      droppedForSize.push({ key: file.key, label: file.label, message: 'File too large to include automatically' });
+  for (const doc of sortedByLength) {
+    if (totalChars + doc.text.length > MAX_TOTAL_CHARS) {
+      droppedForSize.push({ key: doc.key, label: doc.label, message: 'Extracted text too large to include automatically' });
       continue;
     }
-    totalBytes += bytes;
-    finalFiles.push(file);
+    totalChars += doc.text.length;
+    finalTexts.push(doc);
   }
 
   const allUnavailable = [...unavailableDocs, ...droppedForSize];
 
-  const systemPrompt = buildSystemPrompt({ candidate, vacancy, competencies, unavailableDocs: allUnavailable });
-
-  const parts = [{ text: systemPrompt }];
-  finalFiles.forEach(file => {
-    parts.push({ text: `\n\n--- Document: ${file.label} (${file.name}) ---` });
-    parts.push({
-      inlineData: {
-        mimeType: file.mimeType,
-        data: file.base64
-      }
-    });
-  });
+  const systemPrompt = buildSystemPrompt({ caseRef, vacancy, competencies, documentTexts: finalTexts, unavailableDocs: allUnavailable });
 
   const body = {
-    contents: [{ role: 'user', parts }],
+    contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
     generationConfig: {
       temperature: 0.2,
       responseMimeType: 'application/json',
@@ -262,7 +270,8 @@ export async function evaluateCandidateWithAI({ candidate, vacancy, competencies
 
   return {
     ...parsed,
-    documentsReviewed: finalFiles.map(f => ({ key: f.key, label: f.label })),
+    modelUsed,
+    documentsReviewed: finalTexts.map(f => ({ key: f.key, label: f.label })),
     unavailableDocuments: allUnavailable
   };
 }

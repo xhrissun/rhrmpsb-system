@@ -1,3 +1,4 @@
+// server/models.js
 import mongoose from 'mongoose';
 
 // ── Publication Range Schema ───────────────────────────────────────────────────
@@ -440,6 +441,46 @@ publicationRangeSchema.statics.findArchived = function() {
   return this.find({ isArchived: true });
 };
 
+// Singleton-per-key settings document. Currently used for the AI Evaluation
+// admin on/off toggle, but the { key, ... } shape lets future toggles reuse
+// the same collection instead of spawning a new one each time.
+const systemSettingsSchema = new mongoose.Schema({
+  key:     { type: String, required: true, unique: true, trim: true },
+  enabled: { type: Boolean, default: false },
+  updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  updatedAt: { type: Date, default: Date.now }
+});
+
+systemSettingsSchema.statics.getFlag = async function(key, defaultEnabled = false) {
+  const doc = await this.findOne({ key });
+  return doc ? doc.enabled : defaultEnabled;
+};
+
+systemSettingsSchema.statics.setFlag = async function(key, enabled, userId) {
+  return this.findOneAndUpdate(
+    { key },
+    { key, enabled, updatedBy: userId, updatedAt: new Date() },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
+};
+
+// Audit trail for the AI evaluation feature — who ran it, on which
+// candidate, what the model returned, and whether redaction/local text
+// extraction had to drop anything. Nothing here blocks the feature if
+// logging fails; it's best-effort visibility for the DPO/admin, not a
+// safety gate.
+const aiEvaluationLogSchema = new mongoose.Schema({
+  candidateId:   { type: mongoose.Schema.Types.ObjectId, ref: 'Candidate', required: true },
+  itemNumber:    { type: String, trim: true },
+  triggeredBy:   { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  triggeredByName: { type: String, trim: true, default: '' },
+  modelUsed:     { type: String, trim: true, default: '' },
+  suggestedStatus: { type: String, trim: true, default: '' },
+  documentsSent: [{ key: String, label: String, redacted: Boolean }],
+  documentsSkipped: [{ key: String, label: String, reason: String }],
+  createdAt:     { type: Date, default: Date.now }
+});
+
 // ── Create models ─────────────────────────────────────────────────────────────
 const User            = mongoose.model('User',             userSchema);
 const Vacancy         = mongoose.model('Vacancy',          vacancySchema);
@@ -451,5 +492,7 @@ const PublicationRange= mongoose.model('PublicationRange', publicationRangeSchem
 const NotificationLog = mongoose.model('NotificationLog',  notificationLogSchema);
 const InterviewSession = mongoose.model('InterviewSession', interviewSessionSchema);
 const PDFCache        = mongoose.model('PDFCache',         pdfCacheSchema);
+const SystemSettings  = mongoose.model('SystemSettings',   systemSettingsSchema);
+const AiEvaluationLog = mongoose.model('AiEvaluationLog',  aiEvaluationLogSchema);
 
-export { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, NotificationLog, InterviewSession, PDFCache };
+export { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, NotificationLog, InterviewSession, PDFCache, SystemSettings, AiEvaluationLog };

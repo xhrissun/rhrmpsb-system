@@ -1,3 +1,4 @@
+// src/components/AdminView.jsx
 import React, { useState, useEffect, useRef, useCallback, memo, useMemo } from 'react';
 import usePersistedState from '../utils/usePersistedState';
 import { usersAPI, vacanciesAPI, candidatesAPI, competenciesAPI, publicationRangesAPI, authAPI } from '../utils/api';
@@ -7,6 +8,7 @@ import InterviewSummaryGeneratorV2 from './InterviewSummaryGeneratorV2';
 import { useToast } from '../utils/ToastContext';
 import RatingLogsView from './RatingLogsView';
 import PublicationRangeManager from './PublicationRangeManager';
+import SystemSettingsPanel from './SystemSettingsPanel';
 import CompetencyDetailModal from './CompetencyDetailModal';
 import { getAllTOCEntries } from '../lib/pdfParser';
 
@@ -2598,6 +2600,19 @@ const loadDataForCurrentTab = useCallback(async () => {
                   Publication Ranges
                 </span>
               </button>
+              <button
+                onClick={() => setActiveTab('systemSettings')}
+                className={`sidebar-item w-full text-left px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 ${
+                  activeTab === 'systemSettings'
+                    ? 'bg-gradient-to-r from-blue-600 to-blue-500 text-white shadow-lg transform scale-105'
+                    : 'text-gray-700 hover:bg-blue-50 hover:text-blue-600 hover:translate-x-1'
+                }`}
+              >
+                <span className="flex items-center gap-3">
+                  <span className="text-lg">⚙️</span>
+                  System Settings
+                </span>
+              </button>
             </nav>
           </div>
         </div>
@@ -2606,7 +2621,7 @@ const loadDataForCurrentTab = useCallback(async () => {
       {/* Main Content */}
       <div className="flex-1 p-6 overflow-auto">
         {/* Search Bar - Only show for data tabs */}
-        {activeTab !== 'interviewSummary' && activeTab !== 'ratingLogs' && activeTab !== 'publicationRanges' && (
+        {activeTab !== 'interviewSummary' && activeTab !== 'ratingLogs' && activeTab !== 'publicationRanges' && activeTab !== 'systemSettings' && (
           <SearchBar
             key={activeTab}
             placeholder={
@@ -2634,6 +2649,7 @@ const loadDataForCurrentTab = useCallback(async () => {
         {activeTab === 'interviewSummary' && renderInterviewSummary()}
         {activeTab === 'ratingLogs' && <RatingLogsView />}
         {activeTab === 'publicationRanges' && <PublicationRangeManager />}
+        {activeTab === 'systemSettings' && <SystemSettingsPanel />}
 
         {/* Modals */}
         {showModal && modalType === 'user' && (

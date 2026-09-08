@@ -1,3 +1,4 @@
+// src/utils/api.js
 import axios from 'axios';
 
 
@@ -716,6 +717,20 @@ export const pdfCacheAPI = {
   clear: async () => {
     const response = await api.delete('/pdf-cache/competencies');
     return response.data;
+  }
+};
+
+// Admin on/off toggle for the AI-assisted evaluation feature (candidate
+// documents are extracted/redacted locally either way, but this lets an
+// admin fully disable the Gemini call from the UI without a redeploy).
+export const settingsAPI = {
+  getAiEvaluationStatus: async () => {
+    const response = await api.get('/settings/ai-evaluation');
+    return response.data; // { enabled: boolean }
+  },
+  setAiEvaluationStatus: async (enabled) => {
+    const response = await api.put('/settings/ai-evaluation', { enabled });
+    return response.data; // { enabled: boolean }
   }
 };
 

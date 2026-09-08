@@ -1,12 +1,19 @@
+// server/routes.js
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
 import { parse } from 'csv-parse/sync';
 import rateLimit from 'express-rate-limit';
-import { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, InterviewSession, PDFCache } from './models.js';
+import { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, InterviewSession, PDFCache, SystemSettings, AiEvaluationLog } from './models.js';
 import { fetchDriveFiles } from './lib/googleDrive.js';
 import { evaluateCandidateWithAI } from './lib/aiEvaluation.js';
+import { extractTextFromFiles } from './lib/textExtraction.js';
+import { redactCandidateText } from './lib/redact.js';
+
+// Key used in the SystemSettings collection for the admin on/off toggle.
+// Defaults to DISABLED (fail closed) until an admin explicitly turns it on.
+const AI_EVALUATION_SETTINGS_KEY = 'aiEvaluation';
 
 const router = express.Router();
 
@@ -1415,6 +1422,12 @@ router.post('/candidates/:id/ai-evaluate', aiEvaluateLimiter, authMiddleware, as
     return res.status(403).json({ message: 'Access denied' });
   }
 
+  // Admin kill switch — checked before any Drive fetch or Gemini call.
+  const aiEvaluationEnabled = await SystemSettings.getFlag(AI_EVALUATION_SETTINGS_KEY, false);
+  if (!aiEvaluationEnabled) {
+    return res.status(403).json({ message: 'AI-assisted evaluation is currently turned off by an administrator. Ask an admin to enable it under Admin > System Settings.' });
+  }
+
   try {
     const candidate = await Candidate.findById(req.params.id);
     if (!candidate) return res.status(404).json({ message: 'Candidate not found' });
@@ -1437,26 +1450,78 @@ router.post('/candidates/:id/ai-evaluate', aiEvaluateLimiter, authMiddleware, as
       return res.status(400).json({ message: 'This candidate has no uploaded documents to evaluate.' });
     }
 
-    const { files, errors: unavailableDocs } = await fetchDriveFiles(docsToFetch);
+    const { files, errors: driveErrors } = await fetchDriveFiles(docsToFetch);
 
-    if (unavailableDocs.length > 0) {
-      console.warn('[AI evaluate] Drive fetch issues for candidate', candidate._id.toString(), unavailableDocs);
+    if (driveErrors.length > 0) {
+      console.warn('[AI evaluate] Drive fetch issues for candidate', candidate._id.toString(), driveErrors);
     }
 
     if (files.length === 0) {
       return res.status(422).json({
         message: 'None of the candidate\'s documents could be retrieved from Google Drive. Check that the Drive folder is shared with the service account.',
+        unavailableDocuments: driveErrors
+      });
+    }
+
+    // Local, non-Gemini text extraction — the raw PDF/image bytes never
+    // leave this server from this point on.
+    const { usable, insufficient } = await extractTextFromFiles(files);
+
+    const extractionErrors = insufficient.map(doc => ({
+      key: doc.key,
+      label: doc.label,
+      message: doc.error
+        ? `Could not extract text: ${doc.error}`
+        : doc.method === 'pdf-no-text-layer'
+        ? 'This looks like a scanned image with no selectable text — automatic redaction can\'t be verified on it, so it was excluded from the AI draft. It still needs manual Secretariat review.'
+        : 'No usable text could be extracted from this document.'
+    }));
+
+    const unavailableDocs = [...driveErrors, ...extractionErrors];
+
+    if (usable.length === 0) {
+      return res.status(422).json({
+        message: 'None of the candidate\'s documents had text that could be safely extracted and redacted for AI review. All documents need manual Secretariat review.',
         unavailableDocuments: unavailableDocs
       });
     }
 
+    // Redact direct identifiers from the extracted text before it goes
+    // anywhere near Gemini. Best-effort — see server/lib/redact.js.
+    const documentTexts = usable.map(doc => ({
+      key: doc.key,
+      label: doc.label,
+      name: doc.name,
+      text: redactCandidateText(doc.text, candidate)
+    }));
+
+    // Non-identifying stand-in for the candidate's name in the prompt.
+    const caseRef = `${candidate.itemNumber}-${candidate._id.toString().slice(-6)}`;
+
     const draft = await evaluateCandidateWithAI({
-      candidate,
+      caseRef,
       vacancy,
       competencies,
-      files,
+      documentTexts,
       unavailableDocs
     });
+
+    // Best-effort audit trail — never let a logging failure break the
+    // actual feature.
+    try {
+      await AiEvaluationLog.create({
+        candidateId: candidate._id,
+        itemNumber: candidate.itemNumber,
+        triggeredBy: req.user.id,
+        triggeredByName: req.user.name || req.user.username || '',
+        modelUsed: draft.modelUsed || '',
+        suggestedStatus: draft.suggestedStatus || '',
+        documentsSent: documentTexts.map(d => ({ key: d.key, label: d.label, redacted: true })),
+        documentsSkipped: unavailableDocs.map(d => ({ key: d.key, label: d.label, reason: d.message }))
+      });
+    } catch (logErr) {
+      console.warn('[AI evaluate] Failed to write audit log:', logErr.message);
+    }
 
     res.json({
       candidateId: candidate._id,
@@ -1470,6 +1535,37 @@ router.post('/candidates/:id/ai-evaluate', aiEvaluateLimiter, authMiddleware, as
     // production here: it's a Gemini/Drive API error string, not user data,
     // and hiding it makes this feature undebuggable from the UI alone.
     res.status(500).json({ message: 'AI evaluation failed: ' + error.message });
+  }
+});
+
+// ── AI Evaluation admin toggle ──────────────────────────────────────────────
+// GET is available to admin + secretariat so the Secretariat UI can grey out
+// the "AI Evaluate" button when it's off. PUT is admin-only.
+router.get('/settings/ai-evaluation', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin' && req.user.userType !== 'secretariat') {
+    return res.status(403).json({ message: 'Access denied' });
+  }
+  try {
+    const enabled = await SystemSettings.getFlag(AI_EVALUATION_SETTINGS_KEY, false);
+    res.json({ enabled });
+  } catch (error) {
+    console.error('[GET /settings/ai-evaluation]', error);
+    res.status(500).json({ message: 'Failed to load AI evaluation setting.' });
+  }
+});
+
+router.put('/settings/ai-evaluation', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin') return res.status(403).json({ message: 'Access denied' });
+  try {
+    const { enabled } = req.body;
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ message: '"enabled" must be true or false.' });
+    }
+    await SystemSettings.setFlag(AI_EVALUATION_SETTINGS_KEY, enabled, req.user.id);
+    res.json({ enabled });
+  } catch (error) {
+    console.error('[PUT /settings/ai-evaluation]', error);
+    res.status(500).json({ message: 'Failed to update AI evaluation setting.' });
   }
 });
 
