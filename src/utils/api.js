@@ -283,7 +283,15 @@ export const candidatesAPI = {
   // the caller decides whether to apply the draft into the comment fields.
   aiEvaluate: async (id) => {
     const response = await api.post(`/candidates/${id}/ai-evaluate`, {}, {
-      timeout: 90000 // document fetch + model call + automatic retries on 503/429 can take a while
+      // Drive fetch + extraction now happens ONE DOCUMENT AT A TIME on the
+      // server (see server/lib/textExtraction.js fetchAndExtractDriveDocs) so
+      // only one document's bytes are ever in memory at once. That trades
+      // speed for staying under Render's 512MB limit: a candidate with
+      // several scanned documents can spend a real chunk of a minute on
+      // page-by-page OCR for EACH one, sequentially, before the Gemini call
+      // (+ its own 503/429 retries) even starts. 90s was tuned for the old
+      // parallel-fetch pipeline and is no longer enough headroom.
+      timeout: 240000
     });
     return response.data;
   },
