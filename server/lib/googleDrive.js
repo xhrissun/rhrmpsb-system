@@ -96,7 +96,9 @@ export async function fetchDriveFile(url) {
   const { mimeType, name } = meta.data;
 
   // Google-native formats (Docs/Sheets/Slides) have no direct binary — export
-  // Docs as PDF so Gemini can read them the same way as an uploaded PDF.
+  // Docs as PDF and Sheets as .xlsx so the extraction step downstream can
+  // read them the same way as an uploaded PDF or .xlsx file. Slides still
+  // aren't supported.
   const isGoogleNative = mimeType?.startsWith('application/vnd.google-apps');
   let effectiveMimeType = mimeType;
   let dataResponse;
@@ -107,6 +109,12 @@ export async function fetchDriveFile(url) {
         effectiveMimeType = 'application/pdf';
         dataResponse = await drive.files.export(
           { fileId, mimeType: 'application/pdf' },
+          { responseType: 'arraybuffer' }
+        );
+      } else if (mimeType === 'application/vnd.google-apps.spreadsheet') {
+        effectiveMimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+        dataResponse = await drive.files.export(
+          { fileId, mimeType: effectiveMimeType },
           { responseType: 'arraybuffer' }
         );
       } else {

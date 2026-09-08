@@ -1473,7 +1473,11 @@ router.post('/candidates/:id/ai-evaluate', aiEvaluateLimiter, authMiddleware, as
       message: doc.error
         ? `Could not extract text: ${doc.error}`
         : doc.method === 'pdf-no-text-layer'
-        ? 'This looks like a scanned image with no selectable text — automatic redaction can\'t be verified on it, so it was excluded from the AI draft. It still needs manual Secretariat review.'
+        ? 'This looks like a scanned image with no selectable text, and OCR on the rasterized pages didn\'t recover any readable text either (likely a blank, corrupted, or very low-quality scan). It was excluded from the AI draft and needs manual Secretariat review.'
+        : doc.method === 'pdf-rasterize-error'
+        ? `Could not process this scanned PDF: ${doc.error}. It needs manual Secretariat review.`
+        : doc.method === 'legacy-doc-unsupported'
+        ? 'This is an older .doc file (not .docx) — automatic text extraction only supports the newer Word format. Save it as .docx and re-upload, or send it to manual Secretariat review.'
         : 'No usable text could be extracted from this document.'
     }));
 
