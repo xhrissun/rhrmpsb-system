@@ -6,9 +6,9 @@ import mongoose from 'mongoose';
 import { parse } from 'csv-parse/sync';
 import rateLimit from 'express-rate-limit';
 import { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, InterviewSession, PDFCache, SystemSettings, AiEvaluationLog } from './models.js';
-import { fetchDriveFiles } from './lib/googleDrive.js';
+
 import { evaluateCandidateWithAI } from './lib/aiEvaluation.js';
-import { extractTextFromFiles } from './lib/textExtraction.js';
+import { fetchAndExtractDriveDocs } from './lib/textExtraction.js';
 import { redactCandidateText } from './lib/redact.js';
 
 // Key used in the SystemSettings collection for the admin on/off toggle.
@@ -1450,22 +1450,24 @@ router.post('/candidates/:id/ai-evaluate', aiEvaluateLimiter, authMiddleware, as
       return res.status(400).json({ message: 'This candidate has no uploaded documents to evaluate.' });
     }
 
-    const { files, errors: driveErrors } = await fetchDriveFiles(docsToFetch);
+    // Fetches each document from Drive AND extracts its text one at a time
+    // (see fetchAndExtractDriveDocs in textExtraction.js) so only one
+    // document's raw bytes are ever resident in memory at once — this is
+    // what keeps a candidate with several (possibly scanned) documents
+    // from blowing past Render's 512MB instance limit. The raw PDF/image
+    // bytes never leave this server at any point in this process.
+    const { usable, insufficient, driveErrors } = await fetchAndExtractDriveDocs(docsToFetch);
 
     if (driveErrors.length > 0) {
       console.warn('[AI evaluate] Drive fetch issues for candidate', candidate._id.toString(), driveErrors);
     }
 
-    if (files.length === 0) {
+    if (usable.length === 0 && insufficient.length === 0) {
       return res.status(422).json({
         message: 'None of the candidate\'s documents could be retrieved from Google Drive. Check that the Drive folder is shared with the service account.',
         unavailableDocuments: driveErrors
       });
     }
-
-    // Local, non-Gemini text extraction — the raw PDF/image bytes never
-    // leave this server from this point on.
-    const { usable, insufficient } = await extractTextFromFiles(files);
 
     const extractionErrors = insufficient.map(doc => ({
       key: doc.key,

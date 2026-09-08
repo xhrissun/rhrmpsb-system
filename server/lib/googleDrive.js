@@ -159,33 +159,19 @@ function describeGoogleApiError(err, fileId) {
   return `Google Drive error for file ${fileId}: "${googleMessage}" (status: ${status || 'unknown'})`;
 }
 
-// Fetches multiple named documents in parallel, tolerating individual
-// failures (missing/unshared/deleted files) without failing the whole batch.
-// `docs` is an array of { key, label, url }.
-// Returns { files: [...succeeded], errors: [{ key, label, message }] }.
-export async function fetchDriveFiles(docs) {
-  const results = await Promise.allSettled(
-    docs.map(async (doc) => {
-      const file = await fetchDriveFile(doc.url);
-      return { ...doc, ...file };
-    })
-  );
-
-  const files = [];
-  const errors = [];
-
-  results.forEach((result, i) => {
-    const doc = docs[i];
-    if (result.status === 'fulfilled') {
-      files.push(result.value);
-    } else {
-      errors.push({
-        key: doc.key,
-        label: doc.label,
-        message: result.reason?.message || 'Failed to fetch document'
-      });
-    }
-  });
-
-  return { files, errors };
-}
+// NOTE: there used to be a fetchDriveFiles() here that downloaded every
+// document for a candidate in parallel (Promise.allSettled), each held in
+// memory simultaneously as both a raw arraybuffer AND a base64 string,
+// before extraction even started. That was the actual source of the OOM
+// crashes on Render's 512MB instances — it happened at download time, one
+// step before the sequential-OCR fix in textExtraction.js ever got a
+// chance to help, because by the time extraction started the whole
+// batch's bytes were already resident in memory at once.
+//
+// The fix is to never have more than one document's bytes in memory at a
+// time, which means fetch and extract have to be interleaved per-document
+// rather than run as two separate batch phases. That orchestration now
+// lives in textExtraction.js's fetchAndExtractDriveDocs(), which calls
+// fetchDriveFile() (below) one document at a time, extracts it, and lets
+// the bytes get garbage-collected before moving to the next document.
+// fetchDriveFile() itself is unchanged and still fetches a single file.

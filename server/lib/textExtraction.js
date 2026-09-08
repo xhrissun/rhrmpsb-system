@@ -51,6 +51,7 @@ import { createCanvas } from '@napi-rs/canvas';
 import { createRequire } from 'module';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { fetchDriveFile } from './googleDrive.js';
 
 // pdfjs-dist needs a filesystem path to its bundled standard font data to
 // render pages correctly when a PDF's fonts aren't fully embedded. Resolved
@@ -307,8 +308,8 @@ export async function extractTextFromFile(file) {
   };
 }
 
-// Runs extraction over every fetched file ONE AT A TIME, tolerating
-// individual failures the same way fetchDriveFiles does.
+// Runs extraction over every already-fetched file ONE AT A TIME, tolerating
+// individual failures the same way fetchAndExtractDriveDocs (below) does.
 //
 // This used to be Promise.all(files.map(extractTextFromFile)) — running
 // every document for a candidate concurrently. That's fine for a plain
@@ -317,11 +318,12 @@ export async function extractTextFromFile(file) {
 // memory per in-flight document. A candidate with 3-4 scanned documents
 // could have 3-4 of those pipelines running at once, which is what was
 // pushing the process over Render's 512MB limit and triggering the
-// OOM-kill/restart/retry loop. Processing sequentially means only one
-// document's worth of rasterization memory is ever held at a time — this
-// makes the request take longer for candidates with several scanned docs,
-// but trades that for not crashing (and not re-fetching everything from
-// Drive + Tesseract on every crash-triggered restart).
+// OOM-kill/restart/retry loop.
+//
+// NOTE: this function alone is no longer enough — see
+// fetchAndExtractDriveDocs() below for why. Kept here (unused internally,
+// but still exported) in case anything downstream wants to extract text
+// from files it already has fully in memory for some other reason.
 export async function extractTextFromFiles(files) {
   const results = [];
   for (const file of files) {
@@ -331,4 +333,62 @@ export async function extractTextFromFiles(files) {
   const usable = results.filter(r => !r.insufficient);
   const insufficient = results.filter(r => r.insufficient);
   return { usable, insufficient };
+}
+
+// Fetches each candidate document from Google Drive AND extracts its text,
+// one document at a time, before moving on to the next.
+//
+// The sequential-OCR fix above (extractTextFromFiles processing one file
+// at a time) turned out not to be sufficient on its own: the previous
+// pipeline still called fetchDriveFiles() first, which downloaded EVERY
+// document for a candidate in parallel via Promise.allSettled, holding
+// each one in memory as both a raw arraybuffer and a base64 string, all
+// at once, before extraction even started. So the OOM was already
+// happening at download time — one step before the sequential-extraction
+// fix could ever run.
+//
+// This function interleaves fetch and extract per document instead:
+// download doc 1 -> extract doc 1 -> let its bytes/base64 be GC'd ->
+// download doc 2 -> extract doc 2 -> ... That way only one document's
+// raw bytes + base64 + (if applicable) rasterization/OCR memory is ever
+// resident at once, no matter how many documents a candidate has.
+//
+// `docs` is an array of { key, label, url }.
+// Returns:
+//   - usable: extraction results with enough text to use
+//   - insufficient: extraction results flagged as not usable
+//   - driveErrors: [{ key, label, message }] for documents that couldn't
+//     even be downloaded (missing/unshared/deleted/etc.)
+export async function fetchAndExtractDriveDocs(docs) {
+  const usable = [];
+  const insufficient = [];
+  const driveErrors = [];
+
+  for (const doc of docs) {
+    let file;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      file = await fetchDriveFile(doc.url);
+    } catch (err) {
+      driveErrors.push({
+        key: doc.key,
+        label: doc.label,
+        message: err.message || 'Failed to fetch document'
+      });
+      continue;
+    }
+
+    // eslint-disable-next-line no-await-in-loop
+    const result = await extractTextFromFile({ ...doc, ...file });
+    // `file` (raw arraybuffer + base64 string) is no longer referenced
+    // after this point and its bytes are free to be garbage-collected
+    // before the loop moves on to the next document.
+    if (result.insufficient) {
+      insufficient.push(result);
+    } else {
+      usable.push(result);
+    }
+  }
+
+  return { usable, insufficient, driveErrors };
 }
