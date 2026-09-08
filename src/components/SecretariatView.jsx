@@ -642,7 +642,15 @@ const SecretariatView = ({ user }) => {
       setAiDraft(draft);
     } catch (error) {
       console.error('Failed to generate AI draft:', error);
-      setAiError(error.response?.data?.message || error.message || 'Failed to generate AI draft.');
+      const data = error.response?.data;
+      let message = data?.message || error.message || 'Failed to generate AI draft.';
+      if (data?.unavailableDocuments?.length) {
+        const details = data.unavailableDocuments
+          .map(d => `${d.label}: ${d.message}`)
+          .join(' | ');
+        message += `  [${details}]`;
+      }
+      setAiError(message);
     } finally {
       setAiLoading(false);
     }

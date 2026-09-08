@@ -526,7 +526,7 @@ Hosted on Render. Auto-deploys from the connected Git branch. Requires environme
 | `PORT` | Optional | Defaults to `5001` |
 | `NODE_ENV` | Optional | Set to `production` on Render |
 | `GEMINI_API_KEY` | For AI evaluation | From [Google AI Studio](https://aistudio.google.com/app/apikey) |
-| `GEMINI_MODEL` | Optional | Defaults to `gemini-2.5-flash` |
+| `GEMINI_MODEL` | Optional | Defaults to `gemini-3.6-flash` |
 | `GOOGLE_SERVICE_ACCOUNT_KEY` | For AI evaluation | Full service-account JSON key, one line — see `server/.env.example` |
 
 See `server/.env.example` for the full setup walkthrough for the AI evaluation feature (Section 15 below).

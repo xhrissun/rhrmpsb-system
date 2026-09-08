@@ -67,20 +67,31 @@ export function extractDriveFileId(url) {
 }
 
 // Fetches a single file's bytes + metadata from Drive.
-// Returns { fileId, name, mimeType, base64 } or throws.
+// Returns { fileId, name, mimeType, base64 } or throws a specific, actionable error.
 export async function fetchDriveFile(url) {
   const fileId = extractDriveFileId(url);
   if (!fileId) {
-    throw new Error('Not a recognizable Google Drive link');
+    throw new Error(`Not a recognizable Google Drive link: ${url}`);
   }
 
-  const drive = await getDriveClient();
+  let drive;
+  try {
+    drive = await getDriveClient();
+  } catch (err) {
+    // Credential/config problems — surface clearly instead of looking like a per-file issue.
+    throw new Error(`Service account not configured correctly: ${err.message}`);
+  }
 
-  const meta = await drive.files.get({
-    fileId,
-    fields: 'name, mimeType, size',
-    supportsAllDrives: true
-  });
+  let meta;
+  try {
+    meta = await drive.files.get({
+      fileId,
+      fields: 'name, mimeType, size',
+      supportsAllDrives: true
+    });
+  } catch (err) {
+    throw new Error(describeGoogleApiError(err, fileId));
+  }
 
   const { mimeType, name } = meta.data;
 
@@ -90,21 +101,25 @@ export async function fetchDriveFile(url) {
   let effectiveMimeType = mimeType;
   let dataResponse;
 
-  if (isGoogleNative) {
-    if (mimeType === 'application/vnd.google-apps.document') {
-      effectiveMimeType = 'application/pdf';
-      dataResponse = await drive.files.export(
-        { fileId, mimeType: 'application/pdf' },
+  try {
+    if (isGoogleNative) {
+      if (mimeType === 'application/vnd.google-apps.document') {
+        effectiveMimeType = 'application/pdf';
+        dataResponse = await drive.files.export(
+          { fileId, mimeType: 'application/pdf' },
+          { responseType: 'arraybuffer' }
+        );
+      } else {
+        throw new Error(`Unsupported Google-native file type: ${mimeType}`);
+      }
+    } else {
+      dataResponse = await drive.files.get(
+        { fileId, alt: 'media', supportsAllDrives: true },
         { responseType: 'arraybuffer' }
       );
-    } else {
-      throw new Error(`Unsupported Google-native file type: ${mimeType}`);
     }
-  } else {
-    dataResponse = await drive.files.get(
-      { fileId, alt: 'media', supportsAllDrives: true },
-      { responseType: 'arraybuffer' }
-    );
+  } catch (err) {
+    throw new Error(describeGoogleApiError(err, fileId));
   }
 
   const base64 = Buffer.from(dataResponse.data).toString('base64');
@@ -115,6 +130,25 @@ export async function fetchDriveFile(url) {
     mimeType: effectiveMimeType,
     base64
   };
+}
+
+// Turns a raw googleapis error into a specific, actionable message instead of
+// a generic "failed" — this is what shows up per-document in the UI, so it
+// needs to say WHY, not just THAT it failed.
+function describeGoogleApiError(err, fileId) {
+  const status = err?.code || err?.response?.status;
+  const googleMessage = err?.errors?.[0]?.message || err?.response?.data?.error?.message || err?.message;
+
+  if (status === 404) {
+    return `File ${fileId} not found (404). Either the file/folder was not actually shared with the service account's email, the file is a Shortcut whose real target wasn't shared, or the file was moved/deleted.`;
+  }
+  if (status === 403) {
+    return `Permission denied (403) for file ${fileId}: "${googleMessage}". Common causes: the Drive API isn't enabled on the same GCP project as this service account, the account/org has a policy blocking sharing outside the organization, or the file lives in a Shared Drive (which requires adding the service account as a Shared Drive member, not just sharing the folder).`;
+  }
+  if (status === 401 || /invalid_grant|invalid_rapt|unauthorized/i.test(googleMessage || '')) {
+    return `Authentication failed (${status || 'auth error'}): "${googleMessage}". Check that GOOGLE_SERVICE_ACCOUNT_KEY on the server is the complete, valid JSON key (not truncated/re-escaped) and that the server's clock is correct.`;
+  }
+  return `Google Drive error for file ${fileId}: "${googleMessage}" (status: ${status || 'unknown'})`;
 }
 
 // Fetches multiple named documents in parallel, tolerating individual

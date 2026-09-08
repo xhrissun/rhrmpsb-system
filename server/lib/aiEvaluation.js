@@ -9,7 +9,7 @@
 // for the Secretariat to review, edit, and save through the normal
 // PUT /candidates/:id flow.
 
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 const GEMINI_API_URL =
   `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
@@ -17,26 +17,26 @@ const GEMINI_API_URL =
 const MAX_TOTAL_INLINE_BYTES = 18 * 1024 * 1024; // ~18MB of base64-decoded bytes
 
 const RESPONSE_SCHEMA = {
-  type: 'object',
+  type: 'OBJECT',
   properties: {
     comments: {
-      type: 'object',
+      type: 'OBJECT',
       properties: {
-        education:   { type: 'string' },
-        training:    { type: 'string' },
-        experience:  { type: 'string' },
-        eligibility: { type: 'string' }
+        education:   { type: 'STRING' },
+        training:    { type: 'STRING' },
+        experience:  { type: 'STRING' },
+        eligibility: { type: 'STRING' }
       },
       required: ['education', 'training', 'experience', 'eligibility']
     },
     suggestedStatus: {
-      type: 'string',
+      type: 'STRING',
       enum: ['long_list', 'for_review', 'disqualified']
     },
-    suggestedStatusRationale: { type: 'string' },
+    suggestedStatusRationale: { type: 'STRING' },
     flags: {
-      type: 'array',
-      items: { type: 'string' },
+      type: 'ARRAY',
+      items: { type: 'STRING' },
       description: 'Short notes on missing documents, unverifiable claims, or discrepancies the Secretariat should double-check.'
     }
   },
@@ -140,11 +140,15 @@ export async function evaluateCandidateWithAI({ candidate, vacancy, competencies
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
+  }).catch(err => {
+    // Network-level fetch errors can sometimes echo the request URL (with the
+    // key) back in err.message/cause — scrub before it ever bubbles up.
+    throw new Error('Failed to reach Gemini API: ' + String(err.message || err).split(apiKey).join('[REDACTED]'));
   });
 
   if (!response.ok) {
     const errText = await response.text().catch(() => '');
-    throw new Error(`Gemini API error (${response.status}): ${errText.slice(0, 500)}`);
+    throw new Error(`Gemini API error (${response.status}): ${errText.slice(0, 500).split(apiKey).join('[REDACTED]')}`);
   }
 
   const data = await response.json();

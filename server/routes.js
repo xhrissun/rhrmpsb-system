@@ -1332,6 +1332,84 @@ const CANDIDATE_DOC_FIELDS = [
   { key: 'ipcr',                   label: 'IPCR' }
 ];
 
+// ── Diagnostics: verify Google service account credentials without touching
+// any candidate data. Admin-only. Never returns key material.
+router.get('/diagnostics/drive-auth', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin') return res.status(403).json({ message: 'Access denied' });
+
+  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+  const result = {
+    envVarPresent: !!raw,
+    envVarLength: raw ? raw.length : 0,
+    jsonParses: false,
+    hasClientEmail: false,
+    hasPrivateKey: false,
+    privateKeyLooksWellFormed: false,
+    clientEmail: null,
+    projectId: null,
+    tokenAcquired: false,
+    tokenError: null
+  };
+
+  if (!raw) {
+    return res.json({ ...result, verdict: 'GOOGLE_SERVICE_ACCOUNT_KEY is not set on this server.' });
+  }
+
+  let credentials;
+  try {
+    credentials = JSON.parse(raw);
+    result.jsonParses = true;
+  } catch (err) {
+    return res.json({ ...result, verdict: 'GOOGLE_SERVICE_ACCOUNT_KEY is not valid JSON: ' + err.message });
+  }
+
+  result.hasClientEmail = !!credentials.client_email;
+  result.hasPrivateKey = !!credentials.private_key;
+  result.clientEmail = credentials.client_email || null;
+  result.projectId = credentials.project_id || null;
+
+  // A correctly-pasted private key must contain real newlines (after JSON
+  // parsing turns \n into actual line breaks) between a BEGIN/END header pair.
+  // If pasting mangled the escaping, this either won't be multi-line, or
+  // won't have the expected header/footer at all.
+  if (credentials.private_key) {
+    const pk = credentials.private_key;
+    result.privateKeyLooksWellFormed =
+      pk.includes('-----BEGIN PRIVATE KEY-----') &&
+      pk.includes('-----END PRIVATE KEY-----') &&
+      pk.includes('\n');
+  }
+
+  if (!result.hasClientEmail || !result.privateKeyLooksWellFormed) {
+    return res.json({
+      ...result,
+      verdict: 'The JSON parses, but the credentials look malformed (missing client_email or a well-formed private_key). This usually means the paste into the env var UI corrupted the private_key\'s escaped newlines or quotes. Re-copy the JSON file contents fresh and re-paste, or use a "secret file" / multiline-safe field if your host offers one instead of a plain text env var.'
+    });
+  }
+
+  // Actually attempt to mint an OAuth access token — this is the real test.
+  try {
+    const { google } = await import('googleapis');
+    const auth = new google.auth.GoogleAuth({
+      credentials,
+      scopes: ['https://www.googleapis.com/auth/drive.readonly']
+    });
+    const client = await auth.getClient();
+    const tokenResponse = await client.getAccessToken();
+    result.tokenAcquired = !!tokenResponse?.token;
+  } catch (err) {
+    result.tokenError = err.message;
+  }
+
+  if (result.tokenAcquired) {
+    result.verdict = `Credentials are valid — obtained an access token for ${result.clientEmail}. If document fetches are still failing, the issue is Drive sharing/permissions (folder not actually shared with this exact email, Shared Drive membership, or an org sharing restriction), not the credentials themselves.`;
+  } else {
+    result.verdict = `Credentials parsed and looked well-formed, but Google rejected them when requesting an access token: "${result.tokenError}". This confirms the private_key was corrupted during paste (common causes: smart-quotes substituted for straight quotes, literal newlines collapsed to spaces, or the value got truncated). Re-paste the JSON fresh from the original downloaded file.`;
+  }
+
+  res.json(result);
+});
+
 router.post('/candidates/:id/ai-evaluate', aiEvaluateLimiter, authMiddleware, async (req, res) => {
   if (req.user.userType !== 'admin' && req.user.userType !== 'secretariat') {
     return res.status(403).json({ message: 'Access denied' });
@@ -1361,6 +1439,10 @@ router.post('/candidates/:id/ai-evaluate', aiEvaluateLimiter, authMiddleware, as
 
     const { files, errors: unavailableDocs } = await fetchDriveFiles(docsToFetch);
 
+    if (unavailableDocs.length > 0) {
+      console.warn('[AI evaluate] Drive fetch issues for candidate', candidate._id.toString(), unavailableDocs);
+    }
+
     if (files.length === 0) {
       return res.status(422).json({
         message: 'None of the candidate\'s documents could be retrieved from Google Drive. Check that the Drive folder is shared with the service account.',
@@ -1384,11 +1466,10 @@ router.post('/candidates/:id/ai-evaluate', aiEvaluateLimiter, authMiddleware, as
     });
   } catch (error) {
     console.error('[POST /candidates/:id/ai-evaluate]', error);
-    res.status(500).json({
-      message: process.env.NODE_ENV !== 'production'
-        ? 'AI evaluation failed: ' + error.message
-        : 'AI evaluation failed. Please try again or contact the administrator.'
-    });
+    // Unlike other routes, we surface the real error message even in
+    // production here: it's a Gemini/Drive API error string, not user data,
+    // and hiding it makes this feature undebuggable from the UI alone.
+    res.status(500).json({ message: 'AI evaluation failed: ' + error.message });
   }
 });
 
