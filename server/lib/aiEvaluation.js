@@ -1,4 +1,5 @@
 // server/lib/aiEvaluation.js
+// server/lib/aiEvaluation.js
 //
 // Calls the Gemini API (Google AI Studio) to draft Secretariat review
 // comments for a candidate, weighed against:
@@ -238,15 +239,15 @@ export async function evaluateCandidateWithAI({ candidate, vacancy, competencies
     }
   };
 
-  const response = await fetchGeminiWithRetry(`${GEMINI_API_URL}?key=${apiKey}`, body, apiKey);
+  const { response, modelUsed, errText: fallbackErrText, allModelsExhausted } = await fetchGeminiWithFallback(body, apiKey);
 
   if (!response.ok) {
-    const errText = await response.text().catch(() => '');
+    const errText = fallbackErrText ?? await response.text().catch(() => '');
     const sanitized = errText.slice(0, 500).split(apiKey).join('[REDACTED]');
-    if (response.status === 503 || response.status === 429) {
-      throw new Error(`Gemini is temporarily overloaded (${response.status}) even after retrying. This is on Google's side, not a configuration issue — please try again in a minute. Raw: ${sanitized}`);
+    if (allModelsExhausted || response.status === 503 || response.status === 429) {
+      throw new Error(`Gemini is temporarily overloaded (${response.status}) even after retrying${modelUsed ? ` (last tried: ${modelUsed})` : ''}. This is on Google's side, not a configuration issue — please try again in a minute. Raw: ${sanitized}`);
     }
-    throw new Error(`Gemini API error (${response.status}): ${sanitized}`);
+    throw new Error(`Gemini API error (${response.status})${modelUsed ? ` [model: ${modelUsed}]` : ''}: ${sanitized}`);
   }
 
   const data = await response.json();
