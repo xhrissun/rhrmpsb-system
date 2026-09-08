@@ -512,9 +512,11 @@ Live URL: `https://xhrissun.github.io/rhrmpsb-system/`
 cd server
 npm start        # node server.js
 ```
-Hosted on Render. Auto-deploys from the connected Git branch. Requires environment variables set in the Render dashboard.
+Hosted on Render on its standard Node runtime (no Docker/Dockerfile needed). Auto-deploys from the connected Git branch. Requires environment variables set in the Render dashboard.
 
-**Render environment: this service must run as a Docker service, not Render's default Node buildpack.** `server/Dockerfile` installs `poppler-utils` (for `pdftoppm`), which `server/lib/textExtraction.js` shells out to when rasterizing scanned PDFs (photo-as-PDF uploads with no text layer) before OCR-ing them — that binary isn't present on the plain Node runtime. In the Render dashboard, set this service's **Environment** to **Docker**, **Dockerfile Path** to `server/Dockerfile`, and **Docker Build Context Directory** to `server`. Everything else (env vars, start behavior) is unchanged — the Dockerfile's `CMD` just runs `node server.js` the same as before.
+Note: `npm install` now pulls in `@napi-rs/canvas`, a native addon used for rasterizing scanned PDFs before OCR. It ships prebuilt binaries per platform (same approach as `sharp`), so no system packages or build tools are required on Render — it installs the same way as any other dependency here.
+
+
 
 ---
 

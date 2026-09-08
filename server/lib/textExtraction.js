@@ -6,10 +6,9 @@
 // a name/address out of a raw PDF/image, but you can scrub it out of the
 // text pulled from it.
 //
-// This runs on Render as a Docker service (see server/Dockerfile) rather
-// than Render's default Node buildpack, specifically so `pdftoppm` (from
-// the poppler-utils system package) is available for the scanned-PDF
-// fallback below:
+// Runs entirely on Render's standard Node runtime — no Dockerfile, no apt
+// packages, no system binaries. Every extraction path uses a pure-JS or
+// prebuilt-native-binary npm package:
 //   - PDFs with a real text layer -> pdf-parse (pure JS, no native deps)
 //   - Images (jpg/png/webp/etc.)  -> tesseract.js (WASM OCR, no native deps;
 //                                    downloads its language data from a CDN
@@ -25,15 +24,17 @@
 //     mammoth only reads the newer XML-based .docx format. Flagged
 //     "insufficient" (see below).
 //   - Scanned PDFs with NO text layer (a photo of a document saved as PDF,
-//     no OCR'd text underneath) ARE now handled: each page is rasterized to
-//     a PNG with `pdftoppm` (poppler-utils, installed via the Dockerfile),
-//     then run through the same tesseract.js OCR used for image uploads.
-//     This only runs a system binary on bytes already fetched from Drive —
-//     nothing is sent anywhere external for this step. Capped at
-//     MAX_RASTERIZE_PAGES pages so a pathologically long scanned PDF can't
-//     block a request indefinitely; if OCR still comes up empty (blank
-//     pages, unreadable scan), the document is flagged "insufficient" same
-//     as any other unrecoverable case.
+//     no OCR'd text underneath) ARE handled: pdfjs-dist (Mozilla's PDF
+//     engine, pure JS) renders each page onto an in-memory canvas provided
+//     by @napi-rs/canvas, then the resulting PNG is run through the same
+//     tesseract.js OCR used for image uploads. @napi-rs/canvas ships a
+//     prebuilt native binary per platform (installed as a normal npm
+//     dependency, same mechanism as e.g. `sharp`) — no system libraries,
+//     no apt-get, no Dockerfile required. Capped at MAX_RASTERIZE_PAGES
+//     pages so a pathologically long scanned PDF can't block a request
+//     indefinitely; if OCR still comes up empty (blank pages, unreadable
+//     scan), the document is flagged "insufficient" same as any other
+//     unrecoverable case.
 
 // NOTE: import the inner lib file, NOT the 'pdf-parse' package root.
 // pdf-parse's own index.js has a debug-mode block that self-executes a
@@ -45,13 +46,17 @@ import pdfParse from 'pdf-parse/lib/pdf-parse.js';
 import { createWorker } from 'tesseract.js';
 import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
-import fs from 'fs/promises';
-import os from 'os';
+import { getDocument, VerbosityLevel } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { createCanvas } from '@napi-rs/canvas';
+import { createRequire } from 'module';
 import path from 'path';
 
-const execFileAsync = promisify(execFile);
+// pdfjs-dist needs a filesystem path to its bundled standard font data to
+// render pages correctly when a PDF's fonts aren't fully embedded. Resolved
+// once at startup via the installed package location — no network fetch.
+const require = createRequire(import.meta.url);
+const STANDARD_FONT_DATA_URL =
+  path.join(path.dirname(require.resolve('pdfjs-dist/package.json')), 'standard_fonts') + path.sep;
 
 const MIN_USABLE_CHARS = 40; // below this, treat as "nothing usable extracted"
 
@@ -62,6 +67,11 @@ const MIN_USABLE_CHARS = 40; // below this, treat as "nothing usable extracted"
 // beyond that still gets whatever the first 15 pages yielded rather than
 // nothing.
 const MAX_RASTERIZE_PAGES = 15;
+
+// Render scale relative to a PDF's native 72dpi page unit. 200/72 ≈ 2.78
+// approximates the same effective resolution the old poppler-based
+// (-r 200) approach used — legible for OCR without producing huge images.
+const RASTER_SCALE = 200 / 72;
 
 const IMAGE_MIME_TYPES = new Set([
   'image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/bmp', 'image/tiff'
@@ -119,44 +129,46 @@ function extractFromXlsx(buffer) {
   return parts.join('\n\n').trim();
 }
 
-// Rasterizes a scanned (text-layer-less) PDF page-by-page with `pdftoppm`
-// (poppler-utils, installed system-wide via the Dockerfile) and OCRs each
-// resulting page image with the same tesseract.js worker used for direct
-// image uploads. Everything happens in a per-call temp dir that's always
-// cleaned up, even on failure.
+// Rasterizes a scanned (text-layer-less) PDF page-by-page using pdfjs-dist
+// (renders onto an in-memory @napi-rs/canvas canvas — no temp files, no
+// child process) and OCRs each resulting page image with the same
+// tesseract.js worker used for direct image uploads.
 async function rasterizeAndOcrPdf(buffer) {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pdf-rasterize-'));
-  const pdfPath = path.join(tmpDir, 'input.pdf');
-  const outPrefix = path.join(tmpDir, 'page');
+  const loadingTask = getDocument({
+    data: buffer,
+    standardFontDataUrl: STANDARD_FONT_DATA_URL,
+    disableFontFace: true,
+    verbosity: VerbosityLevel.ERRORS
+  });
 
+  let pdfDoc;
   try {
-    await fs.writeFile(pdfPath, buffer);
-
-    // -png: PNG page images. -r 200: 200dpi — legible for OCR without being
-    // needlessly huge. -f 1 -l MAX_RASTERIZE_PAGES: bound the page range.
-    await execFileAsync('pdftoppm', [
-      '-png', '-r', '200', '-f', '1', '-l', String(MAX_RASTERIZE_PAGES),
-      pdfPath, outPrefix
-    ]);
-
-    const pageFiles = (await fs.readdir(tmpDir))
-      .filter(f => f.startsWith('page') && f.endsWith('.png'))
-      .sort(); // pdftoppm zero-pads page numbers, so lexical sort == page order
-
+    pdfDoc = await loadingTask.promise;
     const worker = await getOcrWorker();
+    const pageCount = Math.min(pdfDoc.numPages, MAX_RASTERIZE_PAGES);
     const pageTexts = [];
-    for (const pageFile of pageFiles) {
-      const imgBuffer = await fs.readFile(path.join(tmpDir, pageFile));
-      const { data } = await worker.recognize(imgBuffer);
-      const pageText = (data?.text || '').trim();
-      if (pageText) pageTexts.push(pageText);
+
+    for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
+      const page = await pdfDoc.getPage(pageNum);
+      try {
+        const viewport = page.getViewport({ scale: RASTER_SCALE });
+        const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+        const ctx = canvas.getContext('2d');
+        await page.render({ canvasContext: ctx, viewport }).promise;
+
+        const pngBuffer = canvas.toBuffer('image/png');
+        const { data } = await worker.recognize(pngBuffer);
+        const pageText = (data?.text || '').trim();
+        if (pageText) pageTexts.push(pageText);
+      } finally {
+        page.cleanup();
+      }
     }
 
     return pageTexts.join('\n\n').trim();
   } finally {
-    // Best-effort cleanup — never let a temp-dir removal failure mask the
-    // real OCR result or a real OCR error.
-    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    if (pdfDoc) await pdfDoc.destroy();
+    else await loadingTask.destroy();
   }
 }
 
