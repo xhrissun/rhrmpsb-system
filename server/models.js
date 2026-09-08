@@ -495,7 +495,19 @@ const aiEvaluationJobSchema = new mongoose.Schema({
   // The full draft payload (comments, suggestedStatus, flags, etc.) once
   // status is 'done'.
   result:        { type: mongoose.Schema.Types.Mixed },
-  createdAt:     { type: Date, default: Date.now, expires: 60 * 60 } // TTL: 1 hour
+  createdAt:     { type: Date, default: Date.now, expires: 60 * 60 }, // TTL: 1 hour
+  // Bumped on every progress write. Lets the status route detect a job
+  // whose background process died mid-run (e.g. an OOM crash/restart) —
+  // nothing is left alive to ever mark it 'error', so without this it
+  // would sit at 'processing' with frozen progress forever and the
+  // frontend would just poll a stuck bar until it gives up on its own.
+  updatedAt:     { type: Date, default: Date.now }
+});
+
+// Auto-stamp updatedAt on every findOneAndUpdate/findByIdAndUpdate so
+// call sites don't each have to remember to set it themselves.
+aiEvaluationJobSchema.pre('findOneAndUpdate', function stampUpdatedAt() {
+  this.set({ updatedAt: new Date() });
 });
 
 // Audit trail for the AI evaluation feature — who ran it, on which

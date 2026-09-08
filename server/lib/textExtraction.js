@@ -104,19 +104,18 @@ const XLSX_MIME_TYPES = new Set([
   'application/vnd.ms-excel' // legacy .xls — SheetJS reads this too
 ]);
 
-// Small, FIXED-size pool of persistent OCR workers. A single worker means
-// every page/image OCR job queues up behind the one before it — safe, but
-// slow, and "safe but slow" is what turned a 90s client timeout into a
-// real problem once documents started being processed one at a time
-// instead of all at once. Two workers let two pages (within the SAME
-// document) OCR concurrently, which is a bounded, predictable memory cost
-// (each worker keeps its own ~5MB language model + WASM heap resident for
-// the life of the process) — very different from the unbounded "N whole
-// documents in flight at once" pattern that caused the original OOM.
-// Different DOCUMENTS are still always processed strictly one at a time
-// (see fetchAndExtractDriveDocs) — this pool only parallelizes pages
-// *inside* whichever single document is currently being OCR'd.
-const OCR_POOL_SIZE = 2;
+// Persistent OCR worker pool. Kept at size 1 deliberately: an earlier
+// attempt to speed OCR up by bumping this to 2 (so two pages of the same
+// document could OCR concurrently) doubles the in-flight memory for a
+// scanned document — two canvases + two PNG buffers + two Tesseract
+// workers alive at once — and reintroduced the exact kind of concurrent
+// memory spike that caused the original OOM crash on Render's 512MB
+// instances. Speed here has to come from the async-job/progress-bar UX
+// (see routes.js/SecretariatView.jsx) rather than from parallelizing the
+// one part of this pipeline that's proven to blow the memory budget.
+// Raise this only after confirming real headroom on the deployed instance
+// (e.g. after upgrading off the 512MB tier).
+const OCR_POOL_SIZE = 1;
 let ocrWorkerPoolPromise = null;
 function getOcrWorkerPool() {
   if (!ocrWorkerPoolPromise) {

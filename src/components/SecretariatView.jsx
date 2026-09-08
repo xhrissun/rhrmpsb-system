@@ -657,9 +657,23 @@ const SecretariatView = ({ user }) => {
       const { jobId, docsTotal } = await candidatesAPI.aiEvaluateStart(candidateIdAtStart);
       setAiProgress({ stage: 'processing', docsCompleted: 0, docsTotal, currentDocLabel: '' });
 
+      let consecutiveFailures = 0;
+      const pollStartedAt = Date.now();
+      const MAX_CONSECUTIVE_FAILURES = 4; // tolerate a few blips (e.g. Render cold start) before giving up
+      const MAX_POLL_DURATION_MS = 10 * 60 * 1000; // don't poll forever if a job is truly stuck
+
       aiPollRef.current = setInterval(async () => {
+        if (Date.now() - pollStartedAt > MAX_POLL_DURATION_MS) {
+          stopAiPolling();
+          setAiProgress(null);
+          setAiLoading(false);
+          setAiError('AI evaluation is taking much longer than expected. It may still finish in the background — try Generate AI Draft again in a bit to check.');
+          return;
+        }
+
         try {
           const status = await candidatesAPI.aiEvaluateStatus(candidateIdAtStart, jobId);
+          consecutiveFailures = 0;
 
           if (status.status === 'done') {
             stopAiPolling();
@@ -677,11 +691,22 @@ const SecretariatView = ({ user }) => {
             currentDocLabel: status.currentDocLabel || ''
           });
         } catch (pollErr) {
+          // A single failed poll can just be a transient network blip
+          // (e.g. the free-tier instance briefly restarting) — only give
+          // up after several in a row, so we don't kill a job that's
+          // actually fine the moment one request hiccups.
+          consecutiveFailures += 1;
+          if (consecutiveFailures < MAX_CONSECUTIVE_FAILURES) return;
+
           stopAiPolling();
           setAiProgress(null);
           setAiLoading(false);
           const data = pollErr.response?.data;
-          let message = data?.message || pollErr.message || 'Failed to generate AI draft.';
+          let message = data?.message
+            || (pollErr.message === 'Network Error'
+              ? 'Lost connection to the server while checking progress. It may still finish in the background — try Generate AI Draft again in a bit.'
+              : pollErr.message)
+            || 'Failed to generate AI draft.';
           if (data?.unavailableDocuments?.length) {
             const details = data.unavailableDocuments
               .map(d => `${d.label}: ${d.message}`)

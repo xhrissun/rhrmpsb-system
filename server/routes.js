@@ -1611,15 +1611,33 @@ router.post('/candidates/:id/ai-evaluate', aiEvaluateLimiter, authMiddleware, as
 // job's current progress, and — once status is 'done' or 'error' — the
 // same payload shape the old synchronous endpoint used to return directly,
 // so the rest of the frontend didn't need to change.
+// How long a job can go without a progress update before we treat its
+// background process as dead (crashed/restarted) rather than just slow.
+// Comfortably above one document's worst-case OCR time, well below the
+// frontend's own 10-minute give-up cap.
+const AI_EVALUATION_JOB_STALE_MS = 3 * 60 * 1000;
+
 router.get('/candidates/:id/ai-evaluate/status/:jobId', authMiddleware, async (req, res) => {
   if (req.user.userType !== 'admin' && req.user.userType !== 'secretariat') {
     return res.status(403).json({ message: 'Access denied' });
   }
 
   try {
-    const job = await AiEvaluationJob.findOne({ _id: req.params.jobId, candidateId: req.params.id });
+    let job = await AiEvaluationJob.findOne({ _id: req.params.jobId, candidateId: req.params.id });
     if (!job) {
       return res.status(404).json({ message: 'Evaluation job not found (it may have expired — try generating the draft again).' });
+    }
+
+    // Self-heal a job whose background process died mid-run (e.g. an OOM
+    // restart) without ever getting to write an error status itself.
+    // Nothing else is watching this job, so the next status poll is the
+    // only place left that can notice it's gone stale.
+    if (job.status === 'processing' && Date.now() - job.updatedAt.getTime() > AI_EVALUATION_JOB_STALE_MS) {
+      job = await AiEvaluationJob.findByIdAndUpdate(job._id, {
+        status: 'error',
+        httpStatus: 500,
+        message: 'AI evaluation stopped unexpectedly (the server may have restarted partway through) before it finished. Please try generating the draft again.'
+      }, { new: true });
     }
 
     if (job.status === 'error') {
