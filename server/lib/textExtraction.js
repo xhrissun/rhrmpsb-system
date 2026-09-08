@@ -50,6 +50,7 @@ import { getDocument, VerbosityLevel } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { createCanvas } from '@napi-rs/canvas';
 import { createRequire } from 'module';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
 // pdfjs-dist needs a filesystem path to its bundled standard font data to
 // render pages correctly when a PDF's fonts aren't fully embedded. Resolved
@@ -57,6 +58,19 @@ import path from 'path';
 const require = createRequire(import.meta.url);
 const STANDARD_FONT_DATA_URL =
   path.join(path.dirname(require.resolve('pdfjs-dist/package.json')), 'standard_fonts') + path.sep;
+
+// Vendored Tesseract language data (server/tessdata/eng.traineddata.gz).
+// By default tesseract.js has NO local copy of this — it fetches it from
+// the jsdelivr CDN on every worker init. That's harmless on a stable
+// long-running server (fetched once, kept in memory for the process
+// lifetime), but on Render it becomes a runaway cost driver: every OOM
+// restart wipes the ephemeral filesystem and spins up a fresh process,
+// which re-downloads this file from scratch before it can OCR anything.
+// A crash-retry loop can redownload it a dozen times in an hour. Pointing
+// langPath at a local directory makes tesseract.js read the file straight
+// off disk instead — no network call, ever, regardless of restarts.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const LOCAL_TESSDATA_PATH = path.join(__dirname, '..', 'tessdata');
 
 const MIN_USABLE_CHARS = 40; // below this, treat as "nothing usable extracted"
 
@@ -68,10 +82,15 @@ const MIN_USABLE_CHARS = 40; // below this, treat as "nothing usable extracted"
 // nothing.
 const MAX_RASTERIZE_PAGES = 15;
 
-// Render scale relative to a PDF's native 72dpi page unit. 200/72 ≈ 2.78
-// approximates the same effective resolution the old poppler-based
-// (-r 200) approach used — legible for OCR without producing huge images.
-const RASTER_SCALE = 200 / 72;
+// Render scale relative to a PDF's native 72dpi page unit. Previously
+// 200/72 ≈ 2.78, matching the old poppler-based (-r 200) approach — but at
+// that scale a single letter-size page renders to roughly 2340x3030px,
+// and each in-flight page (canvas + PNG buffer + OCR working memory) can
+// approach 100MB+. Combined with processing multiple documents at once,
+// that's what was pushing a 512MB instance over the edge. 150/72 ≈ 2.08
+// cuts pixel count by roughly 44% versus the old value while staying well
+// above the ~150-200dpi floor Tesseract needs for reliable OCR.
+const RASTER_SCALE = 150 / 72;
 
 const IMAGE_MIME_TYPES = new Set([
   'image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/bmp', 'image/tiff'
@@ -87,7 +106,13 @@ const XLSX_MIME_TYPES = new Set([
 let ocrWorkerPromise = null;
 function getOcrWorker() {
   if (!ocrWorkerPromise) {
-    ocrWorkerPromise = createWorker('eng');
+    ocrWorkerPromise = createWorker('eng', undefined, {
+      langPath: LOCAL_TESSDATA_PATH,
+      // Nothing was downloaded, so there's nothing worth writing back to a
+      // (nonexistent, ephemeral) cache — skip the cache-write attempt.
+      cacheMethod: 'none',
+      gzip: true
+    });
   }
   return ocrWorkerPromise;
 }
@@ -282,10 +307,27 @@ export async function extractTextFromFile(file) {
   };
 }
 
-// Runs extraction over every fetched file in parallel, tolerating individual
-// failures the same way fetchDriveFiles does.
+// Runs extraction over every fetched file ONE AT A TIME, tolerating
+// individual failures the same way fetchDriveFiles does.
+//
+// This used to be Promise.all(files.map(extractTextFromFile)) — running
+// every document for a candidate concurrently. That's fine for a plain
+// text-layer PDF (cheap, fast), but any scanned document falls through to
+// rasterizeAndOcrPdf(), which holds full-page canvas + PNG buffers in
+// memory per in-flight document. A candidate with 3-4 scanned documents
+// could have 3-4 of those pipelines running at once, which is what was
+// pushing the process over Render's 512MB limit and triggering the
+// OOM-kill/restart/retry loop. Processing sequentially means only one
+// document's worth of rasterization memory is ever held at a time — this
+// makes the request take longer for candidates with several scanned docs,
+// but trades that for not crashing (and not re-fetching everything from
+// Drive + Tesseract on every crash-triggered restart).
 export async function extractTextFromFiles(files) {
-  const results = await Promise.all(files.map(extractTextFromFile));
+  const results = [];
+  for (const file of files) {
+    // eslint-disable-next-line no-await-in-loop
+    results.push(await extractTextFromFile(file));
+  }
   const usable = results.filter(r => !r.insufficient);
   const insufficient = results.filter(r => r.insufficient);
   return { usable, insufficient };
