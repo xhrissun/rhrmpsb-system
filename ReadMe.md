@@ -525,6 +525,26 @@ Hosted on Render. Auto-deploys from the connected Git branch. Requires environme
 | `JWT_SECRET` | ✅ | Minimum 32 characters (enforced at startup) |
 | `PORT` | Optional | Defaults to `5001` |
 | `NODE_ENV` | Optional | Set to `production` on Render |
+| `GEMINI_API_KEY` | For AI evaluation | From [Google AI Studio](https://aistudio.google.com/app/apikey) |
+| `GEMINI_MODEL` | Optional | Defaults to `gemini-2.5-flash` |
+| `GOOGLE_SERVICE_ACCOUNT_KEY` | For AI evaluation | Full service-account JSON key, one line — see `server/.env.example` |
+
+See `server/.env.example` for the full setup walkthrough for the AI evaluation feature (Section 15 below).
+
+---
+
+## 15. AI-Assisted Secretariat Evaluation
+
+Secretariat can click **Generate AI Draft** inside the "Update Status" modal for any candidate. This:
+
+1. Reads the vacancy's Qualification Standards and the item's required competencies.
+2. Fetches the candidate's uploaded documents from Google Drive (server-side, via a service account — **the account documents are uploaded to stays private**; only the service account is separately granted read access to that folder).
+3. Sends everything to Gemini, which drafts the four Secretariat comments (Education/Training/Experience/Eligibility) and a **suggested status**.
+4. Displays the draft in the modal for review — nothing is written to the database automatically. The Secretariat edits or accepts each comment individually ("Use AI draft" per field, or "Use all AI comments"), and the suggested status is shown as a badge only — it is never applied automatically. The final Save/Long List/For Review/Disqualify decision remains a manual click, as always.
+
+**One-time setup** (see `server/.env.example` for full steps): create a Google Cloud service account, enable the Drive API, share the Drive folder containing candidate documents with the service account's email address, and set `GEMINI_API_KEY` + `GOOGLE_SERVICE_ACCOUNT_KEY` on the server.
+
+**New dependency**: `googleapis` — run `npm install` inside `server/` after pulling this change.
 
 ### Frontend (Vite)
 | Variable | Notes |

@@ -149,6 +149,11 @@ const SecretariatView = ({ user }) => {
   const [candidatesLoading, setCandidatesLoading] = useState(false); // table-level only
   const [error, setError] = useState('');
 
+  // AI-assisted draft (Update Status modal) — draft only, never auto-saved.
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState('');
+  const [aiDraft, setAiDraft] = useState(null); // { comments, suggestedStatus, suggestedStatusRationale, flags, unavailableDocuments }
+
   const [commentSuggestions, setCommentSuggestions] = useState({
     education: [],
     training: [],
@@ -628,6 +633,31 @@ const SecretariatView = ({ user }) => {
     setComments(prev => ({ ...prev, [field]: value }));
   }, []);
 
+  const handleGenerateAiDraft = useCallback(async () => {
+    if (!selectedCandidate) return;
+    setAiLoading(true);
+    setAiError('');
+    try {
+      const draft = await candidatesAPI.aiEvaluate(selectedCandidate);
+      setAiDraft(draft);
+    } catch (error) {
+      console.error('Failed to generate AI draft:', error);
+      setAiError(error.response?.data?.message || error.message || 'Failed to generate AI draft.');
+    } finally {
+      setAiLoading(false);
+    }
+  }, [selectedCandidate]);
+
+  const applyAiCommentField = useCallback((field) => {
+    if (!aiDraft?.comments?.[field]) return;
+    setComments(prev => ({ ...prev, [field]: aiDraft.comments[field] }));
+  }, [aiDraft]);
+
+  const applyAllAiComments = useCallback(() => {
+    if (!aiDraft?.comments) return;
+    setComments(prev => ({ ...prev, ...aiDraft.comments }));
+  }, [aiDraft]);
+
   const handleStatusUpdate = useCallback(async (status) => {
     try {
       const updateData = {
@@ -713,6 +743,9 @@ const SecretariatView = ({ user }) => {
       experience: '',
       eligibility: ''
     });
+    setAiDraft(null);
+    setAiError('');
+    setAiLoading(false);
   }, [setSelectedCandidate]);
 
   const closeViewCommentsModal = useCallback(() => {
@@ -1801,6 +1834,8 @@ const SecretariatView = ({ user }) => {
                                 loadCandidateDetails(candidate._id);
                                 loadCommentSuggestions();
                                 setCommentSiblings([]); // clear while loading
+                                setAiDraft(null);
+                                setAiError('');
                                 setShowCommentModal(true);
                                 // Fetch siblings for propagation panel
                                 const pubRangeId = candidate.publicationRangeId || selectedPublicationRangeRef.current;
@@ -2312,6 +2347,89 @@ const SecretariatView = ({ user }) => {
             </div>
 
             <div className="space-y-4">
+              {/* AI-assisted evaluation draft */}
+              <div className="rounded-xl border border-purple-200 bg-purple-50 px-4 py-3 space-y-3">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <svg className="w-4 h-4 text-purple-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    <p className="text-xs font-bold text-purple-800 uppercase tracking-wide">AI-Assisted Evaluation</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleGenerateAiDraft}
+                    disabled={aiLoading}
+                    aria-label="Generate AI evaluation draft"
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 disabled:opacity-60 disabled:cursor-not-allowed text-white transition-colors"
+                  >
+                    {aiLoading && (
+                      <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                      </svg>
+                    )}
+                    {aiLoading ? 'Analyzing documents…' : (aiDraft ? 'Regenerate Draft' : 'Generate AI Draft')}
+                  </button>
+                </div>
+
+                {!aiDraft && !aiLoading && !aiError && (
+                  <p className="text-xs text-purple-700">
+                    Compares this candidate's uploaded documents against the item's Qualification Standards and required competencies, then drafts the four comments below plus a suggested status. Nothing is saved automatically — review everything before saving.
+                  </p>
+                )}
+
+                {aiError && (
+                  <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{aiError}</p>
+                )}
+
+                {aiDraft && (
+                  <div className="space-y-3">
+                    {/* Suggested status — display only, does not change status */}
+                    <div className="flex items-start gap-2 bg-white rounded-lg border border-purple-100 px-3 py-2.5">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">Suggested Status (not applied — for your reference only)</p>
+                        <span className={`inline-block text-xs font-bold px-2.5 py-0.5 rounded-full
+                          ${aiDraft.suggestedStatus === CANDIDATE_STATUS.LONG_LIST ? 'bg-green-100 text-green-800' :
+                            aiDraft.suggestedStatus === CANDIDATE_STATUS.DISQUALIFIED ? 'bg-red-100 text-red-800' :
+                            'bg-amber-100 text-amber-800'}`}>
+                          {getStatusLabel(aiDraft.suggestedStatus)}
+                        </span>
+                        {aiDraft.suggestedStatusRationale && (
+                          <p className="text-xs text-gray-700 mt-1.5 leading-relaxed">{aiDraft.suggestedStatusRationale}</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Flags for manual double-check */}
+                    {aiDraft.flags?.length > 0 && (
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
+                        <p className="text-[10px] font-bold text-amber-700 uppercase tracking-wide mb-1">Please double-check</p>
+                        <ul className="text-xs text-amber-800 list-disc list-inside space-y-0.5">
+                          {aiDraft.flags.map((flag, i) => <li key={i}>{flag}</li>)}
+                        </ul>
+                      </div>
+                    )}
+
+                    {aiDraft.unavailableDocuments?.length > 0 && (
+                      <p className="text-xs text-gray-500 italic">
+                        Could not read: {aiDraft.unavailableDocuments.map(d => d.label).join(', ')}.
+                      </p>
+                    )}
+
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={applyAllAiComments}
+                        className="text-xs font-bold text-purple-700 hover:text-purple-900 hover:bg-purple-100 px-2.5 py-1 rounded-lg border border-purple-200 transition-colors"
+                      >
+                        Use all AI comments below
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Sibling propagation panel */}
               {(commentSiblingsLoading || commentSiblings.length > 0) && (() => {
                 if (commentSiblingsLoading) {
@@ -2437,6 +2555,8 @@ const SecretariatView = ({ user }) => {
                 onChange={(value) => handleCommentChange('education', value)}
                 suggestions={commentSuggestions.education}
                 placeholder="Add comments about education qualifications..."
+                aiSuggestion={aiDraft?.comments?.education}
+                onUseAiSuggestion={() => applyAiCommentField('education')}
               />
               
               <CommentInput
@@ -2445,6 +2565,8 @@ const SecretariatView = ({ user }) => {
                 onChange={(value) => handleCommentChange('training', value)}
                 suggestions={commentSuggestions.training}
                 placeholder="Add comments about training requirements..."
+                aiSuggestion={aiDraft?.comments?.training}
+                onUseAiSuggestion={() => applyAiCommentField('training')}
               />
               
               <CommentInput
@@ -2453,6 +2575,8 @@ const SecretariatView = ({ user }) => {
                 onChange={(value) => handleCommentChange('experience', value)}
                 suggestions={commentSuggestions.experience}
                 placeholder="Add comments about work experience..."
+                aiSuggestion={aiDraft?.comments?.experience}
+                onUseAiSuggestion={() => applyAiCommentField('experience')}
               />
               
               <CommentInput
@@ -2461,6 +2585,8 @@ const SecretariatView = ({ user }) => {
                 onChange={(value) => handleCommentChange('eligibility', value)}
                 suggestions={commentSuggestions.eligibility}
                 placeholder="Add comments about eligibility requirements..."
+                aiSuggestion={aiDraft?.comments?.eligibility}
+                onUseAiSuggestion={() => applyAiCommentField('eligibility')}
               />
             </div>
 
@@ -4592,7 +4718,7 @@ const AutocompleteInput = ({ label, value, onChange, options, placeholder, onAdd
 };
 
 // STEP 3: Fix CommentInput Component
-const CommentInput = ({ label, value, onChange, suggestions, placeholder }) => {
+const CommentInput = ({ label, value, onChange, suggestions, placeholder, aiSuggestion, onUseAiSuggestion }) => {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [filteredSuggestions, setFilteredSuggestions] = useState([]);
   const inputRef = useRef(null);
@@ -4636,9 +4762,25 @@ const CommentInput = ({ label, value, onChange, suggestions, placeholder }) => {
 
   return (
     <div className="relative">
-      <label className="block text-sm font-medium text-gray-700 mb-1">
-        {label}
-      </label>
+      <div className="flex items-center justify-between gap-2 mb-1">
+        <label className="block text-sm font-medium text-gray-700">
+          {label}
+        </label>
+        {aiSuggestion && (
+          <button
+            type="button"
+            onClick={onUseAiSuggestion}
+            className="text-[10px] font-bold text-purple-600 hover:text-purple-800 hover:bg-purple-50 px-2 py-0.5 rounded-full border border-purple-200 transition-colors shrink-0"
+          >
+            Use AI draft
+          </button>
+        )}
+      </div>
+      {aiSuggestion && (
+        <p className="text-xs text-purple-700 bg-purple-50 border border-purple-100 rounded-md px-2.5 py-1.5 mb-1.5 leading-relaxed">
+          <span className="font-bold uppercase tracking-wide text-[10px] mr-1">AI draft:</span>{aiSuggestion}
+        </p>
+      )}
       <div className="relative">
         <textarea
           ref={inputRef}

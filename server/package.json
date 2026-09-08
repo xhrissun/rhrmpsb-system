@@ -22,7 +22,8 @@
     "dotenv": "^16.0.3",
     "csv-parse": "^5.3.6",
     "express-fileupload": "^1.4.0",
-    "express-rate-limit": "^7.0.0"
+    "express-rate-limit": "^7.0.0",
+    "googleapis": "^140.0.1"
   },
   "devDependencies": {
     "nodemon": "^2.0.20"

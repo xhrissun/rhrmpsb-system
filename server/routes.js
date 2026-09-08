@@ -5,6 +5,8 @@ import mongoose from 'mongoose';
 import { parse } from 'csv-parse/sync';
 import rateLimit from 'express-rate-limit';
 import { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, InterviewSession, PDFCache } from './models.js';
+import { fetchDriveFiles } from './lib/googleDrive.js';
+import { evaluateCandidateWithAI } from './lib/aiEvaluation.js';
 
 const router = express.Router();
 
@@ -33,6 +35,16 @@ const exportLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { message: 'Too many export requests. Please wait 15 minutes before trying again.' }
+});
+
+// AI evaluation is expensive (Drive fetches + a Gemini call per document set) —
+// keep it tightly rate limited, per-candidate/on-demand usage only.
+const aiEvaluateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many AI evaluation requests. Please wait a few minutes before trying again.' }
 });
 
 // ── Authentication middleware ─────────────────────────────────────────────────
@@ -1295,6 +1307,88 @@ router.get('/candidates/:id', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('[GET /candidates/:id]', error);
     res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ── AI-assisted Secretariat review draft ──────────────────────────────────────
+// Reads the candidate's Drive-linked documents + the vacancy's Qualification
+// Standards + the item's required competencies, and asks Gemini to draft the
+// four review comments plus a suggested status.
+//
+// This route is READ-ONLY with respect to the database: it never saves
+// anything to the candidate record. The Secretariat reviews the draft in the
+// UI and only persists it (edited or not) through the existing
+// PUT /candidates/:id / status-update flow.
+const CANDIDATE_DOC_FIELDS = [
+  { key: 'letterOfIntent',         label: 'Letter of Intent' },
+  { key: 'personalDataSheet',      label: 'Personal Data Sheet' },
+  { key: 'workExperienceSheet',    label: 'Work Experience Sheet' },
+  { key: 'proofOfEligibility',     label: 'Proof of Eligibility' },
+  { key: 'professionalLicense',    label: 'Professional License' },
+  { key: 'certificates',           label: 'Certificates' },
+  { key: 'certificateOfEmployment',label: 'Certificate of Employment' },
+  { key: 'diploma',                label: 'Diploma' },
+  { key: 'transcriptOfRecords',    label: 'Transcript of Records' },
+  { key: 'ipcr',                   label: 'IPCR' }
+];
+
+router.post('/candidates/:id/ai-evaluate', aiEvaluateLimiter, authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin' && req.user.userType !== 'secretariat') {
+    return res.status(403).json({ message: 'Access denied' });
+  }
+
+  try {
+    const candidate = await Candidate.findById(req.params.id);
+    if (!candidate) return res.status(404).json({ message: 'Candidate not found' });
+
+    const vacancy = await Vacancy.findOne({
+      itemNumber: candidate.itemNumber,
+      publicationRangeId: candidate.publicationRangeId
+    });
+    if (!vacancy) {
+      return res.status(404).json({ message: 'No matching vacancy/Qualification Standards found for this candidate\'s item number.' });
+    }
+
+    const competencies = await Competency.findByVacancy(vacancy._id);
+
+    const docsToFetch = CANDIDATE_DOC_FIELDS
+      .filter(doc => candidate[doc.key])
+      .map(doc => ({ key: doc.key, label: doc.label, url: candidate[doc.key] }));
+
+    if (docsToFetch.length === 0) {
+      return res.status(400).json({ message: 'This candidate has no uploaded documents to evaluate.' });
+    }
+
+    const { files, errors: unavailableDocs } = await fetchDriveFiles(docsToFetch);
+
+    if (files.length === 0) {
+      return res.status(422).json({
+        message: 'None of the candidate\'s documents could be retrieved from Google Drive. Check that the Drive folder is shared with the service account.',
+        unavailableDocuments: unavailableDocs
+      });
+    }
+
+    const draft = await evaluateCandidateWithAI({
+      candidate,
+      vacancy,
+      competencies,
+      files,
+      unavailableDocs
+    });
+
+    res.json({
+      candidateId: candidate._id,
+      itemNumber: candidate.itemNumber,
+      generatedAt: new Date(),
+      ...draft
+    });
+  } catch (error) {
+    console.error('[POST /candidates/:id/ai-evaluate]', error);
+    res.status(500).json({
+      message: process.env.NODE_ENV !== 'production'
+        ? 'AI evaluation failed: ' + error.message
+        : 'AI evaluation failed. Please try again or contact the administrator.'
+    });
   }
 });
 

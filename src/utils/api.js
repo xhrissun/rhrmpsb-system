@@ -275,6 +275,17 @@ export const candidatesAPI = {
     const response = await api.put(`/candidates/${id}/status`, { status, comments });
     return response.data;
   },
+  // AI-assisted draft: fetches the candidate's Drive documents server-side,
+  // compares them against the vacancy's QS + competencies, and returns a
+  // draft { comments, suggestedStatus, suggestedStatusRationale, flags,
+  // documentsReviewed, unavailableDocuments }. Nothing is saved by this call —
+  // the caller decides whether to apply the draft into the comment fields.
+  aiEvaluate: async (id) => {
+    const response = await api.post(`/candidates/${id}/ai-evaluate`, {}, {
+      timeout: 60000 // document fetch + model call can take a while
+    });
+    return response.data;
+  },
   getByItemNumber: async (itemNumber, includeArchived = false) => {
     // Encode the item number to handle special characters
     const encodedItemNumber = encodeURIComponent(itemNumber);
