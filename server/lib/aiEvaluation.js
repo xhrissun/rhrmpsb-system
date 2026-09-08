@@ -125,12 +125,28 @@ INSTRUCTIONS
 2. Training: Compare Certificates and the PDS training section against the QS training requirement. Where a training clearly relates to one of the required competencies above, name that competency. Do not require certificates for a competency the QS doesn't ask for.
 3. Experience: Compare the Work Experience Sheet / Certificate of Employment / IPCR against the QS experience requirement, including years and relevance. Where the work history demonstrates a required competency in practice (not just years served), say so.
 4. Eligibility: Compare the Proof of Eligibility / Professional License against the QS eligibility requirement.
-5. Write each comment in plain, factual, administrative language — 2-4 sentences, no bullet points, no markdown. Cite which document supports each claim (e.g., "Per TOR..."). If evidence is missing or a document was unavailable, say so plainly instead of guessing.
+5. Write each comment (education/training/experience/eligibility) as 1-3 short bullet points, each starting with "- " on its own line (use a literal newline character between bullets, not numbering, not markdown headers/bold). Each bullet under ~18 words, plain factual administrative language. Cite which document supports each claim (e.g., "- Per TOR, met — BS Forestry 2016."). If evidence is missing or a document was unavailable, say so in one short bullet instead of guessing. Be terse — do not restate the requirement text back, do not pad with filler sentences.
 6. Do not invent facts not present in the documents. If a document is unreadable or absent, note the gap rather than assuming the candidate meets the requirement.
 7. suggestedStatus is only a recommendation for a human to review — choose "long_list" if all four areas are adequately met, "for_review" if there is a genuine ambiguity or borderline case needing board discussion, or "disqualified" if a QS requirement is clearly and verifiably not met. Never choose "disqualified" on the basis of a merely missing/unretrieved document alone — flag it instead and default to "for_review".
-8. flags should list anything the Secretariat should manually double-check (missing documents, illegible scans, expired eligibility dates, redacted fields that need the human reviewer's own verification, etc).
+8. suggestedStatusRationale: ONE short sentence (under 25 words) summarizing the overall reason for the status.
+9. flags should list anything the Secretariat should manually double-check (missing documents, illegible scans, expired eligibility dates, redacted fields that need the human reviewer's own verification, etc). Each flag is a short phrase, not a sentence.
 
-Respond ONLY with JSON matching the provided schema.`;
+Be as concise as possible everywhere above the minimum needed to be useful — this output is billed per token. Respond ONLY with JSON matching the provided schema, no other text.`;
+}
+
+// Collapses the whitespace noise OCR/PDF extraction tends to leave behind
+// (repeated blank lines, runs of spaces/tabs, trailing spaces per line)
+// before the text is counted against the char budget and sent to Gemini.
+// Purely cosmetic whitespace costs real input tokens at scale, so trimming
+// it is a free, content-safe way to cut cost — nothing semantic is removed.
+function normalizeForPrompt(text) {
+  if (!text) return text;
+  return text
+    .split('\n')
+    .map(line => line.replace(/[ \t]+/g, ' ').trimEnd())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -221,7 +237,11 @@ export async function evaluateCandidateWithAI({ caseRef, vacancy, competencies, 
   // (Text is far smaller than the equivalent base64 file, so this budget is
   // generous compared to the old inline-file limit.)
   const MAX_TOTAL_CHARS = 400_000;
-  const sortedByLength = [...documentTexts].sort((a, b) => a.text.length - b.text.length);
+  // Normalize whitespace first — this is what actually gets counted and
+  // sent, so trimming OCR whitespace noise here directly reduces both the
+  // input-token cost and the chance of hitting the size cap.
+  const normalizedTexts = documentTexts.map(d => ({ ...d, text: normalizeForPrompt(d.text) }));
+  const sortedByLength = [...normalizedTexts].sort((a, b) => a.text.length - b.text.length);
   let totalChars = 0;
   const finalTexts = [];
   const droppedForSize = [];
@@ -243,7 +263,12 @@ export async function evaluateCandidateWithAI({ caseRef, vacancy, competencies, 
     generationConfig: {
       temperature: 0.2,
       responseMimeType: 'application/json',
-      responseSchema: RESPONSE_SCHEMA
+      responseSchema: RESPONSE_SCHEMA,
+      // Comments are now short bullets rather than paragraphs, so the
+      // model needs far fewer output tokens — capping this saves on
+      // output-token cost (and output tends to be priced higher than
+      // input) without truncating anything a well-behaved response needs.
+      maxOutputTokens: 1200
     }
   };
 
@@ -272,6 +297,11 @@ export async function evaluateCandidateWithAI({ caseRef, vacancy, competencies, 
     ...parsed,
     modelUsed,
     documentsReviewed: finalTexts.map(f => ({ key: f.key, label: f.label })),
-    unavailableDocuments: allUnavailable
+    unavailableDocuments: allUnavailable,
+    // The exact text of the request sent to Gemini (system prompt +
+    // redacted document text). Returned so the caller can show/audit
+    // precisely what left this server, for privacy verification — this
+    // module sends nothing Gemini-bound that isn't in this string.
+    promptSent: systemPrompt
   };
 }

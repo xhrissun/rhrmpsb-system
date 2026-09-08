@@ -1521,7 +1521,8 @@ router.post('/candidates/:id/ai-evaluate', aiEvaluateLimiter, authMiddleware, as
         modelUsed: draft.modelUsed || '',
         suggestedStatus: draft.suggestedStatus || '',
         documentsSent: documentTexts.map(d => ({ key: d.key, label: d.label, redacted: true })),
-        documentsSkipped: unavailableDocs.map(d => ({ key: d.key, label: d.label, reason: d.message }))
+        documentsSkipped: unavailableDocs.map(d => ({ key: d.key, label: d.label, reason: d.message })),
+        promptText: draft.promptSent || ''
       });
     } catch (logErr) {
       console.warn('[AI evaluate] Failed to write audit log:', logErr.message);
@@ -1570,6 +1571,27 @@ router.put('/settings/ai-evaluation', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('[PUT /settings/ai-evaluation]', error);
     res.status(500).json({ message: 'Failed to update AI evaluation setting.' });
+  }
+});
+
+// Admin-only audit view: exactly what has been sent to Gemini, per past
+// evaluation, so privacy/redaction can be spot-checked without burning
+// another Gemini call. `promptText` here is the literal text that left
+// this server for that request (see server/lib/aiEvaluation.js).
+router.get('/ai-evaluation-logs', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin') return res.status(403).json({ message: 'Access denied' });
+  try {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 25, 100);
+    const filter = {};
+    if (req.query.candidateId) filter.candidateId = req.query.candidateId;
+    const logs = await AiEvaluationLog.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+    res.json(logs);
+  } catch (error) {
+    console.error('[GET /ai-evaluation-logs]', error);
+    res.status(500).json({ message: 'Failed to load AI evaluation logs.' });
   }
 });
 

@@ -731,6 +731,13 @@ export const settingsAPI = {
   setAiEvaluationStatus: async (enabled) => {
     const response = await api.put('/settings/ai-evaluation', { enabled });
     return response.data; // { enabled: boolean }
+  },
+  // Admin-only audit trail of past AI evaluations, including the literal
+  // (redacted) text that was sent to Gemini for each one — for privacy
+  // spot-checks without needing to regenerate a draft.
+  getAiEvaluationLogs: async (limit = 25) => {
+    const response = await api.get('/ai-evaluation-logs', { params: { limit } });
+    return response.data;
   }
 };
 

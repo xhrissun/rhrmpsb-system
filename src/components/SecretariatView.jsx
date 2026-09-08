@@ -2420,9 +2420,34 @@ const SecretariatView = ({ user }) => {
                     )}
 
                     {aiDraft.unavailableDocuments?.length > 0 && (
-                      <p className="text-xs text-gray-500 italic">
-                        Could not read: {aiDraft.unavailableDocuments.map(d => d.label).join(', ')}.
-                      </p>
+                      <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5">
+                        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1">
+                          Could not read ({aiDraft.unavailableDocuments.length})
+                        </p>
+                        <ul className="text-xs text-gray-600 space-y-1">
+                          {aiDraft.unavailableDocuments.map((d, i) => (
+                            <li key={i}>
+                              <span className="font-semibold">{d.label}:</span>{' '}
+                              <span className="italic">{d.message || 'Reason not reported.'}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {aiDraft.promptSent && (
+                      <details className="bg-white border border-gray-200 rounded-lg px-3 py-2 group">
+                        <summary className="text-[10px] font-bold text-gray-500 uppercase tracking-wide cursor-pointer select-none flex items-center gap-1">
+                          <svg className="w-3 h-3 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                          </svg>
+                          View exact data sent to Gemini (privacy check)
+                        </summary>
+                        <p className="text-[10px] text-gray-400 mt-1.5 mb-1">
+                          This is the literal request text sent to Google's Gemini API for this draft — names, DOB, IDs, emails, phone numbers, and address lines are redacted before they reach this point. Nothing else about this candidate was sent.
+                        </p>
+                        <pre className="text-[10px] text-gray-700 bg-gray-50 border border-gray-100 rounded-md p-2 max-h-72 overflow-auto whitespace-pre-wrap font-mono">{aiDraft.promptSent}</pre>
+                      </details>
                     )}
 
                     <div className="flex justify-end">
@@ -4785,8 +4810,8 @@ const CommentInput = ({ label, value, onChange, suggestions, placeholder, aiSugg
         )}
       </div>
       {aiSuggestion && (
-        <p className="text-xs text-purple-700 bg-purple-50 border border-purple-100 rounded-md px-2.5 py-1.5 mb-1.5 leading-relaxed">
-          <span className="font-bold uppercase tracking-wide text-[10px] mr-1">AI draft:</span>{aiSuggestion}
+        <p className="text-xs text-purple-700 bg-purple-50 border border-purple-100 rounded-md px-2.5 py-1.5 mb-1.5 leading-relaxed whitespace-pre-line">
+          <span className="font-bold uppercase tracking-wide text-[10px] mr-1 block">AI draft:</span>{aiSuggestion}
         </p>
       )}
       <div className="relative">

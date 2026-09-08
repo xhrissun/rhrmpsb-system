@@ -478,6 +478,13 @@ const aiEvaluationLogSchema = new mongoose.Schema({
   suggestedStatus: { type: String, trim: true, default: '' },
   documentsSent: [{ key: String, label: String, redacted: Boolean }],
   documentsSkipped: [{ key: String, label: String, reason: String }],
+  // Exact text of the request sent to Gemini (system prompt + redacted
+  // document text) — kept so an admin can audit precisely what left this
+  // server for a given evaluation without needing to re-run it (re-running
+  // costs another Gemini call). This is the SAME redacted text the
+  // Secretariat already saw on screen when the draft was generated; storing
+  // it does not expose anything new, it just makes it inspectable later.
+  promptText:    { type: String, default: '' },
   createdAt:     { type: Date, default: Date.now }
 });
 
