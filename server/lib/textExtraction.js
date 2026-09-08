@@ -102,6 +102,17 @@ export async function terminateOcrWorker() {
   }
 }
 
+// pdfjs-dist v4+ throws when `data` is a Node Buffer instead of a plain
+// Uint8Array (Buffer IS a Uint8Array subclass, but pdfjs-dist explicitly
+// rejects the subclass) — this was silently breaking every scanned PDF that
+// fell through to OCR rasterization, surfacing to the Secretariat as
+// "Please provide binary data as `Uint8Array`, rather than `Buffer`."
+// Wrapping the same underlying memory in a plain Uint8Array (no copy) fixes
+// it without touching the bytes.
+function toUint8Array(buffer) {
+  return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+}
+
 async function extractFromPdf(buffer) {
   const { text } = await pdfParse(buffer);
   return (text || '').trim();
@@ -135,7 +146,7 @@ function extractFromXlsx(buffer) {
 // tesseract.js worker used for direct image uploads.
 async function rasterizeAndOcrPdf(buffer) {
   const loadingTask = getDocument({
-    data: buffer,
+    data: toUint8Array(buffer),
     standardFontDataUrl: STANDARD_FONT_DATA_URL,
     disableFontFace: true,
     verbosity: VerbosityLevel.ERRORS
