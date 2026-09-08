@@ -282,7 +282,7 @@ export const candidatesAPI = {
   // the caller decides whether to apply the draft into the comment fields.
   aiEvaluate: async (id) => {
     const response = await api.post(`/candidates/${id}/ai-evaluate`, {}, {
-      timeout: 60000 // document fetch + model call can take a while
+      timeout: 90000 // document fetch + model call + automatic retries on 503/429 can take a while
     });
     return response.data;
   },

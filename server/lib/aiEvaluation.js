@@ -9,9 +9,40 @@
 // for the Secretariat to review, edit, and save through the normal
 // PUT /candidates/:id flow.
 
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
-const GEMINI_API_URL =
-  `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+// Models to try, in order. If GEMINI_MODEL is set, it's tried first; the rest
+// of this default chain is appended after it (deduplicated) as automatic
+// fallbacks. Override the whole chain with GEMINI_MODEL_FALLBACK_CHAIN
+// (comma-separated), e.g. "gemini-3.6-flash,gemini-3.5-flash".
+//
+// Ordered with the higher-daily-quota "Lite" models mixed in so a busy day
+// doesn't dead-end on a single 20-requests/day ceiling.
+const DEFAULT_MODEL_CHAIN = [
+  'gemini-3.6-flash',
+  'gemini-3.1-flash-lite',
+  'gemini-3.5-flash',
+  'gemini-3.5-flash-lite',
+  'gemini-3.7-flash',
+  'gemini-3.8-flash',
+  'gemini-2.5-flash-lite'
+];
+
+function getModelChain() {
+  if (process.env.GEMINI_MODEL_FALLBACK_CHAIN) {
+    return process.env.GEMINI_MODEL_FALLBACK_CHAIN.split(',').map(m => m.trim()).filter(Boolean);
+  }
+  const chain = [...DEFAULT_MODEL_CHAIN];
+  if (process.env.GEMINI_MODEL && !chain.includes(process.env.GEMINI_MODEL)) {
+    chain.unshift(process.env.GEMINI_MODEL);
+  } else if (process.env.GEMINI_MODEL) {
+    // Requested model is already in the chain — just move it to the front.
+    chain.splice(chain.indexOf(process.env.GEMINI_MODEL), 1);
+    chain.unshift(process.env.GEMINI_MODEL);
+  }
+  return chain;
+}
+
+const geminiUrlFor = (model) =>
+  `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
 // Keep the total inline payload well under Gemini's request size limits.
 const MAX_TOTAL_INLINE_BYTES = 18 * 1024 * 1024; // ~18MB of base64-decoded bytes
@@ -90,6 +121,77 @@ function base64ToBytes(base64) {
   return Buffer.byteLength(base64, 'base64');
 }
 
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+// 503 (model overloaded) and 429 (rate limited/quota exhausted) and 404
+// (model retired/unavailable to this key) all mean "try a different model",
+// not "give up". Anything else (400 bad request, auth errors) is a real
+// problem and fails immediately rather than burning through the whole chain.
+const MODEL_SWITCH_STATUSES = [404, 429, 503];
+
+async function callGeminiOnce(model, body, apiKey) {
+  const url = `${geminiUrlFor(model)}?key=${apiKey}`;
+  try {
+    return await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+  } catch (err) {
+    // Network-level fetch errors can sometimes echo the request URL (with
+    // the key) back in err.message/cause — scrub before it ever bubbles up.
+    throw new Error('Failed to reach Gemini API: ' + String(err.message || err).split(apiKey).join('[REDACTED]'));
+  }
+}
+
+// Tries each model in the fallback chain. Within a model, retries a couple
+// of times on transient errors before moving on to the next model.
+// Returns { response, modelUsed } for the first success, or throws after
+// every model in the chain has been exhausted.
+async function fetchGeminiWithFallback(body, apiKey) {
+  const chain = getModelChain();
+  const attemptsLog = [];
+
+  for (let i = 0; i < chain.length; i++) {
+    const model = chain[i];
+    const isLastModel = i === chain.length - 1;
+    const maxAttemptsForThisModel = isLastModel ? 3 : 2; // spend more retries on the last resort
+
+    let response;
+    for (let attempt = 1; attempt <= maxAttemptsForThisModel; attempt++) {
+      response = await callGeminiOnce(model, body, apiKey);
+
+      if (response.ok) {
+        if (i > 0 || attempt > 1) {
+          console.warn(`[Gemini] Succeeded with model "${model}" (attempt ${attempt}) after: ${attemptsLog.join('; ') || 'no prior failures'}`);
+        }
+        return { response, modelUsed: model };
+      }
+
+      if (!MODEL_SWITCH_STATUSES.includes(response.status) || attempt === maxAttemptsForThisModel) {
+        break; // either a non-retryable error, or out of attempts for this model
+      }
+
+      const backoffMs = 1200 * Math.pow(2, attempt - 1); // 1.2s, 2.4s...
+      await sleep(backoffMs);
+    }
+
+    const errText = await response.text().catch(() => '');
+    attemptsLog.push(`${model} → ${response.status}`);
+
+    if (!MODEL_SWITCH_STATUSES.includes(response.status)) {
+      // Non-retryable error (e.g. 400 bad request from our own schema) —
+      // no point trying other models, they'll fail the same way.
+      return { response, modelUsed: model, errText };
+    }
+
+    console.warn(`[Gemini] Model "${model}" unavailable (${response.status}), trying next in chain...`);
+    if (isLastModel) {
+      return { response, modelUsed: model, errText, allModelsExhausted: true, attemptsLog };
+    }
+  }
+}
+
 export async function evaluateCandidateWithAI({ candidate, vacancy, competencies, files, unavailableDocs }) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -136,19 +238,15 @@ export async function evaluateCandidateWithAI({ candidate, vacancy, competencies
     }
   };
 
-  const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  }).catch(err => {
-    // Network-level fetch errors can sometimes echo the request URL (with the
-    // key) back in err.message/cause — scrub before it ever bubbles up.
-    throw new Error('Failed to reach Gemini API: ' + String(err.message || err).split(apiKey).join('[REDACTED]'));
-  });
+  const response = await fetchGeminiWithRetry(`${GEMINI_API_URL}?key=${apiKey}`, body, apiKey);
 
   if (!response.ok) {
     const errText = await response.text().catch(() => '');
-    throw new Error(`Gemini API error (${response.status}): ${errText.slice(0, 500).split(apiKey).join('[REDACTED]')}`);
+    const sanitized = errText.slice(0, 500).split(apiKey).join('[REDACTED]');
+    if (response.status === 503 || response.status === 429) {
+      throw new Error(`Gemini is temporarily overloaded (${response.status}) even after retrying. This is on Google's side, not a configuration issue — please try again in a minute. Raw: ${sanitized}`);
+    }
+    throw new Error(`Gemini API error (${response.status}): ${sanitized}`);
   }
 
   const data = await response.json();
