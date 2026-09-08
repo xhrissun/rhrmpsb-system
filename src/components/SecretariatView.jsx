@@ -153,6 +153,10 @@ const SecretariatView = ({ user }) => {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState('');
   const [aiDraft, setAiDraft] = useState(null); // { comments, suggestedStatus, suggestedStatusRationale, flags, unavailableDocuments }
+  // Real progress for the currently-running job (polled from the backend —
+  // not a fake/indefinite spinner). null while no job is running.
+  const [aiProgress, setAiProgress] = useState(null); // { stage, docsCompleted, docsTotal, currentDocLabel }
+  const aiPollRef = useRef(null); // interval id, so we can cancel on unmount/candidate change
 
   const [commentSuggestions, setCommentSuggestions] = useState({
     education: [],
@@ -633,28 +637,79 @@ const SecretariatView = ({ user }) => {
     setComments(prev => ({ ...prev, [field]: value }));
   }, []);
 
+  const stopAiPolling = useCallback(() => {
+    if (aiPollRef.current) {
+      clearInterval(aiPollRef.current);
+      aiPollRef.current = null;
+    }
+  }, []);
+
   const handleGenerateAiDraft = useCallback(async () => {
     if (!selectedCandidate) return;
+    stopAiPolling();
     setAiLoading(true);
     setAiError('');
+    setAiProgress({ stage: 'starting', docsCompleted: 0, docsTotal: 0, currentDocLabel: '' });
+
+    const candidateIdAtStart = selectedCandidate;
+
     try {
-      const draft = await candidatesAPI.aiEvaluate(selectedCandidate);
-      setAiDraft(draft);
+      const { jobId, docsTotal } = await candidatesAPI.aiEvaluateStart(candidateIdAtStart);
+      setAiProgress({ stage: 'processing', docsCompleted: 0, docsTotal, currentDocLabel: '' });
+
+      aiPollRef.current = setInterval(async () => {
+        try {
+          const status = await candidatesAPI.aiEvaluateStatus(candidateIdAtStart, jobId);
+
+          if (status.status === 'done') {
+            stopAiPolling();
+            setAiDraft(status.result);
+            setAiProgress(null);
+            setAiLoading(false);
+            return;
+          }
+
+          // Still running — update the real, checkpoint-based progress bar.
+          setAiProgress({
+            stage: status.stage,
+            docsCompleted: status.docsCompleted || 0,
+            docsTotal: status.docsTotal || 0,
+            currentDocLabel: status.currentDocLabel || ''
+          });
+        } catch (pollErr) {
+          stopAiPolling();
+          setAiProgress(null);
+          setAiLoading(false);
+          const data = pollErr.response?.data;
+          let message = data?.message || pollErr.message || 'Failed to generate AI draft.';
+          if (data?.unavailableDocuments?.length) {
+            const details = data.unavailableDocuments
+              .map(d => `${d.label}: ${d.message}`)
+              .join(' | ');
+            message += `  [${details}]`;
+          }
+          setAiError(message);
+        }
+      }, 1500);
     } catch (error) {
-      console.error('Failed to generate AI draft:', error);
-      const data = error.response?.data;
-      let message = data?.message || error.message || 'Failed to generate AI draft.';
-      if (data?.unavailableDocuments?.length) {
-        const details = data.unavailableDocuments
-          .map(d => `${d.label}: ${d.message}`)
-          .join(' | ');
-        message += `  [${details}]`;
-      }
-      setAiError(message);
-    } finally {
+      console.error('Failed to start AI draft:', error);
+      setAiProgress(null);
       setAiLoading(false);
+      setAiError(error.response?.data?.message || error.message || 'Failed to start AI evaluation.');
     }
-  }, [selectedCandidate]);
+  }, [selectedCandidate, stopAiPolling]);
+
+  // Stop polling if the component unmounts or a different candidate/modal
+  // is opened mid-job — otherwise a stale interval keeps hitting the API
+  // and could clobber state for whatever's now on screen.
+  useEffect(() => {
+    return () => stopAiPolling();
+  }, [stopAiPolling]);
+  useEffect(() => {
+    stopAiPolling();
+    setAiProgress(null);
+    setAiLoading(false);
+  }, [selectedCandidate, stopAiPolling]);
 
   const applyAiCommentField = useCallback((field) => {
     if (!aiDraft?.comments?.[field]) return;
@@ -2377,9 +2432,39 @@ const SecretariatView = ({ user }) => {
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
                       </svg>
                     )}
-                    {aiLoading ? 'Analyzing documents…' : (aiDraft ? 'Regenerate Draft' : 'Generate AI Draft')}
+                    {aiLoading
+                      ? (aiProgress?.stage === 'evaluating' ? 'Analyzing with AI…' : 'Reading documents…')
+                      : (aiDraft ? 'Regenerate Draft' : 'Generate AI Draft')}
                   </button>
                 </div>
+
+                {aiLoading && aiProgress && (() => {
+                  // Real, checkpoint-based progress — not a fake/indefinite
+                  // bar. Steps = one per document (fetch+extract) plus one
+                  // for the final AI call; percent only advances when the
+                  // backend actually reports a completed step.
+                  const totalSteps = Math.max(aiProgress.docsTotal, 1) + 1;
+                  const completedSteps = aiProgress.docsCompleted + (aiProgress.stage === 'evaluating' ? aiProgress.docsTotal : 0);
+                  // Cap below 100 until the job truly reports 'done' so the
+                  // bar never claims completion while still waiting on Gemini.
+                  const percent = Math.min(97, Math.round((completedSteps / totalSteps) * 100));
+                  const label = aiProgress.stage === 'evaluating'
+                    ? 'Comparing documents against Qualification Standards with AI…'
+                    : aiProgress.docsTotal > 0
+                    ? `Reading document ${Math.min(aiProgress.docsCompleted + 1, aiProgress.docsTotal)} of ${aiProgress.docsTotal}${aiProgress.currentDocLabel ? ` — ${aiProgress.currentDocLabel}` : ''}`
+                    : 'Starting…';
+                  return (
+                    <div className="space-y-1.5">
+                      <div className="w-full h-2 rounded-full bg-purple-100 overflow-hidden">
+                        <div
+                          className="h-full bg-purple-600 rounded-full transition-all duration-500 ease-out"
+                          style={{ width: `${percent}%` }}
+                        />
+                      </div>
+                      <p className="text-[11px] text-purple-700">{label}</p>
+                    </div>
+                  );
+                })()}
 
                 {!aiDraft && !aiLoading && !aiError && (
                   <p className="text-xs text-purple-700">

@@ -276,24 +276,20 @@ export const candidatesAPI = {
     const response = await api.put(`/candidates/${id}/status`, { status, comments });
     return response.data;
   },
-  // AI-assisted draft: fetches the candidate's Drive documents server-side,
-  // compares them against the vacancy's QS + competencies, and returns a
-  // draft { comments, suggestedStatus, suggestedStatusRationale, flags,
-  // documentsReviewed, unavailableDocuments }. Nothing is saved by this call —
-  // the caller decides whether to apply the draft into the comment fields.
-  aiEvaluate: async (id) => {
-    const response = await api.post(`/candidates/${id}/ai-evaluate`, {}, {
-      // Drive fetch + extraction now happens ONE DOCUMENT AT A TIME on the
-      // server (see server/lib/textExtraction.js fetchAndExtractDriveDocs) so
-      // only one document's bytes are ever in memory at once. That trades
-      // speed for staying under Render's 512MB limit: a candidate with
-      // several scanned documents can spend a real chunk of a minute on
-      // page-by-page OCR for EACH one, sequentially, before the Gemini call
-      // (+ its own 503/429 retries) even starts. 90s was tuned for the old
-      // parallel-fetch pipeline and is no longer enough headroom.
-      timeout: 240000
-    });
-    return response.data;
+  // AI-assisted draft, now run as a background job instead of one long
+  // synchronous request: fetching + extracting a candidate's documents one
+  // at a time (see server/lib/textExtraction.js) can take well over a
+  // minute for several scanned documents, and holding an HTTP request open
+  // that long gave the UI no way to show real progress — just a spinner.
+  // aiEvaluateStart kicks the job off and returns immediately with a
+  // jobId; aiEvaluateStatus is polled until status is 'done' or 'error'.
+  aiEvaluateStart: async (id) => {
+    const response = await api.post(`/candidates/${id}/ai-evaluate`);
+    return response.data; // { jobId, docsTotal }
+  },
+  aiEvaluateStatus: async (id, jobId) => {
+    const response = await api.get(`/candidates/${id}/ai-evaluate/status/${jobId}`);
+    return response.data; // { status, stage, docsTotal, docsCompleted, currentDocLabel, result? }
   },
   getByItemNumber: async (itemNumber, includeArchived = false) => {
     // Encode the item number to handle special characters

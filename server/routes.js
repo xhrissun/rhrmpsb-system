@@ -5,7 +5,7 @@ import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
 import { parse } from 'csv-parse/sync';
 import rateLimit from 'express-rate-limit';
-import { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, InterviewSession, PDFCache, SystemSettings, AiEvaluationLog } from './models.js';
+import { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, InterviewSession, PDFCache, SystemSettings, AiEvaluationLog, AiEvaluationJob } from './models.js';
 
 import { evaluateCandidateWithAI } from './lib/aiEvaluation.js';
 import { fetchAndExtractDriveDocs } from './lib/textExtraction.js';
@@ -1417,6 +1417,142 @@ router.get('/diagnostics/drive-auth', authMiddleware, async (req, res) => {
   res.json(result);
 });
 
+// Does the actual Drive-fetch + extraction + redaction + Gemini-call work
+// for one AI evaluation job, updating `job` in Mongo as it goes so GET
+// .../ai-evaluate/status/:jobId has something real to report. Never
+// awaited by the route handler — runs after the response for the "start"
+// call has already gone back to the client.
+async function runAiEvaluationJob(jobId, candidate, vacancy, competencies, docsToFetch, user) {
+  try {
+    await AiEvaluationJob.findByIdAndUpdate(jobId, { stage: 'processing' });
+
+    // Fetches each document from Drive AND extracts its text one at a time
+    // (see fetchAndExtractDriveDocs in textExtraction.js) so only one
+    // document's raw bytes are ever resident in memory at once — this is
+    // what keeps a candidate with several (possibly scanned) documents
+    // from blowing past Render's 512MB instance limit. The raw PDF/image
+    // bytes never leave this server at any point in this process.
+    const { usable, insufficient, driveErrors } = await fetchAndExtractDriveDocs(
+      docsToFetch,
+      (docsCompleted, docsTotal, currentDocLabel) => {
+        // Best-effort progress ping — a failed write here shouldn't abort
+        // the evaluation itself, just leave the progress bar a step stale
+        // until the next document's update lands.
+        AiEvaluationJob.findByIdAndUpdate(jobId, { docsCompleted, docsTotal, currentDocLabel })
+          .catch(err => console.warn('[AI evaluate] progress update failed:', err.message));
+      }
+    );
+
+    if (driveErrors.length > 0) {
+      console.warn('[AI evaluate] Drive fetch issues for candidate', candidate._id.toString(), driveErrors);
+    }
+
+    if (usable.length === 0 && insufficient.length === 0) {
+      await AiEvaluationJob.findByIdAndUpdate(jobId, {
+        status: 'error',
+        httpStatus: 422,
+        message: 'None of the candidate\'s documents could be retrieved from Google Drive. Check that the Drive folder is shared with the service account.',
+        unavailableDocuments: driveErrors
+      });
+      return;
+    }
+
+    const extractionErrors = insufficient.map(doc => ({
+      key: doc.key,
+      label: doc.label,
+      message: doc.error
+        ? `Could not extract text: ${doc.error}`
+        : doc.method === 'pdf-no-text-layer'
+        ? 'This looks like a scanned image with no selectable text, and OCR on the rasterized pages didn\'t recover any readable text either (likely a blank, corrupted, or very low-quality scan). It was excluded from the AI draft and needs manual Secretariat review.'
+        : doc.method === 'pdf-rasterize-error'
+        ? `Could not process this scanned PDF: ${doc.error}. It needs manual Secretariat review.`
+        : doc.method === 'legacy-doc-unsupported'
+        ? 'This is an older .doc file (not .docx) — automatic text extraction only supports the newer Word format. Save it as .docx and re-upload, or send it to manual Secretariat review.'
+        : 'No usable text could be extracted from this document.'
+    }));
+
+    const unavailableDocs = [...driveErrors, ...extractionErrors];
+
+    if (usable.length === 0) {
+      await AiEvaluationJob.findByIdAndUpdate(jobId, {
+        status: 'error',
+        httpStatus: 422,
+        message: 'None of the candidate\'s documents had text that could be safely extracted and redacted for AI review. All documents need manual Secretariat review.',
+        unavailableDocuments: unavailableDocs
+      });
+      return;
+    }
+
+    // Redact direct identifiers from the extracted text before it goes
+    // anywhere near Gemini. Best-effort — see server/lib/redact.js.
+    const documentTexts = usable.map(doc => ({
+      key: doc.key,
+      label: doc.label,
+      name: doc.name,
+      text: redactCandidateText(doc.text, candidate)
+    }));
+
+    // Non-identifying stand-in for the candidate's name in the prompt.
+    const caseRef = `${candidate.itemNumber}-${candidate._id.toString().slice(-6)}`;
+
+    await AiEvaluationJob.findByIdAndUpdate(jobId, { stage: 'evaluating' });
+
+    const draft = await evaluateCandidateWithAI({
+      caseRef,
+      vacancy,
+      competencies,
+      documentTexts,
+      unavailableDocs
+    });
+
+    // Best-effort audit trail — never let a logging failure break the
+    // actual feature.
+    try {
+      await AiEvaluationLog.create({
+        candidateId: candidate._id,
+        itemNumber: candidate.itemNumber,
+        triggeredBy: user.id,
+        triggeredByName: user.name || user.username || '',
+        modelUsed: draft.modelUsed || '',
+        suggestedStatus: draft.suggestedStatus || '',
+        documentsSent: documentTexts.map(d => ({ key: d.key, label: d.label, redacted: true })),
+        documentsSkipped: unavailableDocs.map(d => ({ key: d.key, label: d.label, reason: d.message })),
+        promptText: draft.promptSent || ''
+      });
+    } catch (logErr) {
+      console.warn('[AI evaluate] Failed to write audit log:', logErr.message);
+    }
+
+    await AiEvaluationJob.findByIdAndUpdate(jobId, {
+      status: 'done',
+      stage: 'done',
+      result: {
+        candidateId: candidate._id,
+        itemNumber: candidate.itemNumber,
+        generatedAt: new Date(),
+        ...draft
+      }
+    });
+  } catch (error) {
+    console.error('[AI evaluate job]', jobId, error);
+    // Unlike other routes, we surface the real error message even in
+    // production here: it's a Gemini/Drive API error string, not user data,
+    // and hiding it makes this feature undebuggable from the UI alone.
+    await AiEvaluationJob.findByIdAndUpdate(jobId, {
+      status: 'error',
+      httpStatus: 500,
+      message: 'AI evaluation failed: ' + error.message
+    }).catch(() => {});
+  }
+}
+
+// Kicks off an AI evaluation as a background job and returns immediately
+// with a jobId — this used to do all the work (Drive fetch + extraction +
+// Gemini call, often well over a minute for a candidate with several
+// scanned documents) inline and made the client hold one HTTP request
+// open the whole time with no way to show real progress. Poll
+// GET /candidates/:id/ai-evaluate/status/:jobId for progress and the
+// eventual result.
 router.post('/candidates/:id/ai-evaluate', aiEvaluateLimiter, authMiddleware, async (req, res) => {
   if (req.user.userType !== 'admin' && req.user.userType !== 'secretariat') {
     return res.status(403).json({ message: 'Access denied' });
@@ -1450,98 +1586,60 @@ router.post('/candidates/:id/ai-evaluate', aiEvaluateLimiter, authMiddleware, as
       return res.status(400).json({ message: 'This candidate has no uploaded documents to evaluate.' });
     }
 
-    // Fetches each document from Drive AND extracts its text one at a time
-    // (see fetchAndExtractDriveDocs in textExtraction.js) so only one
-    // document's raw bytes are ever resident in memory at once — this is
-    // what keeps a candidate with several (possibly scanned) documents
-    // from blowing past Render's 512MB instance limit. The raw PDF/image
-    // bytes never leave this server at any point in this process.
-    const { usable, insufficient, driveErrors } = await fetchAndExtractDriveDocs(docsToFetch);
-
-    if (driveErrors.length > 0) {
-      console.warn('[AI evaluate] Drive fetch issues for candidate', candidate._id.toString(), driveErrors);
-    }
-
-    if (usable.length === 0 && insufficient.length === 0) {
-      return res.status(422).json({
-        message: 'None of the candidate\'s documents could be retrieved from Google Drive. Check that the Drive folder is shared with the service account.',
-        unavailableDocuments: driveErrors
-      });
-    }
-
-    const extractionErrors = insufficient.map(doc => ({
-      key: doc.key,
-      label: doc.label,
-      message: doc.error
-        ? `Could not extract text: ${doc.error}`
-        : doc.method === 'pdf-no-text-layer'
-        ? 'This looks like a scanned image with no selectable text, and OCR on the rasterized pages didn\'t recover any readable text either (likely a blank, corrupted, or very low-quality scan). It was excluded from the AI draft and needs manual Secretariat review.'
-        : doc.method === 'pdf-rasterize-error'
-        ? `Could not process this scanned PDF: ${doc.error}. It needs manual Secretariat review.`
-        : doc.method === 'legacy-doc-unsupported'
-        ? 'This is an older .doc file (not .docx) — automatic text extraction only supports the newer Word format. Save it as .docx and re-upload, or send it to manual Secretariat review.'
-        : 'No usable text could be extracted from this document.'
-    }));
-
-    const unavailableDocs = [...driveErrors, ...extractionErrors];
-
-    if (usable.length === 0) {
-      return res.status(422).json({
-        message: 'None of the candidate\'s documents had text that could be safely extracted and redacted for AI review. All documents need manual Secretariat review.',
-        unavailableDocuments: unavailableDocs
-      });
-    }
-
-    // Redact direct identifiers from the extracted text before it goes
-    // anywhere near Gemini. Best-effort — see server/lib/redact.js.
-    const documentTexts = usable.map(doc => ({
-      key: doc.key,
-      label: doc.label,
-      name: doc.name,
-      text: redactCandidateText(doc.text, candidate)
-    }));
-
-    // Non-identifying stand-in for the candidate's name in the prompt.
-    const caseRef = `${candidate.itemNumber}-${candidate._id.toString().slice(-6)}`;
-
-    const draft = await evaluateCandidateWithAI({
-      caseRef,
-      vacancy,
-      competencies,
-      documentTexts,
-      unavailableDocs
+    const job = await AiEvaluationJob.create({
+      candidateId: candidate._id,
+      triggeredBy: req.user.id,
+      status: 'processing',
+      stage: 'starting',
+      docsTotal: docsToFetch.length,
+      docsCompleted: 0
     });
 
-    // Best-effort audit trail — never let a logging failure break the
-    // actual feature.
-    try {
-      await AiEvaluationLog.create({
-        candidateId: candidate._id,
-        itemNumber: candidate.itemNumber,
-        triggeredBy: req.user.id,
-        triggeredByName: req.user.name || req.user.username || '',
-        modelUsed: draft.modelUsed || '',
-        suggestedStatus: draft.suggestedStatus || '',
-        documentsSent: documentTexts.map(d => ({ key: d.key, label: d.label, redacted: true })),
-        documentsSkipped: unavailableDocs.map(d => ({ key: d.key, label: d.label, reason: d.message })),
-        promptText: draft.promptSent || ''
+    // Deliberately not awaited — this is the whole point. The response
+    // below goes back to the client immediately; the job document is how
+    // progress and the final result get communicated from here on.
+    runAiEvaluationJob(job._id, candidate, vacancy, competencies, docsToFetch, req.user);
+
+    res.status(202).json({ jobId: job._id, docsTotal: docsToFetch.length });
+  } catch (error) {
+    console.error('[POST /candidates/:id/ai-evaluate]', error);
+    res.status(500).json({ message: 'Failed to start AI evaluation: ' + error.message });
+  }
+});
+
+// Polled by the frontend every ~1.5s while a job is in flight. Returns the
+// job's current progress, and — once status is 'done' or 'error' — the
+// same payload shape the old synchronous endpoint used to return directly,
+// so the rest of the frontend didn't need to change.
+router.get('/candidates/:id/ai-evaluate/status/:jobId', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin' && req.user.userType !== 'secretariat') {
+    return res.status(403).json({ message: 'Access denied' });
+  }
+
+  try {
+    const job = await AiEvaluationJob.findOne({ _id: req.params.jobId, candidateId: req.params.id });
+    if (!job) {
+      return res.status(404).json({ message: 'Evaluation job not found (it may have expired — try generating the draft again).' });
+    }
+
+    if (job.status === 'error') {
+      return res.status(job.httpStatus || 500).json({
+        message: job.message,
+        unavailableDocuments: job.unavailableDocuments
       });
-    } catch (logErr) {
-      console.warn('[AI evaluate] Failed to write audit log:', logErr.message);
     }
 
     res.json({
-      candidateId: candidate._id,
-      itemNumber: candidate.itemNumber,
-      generatedAt: new Date(),
-      ...draft
+      status: job.status,
+      stage: job.stage,
+      docsTotal: job.docsTotal,
+      docsCompleted: job.docsCompleted,
+      currentDocLabel: job.currentDocLabel,
+      result: job.status === 'done' ? job.result : undefined
     });
   } catch (error) {
-    console.error('[POST /candidates/:id/ai-evaluate]', error);
-    // Unlike other routes, we surface the real error message even in
-    // production here: it's a Gemini/Drive API error string, not user data,
-    // and hiding it makes this feature undebuggable from the UI alone.
-    res.status(500).json({ message: 'AI evaluation failed: ' + error.message });
+    console.error('[GET /candidates/:id/ai-evaluate/status/:jobId]', error);
+    res.status(500).json({ message: 'Failed to check AI evaluation status.' });
   }
 });
 

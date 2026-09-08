@@ -104,27 +104,42 @@ const XLSX_MIME_TYPES = new Set([
   'application/vnd.ms-excel' // legacy .xls — SheetJS reads this too
 ]);
 
-let ocrWorkerPromise = null;
-function getOcrWorker() {
-  if (!ocrWorkerPromise) {
-    ocrWorkerPromise = createWorker('eng', undefined, {
-      langPath: LOCAL_TESSDATA_PATH,
-      // Nothing was downloaded, so there's nothing worth writing back to a
-      // (nonexistent, ephemeral) cache — skip the cache-write attempt.
-      cacheMethod: 'none',
-      gzip: true
-    });
+// Small, FIXED-size pool of persistent OCR workers. A single worker means
+// every page/image OCR job queues up behind the one before it — safe, but
+// slow, and "safe but slow" is what turned a 90s client timeout into a
+// real problem once documents started being processed one at a time
+// instead of all at once. Two workers let two pages (within the SAME
+// document) OCR concurrently, which is a bounded, predictable memory cost
+// (each worker keeps its own ~5MB language model + WASM heap resident for
+// the life of the process) — very different from the unbounded "N whole
+// documents in flight at once" pattern that caused the original OOM.
+// Different DOCUMENTS are still always processed strictly one at a time
+// (see fetchAndExtractDriveDocs) — this pool only parallelizes pages
+// *inside* whichever single document is currently being OCR'd.
+const OCR_POOL_SIZE = 2;
+let ocrWorkerPoolPromise = null;
+function getOcrWorkerPool() {
+  if (!ocrWorkerPoolPromise) {
+    ocrWorkerPoolPromise = Promise.all(
+      Array.from({ length: OCR_POOL_SIZE }, () => createWorker('eng', undefined, {
+        langPath: LOCAL_TESSDATA_PATH,
+        // Nothing was downloaded, so there's nothing worth writing back to a
+        // (nonexistent, ephemeral) cache — skip the cache-write attempt.
+        cacheMethod: 'none',
+        gzip: true
+      }))
+    );
   }
-  return ocrWorkerPromise;
+  return ocrWorkerPoolPromise;
 }
 
 // Call this once at server shutdown if you want a clean exit; harmless to
 // skip since Render just kills the process on redeploy anyway.
 export async function terminateOcrWorker() {
-  if (ocrWorkerPromise) {
-    const worker = await ocrWorkerPromise;
-    await worker.terminate();
-    ocrWorkerPromise = null;
+  if (ocrWorkerPoolPromise) {
+    const workers = await ocrWorkerPoolPromise;
+    await Promise.all(workers.map(w => w.terminate()));
+    ocrWorkerPoolPromise = null;
   }
 }
 
@@ -145,7 +160,7 @@ async function extractFromPdf(buffer) {
 }
 
 async function extractFromImage(buffer) {
-  const worker = await getOcrWorker();
+  const [worker] = await getOcrWorkerPool();
   const { data } = await worker.recognize(buffer);
   return (data?.text || '').trim();
 }
@@ -168,8 +183,15 @@ function extractFromXlsx(buffer) {
 
 // Rasterizes a scanned (text-layer-less) PDF page-by-page using pdfjs-dist
 // (renders onto an in-memory @napi-rs/canvas canvas — no temp files, no
-// child process) and OCRs each resulting page image with the same
-// tesseract.js worker used for direct image uploads.
+// child process) and OCRs each resulting page image with the tesseract.js
+// worker pool used for direct image uploads.
+//
+// Pages are processed in chunks of OCR_POOL_SIZE (currently 2) — each
+// chunk renders + OCRs that many pages concurrently, one page per worker,
+// then moves to the next chunk. That roughly halves wall-clock time for a
+// multi-page scanned document versus doing every page fully sequentially,
+// while keeping the number of full-page canvas+PNG buffers in memory at
+// once bounded by the pool size rather than by how many pages the PDF has.
 async function rasterizeAndOcrPdf(buffer) {
   const loadingTask = getDocument({
     data: toUint8Array(buffer),
@@ -181,11 +203,11 @@ async function rasterizeAndOcrPdf(buffer) {
   let pdfDoc;
   try {
     pdfDoc = await loadingTask.promise;
-    const worker = await getOcrWorker();
+    const pool = await getOcrWorkerPool();
     const pageCount = Math.min(pdfDoc.numPages, MAX_RASTERIZE_PAGES);
-    const pageTexts = [];
+    const pageTexts = new Array(pageCount).fill('');
 
-    for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
+    const renderAndOcrPage = async (pageNum, worker) => {
       const page = await pdfDoc.getPage(pageNum);
       try {
         const viewport = page.getViewport({ scale: RASTER_SCALE });
@@ -195,14 +217,22 @@ async function rasterizeAndOcrPdf(buffer) {
 
         const pngBuffer = canvas.toBuffer('image/png');
         const { data } = await worker.recognize(pngBuffer);
-        const pageText = (data?.text || '').trim();
-        if (pageText) pageTexts.push(pageText);
+        pageTexts[pageNum - 1] = (data?.text || '').trim();
       } finally {
         page.cleanup();
       }
+    };
+
+    for (let start = 1; start <= pageCount; start += pool.length) {
+      const chunk = [];
+      for (let i = 0; i < pool.length && start + i <= pageCount; i++) {
+        chunk.push(renderAndOcrPage(start + i, pool[i]));
+      }
+      // eslint-disable-next-line no-await-in-loop
+      await Promise.all(chunk);
     }
 
-    return pageTexts.join('\n\n').trim();
+    return pageTexts.filter(Boolean).join('\n\n').trim();
   } finally {
     if (pdfDoc) await pdfDoc.destroy();
     else await loadingTask.destroy();
@@ -351,20 +381,27 @@ export async function extractTextFromFiles(files) {
 // download doc 1 -> extract doc 1 -> let its bytes/base64 be GC'd ->
 // download doc 2 -> extract doc 2 -> ... That way only one document's
 // raw bytes + base64 + (if applicable) rasterization/OCR memory is ever
-// resident at once, no matter how many documents a candidate has.
+// resident at once, no matter how many documents a candidate has. Pages
+// *within* a scanned document still OCR with limited concurrency (see the
+// worker pool above) to keep this from being needlessly slow.
 //
 // `docs` is an array of { key, label, url }.
+// `onProgress(current, total, label)`, if given, is called after each
+// document finishes (fetch failure or not) — this is what lets the
+// ai-evaluate job report real, checkpoint-based progress instead of an
+// indefinite spinner.
 // Returns:
 //   - usable: extraction results with enough text to use
 //   - insufficient: extraction results flagged as not usable
 //   - driveErrors: [{ key, label, message }] for documents that couldn't
 //     even be downloaded (missing/unshared/deleted/etc.)
-export async function fetchAndExtractDriveDocs(docs) {
+export async function fetchAndExtractDriveDocs(docs, onProgress) {
   const usable = [];
   const insufficient = [];
   const driveErrors = [];
 
-  for (const doc of docs) {
+  for (let i = 0; i < docs.length; i++) {
+    const doc = docs[i];
     let file;
     try {
       // eslint-disable-next-line no-await-in-loop
@@ -375,6 +412,7 @@ export async function fetchAndExtractDriveDocs(docs) {
         label: doc.label,
         message: err.message || 'Failed to fetch document'
       });
+      if (onProgress) onProgress(i + 1, docs.length, doc.label);
       continue;
     }
 
@@ -388,6 +426,7 @@ export async function fetchAndExtractDriveDocs(docs) {
     } else {
       usable.push(result);
     }
+    if (onProgress) onProgress(i + 1, docs.length, doc.label);
   }
 
   return { usable, insufficient, driveErrors };

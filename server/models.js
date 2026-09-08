@@ -464,6 +464,40 @@ systemSettingsSchema.statics.setFlag = async function(key, enabled, userId) {
   );
 };
 
+// Progress/result tracker for an in-flight AI evaluation. The evaluate
+// route used to do everything (Drive fetch + extraction + Gemini call) in
+// one synchronous request/response, which meant the client had to hold an
+// HTTP connection open for however long that took — and had no way to show
+// real progress, only an indefinite spinner. Now the route creates one of
+// these, returns its id immediately, and does the actual work in the
+// background while the client polls GET .../ai-evaluate/status/:jobId.
+// Persisted in Mongo (not an in-memory Map) so a Render restart mid-job
+// surfaces as a clean "job not found" on the next poll rather than a
+// silently-hung spinner. TTL-expires on its own after an hour — nobody
+// needs to keep evaluation jobs around once they've been read.
+const aiEvaluationJobSchema = new mongoose.Schema({
+  candidateId:   { type: mongoose.Schema.Types.ObjectId, ref: 'Candidate', required: true },
+  triggeredBy:   { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  status:        { type: String, enum: ['processing', 'done', 'error'], default: 'processing' },
+  // stage lets the frontend show a meaningful label, not just a percentage:
+  // 'starting' -> 'processing' (fetching/extracting docs one at a time) ->
+  // 'evaluating' (Gemini call) -> 'done' | 'error'.
+  stage:           { type: String, default: 'starting' },
+  docsTotal:       { type: Number, default: 0 },
+  docsCompleted:   { type: Number, default: 0 },
+  currentDocLabel: { type: String, default: '' },
+  // Set on status:'error' so the route can relay the same status code /
+  // message / unavailableDocuments shape the client already knows how to
+  // render, instead of a generic 500.
+  httpStatus:           { type: Number, default: 500 },
+  message:              { type: String, default: '' },
+  unavailableDocuments: [{ key: String, label: String, message: String }],
+  // The full draft payload (comments, suggestedStatus, flags, etc.) once
+  // status is 'done'.
+  result:        { type: mongoose.Schema.Types.Mixed },
+  createdAt:     { type: Date, default: Date.now, expires: 60 * 60 } // TTL: 1 hour
+});
+
 // Audit trail for the AI evaluation feature — who ran it, on which
 // candidate, what the model returned, and whether redaction/local text
 // extraction had to drop anything. Nothing here blocks the feature if
@@ -501,5 +535,6 @@ const InterviewSession = mongoose.model('InterviewSession', interviewSessionSche
 const PDFCache        = mongoose.model('PDFCache',         pdfCacheSchema);
 const SystemSettings  = mongoose.model('SystemSettings',   systemSettingsSchema);
 const AiEvaluationLog = mongoose.model('AiEvaluationLog',  aiEvaluationLogSchema);
+const AiEvaluationJob = mongoose.model('AiEvaluationJob',  aiEvaluationJobSchema);
 
-export { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, NotificationLog, InterviewSession, PDFCache, SystemSettings, AiEvaluationLog };
+export { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, NotificationLog, InterviewSession, PDFCache, SystemSettings, AiEvaluationLog, AiEvaluationJob };
