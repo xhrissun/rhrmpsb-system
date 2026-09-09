@@ -486,6 +486,25 @@ const aiEvaluationJobSchema = new mongoose.Schema({
   docsTotal:       { type: Number, default: 0 },
   docsCompleted:   { type: Number, default: 0 },
   currentDocLabel: { type: String, default: '' },
+  // Text extraction now happens in the BROWSER (pdf.js + tesseract.js
+  // running on the Secretariat user's own machine, not this server — see
+  // src/utils/clientTextExtraction.js). The server's only job during the
+  // 'processing' stage is to proxy raw document bytes to the client one at
+  // a time; each result lands here as the client finishes it. Once
+  // submittedDocs.length === docsTotal the server moves on to redaction +
+  // the Gemini call using this text — it never touches raw PDF/image
+  // bytes, never rasterizes a page, never runs OCR. That's what actually
+  // eliminates the OOM risk, rather than just tuning how carefully the
+  // server does that heavy lifting.
+  submittedDocs: [{
+    key: String,
+    label: String,
+    name: String,
+    text: String,
+    insufficient: Boolean,
+    method: String,
+    error: String
+  }],
   // Set on status:'error' so the route can relay the same status code /
   // message / unavailableDocuments shape the client already knows how to
   // render, instead of a generic 500.

@@ -276,16 +276,51 @@ export const candidatesAPI = {
     const response = await api.put(`/candidates/${id}/status`, { status, comments });
     return response.data;
   },
-  // AI-assisted draft, now run as a background job instead of one long
-  // synchronous request: fetching + extracting a candidate's documents one
-  // at a time (see server/lib/textExtraction.js) can take well over a
-  // minute for several scanned documents, and holding an HTTP request open
-  // that long gave the UI no way to show real progress — just a spinner.
-  // aiEvaluateStart kicks the job off and returns immediately with a
-  // jobId; aiEvaluateStatus is polled until status is 'done' or 'error'.
+  // AI-assisted draft — text extraction now happens in the BROWSER (see
+  // src/utils/clientTextExtraction.js), not on the server, to eliminate
+  // the OOM risk that came from rasterizing/OCR-ing documents on a
+  // memory-constrained server instance. The flow is:
+  //   1. aiEvaluateStart -> creates a job, returns the list of documents
+  //   2. for each doc: aiEvaluateFetchDocument (raw bytes) -> extract
+  //      locally -> aiEvaluateSubmitDocument (small text payload)
+  //   3. once every doc is submitted, the server redacts + calls Gemini;
+  //      aiEvaluateStatus is polled for that final result.
   aiEvaluateStart: async (id) => {
     const response = await api.post(`/candidates/${id}/ai-evaluate`);
-    return response.data; // { jobId, docsTotal }
+    return response.data; // { jobId, docsTotal, docs: [{key,label}] }
+  },
+  aiEvaluateFetchDocument: async (id, jobId, docKey) => {
+    try {
+      const response = await api.get(`/candidates/${id}/ai-evaluate/document/${jobId}/${docKey}`, {
+        responseType: 'arraybuffer'
+      });
+      const mimeType = response.headers['content-type'] || 'application/octet-stream';
+      const nameHeader = response.headers['x-document-name'];
+      return {
+        arrayBuffer: response.data,
+        mimeType,
+        name: nameHeader ? decodeURIComponent(nameHeader) : ''
+      };
+    } catch (error) {
+      // With responseType 'arraybuffer', an error response body (which the
+      // server sends as JSON) arrives as raw bytes too, not parsed JSON —
+      // decode it here so callers can keep reading error.response.data.message
+      // the same way they do for every other endpoint.
+      const raw = error.response?.data;
+      if (raw instanceof ArrayBuffer) {
+        try {
+          const text = new TextDecoder().decode(raw);
+          error.response.data = JSON.parse(text);
+        } catch {
+          // Not JSON — leave error.response.data as-is.
+        }
+      }
+      throw error;
+    }
+  },
+  aiEvaluateSubmitDocument: async (id, jobId, docKey, payload) => {
+    const response = await api.post(`/candidates/${id}/ai-evaluate/document/${jobId}/${docKey}`, payload);
+    return response.data; // { docsCompleted, docsTotal }
   },
   aiEvaluateStatus: async (id, jobId) => {
     const response = await api.get(`/candidates/${id}/ai-evaluate/status/${jobId}`);

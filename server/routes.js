@@ -8,7 +8,7 @@ import rateLimit from 'express-rate-limit';
 import { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, InterviewSession, PDFCache, SystemSettings, AiEvaluationLog, AiEvaluationJob } from './models.js';
 
 import { evaluateCandidateWithAI } from './lib/aiEvaluation.js';
-import { fetchAndExtractDriveDocs } from './lib/textExtraction.js';
+import { fetchDriveFile } from './lib/googleDrive.js';
 import { redactCandidateText } from './lib/redact.js';
 
 // Key used in the SystemSettings collection for the admin on/off toggle.
@@ -1417,51 +1417,34 @@ router.get('/diagnostics/drive-auth', authMiddleware, async (req, res) => {
   res.json(result);
 });
 
-// Does the actual Drive-fetch + extraction + redaction + Gemini-call work
-// for one AI evaluation job, updating `job` in Mongo as it goes so GET
-// .../ai-evaluate/status/:jobId has something real to report. Never
-// awaited by the route handler — runs after the response for the "start"
-// call has already gone back to the client.
-async function runAiEvaluationJob(jobId, candidate, vacancy, competencies, docsToFetch, user) {
+// Does the redaction + Gemini-call work for one AI evaluation job, once
+// the browser has finished submitting text for every document. Never
+// awaited by the route handler that triggers it — runs after that
+// response has already gone back to the client; GET .../status/:jobId is
+// how progress and the eventual result get reported from here on.
+//
+// Deliberately does NOT touch any raw document bytes: by the time this
+// runs, every document has already been downloaded, rasterized (if
+// needed), and OCR'd in the BROWSER (see src/utils/clientTextExtraction.js)
+// — this function only ever handles plain extracted text, which for even
+// a dozen documents is a few hundred KB at most. That's what actually
+// removes the OOM risk, rather than just being more careful about how the
+// server does that heavy lifting.
+async function finalizeAiEvaluationJob(jobId, candidate, vacancy, competencies, user) {
   try {
-    await AiEvaluationJob.findByIdAndUpdate(jobId, { stage: 'processing' });
+    const job = await AiEvaluationJob.findById(jobId);
+    if (!job) return;
 
-    // Fetches each document from Drive AND extracts its text one at a time
-    // (see fetchAndExtractDriveDocs in textExtraction.js) so only one
-    // document's raw bytes are ever resident in memory at once — this is
-    // what keeps a candidate with several (possibly scanned) documents
-    // from blowing past Render's 512MB instance limit. The raw PDF/image
-    // bytes never leave this server at any point in this process.
-    const { usable, insufficient, driveErrors } = await fetchAndExtractDriveDocs(
-      docsToFetch,
-      (docsCompleted, docsTotal, currentDocLabel) => {
-        // Best-effort progress ping — a failed write here shouldn't abort
-        // the evaluation itself, just leave the progress bar a step stale
-        // until the next document's update lands.
-        AiEvaluationJob.findByIdAndUpdate(jobId, { docsCompleted, docsTotal, currentDocLabel })
-          .catch(err => console.warn('[AI evaluate] progress update failed:', err.message));
-      }
-    );
+    const usable = job.submittedDocs.filter(d => !d.insufficient);
+    const insufficient = job.submittedDocs.filter(d => d.insufficient);
 
-    if (driveErrors.length > 0) {
-      console.warn('[AI evaluate] Drive fetch issues for candidate', candidate._id.toString(), driveErrors);
-    }
-
-    if (usable.length === 0 && insufficient.length === 0) {
-      await AiEvaluationJob.findByIdAndUpdate(jobId, {
-        status: 'error',
-        httpStatus: 422,
-        message: 'None of the candidate\'s documents could be retrieved from Google Drive. Check that the Drive folder is shared with the service account.',
-        unavailableDocuments: driveErrors
-      });
-      return;
-    }
-
-    const extractionErrors = insufficient.map(doc => ({
+    const unavailableDocs = insufficient.map(doc => ({
       key: doc.key,
       label: doc.label,
       message: doc.error
         ? `Could not extract text: ${doc.error}`
+        : doc.method === 'drive-fetch-error'
+        ? 'This document could not be downloaded from Google Drive in your browser. It was excluded from the AI draft and needs manual Secretariat review.'
         : doc.method === 'pdf-no-text-layer'
         ? 'This looks like a scanned image with no selectable text, and OCR on the rasterized pages didn\'t recover any readable text either (likely a blank, corrupted, or very low-quality scan). It was excluded from the AI draft and needs manual Secretariat review.'
         : doc.method === 'pdf-rasterize-error'
@@ -1471,13 +1454,11 @@ async function runAiEvaluationJob(jobId, candidate, vacancy, competencies, docsT
         : 'No usable text could be extracted from this document.'
     }));
 
-    const unavailableDocs = [...driveErrors, ...extractionErrors];
-
     if (usable.length === 0) {
       await AiEvaluationJob.findByIdAndUpdate(jobId, {
         status: 'error',
         httpStatus: 422,
-        message: 'None of the candidate\'s documents had text that could be safely extracted and redacted for AI review. All documents need manual Secretariat review.',
+        message: 'None of the candidate\'s documents had text that could be extracted and redacted for AI review. All documents need manual Secretariat review.',
         unavailableDocuments: unavailableDocs
       });
       return;
@@ -1494,8 +1475,6 @@ async function runAiEvaluationJob(jobId, candidate, vacancy, competencies, docsT
 
     // Non-identifying stand-in for the candidate's name in the prompt.
     const caseRef = `${candidate.itemNumber}-${candidate._id.toString().slice(-6)}`;
-
-    await AiEvaluationJob.findByIdAndUpdate(jobId, { stage: 'evaluating' });
 
     const draft = await evaluateCandidateWithAI({
       caseRef,
@@ -1534,10 +1513,10 @@ async function runAiEvaluationJob(jobId, candidate, vacancy, competencies, docsT
       }
     });
   } catch (error) {
-    console.error('[AI evaluate job]', jobId, error);
+    console.error('[AI evaluate finalize]', jobId, error);
     // Unlike other routes, we surface the real error message even in
-    // production here: it's a Gemini/Drive API error string, not user data,
-    // and hiding it makes this feature undebuggable from the UI alone.
+    // production here: it's a Gemini API error string, not user data, and
+    // hiding it makes this feature undebuggable from the UI alone.
     await AiEvaluationJob.findByIdAndUpdate(jobId, {
       status: 'error',
       httpStatus: 500,
@@ -1546,19 +1525,20 @@ async function runAiEvaluationJob(jobId, candidate, vacancy, competencies, docsT
   }
 }
 
-// Kicks off an AI evaluation as a background job and returns immediately
-// with a jobId — this used to do all the work (Drive fetch + extraction +
-// Gemini call, often well over a minute for a candidate with several
-// scanned documents) inline and made the client hold one HTTP request
-// open the whole time with no way to show real progress. Poll
-// GET /candidates/:id/ai-evaluate/status/:jobId for progress and the
-// eventual result.
+// Starts an AI evaluation job. Unlike the old version, this does NOT fetch
+// or process any documents itself — it just creates the job and hands the
+// browser the list of document keys/labels to work through. The browser
+// downloads each one (GET .../document/:jobId/:docKey), extracts its text
+// LOCALLY, and posts the result back (POST .../document/:jobId/:docKey).
+// Once every document has been submitted, the server redacts + calls
+// Gemini (see finalizeAiEvaluationJob) and GET .../status/:jobId reports
+// the result — same polling contract the frontend already used.
 router.post('/candidates/:id/ai-evaluate', aiEvaluateLimiter, authMiddleware, async (req, res) => {
   if (req.user.userType !== 'admin' && req.user.userType !== 'secretariat') {
     return res.status(403).json({ message: 'Access denied' });
   }
 
-  // Admin kill switch — checked before any Drive fetch or Gemini call.
+  // Admin kill switch — checked before anything else.
   const aiEvaluationEnabled = await SystemSettings.getFlag(AI_EVALUATION_SETTINGS_KEY, false);
   if (!aiEvaluationEnabled) {
     return res.status(403).json({ message: 'AI-assisted evaluation is currently turned off by an administrator. Ask an admin to enable it under Admin > System Settings.' });
@@ -1580,7 +1560,7 @@ router.post('/candidates/:id/ai-evaluate', aiEvaluateLimiter, authMiddleware, as
 
     const docsToFetch = CANDIDATE_DOC_FIELDS
       .filter(doc => candidate[doc.key])
-      .map(doc => ({ key: doc.key, label: doc.label, url: candidate[doc.key] }));
+      .map(doc => ({ key: doc.key, label: doc.label }));
 
     if (docsToFetch.length === 0) {
       return res.status(400).json({ message: 'This candidate has no uploaded documents to evaluate.' });
@@ -1590,31 +1570,132 @@ router.post('/candidates/:id/ai-evaluate', aiEvaluateLimiter, authMiddleware, as
       candidateId: candidate._id,
       triggeredBy: req.user.id,
       status: 'processing',
-      stage: 'starting',
+      stage: 'processing',
       docsTotal: docsToFetch.length,
       docsCompleted: 0
     });
 
-    // Deliberately not awaited — this is the whole point. The response
-    // below goes back to the client immediately; the job document is how
-    // progress and the final result get communicated from here on.
-    runAiEvaluationJob(job._id, candidate, vacancy, competencies, docsToFetch, req.user);
-
-    res.status(202).json({ jobId: job._id, docsTotal: docsToFetch.length });
+    // Note: no URLs are returned here — the document-proxy endpoint below
+    // re-resolves each key's Drive URL from the candidate record itself,
+    // so nothing about where these files live is ever exposed to the
+    // browser beyond "download document X for job Y".
+    res.status(202).json({ jobId: job._id, docsTotal: docsToFetch.length, docs: docsToFetch });
   } catch (error) {
     console.error('[POST /candidates/:id/ai-evaluate]', error);
     res.status(500).json({ message: 'Failed to start AI evaluation: ' + error.message });
   }
 });
 
-// Polled by the frontend every ~1.5s while a job is in flight. Returns the
-// job's current progress, and — once status is 'done' or 'error' — the
-// same payload shape the old synchronous endpoint used to return directly,
-// so the rest of the frontend didn't need to change.
-// How long a job can go without a progress update before we treat its
-// background process as dead (crashed/restarted) rather than just slow.
-// Comfortably above one document's worst-case OCR time, well below the
-// frontend's own 10-minute give-up cap.
+// Proxies ONE document's raw bytes from Google Drive to the browser, which
+// is the only reason this server still needs to touch them at all (only
+// the service account can authenticate to Drive). No parsing, no
+// rasterizing, no OCR happens here — the buffer is decoded from Drive's
+// response and sent straight through, then it's out of this process's
+// memory the moment the response finishes.
+router.get('/candidates/:id/ai-evaluate/document/:jobId/:docKey', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin' && req.user.userType !== 'secretariat') {
+    return res.status(403).json({ message: 'Access denied' });
+  }
+
+  try {
+    const job = await AiEvaluationJob.findOne({ _id: req.params.jobId, candidateId: req.params.id });
+    if (!job || job.status !== 'processing') {
+      return res.status(404).json({ message: 'Evaluation job not found or no longer accepting documents.' });
+    }
+
+    const docField = CANDIDATE_DOC_FIELDS.find(d => d.key === req.params.docKey);
+    const candidate = await Candidate.findById(req.params.id);
+    if (!docField || !candidate || !candidate[docField.key]) {
+      return res.status(404).json({ message: 'Document not found for this candidate.' });
+    }
+
+    const file = await fetchDriveFile(candidate[docField.key]);
+    const buffer = Buffer.from(file.base64, 'base64');
+    res.set('Content-Type', file.mimeType || 'application/octet-stream');
+    res.set('X-Document-Name', encodeURIComponent(file.name || docField.label));
+    res.send(buffer);
+  } catch (error) {
+    console.error('[GET /candidates/:id/ai-evaluate/document]', error);
+    res.status(502).json({ message: error.message || 'Failed to fetch document from Google Drive.' });
+  }
+});
+
+// Called by the browser once it's finished extracting one document's text
+// locally. Accumulates results on the job; once every document has been
+// submitted, kicks off the redact + Gemini step (finalizeAiEvaluationJob).
+router.post('/candidates/:id/ai-evaluate/document/:jobId/:docKey', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin' && req.user.userType !== 'secretariat') {
+    return res.status(403).json({ message: 'Access denied' });
+  }
+
+  try {
+    const job = await AiEvaluationJob.findOne({ _id: req.params.jobId, candidateId: req.params.id });
+    if (!job || job.status !== 'processing') {
+      return res.status(404).json({ message: 'Evaluation job not found or no longer accepting documents.' });
+    }
+
+    const docField = CANDIDATE_DOC_FIELDS.find(d => d.key === req.params.docKey);
+    if (!docField) return res.status(400).json({ message: 'Unknown document key.' });
+
+    const { text, insufficient, method, error, name } = req.body || {};
+
+    // Idempotent: a retried submission for the same key replaces the
+    // earlier one rather than double-counting it.
+    const submission = {
+      key: docField.key,
+      label: docField.label,
+      name: name || docField.label,
+      text: typeof text === 'string' ? text : '',
+      insufficient: !!insufficient,
+      method: method || 'unknown',
+      error: error || ''
+    };
+
+    const alreadySubmitted = job.submittedDocs.some(d => d.key === docField.key);
+    const updatedJob = await AiEvaluationJob.findByIdAndUpdate(
+      job._id,
+      alreadySubmitted
+        ? { $set: { 'submittedDocs.$[elem]': submission } }
+        : { $push: { submittedDocs: submission } },
+      alreadySubmitted
+        ? { arrayFilters: [{ 'elem.key': docField.key }], new: true }
+        : { new: true }
+    );
+
+    const docsCompleted = updatedJob.submittedDocs.length;
+    await AiEvaluationJob.findByIdAndUpdate(job._id, { docsCompleted, currentDocLabel: docField.label });
+
+    if (docsCompleted >= updatedJob.docsTotal) {
+      const candidate = await Candidate.findById(req.params.id);
+      const vacancy = await Vacancy.findOne({
+        itemNumber: candidate.itemNumber,
+        publicationRangeId: candidate.publicationRangeId
+      });
+      const competencies = await Competency.findByVacancy(vacancy._id);
+
+      await AiEvaluationJob.findByIdAndUpdate(job._id, { stage: 'evaluating' });
+      // Deliberately not awaited — same pattern as before: the response
+      // below goes back immediately, GET .../status/:jobId reports the
+      // eventual done/error result.
+      finalizeAiEvaluationJob(job._id, candidate, vacancy, competencies, req.user);
+    }
+
+    res.json({ docsCompleted, docsTotal: updatedJob.docsTotal });
+  } catch (error) {
+    console.error('[POST /candidates/:id/ai-evaluate/document]', error);
+    res.status(500).json({ message: 'Failed to record extracted document text.' });
+  }
+});
+
+// Polled by the frontend every ~1.5s while the Gemini step is in flight
+// (the browser drives its own progress bar during the per-document
+// extraction phase — see SecretariatView.jsx — so this mainly matters
+// once every document has been submitted and the job moves to
+// 'evaluating'). Returns the same payload shape the old synchronous
+// endpoint used to return directly, once status is 'done' or 'error'.
+// How long a job can go without a progress update before we treat it as
+// abandoned (e.g. the Secretariat closed the tab mid-upload, or the
+// finalize step's process died) rather than just slow.
 const AI_EVALUATION_JOB_STALE_MS = 3 * 60 * 1000;
 
 router.get('/candidates/:id/ai-evaluate/status/:jobId', authMiddleware, async (req, res) => {
@@ -1628,15 +1709,14 @@ router.get('/candidates/:id/ai-evaluate/status/:jobId', authMiddleware, async (r
       return res.status(404).json({ message: 'Evaluation job not found (it may have expired — try generating the draft again).' });
     }
 
-    // Self-heal a job whose background process died mid-run (e.g. an OOM
-    // restart) without ever getting to write an error status itself.
-    // Nothing else is watching this job, so the next status poll is the
-    // only place left that can notice it's gone stale.
+    // Self-heal a job nothing is updating anymore — either the finalize
+    // step's process died mid-run, or the browser tab that was supposed
+    // to be submitting documents went away.
     if (job.status === 'processing' && Date.now() - job.updatedAt.getTime() > AI_EVALUATION_JOB_STALE_MS) {
       job = await AiEvaluationJob.findByIdAndUpdate(job._id, {
         status: 'error',
         httpStatus: 500,
-        message: 'AI evaluation stopped unexpectedly (the server may have restarted partway through) before it finished. Please try generating the draft again.'
+        message: 'AI evaluation stopped unexpectedly (or the browser tab running it was closed) before it finished. Please try generating the draft again.'
       }, { new: true });
     }
 

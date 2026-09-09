@@ -14,7 +14,6 @@
     "npm": ">=8.0.0"
   },
   "dependencies": {
-    "@napi-rs/canvas": "^0.1.60",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "csv-parse": "^5.3.6",
@@ -24,12 +23,7 @@
     "express-rate-limit": "^7.0.0",
     "googleapis": "^140.0.1",
     "jsonwebtoken": "^9.0.0",
-    "mammoth": "^1.8.0",
-    "mongoose": "^7.0.0",
-    "pdf-parse": "^1.1.1",
-    "pdfjs-dist": "^4.0.0",
-    "tesseract.js": "^5.1.1",
-    "xlsx": "^0.18.5"
+    "mongoose": "^7.0.0"
   },
   "devDependencies": {
     "nodemon": "^2.0.20"

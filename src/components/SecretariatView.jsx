@@ -7,6 +7,7 @@ import { useToast } from '../utils/ToastContext';
 import { competenciesAPI } from '../utils/api';
 import { COMPETENCY_TYPES } from '../utils/constants';
 import CompetencyDetailModal from './CompetencyDetailModal';
+import { extractTextClientSide } from '../utils/clientTextExtraction';
 
 // Error Boundary Component
 class SecretariatErrorBoundary extends React.Component {
@@ -157,6 +158,7 @@ const SecretariatView = ({ user }) => {
   // not a fake/indefinite spinner). null while no job is running.
   const [aiProgress, setAiProgress] = useState(null); // { stage, docsCompleted, docsTotal, currentDocLabel }
   const aiPollRef = useRef(null); // interval id, so we can cancel on unmount/candidate change
+  const selectedCandidateRef = useRef(selectedCandidate); // lets the async extraction loop notice a mid-run candidate switch
 
   const [commentSuggestions, setCommentSuggestions] = useState({
     education: [],
@@ -637,6 +639,8 @@ const SecretariatView = ({ user }) => {
     setComments(prev => ({ ...prev, [field]: value }));
   }, []);
 
+  useEffect(() => { selectedCandidateRef.current = selectedCandidate; }, [selectedCandidate]);
+
   const stopAiPolling = useCallback(() => {
     if (aiPollRef.current) {
       clearInterval(aiPollRef.current);
@@ -654,13 +658,58 @@ const SecretariatView = ({ user }) => {
     const candidateIdAtStart = selectedCandidate;
 
     try {
-      const { jobId, docsTotal } = await candidatesAPI.aiEvaluateStart(candidateIdAtStart);
-      setAiProgress({ stage: 'processing', docsCompleted: 0, docsTotal, currentDocLabel: '' });
+      const { jobId, docsTotal, docs } = await candidatesAPI.aiEvaluateStart(candidateIdAtStart);
 
+      // Text extraction happens right here, in the browser, one document
+      // at a time — see src/utils/clientTextExtraction.js for why this
+      // moved off the server entirely (it's what was causing the repeated
+      // OOM crashes: rasterizing scanned pages + running OCR is inherently
+      // memory-hungry, and there's no way to make that safe on a fixed
+      // 512MB server budget no matter how it's sequenced). The server's
+      // only role now is proxying the raw bytes from Drive and, once every
+      // document below has been submitted, redacting + calling Gemini.
+      for (let i = 0; i < docs.length; i++) {
+        // The Secretariat switched to a different candidate mid-run —
+        // stop touching state for a modal that's no longer showing this job.
+        if (candidateIdAtStart !== selectedCandidateRef.current) return;
+
+        const doc = docs[i];
+        setAiProgress({ stage: 'processing', docsCompleted: i, docsTotal, currentDocLabel: doc.label });
+
+        let submission;
+        try {
+          const { arrayBuffer, mimeType, name } = await candidatesAPI.aiEvaluateFetchDocument(candidateIdAtStart, jobId, doc.key);
+          const extracted = await extractTextClientSide(arrayBuffer, mimeType, name || doc.label);
+          submission = { ...extracted, name: name || doc.label };
+        } catch (docErr) {
+          // One document failing to download/extract shouldn't abort the
+          // whole evaluation — record it as unavailable and move on, same
+          // as the server used to do per-document.
+          submission = {
+            text: '',
+            method: 'drive-fetch-error',
+            insufficient: true,
+            error: docErr.response?.data?.message || docErr.message || 'Failed to download this document.',
+            name: doc.label
+          };
+        }
+
+        // eslint-disable-next-line no-await-in-loop
+        await candidatesAPI.aiEvaluateSubmitDocument(candidateIdAtStart, jobId, doc.key, submission);
+        setAiProgress({ stage: 'processing', docsCompleted: i + 1, docsTotal, currentDocLabel: doc.label });
+      }
+
+      if (candidateIdAtStart !== selectedCandidateRef.current) return;
+      setAiProgress({ stage: 'evaluating', docsCompleted: docsTotal, docsTotal, currentDocLabel: '' });
+
+      // Every document has been submitted — the server has moved on to
+      // redacting + calling Gemini. Poll for that final result the same
+      // way as before (this part is unavoidably server-side: it's the
+      // one part of this feature that has to touch the model API).
       let consecutiveFailures = 0;
       const pollStartedAt = Date.now();
-      const MAX_CONSECUTIVE_FAILURES = 4; // tolerate a few blips (e.g. Render cold start) before giving up
-      const MAX_POLL_DURATION_MS = 10 * 60 * 1000; // don't poll forever if a job is truly stuck
+      const MAX_CONSECUTIVE_FAILURES = 4; // tolerate a few blips before giving up
+      const MAX_POLL_DURATION_MS = 5 * 60 * 1000; // just the Gemini call now, not document processing
 
       aiPollRef.current = setInterval(async () => {
         if (Date.now() - pollStartedAt > MAX_POLL_DURATION_MS) {
@@ -683,7 +732,6 @@ const SecretariatView = ({ user }) => {
             return;
           }
 
-          // Still running — update the real, checkpoint-based progress bar.
           setAiProgress({
             stage: status.stage,
             docsCompleted: status.docsCompleted || 0,
@@ -691,10 +739,8 @@ const SecretariatView = ({ user }) => {
             currentDocLabel: status.currentDocLabel || ''
           });
         } catch (pollErr) {
-          // A single failed poll can just be a transient network blip
-          // (e.g. the free-tier instance briefly restarting) — only give
-          // up after several in a row, so we don't kill a job that's
-          // actually fine the moment one request hiccups.
+          // A single failed poll can just be a transient network blip —
+          // only give up after several in a row.
           consecutiveFailures += 1;
           if (consecutiveFailures < MAX_CONSECUTIVE_FAILURES) return;
 
@@ -717,10 +763,16 @@ const SecretariatView = ({ user }) => {
         }
       }, 1500);
     } catch (error) {
-      console.error('Failed to start AI draft:', error);
+      console.error('Failed to generate AI draft:', error);
       setAiProgress(null);
       setAiLoading(false);
-      setAiError(error.response?.data?.message || error.message || 'Failed to start AI evaluation.');
+      const data = error.response?.data;
+      let message = data?.message || error.message || 'Failed to generate AI draft.';
+      if (data?.unavailableDocuments?.length) {
+        const details = data.unavailableDocuments.map(d => `${d.label}: ${d.message}`).join(' | ');
+        message += `  [${details}]`;
+      }
+      setAiError(message);
     }
   }, [selectedCandidate, stopAiPolling]);
 
