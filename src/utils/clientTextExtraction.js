@@ -138,17 +138,65 @@ async function extractFromDocx(arrayBuffer) {
   return (result.value || '').trim();
 }
 
+// Spreadsheet forms (like the CS Form 212 Personal Data Sheet) often carry
+// far-right "helper" columns that Excel's data-validation dropdowns read
+// from — e.g. a full list of ~195 country names, one per row, used purely
+// to populate a country picker. That column has real, non-blank content,
+// so a naive cell-by-cell dump (sheet_to_csv) includes it in full — on a
+// form with hundreds of rows that alone can add tens of thousands of
+// characters of pure noise, which then gets sent to Gemini (cost) and
+// stored in the audit log (database bloat) for zero benefit, since it's
+// never actually the candidate's own data.
+//
+// There's no fully general way to detect "this column is dropdown
+// scaffolding" from the cell values alone without hardcoding assumptions,
+// so instead of a per-template heuristic, this keeps the extraction
+// reasonably clean by working row-by-row (dropping fully-blank rows, which
+// eliminates most of the bulk from unused "Continuation" sheets) and then
+// relies on the hard MAX_EXTRACTED_CHARS cap below to catch whatever
+// noise slips through — so no single document, of any type, can ever blow
+// up a prompt or an audit-log record.
 async function extractFromXlsx(arrayBuffer) {
   const XLSX = await import('xlsx');
   const workbook = XLSX.read(arrayBuffer, { type: 'array' });
-  const sheetTexts = workbook.SheetNames.map(name => XLSX.utils.sheet_to_csv(workbook.Sheets[name]));
-  return sheetTexts.join('\n\n').trim();
+  const sheetTexts = workbook.SheetNames.map(name => {
+    const rows = XLSX.utils.sheet_to_json(workbook.Sheets[name], { header: 1, blankrows: false, defval: '' });
+    const lines = rows
+      .map(row => row.map(cell => String(cell ?? '').trim()).filter(Boolean))
+      .filter(cells => cells.length > 0)
+      .map(cells => cells.join(' | '));
+    return lines.join('\n');
+  });
+  return sheetTexts.filter(Boolean).join('\n\n').trim();
+}
+
+// Hard ceiling on any single document's extracted text, applied no matter
+// how it was extracted (OCR, PDF text layer, docx, xlsx). This exists as a
+// safety net independent of any format-specific cleanup above: it's what
+// actually guarantees a single pathological document (a spreadsheet with
+// unexpected helper columns, a garbled OCR pass on a dense table, etc.)
+// can never blow up a Gemini prompt's cost or bloat an audit-log record —
+// regardless of what new document types or edge cases show up later.
+const MAX_EXTRACTED_CHARS = 6000;
+
+function capExtractedText(text) {
+  if (!text || text.length <= MAX_EXTRACTED_CHARS) return text;
+  const omitted = text.length - MAX_EXTRACTED_CHARS;
+  return text.slice(0, MAX_EXTRACTED_CHARS) +
+    `\n\n[... truncated — ${omitted.toLocaleString()} more characters omitted. ` +
+    `This usually means the extracted content included non-essential formatting/padding; ` +
+    `check the original document directly if detail beyond this point matters. ...]`;
 }
 
 // Extracts text from one document's raw bytes, entirely client-side.
 // Returns { text, method, insufficient, error? } — same shape the server
 // used to produce internally, now built in the browser and POSTed back.
 export async function extractTextClientSide(arrayBuffer, mimeType, fileName = '') {
+  const result = await extractTextClientSideRaw(arrayBuffer, mimeType, fileName);
+  return { ...result, text: capExtractedText(result.text) };
+}
+
+async function extractTextClientSideRaw(arrayBuffer, mimeType, fileName = '') {
   const lowerName = (fileName || '').toLowerCase();
 
   try {

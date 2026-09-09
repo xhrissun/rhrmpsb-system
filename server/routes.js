@@ -1487,6 +1487,20 @@ async function finalizeAiEvaluationJob(jobId, candidate, vacancy, competencies, 
     // Best-effort audit trail — never let a logging failure break the
     // actual feature.
     try {
+      // promptText is stored purely for human debugging/audit purposes —
+      // it doesn't need full fidelity to be useful, and storing the
+      // complete prompt for every evaluation (potentially tens of
+      // thousands of characters once several documents are involved)
+      // across thousands of candidates adds up in the database for no
+      // real benefit. Capped here independently of the per-document cap
+      // in clientTextExtraction.js, since that cap bounds each document
+      // but not the combined total across all of them.
+      const MAX_STORED_PROMPT_CHARS = 20000;
+      const promptText = draft.promptSent || '';
+      const storedPromptText = promptText.length > MAX_STORED_PROMPT_CHARS
+        ? promptText.slice(0, MAX_STORED_PROMPT_CHARS) + `\n\n[... truncated for audit-log storage — ${(promptText.length - MAX_STORED_PROMPT_CHARS).toLocaleString()} more characters omitted ...]`
+        : promptText;
+
       await AiEvaluationLog.create({
         candidateId: candidate._id,
         itemNumber: candidate.itemNumber,
@@ -1496,7 +1510,7 @@ async function finalizeAiEvaluationJob(jobId, candidate, vacancy, competencies, 
         suggestedStatus: draft.suggestedStatus || '',
         documentsSent: documentTexts.map(d => ({ key: d.key, label: d.label, redacted: true })),
         documentsSkipped: unavailableDocs.map(d => ({ key: d.key, label: d.label, reason: d.message })),
-        promptText: draft.promptSent || ''
+        promptText: storedPromptText
       });
     } catch (logErr) {
       console.warn('[AI evaluate] Failed to write audit log:', logErr.message);
