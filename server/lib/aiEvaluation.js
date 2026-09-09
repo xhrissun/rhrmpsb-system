@@ -264,11 +264,14 @@ export async function evaluateCandidateWithAI({ caseRef, vacancy, competencies, 
       temperature: 0.2,
       responseMimeType: 'application/json',
       responseSchema: RESPONSE_SCHEMA,
-      // Comments are now short bullets rather than paragraphs, so the
-      // model needs far fewer output tokens — capping this saves on
-      // output-token cost (and output tends to be priced higher than
-      // input) without truncating anything a well-behaved response needs.
-      maxOutputTokens: 1200
+      // 1200 was tuned assuming short bullets, but a candidate with
+      // several usable documents (more common now that extraction happens
+      // client-side and succeeds far more often — see
+      // src/utils/clientTextExtraction.js) legitimately needs more room
+      // for four substantive comments + a rationale + flags. Getting cut
+      // off mid-string breaks the JSON entirely (see the retry below for
+      // what happens if this still isn't enough).
+      maxOutputTokens: 4096
     }
   };
 
@@ -284,13 +287,44 @@ export async function evaluateCandidateWithAI({ caseRef, vacancy, competencies, 
   }
 
   const data = await response.json();
+  const finishReason = data?.candidates?.[0]?.finishReason;
   const textOut = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '';
 
   let parsed;
   try {
     parsed = JSON.parse(textOut);
   } catch (err) {
-    throw new Error('Gemini returned non-JSON output: ' + textOut.slice(0, 300));
+    if (finishReason === 'MAX_TOKENS') {
+      // The output got cut off mid-string rather than the model producing
+      // malformed JSON — one retry with a much larger budget almost always
+      // fixes this (it's a budget problem, not a model-quality problem).
+      console.warn(`[Gemini] Response truncated at maxOutputTokens=4096 for model ${modelUsed}; retrying once with a larger budget.`);
+      const retryBody = { ...body, generationConfig: { ...body.generationConfig, maxOutputTokens: 8192 } };
+      const retry = await fetchGeminiWithFallback(retryBody, apiKey);
+      if (retry.response.ok) {
+        const retryData = await retry.response.json();
+        const retryFinishReason = retryData?.candidates?.[0]?.finishReason;
+        const retryText = retryData?.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '';
+        try {
+          parsed = JSON.parse(retryText);
+          // Falls through to the return below with the retried result.
+          return {
+            ...parsed,
+            modelUsed: retry.modelUsed,
+            documentsReviewed: finalTexts.map(f => ({ key: f.key, label: f.label })),
+            unavailableDocuments: allUnavailable,
+            promptSent: systemPrompt
+          };
+        } catch {
+          throw new Error(
+            `Gemini's response was truncated even at maxOutputTokens=8192 (finishReason: ${retryFinishReason}). ` +
+            `This candidate likely has an unusually large amount of extracted document text — try again, or ask an admin to raise the output token budget further.`
+          );
+        }
+      }
+      throw new Error(`Gemini returned truncated output and the retry with a larger budget also failed (${retry.response.status}).`);
+    }
+    throw new Error('Gemini returned non-JSON output' + (finishReason ? ` (finishReason: ${finishReason})` : '') + ': ' + textOut.slice(0, 300));
   }
 
   return {
