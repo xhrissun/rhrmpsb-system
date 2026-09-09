@@ -121,15 +121,16 @@ CANDIDATE DOCUMENTS (extracted text, redacted)
 ${documentSections}
 
 INSTRUCTIONS
-1. Education: Compare the Diploma / Transcript of Records / PDS education section against the QS education requirement. State plainly whether it is met, partially met, or not met, and why.
-2. Training: Compare Certificates and the PDS training section against the QS training requirement. Where a training clearly relates to one of the required competencies above, name that competency. Do not require certificates for a competency the QS doesn't ask for.
-3. Experience: Compare the Work Experience Sheet / Certificate of Employment / IPCR against the QS experience requirement, including years and relevance. Where the work history demonstrates a required competency in practice (not just years served), say so.
-4. Eligibility: Compare the Proof of Eligibility / Professional License against the QS eligibility requirement.
-5. Write each comment (education/training/experience/eligibility) as 1-3 short bullet points, each starting with "- " on its own line (use a literal newline character between bullets, not numbering, not markdown headers/bold). Each bullet under ~18 words, plain factual administrative language. Cite which document supports each claim (e.g., "- Per TOR, met — BS Forestry 2016."). If evidence is missing or a document was unavailable, say so in one short bullet instead of guessing. Be terse — do not restate the requirement text back, do not pad with filler sentences.
-6. Do not invent facts not present in the documents. If a document is unreadable or absent, note the gap rather than assuming the candidate meets the requirement.
-7. suggestedStatus is only a recommendation for a human to review — choose "long_list" if all four areas are adequately met, "for_review" if there is a genuine ambiguity or borderline case needing board discussion, or "disqualified" if a QS requirement is clearly and verifiably not met. Never choose "disqualified" on the basis of a merely missing/unretrieved document alone — flag it instead and default to "for_review".
-8. suggestedStatusRationale: ONE short sentence (under 25 words) summarizing the overall reason for the status.
-9. flags should list anything the Secretariat should manually double-check (missing documents, illegible scans, expired eligibility dates, redacted fields that need the human reviewer's own verification, etc). Each flag is a short phrase, not a sentence.
+1. Education: Compare the Diploma / Transcript of Records / PDS education section against the QS education requirement. State plainly whether it is met, partially met, or not met, and why. If a higher credential (e.g. a Master's/Doctoral unit or degree) is claimed in the PDS but the supporting Diploma/TOR for it is missing from the documents provided, do NOT treat it as met — say so and add an explicit warning bullet telling the Secretariat exactly what to verify (e.g., "- PDS claims MA units — check TOR/Diploma for these; not provided.").
+2. Training: List each relevant training/seminar found (PDS training section, Certificates) individually with its number of training hours in parentheses immediately after the name, e.g. "- Basic Occupational Safety and Health (40 hrs) — per Certificate." If an extracted document states the hours, always include that number this way — never drop it. If a training is named but no document in front of you states its hours, do not invent a number: write "(hours not stated — verify with certificate)" instead, as an explicit warning. Then state whether the total relevant hours meet the QS training requirement. Where a training clearly relates to one of the required competencies above, name that competency.
+3. Experience: List each relevant position individually with its duration in parentheses in years (and months if given), e.g. "- Environmental Management Specialist II, DENR-CENRO (3 yrs 4 mos) — per Work Experience Sheet." Compute the duration from the dates in the Work Experience Sheet / Service Record / Certificate of Employment / IPCR; never drop the year count. If the dates given are incomplete, contradictory, or missing, write "(duration unclear — verify with document)" instead of guessing, as an explicit warning. Then state whether the total relevant years meet the QS experience requirement. Where the work history demonstrates a required competency in practice (not just years served), say so.
+4. Eligibility: Compare the Proof of Eligibility / Professional License against the QS eligibility requirement. If an eligibility or license appears expired, unclear, or unverifiable from the text (e.g. a date that has passed, or a license number given with no visible validity date), add an explicit warning bullet saying so rather than assuming it is still valid.
+5. Write each comment (education/training/experience/eligibility) as short bullet points, each starting with "- " on its own line (use a literal newline character between bullets, not numbering, not markdown headers/bold). Each bullet under ~25 words, plain factual administrative language. Cite which document supports each claim (e.g., "- Per TOR, met — BS Forestry 2016."). If evidence is missing or a document was unavailable, say so in one short bullet instead of guessing. Be terse — do not restate the requirement text back, do not pad with filler sentences.
+6. Warnings belong IN the relevant comment, not only in the flags list. Any time something needs the Secretariat to manually double-check a specific document — a claim in the PDS not backed by the actual certificate/diploma/TOR, an expired-looking eligibility, unclear dates, an illegible or missing document affecting that specific area — write it as its own short bullet inside that comment, worded as a direct instruction to the reviewer (e.g., "- Check TOR for Master's units claimed in PDS.", "- Verify License No. validity — expiry unclear from scan."). A Secretariat officer reading only the Training comment, for example, should not need to also check the flags list to know a training's hours are unverified.
+7. Do not invent facts not present in the documents. If a document is unreadable or absent, note the gap rather than assuming the candidate meets the requirement.
+8. suggestedStatus is only a recommendation for a human to review — choose "long_list" if all four areas are adequately met, "for_review" if there is a genuine ambiguity or borderline case needing board discussion, or "disqualified" if a QS requirement is clearly and verifiably not met. Never choose "disqualified" on the basis of a merely missing/unretrieved document alone — flag it instead and default to "for_review".
+9. suggestedStatusRationale: ONE short sentence (under 25 words) summarizing the overall reason for the status.
+10. flags should list anything the Secretariat should manually double-check (missing documents, illegible scans, expired eligibility dates, redacted fields that need the human reviewer's own verification, etc) as a short checklist — this is in ADDITION to (not instead of) the inline warnings required in instruction 6, so the same concern may reasonably appear in both places. Each flag is a short phrase, not a sentence.
 
 Be as concise as possible everywhere above the minimum needed to be useful — this output is billed per token. Respond ONLY with JSON matching the provided schema, no other text.`;
 }
@@ -264,14 +265,12 @@ export async function evaluateCandidateWithAI({ caseRef, vacancy, competencies, 
       temperature: 0.2,
       responseMimeType: 'application/json',
       responseSchema: RESPONSE_SCHEMA,
-      // 1200 was tuned assuming short bullets, but a candidate with
-      // several usable documents (more common now that extraction happens
-      // client-side and succeeds far more often — see
-      // src/utils/clientTextExtraction.js) legitimately needs more room
-      // for four substantive comments + a rationale + flags. Getting cut
-      // off mid-string breaks the JSON entirely (see the retry below for
-      // what happens if this still isn't enough).
-      maxOutputTokens: 4096
+      // Comments now list each training/position individually with its
+      // hours/years plus any inline warnings, which is inherently longer
+      // than the old "1-3 short bullets" format — bumped up from 4096
+      // accordingly so more candidates succeed on the first try instead of
+      // needing the truncation-retry below.
+      maxOutputTokens: 6144
     }
   };
 
@@ -298,8 +297,8 @@ export async function evaluateCandidateWithAI({ caseRef, vacancy, competencies, 
       // The output got cut off mid-string rather than the model producing
       // malformed JSON — one retry with a much larger budget almost always
       // fixes this (it's a budget problem, not a model-quality problem).
-      console.warn(`[Gemini] Response truncated at maxOutputTokens=4096 for model ${modelUsed}; retrying once with a larger budget.`);
-      const retryBody = { ...body, generationConfig: { ...body.generationConfig, maxOutputTokens: 8192 } };
+      console.warn(`[Gemini] Response truncated at maxOutputTokens=6144 for model ${modelUsed}; retrying once with a larger budget.`);
+      const retryBody = { ...body, generationConfig: { ...body.generationConfig, maxOutputTokens: 10240 } };
       const retry = await fetchGeminiWithFallback(retryBody, apiKey);
       if (retry.response.ok) {
         const retryData = await retry.response.json();
@@ -317,7 +316,7 @@ export async function evaluateCandidateWithAI({ caseRef, vacancy, competencies, 
           };
         } catch {
           throw new Error(
-            `Gemini's response was truncated even at maxOutputTokens=8192 (finishReason: ${retryFinishReason}). ` +
+            `Gemini's response was truncated even at maxOutputTokens=10240 (finishReason: ${retryFinishReason}). ` +
             `This candidate likely has an unusually large amount of extracted document text — try again, or ask an admin to raise the output token budget further.`
           );
         }

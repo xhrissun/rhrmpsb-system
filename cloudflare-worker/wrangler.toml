@@ -1,0 +1,10 @@
+name = "rhrmpsb-doc-proxy"
+main = "worker.js"
+compatibility_date = "2026-01-01"
+
+# Secrets (set with `wrangler secret put NAME`, never committed here):
+#   GOOGLE_SERVICE_ACCOUNT_KEY  — same JSON value as Render's env var of the
+#                                 same name, copied verbatim.
+#   RENDER_API_BASE             — e.g. https://rhrmpsb-system.onrender.com/api
+#   ALLOWED_ORIGINS             — comma-separated, e.g.
+#                                 https://xhrissun.github.io,http://localhost:5173

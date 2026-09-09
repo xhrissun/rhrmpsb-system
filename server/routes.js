@@ -8,7 +8,7 @@ import rateLimit from 'express-rate-limit';
 import { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, InterviewSession, PDFCache, SystemSettings, AiEvaluationLog, AiEvaluationJob } from './models.js';
 
 import { evaluateCandidateWithAI } from './lib/aiEvaluation.js';
-import { fetchDriveFile } from './lib/googleDrive.js';
+import { fetchDriveFile, extractDriveFileId } from './lib/googleDrive.js';
 import { redactCandidateText } from './lib/redact.js';
 
 // Key used in the SystemSettings collection for the admin on/off toggle.
@@ -1617,6 +1617,45 @@ router.get('/candidates/:id/ai-evaluate/document/:jobId/:docKey', authMiddleware
   } catch (error) {
     console.error('[GET /candidates/:id/ai-evaluate/document]', error);
     res.status(502).json({ message: error.message || 'Failed to fetch document from Google Drive.' });
+  }
+});
+
+// Same authorization checks as the byte-proxy route above, but returns
+// only the Drive file ID as JSON instead of fetching+streaming the actual
+// bytes. This exists so the raw document transfer can happen OUTSIDE
+// Render entirely — see cloudflare-worker/worker.js — without moving the
+// authorization decision anywhere else. The Worker calls this endpoint
+// first, forwarding the browser's own Authorization header unchanged, and
+// only proceeds to fetch from Drive if Render says yes. Render remains the
+// single source of truth for "is this user allowed to see this document
+// for this job" either way; only the (large, bandwidth-costly) byte
+// transfer itself moves off Render's network.
+router.get('/candidates/:id/ai-evaluate/document-token/:jobId/:docKey', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin' && req.user.userType !== 'secretariat') {
+    return res.status(403).json({ message: 'Access denied' });
+  }
+
+  try {
+    const job = await AiEvaluationJob.findOne({ _id: req.params.jobId, candidateId: req.params.id });
+    if (!job || job.status !== 'processing') {
+      return res.status(404).json({ message: 'Evaluation job not found or no longer accepting documents.' });
+    }
+
+    const docField = CANDIDATE_DOC_FIELDS.find(d => d.key === req.params.docKey);
+    const candidate = await Candidate.findById(req.params.id);
+    if (!docField || !candidate || !candidate[docField.key]) {
+      return res.status(404).json({ message: 'Document not found for this candidate.' });
+    }
+
+    const driveFileId = extractDriveFileId(candidate[docField.key]);
+    if (!driveFileId) {
+      return res.status(422).json({ message: 'Could not determine the Google Drive file ID for this document.' });
+    }
+
+    res.json({ driveFileId, label: docField.label });
+  } catch (error) {
+    console.error('[GET /candidates/:id/ai-evaluate/document-token]', error);
+    res.status(500).json({ message: error.message || 'Failed to authorize document access.' });
   }
 });
 

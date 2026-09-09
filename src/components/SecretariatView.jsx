@@ -2752,6 +2752,7 @@ const SecretariatView = ({ user }) => {
                 placeholder="Add comments about education qualifications..."
                 aiSuggestion={aiDraft?.comments?.education}
                 onUseAiSuggestion={() => applyAiCommentField('education')}
+                disableSuggestions={!!aiDraft}
               />
               
               <CommentInput
@@ -2762,6 +2763,7 @@ const SecretariatView = ({ user }) => {
                 placeholder="Add comments about training requirements..."
                 aiSuggestion={aiDraft?.comments?.training}
                 onUseAiSuggestion={() => applyAiCommentField('training')}
+                disableSuggestions={!!aiDraft}
               />
               
               <CommentInput
@@ -2772,6 +2774,7 @@ const SecretariatView = ({ user }) => {
                 placeholder="Add comments about work experience..."
                 aiSuggestion={aiDraft?.comments?.experience}
                 onUseAiSuggestion={() => applyAiCommentField('experience')}
+                disableSuggestions={!!aiDraft}
               />
               
               <CommentInput
@@ -2782,6 +2785,7 @@ const SecretariatView = ({ user }) => {
                 placeholder="Add comments about eligibility requirements..."
                 aiSuggestion={aiDraft?.comments?.eligibility}
                 onUseAiSuggestion={() => applyAiCommentField('eligibility')}
+                disableSuggestions={!!aiDraft}
               />
             </div>
 
@@ -4913,7 +4917,7 @@ const AutocompleteInput = ({ label, value, onChange, options, placeholder, onAdd
 };
 
 // STEP 3: Fix CommentInput Component
-const CommentInput = ({ label, value, onChange, suggestions, placeholder, aiSuggestion, onUseAiSuggestion }) => {
+const CommentInput = ({ label, value, onChange, suggestions, placeholder, aiSuggestion, onUseAiSuggestion, disableSuggestions }) => {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [filteredSuggestions, setFilteredSuggestions] = useState([]);
   const inputRef = useRef(null);
@@ -4981,13 +4985,13 @@ const CommentInput = ({ label, value, onChange, suggestions, placeholder, aiSugg
           ref={inputRef}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          onFocus={() => setShowSuggestions(true)}
+          onFocus={() => !disableSuggestions && setShowSuggestions(true)}
           rows={3}
           className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           placeholder={placeholder}
         />
         
-        {showSuggestions && filteredSuggestions.length > 0 && (
+        {!disableSuggestions && showSuggestions && filteredSuggestions.length > 0 && (
           <div 
             ref={suggestionsRef}
             className="absolute z-10 w-full bottom-full mb-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto"
@@ -5010,9 +5014,14 @@ const CommentInput = ({ label, value, onChange, suggestions, placeholder, aiSugg
           </div>
         )}
       </div>
-      {suggestions.length > 0 && (
+      {!disableSuggestions && suggestions.length > 0 && (
         <p className="mt-1 text-xs text-gray-500">
           💡 Start typing to see suggestions from previous entries
+        </p>
+      )}
+      {disableSuggestions && (
+        <p className="mt-1 text-xs text-gray-400 italic">
+          Suggestions from previous entries are turned off while an AI draft is active, so they don't get mixed up with it.
         </p>
       )}
     </div>

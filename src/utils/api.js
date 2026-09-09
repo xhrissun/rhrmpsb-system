@@ -15,6 +15,32 @@ const api = axios.create({
   },
 });
 
+// Optional: base URL of the Cloudflare Worker that proxies AI-evaluate
+// document bytes (see cloudflare-worker/README.md). Cloudflare doesn't
+// bill for outbound bandwidth the way Render does, so routing the actual
+// document transfer through it instead of Render avoids racking up
+// Render's bandwidth quota/overage across thousands of candidates. If this
+// env var isn't set, aiEvaluateFetchDocument below falls back to fetching
+// through Render directly (fine for local dev; brings back the bandwidth
+// cost in production, so make sure it's configured there).
+const DOC_PROXY_BASE = import.meta.env.VITE_DOC_PROXY_BASE || '';
+const docProxyApi = DOC_PROXY_BASE
+  ? axios.create({ baseURL: DOC_PROXY_BASE })
+  : null;
+
+// Same bearer-token attachment as the main `api` instance — the Worker
+// forwards this header straight to Render's own auth check, so it needs
+// to look identical to what Render expects.
+if (docProxyApi) {
+  docProxyApi.interceptors.request.use((config) => {
+    const token = localStorage.getItem('authToken');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  });
+}
+
 // Request interceptor to add auth token
 api.interceptors.request.use(
   (config) => {
@@ -291,9 +317,13 @@ export const candidatesAPI = {
   },
   aiEvaluateFetchDocument: async (id, jobId, docKey) => {
     try {
-      const response = await api.get(`/candidates/${id}/ai-evaluate/document/${jobId}/${docKey}`, {
-        responseType: 'arraybuffer'
-      });
+      // Prefer the Cloudflare Worker (zero Render bandwidth cost) when
+      // it's configured; otherwise fall back to fetching through Render
+      // directly (works fine, just costs Render bandwidth — acceptable
+      // for local dev, not for production at volume).
+      const response = docProxyApi
+        ? await docProxyApi.get(`/document/${id}/${jobId}/${docKey}`, { responseType: 'arraybuffer' })
+        : await api.get(`/candidates/${id}/ai-evaluate/document/${jobId}/${docKey}`, { responseType: 'arraybuffer' });
       const mimeType = response.headers['content-type'] || 'application/octet-stream';
       const nameHeader = response.headers['x-document-name'];
       return {

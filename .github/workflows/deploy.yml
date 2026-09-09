@@ -32,7 +32,16 @@ jobs:
         run: npm install
         
       - name: Build
+        # VITE_DOC_PROXY_BASE points the app at the Cloudflare Worker that
+        # proxies AI-evaluate document bytes with zero Render bandwidth
+        # cost (see cloudflare-worker/README.md). Set it as a repo secret
+        # (Settings > Secrets and variables > Actions) once the Worker is
+        # deployed. If left unset, the app falls back to fetching documents
+        # through Render directly — functional, but brings back the
+        # bandwidth cost this exists to avoid.
         run: npm run build
+        env:
+          VITE_DOC_PROXY_BASE: ${{ secrets.VITE_DOC_PROXY_BASE }}
         
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
