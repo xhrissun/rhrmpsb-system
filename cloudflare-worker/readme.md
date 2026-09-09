@@ -93,4 +93,4 @@ same service-account credentials Render already uses.
 Any time `worker.js` changes, redeploy with `wrangler deploy` from this
 folder. Secrets persist across deploys — you only need to set them again
 if a credential actually rotates (e.g. you regenerate the service account
-key).
+key)..
