@@ -6,9 +6,9 @@
 // handling, and templates stay consistent regardless of which provider
 // is actually doing the sending.
 //
-// Two providers are supported, switched with one env var:
+// Three providers are supported, switched with one env var:
 //
-//   EMAIL_PROVIDER = "resend" (default) | "gmail"
+//   EMAIL_PROVIDER = "resend" (default) | "gmail" | "brevo"
 //
 // ── Resend ───────────────────────────────────────────────────────────────
 //   RESEND_API_KEY    - Resend API key (dashboard -> API Keys)
@@ -23,14 +23,29 @@
 //                         password). Requires 2-Step Verification to be
 //                         enabled on the Google account; generate one at
 //                         https://myaccount.google.com/apppasswords
-//   No domain verification needed, and there's no "only send to yourself"
-//   restriction — it sends as a normal Gmail message. Gmail does cap
-//   sending at ~500/day on a regular account, so it suits small teams
-//   during development better than high-volume production use.
+//   IMPORTANT: this connects over SMTP (port 465), and Render's free-tier
+//   web services block all outbound SMTP traffic (ports 25/465/587) as of
+//   Sept 2025 — sends will hang and time out there. This provider only
+//   works locally or on a paid Render instance (or another host that
+//   doesn't block SMTP). The same restriction applies to Outlook/Yahoo/any
+//   other SMTP-based sender — it's not Gmail-specific.
+//
+// ── Brevo (formerly Sendinblue) ──────────────────────────────────────────
+//   BREVO_API_KEY   - from Brevo dashboard -> SMTP & API -> API Keys
+//   BREVO_FROM_EMAIL - a sender address verified in Brevo (Senders, Domains
+//                      & Dedicated IPs -> Senders -> Add a Sender). No
+//                      domain purchase required — you can verify a plain
+//                      Gmail-style address by clicking the confirmation
+//                      link Brevo emails to it. Unlike Resend's sandbox,
+//                      a verified single sender can send to ANY recipient.
+//   BREVO_FROM_NAME  - optional display name, defaults to "DENR RHRMPSB"
+//   Uses Brevo's HTTPS API (not SMTP), so it works on Render's free tier.
+//   Free plan: 300 emails/day, no time limit, no card required — the best
+//   fit here while there's no budget for a domain or a paid Render plan.
 //
 //   FRONTEND_URL       - base URL of the deployed frontend, e.g.
 //                         "https://xhrissun.github.io/rhrmpsb-system"
-//                         (used by both providers)
+//                         (used by all providers)
 //
 // Whichever provider is selected, if its required env vars aren't set,
 // these functions log a warning and no-op rather than crash the request
@@ -59,6 +74,12 @@ const gmailTransport = (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD
   : null;
 const GMAIL_FROM = `DENR RHRMPSB <${process.env.GMAIL_USER}>`;
 
+// ── Brevo setup ──────────────────────────────────────────────────────────
+const BREVO_API_KEY = process.env.BREVO_API_KEY || null;
+const BREVO_FROM_EMAIL = process.env.BREVO_FROM_EMAIL || '';
+const BREVO_FROM_NAME = process.env.BREVO_FROM_NAME || 'DENR RHRMPSB';
+
+
 const wrap = (bodyHtml) => `
   <div style="font-family: Arial, Helvetica, sans-serif; max-width: 480px; margin: 0 auto; color: #1e293b;">
     <div style="background: linear-gradient(135deg,#0f172a,#166534); padding: 20px 24px; border-radius: 12px 12px 0 0;">
@@ -75,6 +96,7 @@ const wrap = (bodyHtml) => `
 
 async function send({ to, subject, html }) {
   if (PROVIDER === 'gmail') return sendViaGmail({ to, subject, html });
+  if (PROVIDER === 'brevo') return sendViaBrevo({ to, subject, html });
   return sendViaResend({ to, subject, html });
 }
 
@@ -102,6 +124,38 @@ async function sendViaGmail({ to, subject, html }) {
     return result;
   } catch (error) {
     console.error('[email] Gmail send failed:', error);
+    throw new Error('Failed to send email notification');
+  }
+}
+
+async function sendViaBrevo({ to, subject, html }) {
+  if (!BREVO_API_KEY || !BREVO_FROM_EMAIL) {
+    console.warn(`[email] BREVO_API_KEY/BREVO_FROM_EMAIL not configured — skipped sending "${subject}" to ${to}`);
+    return { skipped: true };
+  }
+  try {
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'api-key': BREVO_API_KEY,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        sender: { email: BREVO_FROM_EMAIL, name: BREVO_FROM_NAME },
+        to: [{ email: to }],
+        subject,
+        htmlContent: html,
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      console.error('[email] Brevo send failed:', response.status, data);
+      throw new Error('Failed to send email notification');
+    }
+    return data;
+  } catch (error) {
+    console.error('[email] Brevo send failed:', error);
     throw new Error('Failed to send email notification');
   }
 }
