@@ -1849,6 +1849,16 @@ async function finalizeAiEvaluationJob(jobId, candidate, vacancy, competencies, 
         : 'No usable text could be extracted from this document.'
     }));
 
+    // Document types that have NO link on the candidate record at all —
+    // distinct from the ones above, which WERE linked but couldn't be read.
+    // Without this, Gemini has no way to tell "this candidate genuinely
+    // never submitted a Work Experience Sheet" apart from "one was
+    // submitted but the text extraction/OCR failed on it" — both used to
+    // just be silently absent from the prompt.
+    const neverLinkedDocs = CANDIDATE_DOC_FIELDS
+      .filter(field => !candidate[field.key])
+      .map(field => ({ key: field.key, label: field.label }));
+
     if (usable.length === 0) {
       await AiEvaluationJob.findByIdAndUpdate(jobId, {
         status: 'error',
@@ -1876,7 +1886,8 @@ async function finalizeAiEvaluationJob(jobId, candidate, vacancy, competencies, 
       vacancy,
       competencies,
       documentTexts,
-      unavailableDocs
+      unavailableDocs,
+      neverLinkedDocs
     });
 
     // Best-effort audit trail — never let a logging failure break the
@@ -1904,7 +1915,10 @@ async function finalizeAiEvaluationJob(jobId, candidate, vacancy, competencies, 
         modelUsed: draft.modelUsed || '',
         suggestedStatus: draft.suggestedStatus || '',
         documentsSent: documentTexts.map(d => ({ key: d.key, label: d.label, redacted: true })),
-        documentsSkipped: unavailableDocs.map(d => ({ key: d.key, label: d.label, reason: d.message })),
+        documentsSkipped: [
+          ...unavailableDocs.map(d => ({ key: d.key, label: d.label, reason: d.message })),
+          ...neverLinkedDocs.map(d => ({ key: d.key, label: d.label, reason: 'No document of this type on file for this candidate' }))
+        ],
         promptText: storedPromptText
       });
     } catch (logErr) {

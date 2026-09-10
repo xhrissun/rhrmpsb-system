@@ -82,14 +82,18 @@ const RESPONSE_SCHEMA = {
 // just the item number plus a short non-reversible-looking suffix, enough
 // for the model to keep one candidate's documents straight within a single
 // request, but it carries no name/address/PII on its own.
-function buildSystemPrompt({ caseRef, vacancy, competencies, documentTexts, unavailableDocs }) {
+function buildSystemPrompt({ caseRef, vacancy, competencies, documentTexts, unavailableDocs, neverLinkedDocs }) {
   const qs = vacancy?.qualifications || {};
   const competencyLines = (competencies || [])
     .map(c => `- [${c.type}] ${c.name}`)
     .join('\n') || '(none on file for this item)';
 
   const missingDocsNote = unavailableDocs.length
-    ? `\nThe following documents could NOT be used as evidence (missing, unshared, deleted, illegible, or no extractable text) and must be treated as absent evidence, not as disqualifying by themselves unless the Qualification Standards require them: ${unavailableDocs.map(d => d.label).join(', ')}.`
+    ? `\nThe following documents WERE submitted but could NOT be used as evidence (missing, unshared, deleted, illegible, or no extractable text) and must be treated as absent evidence, not as disqualifying by themselves unless the Qualification Standards require them: ${unavailableDocs.map(d => d.label).join(', ')}.`
+    : '';
+
+  const neverLinkedNote = (neverLinkedDocs && neverLinkedDocs.length)
+    ? `\nThe following document types were NEVER SUBMITTED by this candidate at all (no file on file, not merely unreadable) — treat as absent evidence for whichever area they'd support, same non-disqualifying rule as above: ${neverLinkedDocs.map(d => d.label).join(', ')}.`
     : '';
 
   const documentSections = documentTexts.length
@@ -115,7 +119,7 @@ QUALIFICATION STANDARDS FOR THIS ITEM
 
 REQUIRED COMPETENCIES FOR THIS ITEM
 ${competencyLines}
-${missingDocsNote}
+${missingDocsNote}${neverLinkedNote}
 
 CANDIDATE DOCUMENTS (extracted text, redacted)
 ${documentSections}
@@ -227,7 +231,7 @@ async function fetchGeminiWithFallback(body, apiKey) {
 // function no longer sends any raw file bytes (no inlineData) to Gemini at
 // all — only the redacted text goes over the wire, plus a non-identifying
 // case reference in place of the candidate's name.
-export async function evaluateCandidateWithAI({ caseRef, vacancy, competencies, documentTexts, unavailableDocs }) {
+export async function evaluateCandidateWithAI({ caseRef, vacancy, competencies, documentTexts, unavailableDocs, neverLinkedDocs = [] }) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY environment variable is not set');
@@ -257,7 +261,7 @@ export async function evaluateCandidateWithAI({ caseRef, vacancy, competencies, 
 
   const allUnavailable = [...unavailableDocs, ...droppedForSize];
 
-  const systemPrompt = buildSystemPrompt({ caseRef, vacancy, competencies, documentTexts: finalTexts, unavailableDocs: allUnavailable });
+  const systemPrompt = buildSystemPrompt({ caseRef, vacancy, competencies, documentTexts: finalTexts, unavailableDocs: allUnavailable, neverLinkedDocs });
 
   const body = {
     contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
@@ -312,6 +316,7 @@ export async function evaluateCandidateWithAI({ caseRef, vacancy, competencies, 
             modelUsed: retry.modelUsed,
             documentsReviewed: finalTexts.map(f => ({ key: f.key, label: f.label })),
             unavailableDocuments: allUnavailable,
+            neverLinkedDocuments: neverLinkedDocs,
             promptSent: systemPrompt
           };
         } catch {
@@ -331,6 +336,7 @@ export async function evaluateCandidateWithAI({ caseRef, vacancy, competencies, 
     modelUsed,
     documentsReviewed: finalTexts.map(f => ({ key: f.key, label: f.label })),
     unavailableDocuments: allUnavailable,
+    neverLinkedDocuments: neverLinkedDocs,
     // The exact text of the request sent to Gemini (system prompt +
     // redacted document text). Returned so the caller can show/audit
     // precisely what left this server, for privacy verification — this

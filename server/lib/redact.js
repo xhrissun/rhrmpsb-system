@@ -99,11 +99,32 @@ function redactIdPatterns(text) {
   return out;
 }
 
+// Standalone address rows in a form (PDS, application forms) are short —
+// typically under a dozen words. A line THIS short that contains an
+// address keyword is almost certainly nothing but an address, so wiping
+// it wholesale is safe. A LONGER line (a Letter of Intent paragraph, a
+// Work Experience Sheet entry that got OCR'd/extracted as one long line)
+// that merely mentions a street or city in passing is prose with real
+// substance — wiping the whole thing destroyed entire documents' content
+// in practice. For those, only the local phrase around the keyword is
+// redacted, leaving the rest of the line intact.
+const MAX_WORDS_FOR_WHOLE_LINE_REDACTION = 12;
+
 function redactAddressLines(text) {
-  const pattern = new RegExp(`(${PH_ADDRESS_KEYWORDS.join('|')})`, 'i');
+  const keywordPattern = new RegExp(`\\b(${PH_ADDRESS_KEYWORDS.join('|')})\\b`, 'i');
+  const windowPattern = new RegExp(`(?:\\S+\\s+){0,4}\\b(?:${PH_ADDRESS_KEYWORDS.join('|')})\\b(?:\\s+\\S+){0,6}`, 'gi');
+
   return text
     .split('\n')
-    .map(line => (pattern.test(line) ? '[ADDRESS LINE REDACTED]' : line))
+    .map(line => {
+      if (!keywordPattern.test(line)) return line;
+
+      const wordCount = line.trim().split(/\s+/).filter(Boolean).length;
+      if (wordCount <= MAX_WORDS_FOR_WHOLE_LINE_REDACTION) {
+        return '[ADDRESS LINE REDACTED]';
+      }
+      return line.replace(windowPattern, '[ADDRESS REDACTED]');
+    })
     .join('\n');
 }
 

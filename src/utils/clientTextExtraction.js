@@ -75,7 +75,7 @@ async function extractPdfTextLayer(arrayBuffer) {
       const page = await pdfDoc.getPage(pageNum);
       // eslint-disable-next-line no-await-in-loop
       const content = await page.getTextContent();
-      const pageText = content.items.map(item => item.str).join(' ').trim();
+      const pageText = reconstructLines(content.items);
       if (pageText) pageTexts.push(pageText);
       page.cleanup();
     }
@@ -83,6 +83,51 @@ async function extractPdfTextLayer(arrayBuffer) {
   } finally {
     await pdfDoc.destroy();
   }
+}
+
+// getTextContent() returns a flat list of text fragments with NO line-break
+// information attached — the previous version joined every fragment on a
+// page with a plain space, which silently flattened an entire page (e.g. a
+// whole Letter of Intent, address block and body text alike) into a single
+// line. That single collapsed "line" is what let redact.js's old per-line
+// address filter wipe out an entire document's substance whenever an
+// address appeared anywhere on the page — the redaction wasn't wrong given
+// what it was handed, but what it was handed had already lost all
+// structure. Reconstructing real lines here fixes the actual root cause
+// (structure loss) rather than only patching the symptom in redact.js.
+//
+// Each text item carries a `transform` matrix; transform[5] is the
+// fragment's baseline Y position in PDF space (origin bottom-left, Y
+// increases upward). Fragments whose baselines land within Y_TOLERANCE of
+// each other are treated as the same visual line, then lines are ordered
+// top-to-bottom and fragments within a line left-to-right by X position.
+const LINE_Y_TOLERANCE = 2;
+
+function reconstructLines(items) {
+  if (!items.length) return '';
+  const lines = [];
+  for (const item of items) {
+    const y = item.transform[5];
+    const x = item.transform[4];
+    let line = lines.find(l => Math.abs(l.y - y) <= LINE_Y_TOLERANCE);
+    if (!line) {
+      line = { y, fragments: [] };
+      lines.push(line);
+    }
+    line.fragments.push({ x, str: item.str });
+  }
+  lines.sort((a, b) => b.y - a.y); // PDF Y increases upward -> descending = top to bottom
+  return lines
+    .map(line =>
+      line.fragments
+        .sort((a, b) => a.x - b.x)
+        .map(f => f.str)
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+    )
+    .filter(Boolean)
+    .join('\n');
 }
 
 // Rasterizes a scanned (text-layer-less) PDF page-by-page onto a plain
@@ -156,6 +201,57 @@ async function extractFromDocx(arrayBuffer) {
 // relies on the hard MAX_EXTRACTED_CHARS cap below to catch whatever
 // noise slips through — so no single document, of any type, can ever blow
 // up a prompt or an audit-log record.
+// Some fillable spreadsheet forms use a far-right "helper" column that a
+// dropdown/data-validation cell reads its option list from — e.g. one
+// country per row, ~195 rows deep, used purely to populate a Citizenship
+// picker. Since it's real, non-blank cell content, a naive dump includes
+// it in full on every row that happens to have a value in that column,
+// which is exactly what showed up as a long unrelated country appended to
+// otherwise-normal PDS rows. It's a small, closed, always-identical list,
+// so it's safe to strip by exact match rather than relying solely on the
+// length cap below to hide it after the fact.
+const DROPDOWN_NOISE_VALUES = new Set([
+  'afghanistan','albania','algeria','andorra','angola','argentina','armenia','australia','austria',
+  'azerbaijan','bahamas, the','bahrain','bangladesh','barbados','belarus','belgium','belize','benin',
+  'bhutan','bolivia','bosnia and herzegovina','botswana','brazil','brunei','bulgaria','burkina faso',
+  'burma','burundi','cambodia','cameroon','canada','cape verde','central african republic','chad',
+  'chile','china','colombia','comoros','congo, democratic republic of the','congo, republic of the',
+  'costa rica',"cote d'ivoire",'croatia','cuba','curacao','cyprus','czech republic','djibouti',
+  'dominica','dominican republic','east timor','ecuador','egypt','el salvador','equatorial guinea',
+  'eritrea','estonia','ethiopia','fiji','finland','france','gabon','gambia, the','georgia','germany',
+  'ghana','greece','grenada','guatemala','guinea','guinea-bissau','guyana','haiti','holy see',
+  'honduras','hong kong','hungary','iceland','india','indonesia','iran','iraq','ireland','israel',
+  'italy','jamaica','japan','jordan','kazakhstan','kenya','kiribati','korea, north','korea, south',
+  'kosovo','kuwait','kyrgyzstan','laos','latvia','lebanon','lesotho','liberia','libya','liechtenstein',
+  'lithuania','luxembourg','macau','macedonia','madagascar','malawi','malaysia','maldives','mali',
+  'malta','marshall islands','mauritania','mauritius','mexico','micronesia','moldova','monaco',
+  'mongolia','montenegro','morocco','mozambique','namibia','nauru','nepal','netherlands',
+  'netherlands antilles','new zealand','nicaragua','niger','nigeria','north korea','norway','oman',
+  'pakistan','palau','palestinian territories','panama','papua new guinea','paraguay','peru',
+  'philippines','poland','portugal','qatar','romania','russia','rwanda','saint kitts and nevis',
+  'saint lucia','saint vincent and the grenadines','samoa','san marino','sao tome and principe',
+  'saudi arabia','senegal','serbia','seychelles','sierra leone','singapore','sint maarten','slovakia',
+  'slovenia','solomon islands','somalia','south africa','south korea','south sudan','spain',
+  'sri lanka','sudan','suriname','swaziland','sweden','switzerland','syria','taiwan','tajikistan',
+  'tanzania','thailand','timor-leste','togo','tonga','trinidad and tobago','tunisia','turkey',
+  'turkmenistan','tuvalu','uganda','ukraine','united arab emirates','united kingdom','uruguay',
+  'uzbekistan','vanuatu','venezuela','vietnam','yemen','zambia','zimbabwe'
+]);
+
+// Drops trailing cells that are nothing but a dropdown-helper value (see
+// above), so a row's real content survives untouched but the appended
+// noise column doesn't. Only trims from the END of the row — a country
+// name that's genuinely part of the candidate's own data (e.g. an actual
+// answer to a "country" field) stays put, since real answers aren't
+// followed by nothing but more noise.
+function stripDropdownNoiseCells(cells) {
+  const out = [...cells];
+  while (out.length > 1 && DROPDOWN_NOISE_VALUES.has(out[out.length - 1].toLowerCase())) {
+    out.pop();
+  }
+  return out;
+}
+
 async function extractFromXlsx(arrayBuffer) {
   const XLSX = await import('xlsx');
   const workbook = XLSX.read(arrayBuffer, { type: 'array' });
@@ -163,6 +259,7 @@ async function extractFromXlsx(arrayBuffer) {
     const rows = XLSX.utils.sheet_to_json(workbook.Sheets[name], { header: 1, blankrows: false, defval: '' });
     const lines = rows
       .map(row => row.map(cell => String(cell ?? '').trim()).filter(Boolean))
+      .map(stripDropdownNoiseCells)
       .filter(cells => cells.length > 0)
       .map(cells => cells.join(' | '));
     return lines.join('\n');

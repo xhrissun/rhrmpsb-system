@@ -153,7 +153,7 @@ const SecretariatView = ({ user }) => {
   // AI-assisted draft (Update Status modal) — draft only, never auto-saved.
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState('');
-  const [aiDraft, setAiDraft] = useState(null); // { comments, suggestedStatus, suggestedStatusRationale, flags, unavailableDocuments }
+  const [aiDraft, setAiDraft] = useState(null); // { comments, suggestedStatus, suggestedStatusRationale, flags, unavailableDocuments, neverLinkedDocuments }
   // Real progress for the currently-running job (polled from the backend —
   // not a fake/indefinite spinner). null while no job is running.
   const [aiProgress, setAiProgress] = useState(null); // { stage, docsCompleted, docsTotal, currentDocLabel }
@@ -2592,6 +2592,19 @@ const SecretariatView = ({ user }) => {
                               <span className="font-semibold">{d.label}:</span>{' '}
                               <span className="italic">{d.message || 'Reason not reported.'}</span>
                             </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {aiDraft.neverLinkedDocuments?.length > 0 && (
+                      <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5">
+                        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1">
+                          Not on file ({aiDraft.neverLinkedDocuments.length})
+                        </p>
+                        <ul className="text-xs text-gray-600 space-y-1">
+                          {aiDraft.neverLinkedDocuments.map((d, i) => (
+                            <li key={i}>{d.label} — never submitted by this candidate.</li>
                           ))}
                         </ul>
                       </div>
