@@ -1,26 +1,63 @@
 // server/lib/email.js
 //
-// Thin wrapper around Resend for all account-security emails: login OTP
-// codes, admin-triggered "set your password" invites, and self-service
-// "forgot password" links. Kept in one place so the sender identity,
-// error handling, and templates stay consistent.
+// Thin wrapper for all account-security emails: login OTP codes,
+// admin-triggered "set your password" invites, and self-service "forgot
+// password" links. Kept in one place so the sender identity, error
+// handling, and templates stay consistent regardless of which provider
+// is actually doing the sending.
 //
-// Required env vars:
-//   RESEND_API_KEY   - Resend API key (dashboard -> API Keys)
+// Two providers are supported, switched with one env var:
+//
+//   EMAIL_PROVIDER = "resend" (default) | "gmail"
+//
+// ── Resend ───────────────────────────────────────────────────────────────
+//   RESEND_API_KEY    - Resend API key (dashboard -> API Keys)
 //   RESEND_FROM_EMAIL - verified sender, e.g. "DENR RHRMPSB <no-reply@yourdomain.com>"
-//   FRONTEND_URL     - base URL of the deployed frontend, e.g. "https://xhrissun.github.io/rhrmpsb-system"
+//                        Falls back to the resend.dev sandbox sender, which
+//                        can only deliver to the email address that owns
+//                        the Resend account until a domain is verified.
 //
-// Resend requires the sending domain to be verified; until RESEND_API_KEY
-// is configured, these functions log a warning and no-op rather than crash
-// the request path that triggered them (account changes should still save
-// even if the notification email fails to send).
+// ── Gmail (App Password) ────────────────────────────────────────────────
+//   GMAIL_USER         - the sending Gmail address, e.g. "yourteam@gmail.com"
+//   GMAIL_APP_PASSWORD - a 16-character App Password (NOT the account
+//                         password). Requires 2-Step Verification to be
+//                         enabled on the Google account; generate one at
+//                         https://myaccount.google.com/apppasswords
+//   No domain verification needed, and there's no "only send to yourself"
+//   restriction — it sends as a normal Gmail message. Gmail does cap
+//   sending at ~500/day on a regular account, so it suits small teams
+//   during development better than high-volume production use.
+//
+//   FRONTEND_URL       - base URL of the deployed frontend, e.g.
+//                         "https://xhrissun.github.io/rhrmpsb-system"
+//                         (used by both providers)
+//
+// Whichever provider is selected, if its required env vars aren't set,
+// these functions log a warning and no-op rather than crash the request
+// path that triggered them (account changes should still save even if
+// the notification email fails to send).
 
 import { Resend } from 'resend';
+import nodemailer from 'nodemailer';
 
-const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
-
-const FROM = process.env.RESEND_FROM_EMAIL || 'DENR RHRMPSB <no-reply@resend.dev>';
+const PROVIDER = (process.env.EMAIL_PROVIDER || 'resend').toLowerCase();
 const FRONTEND_URL = (process.env.FRONTEND_URL || '').replace(/\/+$/, '');
+
+// ── Resend setup ─────────────────────────────────────────────────────────
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+const RESEND_FROM = process.env.RESEND_FROM_EMAIL || 'DENR RHRMPSB <no-reply@resend.dev>';
+
+// ── Gmail setup ──────────────────────────────────────────────────────────
+const gmailTransport = (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD)
+  ? nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.GMAIL_USER,
+        pass: process.env.GMAIL_APP_PASSWORD,
+      },
+    })
+  : null;
+const GMAIL_FROM = `DENR RHRMPSB <${process.env.GMAIL_USER}>`;
 
 const wrap = (bodyHtml) => `
   <div style="font-family: Arial, Helvetica, sans-serif; max-width: 480px; margin: 0 auto; color: #1e293b;">
@@ -37,15 +74,34 @@ const wrap = (bodyHtml) => `
 `;
 
 async function send({ to, subject, html }) {
+  if (PROVIDER === 'gmail') return sendViaGmail({ to, subject, html });
+  return sendViaResend({ to, subject, html });
+}
+
+async function sendViaResend({ to, subject, html }) {
   if (!resend) {
     console.warn(`[email] RESEND_API_KEY not configured — skipped sending "${subject}" to ${to}`);
     return { skipped: true };
   }
   try {
-    const result = await resend.emails.send({ from: FROM, to, subject, html });
+    const result = await resend.emails.send({ from: RESEND_FROM, to, subject, html });
     return result;
   } catch (error) {
     console.error('[email] Resend send failed:', error);
+    throw new Error('Failed to send email notification');
+  }
+}
+
+async function sendViaGmail({ to, subject, html }) {
+  if (!gmailTransport) {
+    console.warn(`[email] GMAIL_USER/GMAIL_APP_PASSWORD not configured — skipped sending "${subject}" to ${to}`);
+    return { skipped: true };
+  }
+  try {
+    const result = await gmailTransport.sendMail({ from: GMAIL_FROM, to, subject, html });
+    return result;
+  } catch (error) {
+    console.error('[email] Gmail send failed:', error);
     throw new Error('Failed to send email notification');
   }
 }
