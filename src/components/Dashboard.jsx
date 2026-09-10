@@ -989,17 +989,27 @@ const STARBEIGuideModal = ({ isOpen, onClose }) => {
 
 // ─── Password Change Modal ────────────────────────────────────────────────────
 const PasswordChangeModal = ({ isOpen, onClose, selectedUser, onSuccess }) => {
+  const [mode, setMode] = useState('direct'); // 'direct' | 'email-link'
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [showPasswords, setShowPasswords] = useState(false);
 
+  const passwordRules = [
+    { test: (pw) => pw.length >= 8, label: 'At least 8 characters' },
+    { test: (pw) => /[a-z]/.test(pw), label: 'A lowercase letter' },
+    { test: (pw) => /[A-Z]/.test(pw), label: 'An uppercase letter' },
+    { test: (pw) => /[0-9]/.test(pw), label: 'A number' },
+    { test: (pw) => /[^A-Za-z0-9]/.test(pw), label: 'A symbol' },
+  ];
+  const classesMet = passwordRules.slice(1).filter((r) => r.test(newPassword)).length;
+  const isStrongEnough = newPassword.length >= 8 && classesMet >= 3;
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    if (!newPassword.trim()) { setError('New password is required'); return; }
-    if (newPassword.length < 6) { setError('Password must be at least 6 characters long'); return; }
+    if (!isStrongEnough) { setError('Password must be at least 8 characters and include at least 3 of: lowercase, uppercase, number, symbol.'); return; }
     if (newPassword !== confirmPassword) { setError('Passwords do not match'); return; }
     setIsLoading(true);
     try {
@@ -1013,8 +1023,22 @@ const PasswordChangeModal = ({ isOpen, onClose, selectedUser, onSuccess }) => {
     }
   };
 
+  const handleSendSetupLink = async () => {
+    setError('');
+    setIsLoading(true);
+    try {
+      const result = await usersAPI.sendPasswordSetupLink(selectedUser._id);
+      onSuccess(result.message);
+      handleClose();
+    } catch (error) {
+      setError(error.response?.data?.message || 'Failed to send password setup email');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleClose = () => {
-    setNewPassword(''); setConfirmPassword(''); setError(''); setShowPasswords(false); onClose();
+    setMode('direct'); setNewPassword(''); setConfirmPassword(''); setError(''); setShowPasswords(false); onClose();
   };
 
   if (!isOpen || !selectedUser) return null;
@@ -1033,7 +1057,45 @@ const PasswordChangeModal = ({ isOpen, onClose, selectedUser, onSuccess }) => {
           <p className="text-sm text-gray-600"><span className="font-medium">Email:</span> {selectedUser.email}</p>
           <p className="text-sm text-gray-600"><span className="font-medium">Role:</span> {selectedUser.userType}</p>
         </div>
+
+        {/* Mode toggle: set it directly here, or email the user a link to set their own */}
+        <div className="flex mb-4 rounded-lg border border-gray-200 overflow-hidden text-sm font-medium">
+          <button
+            type="button"
+            onClick={() => { setMode('direct'); setError(''); }}
+            className={`flex-1 py-2 transition-colors ${mode === 'direct' ? 'bg-blue-600 text-white' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'}`}
+          >
+            Set Directly
+          </button>
+          <button
+            type="button"
+            onClick={() => { setMode('email-link'); setError(''); }}
+            className={`flex-1 py-2 transition-colors ${mode === 'email-link' ? 'bg-blue-600 text-white' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'}`}
+          >
+            Email Setup Link
+          </button>
+        </div>
+
         {error && <div className="mb-4 p-2 bg-red-50 border border-red-200 rounded-lg"><p className="text-sm text-red-600">{error}</p></div>}
+
+        {mode === 'email-link' ? (
+          <div className="space-y-4">
+            <div className="text-sm text-gray-700 bg-blue-50 p-3 rounded-lg border border-blue-100">
+              <p>
+                Sends a secure, expiring link to <strong>{selectedUser.email}</strong> so
+                {' '}<strong>{selectedUser.name}</strong> can set their own password. Their
+                current password is immediately invalidated and they will not be able to
+                sign in until they complete setup.
+              </p>
+            </div>
+            <div className="flex justify-end space-x-3 pt-2">
+              <button type="button" onClick={handleClose} disabled={isLoading} className="px-4 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50">Cancel</button>
+              <button type="button" onClick={handleSendSetupLink} disabled={isLoading} className="px-4 py-2 bg-green-600 text-white hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50 flex items-center">
+                {isLoading ? 'Sending...' : 'Send Setup Link'}
+              </button>
+            </div>
+          </div>
+        ) : (
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">New Password</label>
@@ -1047,22 +1109,28 @@ const PasswordChangeModal = ({ isOpen, onClose, selectedUser, onSuccess }) => {
             <input type="checkbox" id="showPasswords" checked={showPasswords} onChange={(e) => setShowPasswords(e.target.checked)} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
             <label htmlFor="showPasswords" className="ml-2 block text-sm text-gray-600">Show passwords</label>
           </div>
-          <div className="text-xs text-gray-600 bg-blue-50 p-2 rounded border border-blue-100">
-            <p className="font-medium mb-1">Password Requirements:</p>
-            <ul className="list-disc list-inside space-y-1">
-              <li>At least 6 characters long</li>
-              <li>User will need to log in again with the new password</li>
-            </ul>
-          </div>
+          <ul className="text-xs bg-blue-50 p-2 rounded border border-blue-100 space-y-1">
+            {passwordRules.map((rule, i) => {
+              const met = rule.test(newPassword);
+              return (
+                <li key={i} className={met ? 'text-green-700' : 'text-gray-500'}>
+                  {met ? '✓' : '○'} {rule.label}
+                </li>
+              );
+            })}
+            <li className="text-gray-500">(At least 3 of the last 4 are required)</li>
+            <li className="text-gray-600 pt-1 border-t border-blue-100 mt-1">User will need to log in again with the new password.</li>
+          </ul>
           <div className="flex justify-end space-x-3 pt-4">
             <button type="button" onClick={handleClose} disabled={isLoading} className="px-4 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50">Cancel</button>
-            <button type="submit" disabled={isLoading} className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 flex items-center">
+            <button type="submit" disabled={isLoading || !isStrongEnough || newPassword !== confirmPassword} className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 flex items-center">
               {isLoading ? (
                 <><svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>Changing...</>
               ) : 'Change Password'}
             </button>
           </div>
         </form>
+        )}
       </div>
     </div>
   );

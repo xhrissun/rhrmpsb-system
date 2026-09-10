@@ -43,7 +43,32 @@ const userSchema = new mongoose.Schema({
   },
   assignedAssignment:   { type: String, trim: true, default: null },
   assignedItemNumbers:  [{ type: String, trim: true }],
-  suspendedItemNumbers: [{ type: String, trim: true }]
+  suspendedItemNumbers: [{ type: String, trim: true }],
+
+  // ── Account security / lifecycle ──────────────────────────────────────────
+  // True once an admin has replaced/verified this user's email and triggered
+  // a "set your password" email. Login is blocked while true — the account
+  // has no password the user could know (see routes.js /users/:id/send-password-setup).
+  mustSetPassword: { type: Boolean, default: false },
+
+  // Single-use, time-limited token used by both the admin "set password"
+  // invite flow and the self-service "forgot password" flow. Only the
+  // SHA-256 hash is ever stored — the raw token exists only in the emailed
+  // link and is never persisted or logged.
+  passwordResetTokenHash: { type: String, default: null, select: false },
+  passwordResetExpiresAt: { type: Date, default: null, select: false },
+
+  // ── Two-factor authentication (email OTP) ─────────────────────────────────
+  // Only the SHA-256 hash of the current OTP is stored, never the raw code.
+  otpCodeHash:   { type: String, default: null, select: false },
+  otpExpiresAt:  { type: Date, default: null, select: false },
+  otpAttempts:   { type: Number, default: 0, select: false },
+  otpLastSentAt: { type: Date, default: null, select: false },
+
+  // ── Brute-force protection ────────────────────────────────────────────────
+  failedLoginAttempts: { type: Number, default: 0, select: false },
+  lockUntil:           { type: Date, default: null, select: false },
+  lastLoginAt:         { type: Date, default: null }
 }, { timestamps: true });
 
 // ── Vacancy Schema ────────────────────────────────────────────────────────────
@@ -370,6 +395,14 @@ ratingLogSchema.index({ action: 1, createdAt: -1 });
 userSchema.methods.toJSON = function() {
   const user = this.toObject();
   delete user.password;
+  delete user.passwordResetTokenHash;
+  delete user.passwordResetExpiresAt;
+  delete user.otpCodeHash;
+  delete user.otpExpiresAt;
+  delete user.otpAttempts;
+  delete user.otpLastSentAt;
+  delete user.failedLoginAttempts;
+  delete user.lockUntil;
   return user;
 };
 

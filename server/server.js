@@ -23,6 +23,18 @@ if (process.env.JWT_SECRET.length < 32) {
   process.exit(1);
 }
 
+// ── Email (Resend) is required for 2FA OTP codes, admin password-setup ────────
+// invites, and self-service password resets to actually reach users. Not
+// fatal on its own — server.js still boots for local dev without it — but
+// every affected request will fail loudly (see server/lib/email.js) until
+// these are set.
+if (!process.env.RESEND_API_KEY) {
+  console.warn('WARNING: RESEND_API_KEY is not set — OTP, password-setup, and password-reset emails will NOT be sent.');
+}
+if (!process.env.FRONTEND_URL) {
+  console.warn('WARNING: FRONTEND_URL is not set — password setup/reset email links will be malformed.');
+}
+
 const app = express();
 
 // ── Trust Render's reverse proxy (required for correct IP-based rate limiting) ─

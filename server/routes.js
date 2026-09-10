@@ -2,6 +2,7 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import mongoose from 'mongoose';
 import { parse } from 'csv-parse/sync';
 import rateLimit from 'express-rate-limit';
@@ -10,6 +11,59 @@ import { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRan
 import { evaluateCandidateWithAI } from './lib/aiEvaluation.js';
 import { fetchDriveFile, extractDriveFileId } from './lib/googleDrive.js';
 import { redactCandidateText } from './lib/redact.js';
+import { sendOtpEmail, sendPasswordSetupEmail, sendPasswordResetEmail } from './lib/email.js';
+
+// ── Two-factor / password-reset security constants ────────────────────────────
+const OTP_EXPIRY_MINUTES        = 10;   // login OTP validity window
+const OTP_RESEND_COOLDOWN_SEC   = 60;   // minimum gap between OTP re-sends
+const OTP_MAX_ATTEMPTS          = 5;    // wrong-code attempts before OTP is invalidated
+const PASSWORD_RESET_EXPIRY_MIN = 60;   // self-service "forgot password" link validity
+const PASSWORD_SETUP_EXPIRY_HRS = 24;   // admin-triggered "set your password" invite validity
+const MAX_FAILED_LOGIN_ATTEMPTS = 5;    // failed password attempts before temporary lockout
+const ACCOUNT_LOCK_MINUTES      = 15;   // lockout duration once the threshold above is hit
+
+// SHA-256 hash used for OTP codes and reset/setup tokens — these are single-use,
+// short-lived, high-entropy secrets, so a fast hash (rather than bcrypt) is the
+// industry-standard choice: it still means the raw secret is never at rest in
+// the database, while comparisons stay cheap enough to rate-limit separately.
+const sha256 = (value) => crypto.createHash('sha256').update(String(value)).digest('hex');
+
+// Generates a numeric one-time code (login OTP), zero-padded to 6 digits.
+const generateOtp = () => String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+
+// Generates a URL-safe, high-entropy token for password setup/reset links.
+const generateSecureToken = () => crypto.randomBytes(32).toString('hex');
+
+// Constant-time string comparison to avoid timing side-channels when
+// checking hashed OTPs/tokens against user-supplied values.
+const timingSafeEqualHex = (a, b) => {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(a, 'hex'), Buffer.from(b, 'hex'));
+  } catch {
+    return false;
+  }
+};
+
+// Minimal industry-standard password policy: 8+ chars with a mix of
+// character classes. Rejects the most common weak patterns without being
+// so strict that it becomes unusable for end users typing on mobile.
+const isStrongPassword = (password) => {
+  if (typeof password !== 'string' || password.length < 8) return false;
+  const classes = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].filter((re) => re.test(password)).length;
+  return classes >= 3;
+};
+
+const PASSWORD_POLICY_MESSAGE =
+  'Password must be at least 8 characters and include at least 3 of: lowercase letters, uppercase letters, numbers, symbols.';
+
+// Masks an email for display during the 2FA step, e.g. "jo***@example.com".
+const maskEmail = (email) => {
+  const [local, domain] = String(email).split('@');
+  if (!domain) return email;
+  const visible = local.slice(0, Math.min(2, local.length));
+  return `${visible}${'*'.repeat(Math.max(local.length - visible.length, 3))}@${domain}`;
+};
 
 // Key used in the SystemSettings collection for the admin on/off toggle.
 // Defaults to DISABLED (fail closed) until an admin explicitly turns it on.
@@ -33,6 +87,39 @@ const verifyLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { message: 'Too many verification attempts. Please wait 15 minutes before trying again.' }
+});
+
+// otpVerifyLimiter: guards OTP verification (post-password, still unauthenticated)
+const otpVerifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many verification attempts. Please wait 15 minutes before trying again.' }
+});
+// otpResendLimiter: guards OTP resend requests
+const otpResendLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many code requests. Please wait before requesting another code.' }
+});
+// forgotPasswordLimiter: guards the unauthenticated forgot-password request endpoint
+const forgotPasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many password reset requests. Please wait 15 minutes before trying again.' }
+});
+// setPasswordLimiter: guards the token-based set/reset-password submission endpoint
+const setPasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many attempts. Please wait 15 minutes before trying again.' }
 });
 
 // F-15 FIX: Stricter limiter for bulk export/report endpoints — prevents data exfiltration loops.
@@ -60,6 +147,9 @@ const authMiddleware = async (req, res, next) => {
   if (!token) return res.status(401).json({ message: 'No token provided' });
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    // Purpose-scoped tokens (e.g. the pending-2FA token issued mid-login)
+    // must never be usable as a real session token.
+    if (decoded.purpose) return res.status(401).json({ message: 'Invalid token' });
     req.user = await User.findById(decoded.id).select('-password');
     if (!req.user) return res.status(401).json({ message: 'Invalid token' });
     // ── Sliding expiry: re-issue a fresh token on every authenticated request ──
@@ -196,28 +286,273 @@ const COMPETENCY_WRITE_ALLOWED = [
 // AUTH ROUTES
 // ═══════════════════════════════════════════════════════════════════════════
 
+// Step 1 of login: verify email/password, then email a one-time code and
+// return a short-lived "pending" token (NOT a session token — it cannot be
+// used to call any authenticated route) that must be exchanged for a real
+// session via POST /auth/verify-otp.
 router.post('/auth/login', loginLimiter, async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) {
     return res.status(400).json({ message: 'Email and password are required' });
   }
   try {
-    const user = await User.findOne({ email: email.trim().toLowerCase() });
+    const user = await User.findOne({ email: email.trim().toLowerCase() })
+      .select('+password +failedLoginAttempts +lockUntil');
+    // Generic message for both "no such user" and "wrong password" — avoids
+    // leaking which emails are registered.
     if (!user) return res.status(401).json({ message: 'Invalid credentials' });
 
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(401).json({ message: 'Invalid credentials' });
+    if (user.lockUntil && user.lockUntil > new Date()) {
+      const minutesLeft = Math.ceil((user.lockUntil - new Date()) / 60000);
+      return res.status(423).json({ message: `Account temporarily locked due to repeated failed attempts. Try again in ${minutesLeft} minute(s).` });
+    }
 
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '8h' });
-    res.json({ token, user: user.toJSON() });
+    if (user.mustSetPassword) {
+      return res.status(403).json({ message: 'Please set your password using the link sent to your email before signing in. Contact your administrator if you need it resent.' });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      const attempts = (user.failedLoginAttempts || 0) + 1;
+      const update = { failedLoginAttempts: attempts };
+      if (attempts >= MAX_FAILED_LOGIN_ATTEMPTS) {
+        update.lockUntil = new Date(Date.now() + ACCOUNT_LOCK_MINUTES * 60 * 1000);
+        update.failedLoginAttempts = 0;
+      }
+      await User.findByIdAndUpdate(user._id, update);
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    // Successful password check — reset any brute-force counters.
+    if (user.failedLoginAttempts || user.lockUntil) {
+      await User.findByIdAndUpdate(user._id, { failedLoginAttempts: 0, lockUntil: null });
+    }
+
+    // ── Issue OTP for two-factor authentication ────────────────────────────
+    const otp = generateOtp();
+    await User.findByIdAndUpdate(user._id, {
+      otpCodeHash: sha256(otp),
+      otpExpiresAt: new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000),
+      otpAttempts: 0,
+      otpLastSentAt: new Date()
+    });
+
+    try {
+      await sendOtpEmail(user.email, user.name, otp, OTP_EXPIRY_MINUTES);
+    } catch (emailError) {
+      console.error('[POST /auth/login] Failed to send OTP email:', emailError);
+      return res.status(502).json({ message: 'Could not send verification code email. Please try again shortly.' });
+    }
+
+    // Purpose-scoped, short-lived token — verified separately from the main
+    // session JWT (see authMiddleware) so it can never be used to reach any
+    // authenticated endpoint on its own.
+    const pendingToken = jwt.sign(
+      { id: user._id, purpose: '2fa_pending' },
+      process.env.JWT_SECRET,
+      { expiresIn: `${OTP_EXPIRY_MINUTES}m` }
+    );
+
+    res.json({
+      requiresOtp: true,
+      pendingToken,
+      maskedEmail: maskEmail(user.email)
+    });
   } catch (error) {
     console.error('[POST /auth/login]', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
+// Step 2 of login: exchange the pending token + emailed OTP for a real
+// session token.
+router.post('/auth/verify-otp', otpVerifyLimiter, async (req, res) => {
+  const { pendingToken, otp } = req.body;
+  if (!pendingToken || !otp) {
+    return res.status(400).json({ message: 'Verification code is required' });
+  }
+  let decoded;
+  try {
+    decoded = jwt.verify(pendingToken, process.env.JWT_SECRET);
+  } catch {
+    return res.status(401).json({ message: 'Your session has expired. Please log in again.' });
+  }
+  if (decoded.purpose !== '2fa_pending') {
+    return res.status(401).json({ message: 'Invalid verification session.' });
+  }
+  try {
+    const user = await User.findById(decoded.id).select('+otpCodeHash +otpExpiresAt +otpAttempts');
+    if (!user || !user.otpCodeHash || !user.otpExpiresAt) {
+      return res.status(401).json({ message: 'Verification code has expired. Please log in again.' });
+    }
+    if (user.otpExpiresAt < new Date()) {
+      await User.findByIdAndUpdate(user._id, { otpCodeHash: null, otpExpiresAt: null, otpAttempts: 0 });
+      return res.status(401).json({ message: 'Verification code has expired. Please log in again.' });
+    }
+    if ((user.otpAttempts || 0) >= OTP_MAX_ATTEMPTS) {
+      await User.findByIdAndUpdate(user._id, { otpCodeHash: null, otpExpiresAt: null, otpAttempts: 0 });
+      return res.status(429).json({ message: 'Too many incorrect attempts. Please log in again to receive a new code.' });
+    }
+
+    const isMatch = timingSafeEqualHex(sha256(String(otp).trim()), user.otpCodeHash);
+    if (!isMatch) {
+      await User.findByIdAndUpdate(user._id, { $inc: { otpAttempts: 1 } });
+      return res.status(401).json({ message: 'Incorrect verification code' });
+    }
+
+    // Success — clear OTP state and issue the real session token.
+    await User.findByIdAndUpdate(user._id, {
+      otpCodeHash: null, otpExpiresAt: null, otpAttempts: 0, otpLastSentAt: null,
+      lastLoginAt: new Date()
+    });
+
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '8h' });
+    res.json({ token, user: user.toJSON() });
+  } catch (error) {
+    console.error('[POST /auth/verify-otp]', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Resends a fresh OTP against an existing pending login session, respecting
+// a cooldown so it can't be used to spam a user's inbox.
+router.post('/auth/resend-otp', otpResendLimiter, async (req, res) => {
+  const { pendingToken } = req.body;
+  if (!pendingToken) return res.status(400).json({ message: 'Missing verification session' });
+  let decoded;
+  try {
+    decoded = jwt.verify(pendingToken, process.env.JWT_SECRET);
+  } catch {
+    return res.status(401).json({ message: 'Your session has expired. Please log in again.' });
+  }
+  if (decoded.purpose !== '2fa_pending') {
+    return res.status(401).json({ message: 'Invalid verification session.' });
+  }
+  try {
+    const user = await User.findById(decoded.id).select('+otpLastSentAt');
+    if (!user) return res.status(401).json({ message: 'Your session has expired. Please log in again.' });
+
+    if (user.otpLastSentAt && (Date.now() - user.otpLastSentAt.getTime()) < OTP_RESEND_COOLDOWN_SEC * 1000) {
+      const waitSec = Math.ceil((OTP_RESEND_COOLDOWN_SEC * 1000 - (Date.now() - user.otpLastSentAt.getTime())) / 1000);
+      return res.status(429).json({ message: `Please wait ${waitSec}s before requesting another code.` });
+    }
+
+    const otp = generateOtp();
+    await User.findByIdAndUpdate(user._id, {
+      otpCodeHash: sha256(otp),
+      otpExpiresAt: new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000),
+      otpAttempts: 0,
+      otpLastSentAt: new Date()
+    });
+    await sendOtpEmail(user.email, user.name, otp, OTP_EXPIRY_MINUTES);
+    res.json({ message: 'A new verification code has been sent to your email.' });
+  } catch (error) {
+    console.error('[POST /auth/resend-otp]', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 router.get('/auth/me', authMiddleware, async (req, res) => {
   res.json(req.user);
+});
+
+// Lightweight credential check used ONLY by in-app re-authentication gates
+// (e.g. confirming identity before revealing a restricted view) — verifies
+// email+password and returns the safe user object, but issues no session
+// token and does NOT trigger the OTP flow. Never use this to establish a
+// login session.
+router.post('/auth/verify-credentials', loginLimiter, async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ message: 'Email and password are required' });
+  }
+  try {
+    const user = await User.findOne({ email: email.trim().toLowerCase() })
+      .select('+password +lockUntil');
+    if (!user) return res.status(401).json({ message: 'Invalid credentials' });
+    if (user.lockUntil && user.lockUntil > new Date()) {
+      return res.status(423).json({ message: 'Account temporarily locked due to repeated failed attempts.' });
+    }
+    if (user.mustSetPassword) {
+      return res.status(403).json({ message: 'This account has not completed password setup yet.' });
+    }
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) return res.status(401).json({ message: 'Invalid credentials' });
+    res.json({ user: user.toJSON() });
+  } catch (error) {
+    console.error('[POST /auth/verify-credentials]', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ── Forgot password (self-service) ────────────────────────────────────────────
+// Always returns a generic success message, whether or not the email is
+// registered, to avoid leaking which addresses have accounts.
+router.post('/auth/forgot-password', forgotPasswordLimiter, async (req, res) => {
+  const { email } = req.body;
+  const generic = { message: 'If an account exists for that email, a password reset link has been sent.' };
+  if (!email) return res.status(400).json({ message: 'Email is required' });
+  try {
+    const user = await User.findOne({ email: String(email).trim().toLowerCase() });
+    if (!user) return res.json(generic); // don't reveal existence
+
+    const token = generateSecureToken();
+    await User.findByIdAndUpdate(user._id, {
+      passwordResetTokenHash: sha256(token),
+      passwordResetExpiresAt: new Date(Date.now() + PASSWORD_RESET_EXPIRY_MIN * 60 * 1000)
+    });
+    await sendPasswordResetEmail(user.email, user.name, token, user._id.toString(), PASSWORD_RESET_EXPIRY_MIN);
+    res.json(generic);
+  } catch (error) {
+    console.error('[POST /auth/forgot-password]', error);
+    // Still return the generic message so the client experience doesn't change.
+    res.json(generic);
+  }
+});
+
+// ── Set/reset password via emailed token ──────────────────────────────────────
+// Shared by both the admin "set your password" invite and the self-service
+// "forgot password" flow — both just need a valid uid+token pair.
+router.post('/auth/set-password', setPasswordLimiter, async (req, res) => {
+  const { uid, token, newPassword } = req.body;
+  if (!uid || !token || !newPassword) {
+    return res.status(400).json({ message: 'Missing required fields' });
+  }
+  if (!isStrongPassword(newPassword)) {
+    return res.status(400).json({ message: PASSWORD_POLICY_MESSAGE });
+  }
+  if (!mongoose.Types.ObjectId.isValid(uid)) {
+    return res.status(400).json({ message: 'Invalid or expired link' });
+  }
+  try {
+    const user = await User.findById(uid).select('+passwordResetTokenHash +passwordResetExpiresAt');
+    if (!user || !user.passwordResetTokenHash || !user.passwordResetExpiresAt) {
+      return res.status(400).json({ message: 'Invalid or expired link' });
+    }
+    if (user.passwordResetExpiresAt < new Date()) {
+      return res.status(400).json({ message: 'This link has expired. Please request a new one.' });
+    }
+    if (!timingSafeEqualHex(sha256(token), user.passwordResetTokenHash)) {
+      return res.status(400).json({ message: 'Invalid or expired link' });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+    await User.findByIdAndUpdate(user._id, {
+      password: hashedPassword,
+      mustSetPassword: false,
+      passwordResetTokenHash: null,
+      passwordResetExpiresAt: null,
+      failedLoginAttempts: 0,
+      lockUntil: null,
+      otpCodeHash: null,
+      otpExpiresAt: null,
+      otpAttempts: 0
+    });
+    res.json({ message: 'Password set successfully. You can now sign in.' });
+  } catch (error) {
+    console.error('[POST /auth/set-password]', error);
+    res.status(500).json({ message: 'Server error' });
+  }
 });
 
 router.post('/auth/verify-password', verifyLimiter, authMiddleware, async (req, res) => {
@@ -309,8 +644,8 @@ router.post('/users', authMiddleware, async (req, res) => {
     if (!name || !email || !password || !userType) {
       return res.status(400).json({ message: 'Missing required fields: name, email, password, userType' });
     }
-    if (password.length < 8) {
-      return res.status(400).json({ message: 'Password must be at least 8 characters long' });
+    if (!isStrongPassword(password)) {
+      return res.status(400).json({ message: PASSWORD_POLICY_MESSAGE });
     }
     const existingUser = await User.findOne({ email: email.trim().toLowerCase() });
     if (existingUser) return res.status(400).json({ message: 'User with this email already exists' });
@@ -406,8 +741,8 @@ router.put('/auth/change-password', authMiddleware, async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
     if (!currentPassword) return res.status(400).json({ message: 'Current password is required' });
-    if (!newPassword || newPassword.length < 8) {
-      return res.status(400).json({ message: 'New password must be at least 8 characters long' });
+    if (!isStrongPassword(newPassword)) {
+      return res.status(400).json({ message: PASSWORD_POLICY_MESSAGE });
     }
     if (currentPassword === newPassword) {
       return res.status(400).json({ message: 'New password must be different from current password' });
@@ -417,7 +752,11 @@ router.put('/auth/change-password', authMiddleware, async (req, res) => {
     const isMatch = await bcrypt.compare(currentPassword, user.password);
     if (!isMatch) return res.status(401).json({ message: 'Current password is incorrect' });
     const hashedPassword = await bcrypt.hash(newPassword, 12);
-    await User.findByIdAndUpdate(req.user._id, { password: hashedPassword });
+    await User.findByIdAndUpdate(req.user._id, {
+      password: hashedPassword,
+      failedLoginAttempts: 0,
+      lockUntil: null
+    });
     res.json({ message: 'Password changed successfully' });
   } catch (error) {
     console.error('[PUT /auth/change-password]', error);
@@ -425,21 +764,68 @@ router.put('/auth/change-password', authMiddleware, async (req, res) => {
   }
 });
 
-// Admin-only: change any user's password by ID
+// Admin-only: directly set any user's password by ID (immediate, no email
+// round-trip). Use POST /users/:id/send-password-setup instead when the
+// user should choose their own password via an emailed link.
 router.put('/users/:id/change-password', authMiddleware, async (req, res) => {
   if (req.user.userType !== 'admin') return res.status(403).json({ message: 'Access denied' });
   try {
     const { newPassword } = req.body;
-    if (!newPassword || newPassword.length < 8) {
-      return res.status(400).json({ message: 'Password must be at least 8 characters long' });
+    if (!isStrongPassword(newPassword)) {
+      return res.status(400).json({ message: PASSWORD_POLICY_MESSAGE });
     }
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ message: 'User not found' });
     const hashedPassword = await bcrypt.hash(newPassword, 12);
-    await User.findByIdAndUpdate(req.params.id, { password: hashedPassword });
+    await User.findByIdAndUpdate(req.params.id, {
+      password: hashedPassword,
+      mustSetPassword: false,
+      passwordResetTokenHash: null,
+      passwordResetExpiresAt: null,
+      failedLoginAttempts: 0,
+      lockUntil: null,
+      otpCodeHash: null,
+      otpExpiresAt: null,
+      otpAttempts: 0
+    });
     res.json({ message: `Password updated successfully for ${user.name}`, userName: user.name });
   } catch (error) {
     console.error('[PUT /users/:id/change-password]', error);
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
+  }
+});
+
+// Admin-only: email the user a "set your password" link instead of setting
+// one directly. Overwrites the current password with a random, unusable
+// value so the account can't be signed into until the user completes setup
+// via POST /auth/set-password. Intended for the email-replacement rollout:
+// admin edits/replaces a user's email (PUT /users/:id), then calls this to
+// invite them to set their own password on the new address.
+router.post('/users/:id/send-password-setup', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin') return res.status(403).json({ message: 'Access denied' });
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    const token = generateSecureToken();
+    const unusablePassword = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 12);
+
+    await User.findByIdAndUpdate(user._id, {
+      password: unusablePassword,
+      mustSetPassword: true,
+      passwordResetTokenHash: sha256(token),
+      passwordResetExpiresAt: new Date(Date.now() + PASSWORD_SETUP_EXPIRY_HRS * 60 * 60 * 1000),
+      failedLoginAttempts: 0,
+      lockUntil: null,
+      otpCodeHash: null,
+      otpExpiresAt: null,
+      otpAttempts: 0
+    });
+
+    await sendPasswordSetupEmail(user.email, user.name, token, user._id.toString(), PASSWORD_SETUP_EXPIRY_HRS);
+    res.json({ message: `Password setup link sent to ${user.email}`, userName: user.name, email: user.email });
+  } catch (error) {
+    console.error('[POST /users/:id/send-password-setup]', error);
     res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });
@@ -452,6 +838,15 @@ router.put('/users/:id', authMiddleware, async (req, res) => {
     const updateData = Object.fromEntries(
       Object.entries(req.body).filter(([k]) => USER_UPDATE_ALLOWED.includes(k))
     );
+    if (typeof updateData.email === 'string') {
+      const normalizedEmail = updateData.email.trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+        return res.status(400).json({ message: 'Invalid email address' });
+      }
+      const existing = await User.findOne({ email: normalizedEmail, _id: { $ne: req.params.id } });
+      if (existing) return res.status(400).json({ message: 'Another user with this email already exists' });
+      updateData.email = normalizedEmail;
+    }
     if (updateData.assignedVacancies === 'all') {
       updateData.assignedAssignment = null;
       updateData.assignedItemNumbers = [];

@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './components/Login';
+import ForgotPassword from './components/ForgotPassword';
+import SetPassword from './components/SetPassword';
 import Dashboard from './components/Dashboard';
 import { authAPI } from './utils/api';
 import { ToastProvider } from './utils/ToastContext';
@@ -68,6 +70,10 @@ function App() {
                 user ? <Navigate to="/" replace /> : <Login onLogin={handleLogin} />
               } 
             />
+            {/* Public — no auth required. Reachable even when logged in (e.g. a
+                logged-in admin opening a colleague's invite link in a new tab). */}
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/set-password" element={<SetPassword />} />
             <Route 
               path="/" 
               element={

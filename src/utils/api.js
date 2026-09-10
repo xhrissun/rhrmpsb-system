@@ -130,10 +130,12 @@ export const authAPI = {
     const response = await api.post('/auth/login', credentials);
     return response.data;
   },
-  // Safe login for in-app gates: uses a bare axios call so a wrong password (401)
-  // does NOT trigger the global interceptor that wipes localStorage and redirects.
+  // Safe credential check for in-app re-authentication gates: verifies
+  // email/password only (no session token, no OTP email) and uses a bare
+  // axios call so a wrong password (401) does NOT trigger the global
+  // interceptor that wipes localStorage and redirects.
   loginSafe: async (credentials) => {
-    const response = await axios.post(`${API_BASE_URL}/auth/login`, credentials, {
+    const response = await axios.post(`${API_BASE_URL}/auth/verify-credentials`, credentials, {
       headers: { 'Content-Type': 'application/json' },
     });
     return response.data;
@@ -150,7 +152,27 @@ export const authAPI = {
   verifyPassword: async (userId, password) => {
     const response = await api.post('/auth/verify-password', { userId, password });
     return response.data.isValid;
-  }
+  },
+  // ── Two-factor authentication (email OTP) ──────────────────────────────────
+  // Step 2 of login: exchange the pendingToken from login() + the emailed
+  // code for a real session token/user.
+  verifyOtp: async (pendingToken, otp) => {
+    const response = await api.post('/auth/verify-otp', { pendingToken, otp });
+    return response.data;
+  },
+  resendOtp: async (pendingToken) => {
+    const response = await api.post('/auth/resend-otp', { pendingToken });
+    return response.data;
+  },
+  // ── Forgot / set password (self-service, and admin invite links) ───────────
+  forgotPassword: async (email) => {
+    const response = await api.post('/auth/forgot-password', { email });
+    return response.data;
+  },
+  setPassword: async (uid, token, newPassword) => {
+    const response = await api.post('/auth/set-password', { uid, token, newPassword });
+    return response.data;
+  },
 };
 
 // Users API
@@ -206,6 +228,13 @@ export const usersAPI = {
 
   changeSelfPassword: async (currentPassword, newPassword) => {
     const response = await api.put('/auth/change-password', { currentPassword, newPassword });
+    return response.data;
+  },
+
+  // Admin: email the user a "set your password" link instead of setting one
+  // directly. Blocks sign-in until the user completes setup.
+  sendPasswordSetupLink: async (userId) => {
+    const response = await api.post(`/users/${userId}/send-password-setup`);
     return response.data;
   },
 };
