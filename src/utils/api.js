@@ -55,6 +55,29 @@ api.interceptors.request.use(
   }
 );
 
+// Endpoints that are called BEFORE a session exists — a 401 from any of
+// these means "the credentials/code you just submitted were wrong," not
+// "your existing session expired." The interceptor below used to treat
+// every 401 identically, which meant a wrong password or a wrong OTP
+// digit triggered the same "session expired" handling as a real expired
+// token: clearing localStorage and forcing window.location.href to
+// /login — an actual full browser navigation that reloaded the entire
+// SPA and wiped the error message before the person could even read it.
+// Requests to these paths are left alone here; their own try/catch in
+// Login.jsx shows the error inline instead.
+const PRE_AUTH_ENDPOINTS = [
+  '/auth/login',
+  '/auth/verify-otp',
+  '/auth/resend-otp',
+  '/auth/verify-credentials',
+  '/auth/forgot-password',
+  '/auth/set-password',
+];
+
+function isPreAuthEndpoint(url) {
+  return !!url && PRE_AUTH_ENDPOINTS.some(path => url.includes(path));
+}
+
 // Response interceptor to handle auth errors and sliding token refresh
 api.interceptors.response.use(
   (response) => {
@@ -66,7 +89,7 @@ api.interceptors.response.use(
     return response;
   },
   (error) => {
-    if (error.response?.status === 401) {
+    if (error.response?.status === 401 && !isPreAuthEndpoint(error.config?.url)) {
       // ── Check if the rater has unsaved ratings in progress ───────────────
       // The RaterView sets this flag whenever ratings are pending submission.
       // We read it here (before clearing localStorage) to decide how to handle

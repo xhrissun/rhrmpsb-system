@@ -32,6 +32,36 @@ function App() {
     };
 
     initAuth();
+
+    // ── Cross-tab session sync ──────────────────────────────────────────
+    // localStorage is shared across every tab on this origin, but nothing
+    // in this app was listening for changes made by OTHER tabs. Without
+    // this, a tab already sitting on /login before a login happened in a
+    // different tab of the same browser would never find out — it just
+    // keeps showing the login form indefinitely, even though the person
+    // is now authenticated. The 'storage' event fires in every OTHER tab
+    // (never the one that made the change) whenever localStorage changes,
+    // which is exactly the signal needed here.
+    const handleStorageChange = (event) => {
+      if (event.key !== 'authToken' && event.key !== 'user') return;
+      if (event.newValue) {
+        // Logged in (or token refreshed) in another tab — pick it up here.
+        try {
+          const savedUser = localStorage.getItem('user');
+          if (savedUser) setUser(JSON.parse(savedUser));
+        } catch {
+          // Malformed cache — fall through and let initAuth's own
+          // validation path handle it on next mount/refresh.
+        }
+      } else {
+        // Logged out in another tab — mirror that here immediately rather
+        // than leaving this tab authenticated against a token that no
+        // longer exists.
+        setUser(null);
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
   const handleLogin = (userData) => {
