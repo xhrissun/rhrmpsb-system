@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 const ToastContext = createContext();
 
@@ -35,12 +36,20 @@ export const ToastProvider = ({ children }) => {
 };
 
 const ToastContainer = ({ toasts, onClose }) => {
-  return (
-    <div className="fixed top-20 right-4 z-[100] space-y-2">
+  // Rendered via a portal straight to <body>, outside the app's DOM tree
+  // entirely — this guarantees it always paints above every modal, sticky
+  // header, or fixed sidebar in the app, regardless of any stacking context
+  // those elements introduce now or in the future. z-[9999] is intentionally
+  // higher than any in-app z-index (modals use z-50, the sidebar uses z-40).
+  return createPortal(
+    <div className="fixed top-4 right-4 z-[9999] space-y-2 pointer-events-none">
       {toasts.map((toast) => (
-        <Toast key={toast.id} {...toast} onClose={() => onClose(toast.id)} />
+        <div key={toast.id} className="pointer-events-auto">
+          <Toast {...toast} onClose={() => onClose(toast.id)} />
+        </div>
       ))}
-    </div>
+    </div>,
+    document.body
   );
 };
 

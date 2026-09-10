@@ -2487,10 +2487,10 @@ const loadDataForCurrentTab = useCallback(async () => {
   // ─── Main Return - JSX ─────────────────────────────────────────────────────
 
   return (
-    <div className="flex min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 pt-16">
+    <div className="flex min-h-dvh bg-gradient-to-br from-gray-50 to-gray-100 pt-16">
       {/* Sidebar - Fixed with Header Offset */}
       <div className="w-64 flex-shrink-0">
-        <div className="sidebar fixed top-16 left-0 w-64 h-[calc(100vh-4rem)] bg-white shadow-xl border-r border-gray-200 overflow-y-auto z-40">
+        <div className="fixed top-16 left-0 w-64 h-[calc(100dvh-4rem)] bg-white shadow-xl border-r border-gray-200 overflow-y-auto z-40">
           <div className="p-6">
             <h2 className="text-xl font-bold mb-8 text-center text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600">
               Administrative Panel
