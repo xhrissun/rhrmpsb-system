@@ -1011,11 +1011,15 @@ const SecretariatView = ({ user }) => {
     };
 
     // An AI suggestion (from the AI evaluation draft — see applyAiGovtEmployment)
-    // only ever fills fields the Secretariat hasn't already saved a value for.
-    // It never overwrites a verified human-entered value, and it NEVER touches
-    // preAssessmentExam — that's a procedural judgment call (exam-coverage
-    // policy), not something inferable from a candidate's documents, and
-    // handleSaveGovtEmp already requires a human to set it before saving.
+    // only ever fills fields the Secretariat hasn't already saved a value
+    // for — it never overwrites a verified human-entered value. This now
+    // includes preAssessmentExam: it turned out to be a plain more/less-
+    // than-6-months duration computation from real start/end dates (done
+    // in applyAiGovtEmployment with actual JS Date math, not left to
+    // Gemini), not the procedural judgment call it was first assumed to
+    // be — handleSaveGovtEmp still requires the Secretariat to have a
+    // value selected before saving, whether that came from AI or by hand,
+    // and the banner below makes clear it still needs a look before saving.
     let form = saved;
     let filledFromAi = false;
     if (aiSuggestion) {
@@ -1025,10 +1029,10 @@ const SecretariatView = ({ user }) => {
         status:            saved.status            || aiSuggestion.status            || '',
         employmentPeriod:  saved.employmentPeriod   || aiSuggestion.employmentPeriod   || '',
         employmentEndDate: saved.employmentEndDate  || aiSuggestion.employmentEndDate  || '',
-        preAssessmentExam: saved.preAssessmentExam,
+        preAssessmentExam: saved.preAssessmentExam  || aiSuggestion.preAssessmentExam  || '',
         remarks:           saved.remarks            || aiSuggestion.remarks           || ''
       };
-      filledFromAi = Object.keys(form).some(key => key !== 'preAssessmentExam' && form[key] && !saved[key]);
+      filledFromAi = Object.keys(form).some(key => form[key] && !saved[key]);
     }
     setGovtEmpForm(form);
     setGovtEmpAiFilled(filledFromAi);
@@ -1066,7 +1070,17 @@ const SecretariatView = ({ user }) => {
   // dead-zone ReferenceError ("Cannot access ... before initialization").
   const applyAiGovtEmployment = useCallback(() => {
     const g = aiDraft?.governmentEmployment;
-    if (!g?.detected || !selectedCandidate) return;
+    if (!g?.detected) return;
+
+    // selectedCandidate is only the candidate's _id string (see its
+    // useState above) — openGovtEmpModal needs the full candidate object
+    // (it reads .fullName, ._id, .publicationRangeId, .governmentEmployment
+    // off of it). Passing the bare id string through here previously made
+    // every one of those reads silently evaluate to undefined, which is
+    // exactly what produced the "/candidates/undefined" CastErrors on both
+    // the sibling lookup and the save.
+    const candidateObj = candidates.find(c => c._id === selectedCandidate);
+    if (!candidateObj) return;
 
     let employmentPeriod = '';
     let employmentEndDate = '';
@@ -1086,7 +1100,23 @@ const SecretariatView = ({ user }) => {
       }
     }
 
-    openGovtEmpModal(selectedCandidate, {
+    // Duration-based suggestion for "In Consideration of Pre-Assessment
+    // Examination" (more_than_6_months / less_than_6_months). This is a
+    // plain date computation once a start date is known — not a policy
+    // judgment — so it's safe to suggest, same as employmentPeriod above.
+    // Computed here with real JS Dates rather than trusting Gemini's own
+    // month arithmetic, for the same reason employmentPeriod is.
+    let preAssessmentExam = '';
+    if (g.employmentStartDate) {
+      const start = new Date(g.employmentStartDate);
+      const end = g.isOngoing ? new Date() : (g.employmentEndDate ? new Date(g.employmentEndDate) : null);
+      if (!Number.isNaN(start.getTime()) && end && !Number.isNaN(end.getTime()) && end >= start) {
+        const totalMonths = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
+        preAssessmentExam = totalMonths >= 6 ? 'more_than_6_months' : 'less_than_6_months';
+      }
+    }
+
+    openGovtEmpModal(candidateObj, {
       agency: g.agency || '',
       position: g.position || '',
       // "Not Stated" is a schema-only sentinel (Gemini's structured output
@@ -1095,9 +1125,10 @@ const SecretariatView = ({ user }) => {
       status: (g.status && g.status !== 'Not Stated') ? g.status : '',
       employmentPeriod,
       employmentEndDate,
+      preAssessmentExam,
       remarks: g.evidence ? `AI-detected from documents: ${g.evidence}` : ''
     });
-  }, [aiDraft, selectedCandidate, openGovtEmpModal]);
+  }, [aiDraft, selectedCandidate, candidates, openGovtEmpModal]);
 
   const closeGovtEmpModal = useCallback(() => {
     setShowGovtEmpModal(false);
