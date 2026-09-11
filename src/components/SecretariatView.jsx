@@ -153,7 +153,7 @@ const SecretariatView = ({ user }) => {
   // AI-assisted draft (Update Status modal) — draft only, never auto-saved.
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState('');
-  const [aiDraft, setAiDraft] = useState(null); // { comments, suggestedStatus, suggestedStatusRationale, flags, unavailableDocuments, neverLinkedDocuments }
+  const [aiDraft, setAiDraft] = useState(null); // { comments, suggestedStatus, suggestedStatusRationale, flags, unavailableDocuments, neverLinkedDocuments, governmentEmployment }
   // Real progress for the currently-running job (polled from the backend —
   // not a fake/indefinite spinner). null while no job is running.
   const [aiProgress, setAiProgress] = useState(null); // { stage, docsCompleted, docsTotal, currentDocLabel }
@@ -171,6 +171,7 @@ const SecretariatView = ({ user }) => {
   const [showGovtEmpModal, setShowGovtEmpModal] = useState(false);
   const [govtEmpCandidate, setGovtEmpCandidate] = useState(null);
   const [govtEmpForm, setGovtEmpForm] = useState({ agency: '', position: '', status: '', employmentPeriod: '', employmentEndDate: '', preAssessmentExam: '', remarks: '' });
+  const [govtEmpAiFilled, setGovtEmpAiFilled] = useState(false); // true when the form below was pre-filled from an AI suggestion and still needs human verification before saving
   const [govtEmpLoading, setGovtEmpLoading] = useState(false);
   const [govtEmpCustomPositions, setGovtEmpCustomPositions] = useState([]);
   // Merge built-in positions from POSITIONS.txt with any custom ones added at runtime
@@ -798,6 +799,44 @@ const SecretariatView = ({ user }) => {
     setComments(prev => ({ ...prev, ...aiDraft.comments }));
   }, [aiDraft]);
 
+  // Converts the AI evaluation's raw government-employment finding (agency,
+  // position, status, and either "ongoing" or a specific end date — see
+  // aiEvaluation.js) into the modal's employmentPeriod bucket. Deliberately
+  // done here with a real JS Date rather than asking Gemini to classify
+  // "present" vs "within_2_years" itself: that bucketing depends on TODAY's
+  // date, which the model has no reliable way to reason about precisely.
+  const applyAiGovtEmployment = useCallback(() => {
+    const g = aiDraft?.governmentEmployment;
+    if (!g?.detected || !selectedCandidate) return;
+
+    let employmentPeriod = '';
+    let employmentEndDate = '';
+    if (g.isOngoing) {
+      employmentPeriod = 'present';
+    } else if (g.employmentEndDate) {
+      const end = new Date(g.employmentEndDate);
+      if (!Number.isNaN(end.getTime())) {
+        const twoYearsAgo = new Date();
+        twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+        if (end >= twoYearsAgo) {
+          employmentPeriod = 'within_2_years';
+          employmentEndDate = g.employmentEndDate;
+        }
+        // Older than 2 years — leave employmentPeriod unset; agency/position/
+        // status still carry through below for the Secretariat's reference.
+      }
+    }
+
+    openGovtEmpModal(selectedCandidate, {
+      agency: g.agency || '',
+      position: g.position || '',
+      status: g.status || '',
+      employmentPeriod,
+      employmentEndDate,
+      remarks: g.evidence ? `AI-detected from documents: ${g.evidence}` : ''
+    });
+  }, [aiDraft, selectedCandidate, openGovtEmpModal]);
+
   const handleStatusUpdate = useCallback(async (status) => {
     try {
       const updateData = {
@@ -920,12 +959,12 @@ const SecretariatView = ({ user }) => {
     setCommentHistoryData(null);
   }, []);
 
-  const openGovtEmpModal = useCallback(async (candidate) => {
+  const openGovtEmpModal = useCallback(async (candidate, aiSuggestion = null) => {
     setGovtEmpCandidate(candidate);
     setGovtEmpSiblings([]); // clear while loading siblings
     // Always init the form from THIS candidate's own saved DB data only.
     // NEVER pre-fill from another candidate's record or pending state.
-    setGovtEmpForm({
+    const saved = {
       agency:            candidate.governmentEmployment?.agency            || '',
       position:          candidate.governmentEmployment?.position          || '',
       status:            candidate.governmentEmployment?.status            || '',
@@ -935,7 +974,30 @@ const SecretariatView = ({ user }) => {
                            : '',
       preAssessmentExam: candidate.governmentEmployment?.preAssessmentExam || '',
       remarks:           candidate.governmentEmployment?.remarks           || ''
-    });
+    };
+
+    // An AI suggestion (from the AI evaluation draft — see applyAiGovtEmployment)
+    // only ever fills fields the Secretariat hasn't already saved a value for.
+    // It never overwrites a verified human-entered value, and it NEVER touches
+    // preAssessmentExam — that's a procedural judgment call (exam-coverage
+    // policy), not something inferable from a candidate's documents, and
+    // handleSaveGovtEmp already requires a human to set it before saving.
+    let form = saved;
+    let filledFromAi = false;
+    if (aiSuggestion) {
+      form = {
+        agency:            saved.agency            || aiSuggestion.agency            || '',
+        position:          saved.position          || aiSuggestion.position          || '',
+        status:            saved.status            || aiSuggestion.status            || '',
+        employmentPeriod:  saved.employmentPeriod   || aiSuggestion.employmentPeriod   || '',
+        employmentEndDate: saved.employmentEndDate  || aiSuggestion.employmentEndDate  || '',
+        preAssessmentExam: saved.preAssessmentExam,
+        remarks:           saved.remarks            || aiSuggestion.remarks           || ''
+      };
+      filledFromAi = Object.keys(form).some(key => key !== 'preAssessmentExam' && form[key] && !saved[key]);
+    }
+    setGovtEmpForm(form);
+    setGovtEmpAiFilled(filledFromAi);
     setShowGovtEmpModal(true);
     // Use candidatesAPI.getSiblings (shared axios instance — correct baseURL + authToken).
     // Fall back to selectedPublicationRangeRef if candidate.publicationRangeId is absent.
@@ -962,6 +1024,7 @@ const SecretariatView = ({ user }) => {
     setGovtEmpCandidate(null);
     setGovtEmpSiblings([]);
     setGovtEmpSiblingsLoading(false);
+    setGovtEmpAiFilled(false);
     setGovtEmpForm({ agency: '', position: '', status: '', employmentPeriod: '', employmentEndDate: '', preAssessmentExam: '', remarks: '' });
   }, []);
 
@@ -2610,6 +2673,30 @@ const SecretariatView = ({ user }) => {
                       </div>
                     )}
 
+                    {aiDraft.governmentEmployment?.detected && (
+                      <div className="bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2.5">
+                        <p className="text-[10px] font-bold text-indigo-700 uppercase tracking-wide mb-1">
+                          Possible government employment detected
+                        </p>
+                        <p className="text-xs text-indigo-900 mb-1">
+                          {[aiDraft.governmentEmployment.position, aiDraft.governmentEmployment.agency]
+                            .filter(Boolean).join(', ') || 'Details found in documents'}
+                          {aiDraft.governmentEmployment.status ? ` (${aiDraft.governmentEmployment.status})` : ''}
+                        </p>
+                        {aiDraft.governmentEmployment.evidence && (
+                          <p className="text-[11px] text-indigo-700 italic mb-2">{aiDraft.governmentEmployment.evidence}</p>
+                        )}
+                        <button
+                          type="button"
+                          onClick={applyAiGovtEmployment}
+                          className="text-xs font-bold text-indigo-700 hover:text-indigo-900 hover:bg-indigo-100 px-2.5 py-1 rounded-lg border border-indigo-300 transition-colors"
+                        >
+                          Fill Government Employment form
+                        </button>
+                        <p className="text-[10px] text-indigo-600 mt-1">Opens the form pre-filled for your review — nothing is saved until you confirm.</p>
+                      </div>
+                    )}
+
                     {aiDraft.promptSent && (
                       <details className="bg-white border border-gray-200 rounded-lg px-3 py-2 group">
                         <summary className="text-[10px] font-bold text-gray-500 uppercase tracking-wide cursor-pointer select-none flex items-center gap-1">
@@ -3953,6 +4040,17 @@ const SecretariatView = ({ user }) => {
                    hasInput && govtEmpForm.employmentPeriod === 'within_2_years' ? 'Government employee within last 2 years' :
                    hasInput ? 'Government employee (period not set)' : 'No government employment details set'}
                 </div>
+
+                {govtEmpAiFilled && (
+                  <div className="flex items-start gap-2 rounded-xl border border-purple-200 bg-purple-50 px-4 py-3">
+                    <svg className="w-4 h-4 shrink-0 mt-0.5 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                    </svg>
+                    <p className="text-xs text-purple-800">
+                      Some fields below were pre-filled from the AI evaluation draft. Please verify them against the candidate's actual documents before saving.
+                    </p>
+                  </div>
+                )}
 
                 {/* Sibling panel: same applicant under other item numbers */}
                 {(govtEmpSiblingsLoading || govtEmpSiblings.length > 0) && (() => {

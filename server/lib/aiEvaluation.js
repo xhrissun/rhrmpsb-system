@@ -73,9 +73,27 @@ const RESPONSE_SCHEMA = {
       type: 'ARRAY',
       items: { type: 'STRING' },
       description: 'Short notes on missing documents, unverifiable claims, or discrepancies the Secretariat should double-check.'
+    },
+    governmentEmployment: {
+      type: 'OBJECT',
+      description: 'Evidence of CURRENT or RECENT (roughly within the last 2 years) government employment found in the candidate documents — used only to pre-fill a form for Secretariat review, never saved automatically.',
+      properties: {
+        detected: { type: 'BOOLEAN', description: 'true only if the documents contain clear, specific evidence of a government position — not merely a guess or generic government-sector interest.' },
+        agency: { type: 'STRING', description: 'Government agency/office name as stated in the documents. Empty string if not detected.' },
+        position: { type: 'STRING', description: 'Position/job title held. Empty string if not detected.' },
+        status: {
+          type: 'STRING',
+          enum: ['', 'Permanent', 'Casual', 'Temporary', 'Co-terminus with the incumbent', 'Contractual-PS', 'Contractual'],
+          description: 'Status of appointment, matched to this exact list only if the document states one of these terms (e.g. a PDS Work Experience Sheet "Status of Appointment" column). Empty string if not stated or if it does not match one of these terms — never guess or approximate.'
+        },
+        isOngoing: { type: 'BOOLEAN', description: 'true if the position is stated as current/ongoing (e.g. "present", no end date given for an otherwise-dated entry).' },
+        employmentEndDate: { type: 'STRING', description: 'ISO date (yyyy-mm-dd) if the document states a specific end date for this position AND isOngoing is false. Empty string if ongoing or no end date is stated. Never estimate or infer a date that is not explicitly written.' },
+        evidence: { type: 'STRING', description: 'One short bullet-style sentence citing which document this came from, e.g. "Per Work Experience Sheet: DENR-CENRO, 2022-present." Empty string if detected is false.' }
+      },
+      required: ['detected', 'agency', 'position', 'status', 'isOngoing', 'employmentEndDate', 'evidence']
     }
   },
-  required: ['comments', 'suggestedStatus', 'suggestedStatusRationale', 'flags']
+  required: ['comments', 'suggestedStatus', 'suggestedStatusRationale', 'flags', 'governmentEmployment']
 };
 
 // `caseRef` replaces the candidate's name in anything sent to Gemini — it's
@@ -126,7 +144,7 @@ ${documentSections}
 
 INSTRUCTIONS
 1. Education: Compare the Diploma / Transcript of Records / PDS education section against the QS education requirement. State plainly whether it is met, partially met, or not met, and why. If a higher credential (e.g. a Master's/Doctoral unit or degree) is claimed in the PDS but the supporting Diploma/TOR for it is missing from the documents provided, do NOT treat it as met — say so and add an explicit warning bullet telling the Secretariat exactly what to verify (e.g., "- PDS claims MA units — check TOR/Diploma for these; not provided.").
-2. Training: List each relevant training/seminar found (PDS training section, Certificates) individually with its number of training hours in parentheses immediately after the name, e.g. "- Basic Occupational Safety and Health (40 hrs) — per Certificate." If an extracted document states the hours, always include that number this way — never drop it. If a training is named but no document in front of you states its hours, do not invent a number: write "(hours not stated — verify with certificate)" instead, as an explicit warning. Then state whether the total relevant hours meet the QS training requirement. Where a training clearly relates to one of the required competencies above, name that competency.
+2. Training: Only count workshops, trainings, seminars, and capacity-building programs the candidate COMPLETED AS A PARTICIPANT/ATTENDEE. Do NOT count orientations (these are informational sessions, not skills training) or engagements where the candidate served as a guest speaker, resource person, or facilitator (delivering training is not the same as receiving it) — if a document describes one of these, leave it out of the training count and, if it's prominent in the documents (e.g. listed alongside real trainings in the PDS), note in a bullet that it was excluded and why, e.g. "- Excluded: Guest Speaker, [event] — not training received." List each qualifying relevant training/seminar found (PDS training section, Certificates) individually with its number of training hours in parentheses immediately after the name, e.g. "- Basic Occupational Safety and Health (40 hrs) — per Certificate." If an extracted document states the hours, always include that number this way — never drop it. If a training is named but no document in front of you states its hours, do not invent a number: write "(hours not stated — verify with certificate)" instead, as an explicit warning. Then state whether the total relevant hours meet the QS training requirement. Where a training clearly relates to one of the required competencies above, name that competency.
 3. Experience: List each relevant position individually with its duration in parentheses in years (and months if given), e.g. "- Environmental Management Specialist II, DENR-CENRO (3 yrs 4 mos) — per Work Experience Sheet." Compute the duration from the dates in the Work Experience Sheet / Service Record / Certificate of Employment / IPCR; never drop the year count. If the dates given are incomplete, contradictory, or missing, write "(duration unclear — verify with document)" instead of guessing, as an explicit warning. Then state whether the total relevant years meet the QS experience requirement. Where the work history demonstrates a required competency in practice (not just years served), say so.
 4. Eligibility: Compare the Proof of Eligibility / Professional License against the QS eligibility requirement. If an eligibility or license appears expired, unclear, or unverifiable from the text (e.g. a date that has passed, or a license number given with no visible validity date), add an explicit warning bullet saying so rather than assuming it is still valid.
 5. Write each comment (education/training/experience/eligibility) as short bullet points, each starting with "- " on its own line (use a literal newline character between bullets, not numbering, not markdown headers/bold). Each bullet under ~25 words, plain factual administrative language. Cite which document supports each claim (e.g., "- Per TOR, met — BS Forestry 2016."). If evidence is missing or a document was unavailable, say so in one short bullet instead of guessing. Be terse — do not restate the requirement text back, do not pad with filler sentences.
@@ -135,6 +153,7 @@ INSTRUCTIONS
 8. suggestedStatus is only a recommendation for a human to review — choose "long_list" if all four areas are adequately met, "for_review" if there is a genuine ambiguity or borderline case needing board discussion, or "disqualified" if a QS requirement is clearly and verifiably not met. Never choose "disqualified" on the basis of a merely missing/unretrieved document alone — flag it instead and default to "for_review".
 9. suggestedStatusRationale: ONE short sentence (under 25 words) summarizing the overall reason for the status.
 10. flags should list anything the Secretariat should manually double-check (missing documents, illegible scans, expired eligibility dates, redacted fields that need the human reviewer's own verification, etc) as a short checklist — this is in ADDITION to (not instead of) the inline warnings required in instruction 6, so the same concern may reasonably appear in both places. Each flag is a short phrase, not a sentence.
+11. governmentEmployment: separately from the four comments above, check whether the documents show the candidate CURRENTLY holds, or held within roughly the last 2 years, a position in Philippine government (national agency, LGU, GOCC, SUC, etc.) — this is normally found in the PDS Work Experience section, Certificate of Employment, Service Record, or IPCR. Only set detected:true with clear, specific evidence (agency name and position stated) — never infer this from ambiguous or generic wording. Fill agency/position/status/isOngoing/employmentEndDate/evidence exactly as instructed in the schema. If no such position is evident, set detected:false and leave the other fields as empty strings/false. This is a separate signal for a different form the Secretariat fills in manually — do not fabricate a government position from a private-sector job merely because the employer's name resembles a government body.
 
 Be as concise as possible everywhere above the minimum needed to be useful — this output is billed per token. Respond ONLY with JSON matching the provided schema, no other text.`;
 }

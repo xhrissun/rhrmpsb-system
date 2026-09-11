@@ -1734,6 +1734,41 @@ const CANDIDATE_DOC_FIELDS = [
   { key: 'ipcr',                   label: 'IPCR' }
 ];
 
+// Free-text QS fields ("0", "None", "N/A", etc.) that all mean "this item
+// has no training/experience requirement." Kept as an exact-match set
+// rather than a fuzzy regex on purpose — under-matching (missing a real
+// "not required" phrasing) just means a few extra documents get scanned,
+// which is harmless; over-matching (treating a real requirement as waived)
+// would silently skip documents Gemini actually needs, which is the
+// failure mode worth avoiding.
+const QS_NOT_REQUIRED_VALUES = new Set([
+  '', '0', '-', 'none', 'n/a', 'na', 'not required', 'none required',
+  'no training required', 'no experience required'
+]);
+function isQsRequirementWaived(value) {
+  return QS_NOT_REQUIRED_VALUES.has(String(value || '').trim().toLowerCase());
+}
+
+// When an item's QS has no Training AND no Experience requirement, the
+// Training/Experience comments Gemini would write are always going to be
+// "not required" — so there's no reason to spend time/tokens fetching and
+// reading the documents that exist only to support those two comments
+// (Work Experience Sheet, Certificates, Certificate of Employment, IPCR).
+// Only the documents that support Education and Eligibility are still
+// relevant in that case. This is the single source of truth for which
+// document types are "in scope" for a given vacancy — used both to decide
+// what to fetch when a job starts, and later to correctly report which
+// document TYPES were genuinely never submitted (as opposed to submitted
+// but intentionally not scanned because they're out of scope here).
+const EDUCATION_ELIGIBILITY_ONLY_KEYS = new Set(['personalDataSheet', 'diploma', 'proofOfEligibility', 'professionalLicense']);
+function getInScopeDocFields(vacancy) {
+  const qs = vacancy?.qualifications || {};
+  const trainingAndExperienceWaived = isQsRequirementWaived(qs.training) && isQsRequirementWaived(qs.experience);
+  return trainingAndExperienceWaived
+    ? CANDIDATE_DOC_FIELDS.filter(doc => EDUCATION_ELIGIBILITY_ONLY_KEYS.has(doc.key))
+    : CANDIDATE_DOC_FIELDS;
+}
+
 // ── Diagnostics: verify Google service account credentials without touching
 // any candidate data. Admin-only. Never returns key material.
 router.get('/diagnostics/drive-auth', authMiddleware, async (req, res) => {
@@ -1854,8 +1889,12 @@ async function finalizeAiEvaluationJob(jobId, candidate, vacancy, competencies, 
     // Without this, Gemini has no way to tell "this candidate genuinely
     // never submitted a Work Experience Sheet" apart from "one was
     // submitted but the text extraction/OCR failed on it" — both used to
-    // just be silently absent from the prompt.
-    const neverLinkedDocs = CANDIDATE_DOC_FIELDS
+    // just be silently absent from the prompt. Scoped to getInScopeDocFields
+    // (not the full CANDIDATE_DOC_FIELDS list) so a document that WAS
+    // submitted but is simply irrelevant here — e.g. a Work Experience
+    // Sheet when this item's QS has no Training/Experience requirement —
+    // never gets misreported as "never submitted."
+    const neverLinkedDocs = getInScopeDocFields(vacancy)
       .filter(field => !candidate[field.key])
       .map(field => ({ key: field.key, label: field.label }));
 
@@ -1981,12 +2020,12 @@ router.post('/candidates/:id/ai-evaluate', aiEvaluateLimiter, authMiddleware, as
 
     const competencies = await Competency.findByVacancy(vacancy._id);
 
-    const docsToFetch = CANDIDATE_DOC_FIELDS
+    const docsToFetch = getInScopeDocFields(vacancy)
       .filter(doc => candidate[doc.key])
       .map(doc => ({ key: doc.key, label: doc.label }));
 
     if (docsToFetch.length === 0) {
-      return res.status(400).json({ message: 'This candidate has no uploaded documents to evaluate.' });
+      return res.status(400).json({ message: 'This candidate has no uploaded documents relevant to this item\'s Qualification Standards to evaluate.' });
     }
 
     const job = await AiEvaluationJob.create({
