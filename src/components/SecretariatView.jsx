@@ -1089,7 +1089,10 @@ const SecretariatView = ({ user }) => {
     openGovtEmpModal(selectedCandidate, {
       agency: g.agency || '',
       position: g.position || '',
-      status: g.status || '',
+      // "Not Stated" is a schema-only sentinel (Gemini's structured output
+      // rejects an empty string as an enum value) — translate it back to ''
+      // here, since that's what the form's own status enum actually uses.
+      status: (g.status && g.status !== 'Not Stated') ? g.status : '',
       employmentPeriod,
       employmentEndDate,
       remarks: g.evidence ? `AI-detected from documents: ${g.evidence}` : ''
@@ -2760,7 +2763,8 @@ const SecretariatView = ({ user }) => {
                         <p className="text-xs text-indigo-900 mb-1">
                           {[aiDraft.governmentEmployment.position, aiDraft.governmentEmployment.agency]
                             .filter(Boolean).join(', ') || 'Details found in documents'}
-                          {aiDraft.governmentEmployment.status ? ` (${aiDraft.governmentEmployment.status})` : ''}
+                          {aiDraft.governmentEmployment.status && aiDraft.governmentEmployment.status !== 'Not Stated'
+                            ? ` (${aiDraft.governmentEmployment.status})` : ''}
                         </p>
                         {aiDraft.governmentEmployment.evidence && (
                           <p className="text-[11px] text-indigo-700 italic mb-2">{aiDraft.governmentEmployment.evidence}</p>
