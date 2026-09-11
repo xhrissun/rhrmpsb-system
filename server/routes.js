@@ -860,6 +860,7 @@ router.put('/users/:id', authMiddleware, async (req, res) => {
     res.json(user);
   } catch (error) {
     console.error('[PUT /users/:id]', error);
+    if (error.code === 11000) return res.status(400).json({ message: 'Another user with this email already exists' });
     res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
   }
 });

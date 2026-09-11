@@ -67,6 +67,15 @@ const SecretariatView = ({ user }) => {
   const [positions, setPositions] = useState([]);
   const [itemNumbers, setItemNumbers] = useState([]);
   const [reportRaters, setReportRaters] = useState([]);
+  // ── Deliberation attendance step ────────────────────────────────────────
+  // Who actually attended is only knowable at deliberation time — it's a
+  // subset of everyone ASSIGNED to the item, never the full assigned list.
+  // This modal asks the Secretariat to confirm attendance before any
+  // signature blocks are drawn into the report.
+  const [showAttendanceModal, setShowAttendanceModal] = useState(false);
+  const [attendancePool, setAttendancePool] = useState([]); // everyone assigned (raters + secretariat) who's eligible to be marked present
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
+  const [selectedAttendeeIds, setSelectedAttendeeIds] = useState(new Set());
   const { showToast } = useToast();
   const [competencies, setCompetencies] = useState([]);
   const [groupedCompetencies, setGroupedCompetencies] = useState({
@@ -418,6 +427,33 @@ const SecretariatView = ({ user }) => {
     } catch (error) {
       console.error('Failed to fetch raters:', error);
       showToast('Failed to fetch raters for report.', 'error');
+      return [];
+    }
+  }, [vacancies, showToast]);
+
+  // Mirrors fetchRatersForVacancy's assignment-scoping logic for secretariat
+  // staff, since they can attend/sign a deliberation too and use the same
+  // assignedVacancies/assignedAssignment/assignedItemNumbers scoping fields.
+  const fetchSecretariatForVacancy = useCallback(async (itemNumber) => {
+    try {
+      const allSecretariat = await usersAPI.getSecretariats();
+      const vacancy = vacancies.find(v => v.itemNumber === itemNumber);
+      if (!vacancy) return [];
+
+      const filtered = allSecretariat.filter(u => {
+        switch (u.assignedVacancies) {
+          case 'all': return true;
+          case 'assignment': return u.assignedAssignment && u.assignedAssignment === vacancy.assignment;
+          case 'specific': return u.assignedItemNumbers && u.assignedItemNumbers.includes(itemNumber);
+          default: return false;
+        }
+      });
+
+      filtered.sort((a, b) => a.name.localeCompare(b.name));
+      return filtered;
+    } catch (error) {
+      console.error('Failed to fetch secretariat:', error);
+      showToast('Failed to fetch secretariat staff for report.', 'error');
       return [];
     }
   }, [vacancies, showToast]);
@@ -799,44 +835,6 @@ const SecretariatView = ({ user }) => {
     setComments(prev => ({ ...prev, ...aiDraft.comments }));
   }, [aiDraft]);
 
-  // Converts the AI evaluation's raw government-employment finding (agency,
-  // position, status, and either "ongoing" or a specific end date — see
-  // aiEvaluation.js) into the modal's employmentPeriod bucket. Deliberately
-  // done here with a real JS Date rather than asking Gemini to classify
-  // "present" vs "within_2_years" itself: that bucketing depends on TODAY's
-  // date, which the model has no reliable way to reason about precisely.
-  const applyAiGovtEmployment = useCallback(() => {
-    const g = aiDraft?.governmentEmployment;
-    if (!g?.detected || !selectedCandidate) return;
-
-    let employmentPeriod = '';
-    let employmentEndDate = '';
-    if (g.isOngoing) {
-      employmentPeriod = 'present';
-    } else if (g.employmentEndDate) {
-      const end = new Date(g.employmentEndDate);
-      if (!Number.isNaN(end.getTime())) {
-        const twoYearsAgo = new Date();
-        twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
-        if (end >= twoYearsAgo) {
-          employmentPeriod = 'within_2_years';
-          employmentEndDate = g.employmentEndDate;
-        }
-        // Older than 2 years — leave employmentPeriod unset; agency/position/
-        // status still carry through below for the Secretariat's reference.
-      }
-    }
-
-    openGovtEmpModal(selectedCandidate, {
-      agency: g.agency || '',
-      position: g.position || '',
-      status: g.status || '',
-      employmentPeriod,
-      employmentEndDate,
-      remarks: g.evidence ? `AI-detected from documents: ${g.evidence}` : ''
-    });
-  }, [aiDraft, selectedCandidate, openGovtEmpModal]);
-
   const handleStatusUpdate = useCallback(async (status) => {
     try {
       const updateData = {
@@ -868,12 +866,48 @@ const SecretariatView = ({ user }) => {
   }, []);
 
   const handleGenerateReport = useCallback(async () => {
-    const filteredRaters = await fetchRatersForVacancy(selectedItemNumber);
-    setReportRaters(filteredRaters);
+    if (!selectedItemNumber) return;
+    setAttendanceLoading(true);
+    try {
+      const [raters, secretariat] = await Promise.all([
+        fetchRatersForVacancy(selectedItemNumber),
+        fetchSecretariatForVacancy(selectedItemNumber)
+      ]);
+      setAttendancePool([
+        ...raters.map(u => ({ ...u, roleGroup: 'Rater' })),
+        ...secretariat.map(u => ({ ...u, roleGroup: 'Secretariat' }))
+      ]);
+      // Nobody starts checked — presence has to be an explicit, deliberate
+      // confirmation for each person, not a default that has to be undone.
+      setSelectedAttendeeIds(new Set());
+      setReportItemNumber(selectedItemNumber);
+      setShowAttendanceModal(true);
+    } finally {
+      setAttendanceLoading(false);
+    }
+  }, [fetchRatersForVacancy, fetchSecretariatForVacancy, selectedItemNumber]);
+
+  const closeAttendanceModal = useCallback(() => {
+    setShowAttendanceModal(false);
+    setAttendancePool([]);
+    setSelectedAttendeeIds(new Set());
+  }, []);
+
+  const toggleAttendee = useCallback((id) => {
+    setSelectedAttendeeIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const handleConfirmAttendance = useCallback(() => {
+    const selected = attendancePool.filter(u => selectedAttendeeIds.has(u._id));
+    setReportRaters(selected);
     setReportCandidateId('');
-    setReportItemNumber(selectedItemNumber);
+    setShowAttendanceModal(false);
     setShowReportModal(true);
-  }, [fetchRatersForVacancy, selectedItemNumber]);
+  }, [attendancePool, selectedAttendeeIds]);
 
   const [longListPDFLoading, setLongListPDFLoading] = useState(false);
   const handleGenerateLongListPDF = useCallback(async () => {
@@ -1018,6 +1052,49 @@ const SecretariatView = ({ user }) => {
       }
     }
   }, []);
+
+  // Converts the AI evaluation's raw government-employment finding (agency,
+  // position, status, and either "ongoing" or a specific end date — see
+  // aiEvaluation.js) into the modal's employmentPeriod bucket. Deliberately
+  // done here with a real JS Date rather than asking Gemini to classify
+  // "present" vs "within_2_years" itself: that bucketing depends on TODAY's
+  // date, which the model has no reliable way to reason about precisely.
+  // Declared AFTER openGovtEmpModal (not near the other applyAi* helpers
+  // above) because it depends on openGovtEmpModal — a useCallback's
+  // dependency array is evaluated on every render in source order, so
+  // referencing it before its own declaration line throws a temporal-
+  // dead-zone ReferenceError ("Cannot access ... before initialization").
+  const applyAiGovtEmployment = useCallback(() => {
+    const g = aiDraft?.governmentEmployment;
+    if (!g?.detected || !selectedCandidate) return;
+
+    let employmentPeriod = '';
+    let employmentEndDate = '';
+    if (g.isOngoing) {
+      employmentPeriod = 'present';
+    } else if (g.employmentEndDate) {
+      const end = new Date(g.employmentEndDate);
+      if (!Number.isNaN(end.getTime())) {
+        const twoYearsAgo = new Date();
+        twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+        if (end >= twoYearsAgo) {
+          employmentPeriod = 'within_2_years';
+          employmentEndDate = g.employmentEndDate;
+        }
+        // Older than 2 years — leave employmentPeriod unset; agency/position/
+        // status still carry through below for the Secretariat's reference.
+      }
+    }
+
+    openGovtEmpModal(selectedCandidate, {
+      agency: g.agency || '',
+      position: g.position || '',
+      status: g.status || '',
+      employmentPeriod,
+      employmentEndDate,
+      remarks: g.evidence ? `AI-detected from documents: ${g.evidence}` : ''
+    });
+  }, [aiDraft, selectedCandidate, openGovtEmpModal]);
 
   const closeGovtEmpModal = useCallback(() => {
     setShowGovtEmpModal(false);
@@ -1333,7 +1410,8 @@ const SecretariatView = ({ user }) => {
   useEffect(() => {
     const anyModalOpen = showCommentModal || showViewCommentsModal || 
                          showReportModal || showVacancyModal || 
-                         showCompetenciesModal || showCommentHistoryModal;
+                         showCompetenciesModal || showCommentHistoryModal ||
+                         showAttendanceModal;
                          
     if (anyModalOpen) {
       document.body.style.overflow = 'hidden';
@@ -1342,7 +1420,8 @@ const SecretariatView = ({ user }) => {
       };
     }
   }, [showCommentModal, showViewCommentsModal, showReportModal, 
-      showVacancyModal, showCompetenciesModal, showCommentHistoryModal]);
+      showVacancyModal, showCompetenciesModal, showCommentHistoryModal,
+      showAttendanceModal]);
 
   // Auto-collapse filter panel using IntersectionObserver on a sentinel element.
   // This avoids the scroll-position feedback loop where collapsing the panel
@@ -1410,11 +1489,11 @@ const SecretariatView = ({ user }) => {
                     Export CSV
                   </button>
 
-                  <button onClick={handleGenerateReport} aria-label="Generate Report"
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-all hover:opacity-90 active:scale-95"
+                  <button onClick={handleGenerateReport} aria-label="Generate Report" disabled={attendanceLoading}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-all hover:opacity-90 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
                     style={{ background: 'linear-gradient(135deg,#059669,#10b981)' }}>
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                    Generate Report
+                    {attendanceLoading ? 'Loading…' : 'Generate Report'}
                   </button>
 
                   <button
@@ -4417,6 +4496,86 @@ const SecretariatView = ({ user }) => {
                         Save
                       </>
                     )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {showAttendanceModal && (() => {
+        const raters = attendancePool.filter(u => u.roleGroup === 'Rater');
+        const secretariat = attendancePool.filter(u => u.roleGroup === 'Secretariat');
+        const selectedCount = selectedAttendeeIds.size;
+
+        const renderRow = (u) => (
+          <label
+            key={u._id}
+            className="flex items-start gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 cursor-pointer"
+          >
+            <input
+              type="checkbox"
+              checked={selectedAttendeeIds.has(u._id)}
+              onChange={() => toggleAttendee(u._id)}
+              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+            />
+            <span className="flex-1 min-w-0">
+              <span className="block text-sm font-medium text-gray-900">{u.name}</span>
+              <span className="block text-xs text-gray-500">
+                {[u.raterType, u.position].filter(Boolean).join(' · ') || (u.roleGroup === 'Secretariat' ? 'Secretariat' : '')}
+              </span>
+            </span>
+          </label>
+        );
+
+        return (
+          <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true" aria-labelledby="attendance-modal-title">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[85vh]">
+              <div className="px-6 pt-5 pb-4 border-b border-gray-100">
+                <h2 id="attendance-modal-title" className="text-base font-bold text-gray-900">Who is present at this deliberation?</h2>
+                <p className="text-xs text-gray-500 mt-1">
+                  Only the people you check here will appear as signatories on the report. This has to be confirmed each time — assignment to the item doesn't mean attendance at this particular deliberation.
+                </p>
+              </div>
+
+              <div className="px-3 py-3 flex-1 overflow-y-auto">
+                {attendancePool.length === 0 ? (
+                  <p className="text-sm text-gray-500 px-3 py-6 text-center">No raters or secretariat staff are assigned to this item.</p>
+                ) : (
+                  <>
+                    {raters.length > 0 && (
+                      <div className="mb-2">
+                        <p className="px-3 text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">Raters</p>
+                        {raters.map(renderRow)}
+                      </div>
+                    )}
+                    {secretariat.length > 0 && (
+                      <div>
+                        <p className="px-3 text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">Secretariat</p>
+                        {secretariat.map(renderRow)}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between gap-3">
+                <p className="text-xs text-gray-500">
+                  {selectedCount === 0 ? 'No one selected yet — report will have no signature blocks.' : `${selectedCount} selected`}
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={closeAttendanceModal}
+                    className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleConfirmAttendance}
+                    className="px-4 py-2 text-sm font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg transition-colors"
+                  >
+                    Continue to Report
                   </button>
                 </div>
               </div>

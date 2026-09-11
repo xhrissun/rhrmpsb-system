@@ -3001,7 +3001,7 @@ const UserModal = ({ editingItem, onClose, onSuccess }) => {
       showToast(`User ${editingItem ? 'updated' : 'created'} successfully!`, 'success');
     } catch (error) {
       console.error('Failed to save user:', error);
-      showToast('Failed to save user. Please try again.', 'error');
+      showToast(error.response?.data?.message || 'Failed to save user. Please try again.', 'error');
     }
   };
 
