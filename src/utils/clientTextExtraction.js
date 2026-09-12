@@ -179,7 +179,18 @@ async function extractFromImageBlob(blob) {
 
 async function extractFromDocx(arrayBuffer) {
   const mammoth = await import('mammoth/mammoth.browser');
-  const result = await mammoth.extractRawText({ arrayBuffer });
+  let result;
+  try {
+    result = await mammoth.extractRawText({ arrayBuffer });
+  } catch (err) {
+    // Same reasoning as extractFromXlsx's catch below — docx is a ZIP
+    // archive too, and mammoth's internal ZIP-parsing errors are just as
+    // meaningless to a non-technical reader as XLSX's are.
+    throw new Error(
+      `This document could not be read — it may have been corrupted or only partially downloaded from Google Drive. ` +
+      `Try running the AI evaluation again; if it keeps failing, verify the file opens correctly in Google Drive directly.`
+    );
+  }
   return (result.value || '').trim();
 }
 
@@ -254,7 +265,23 @@ function stripDropdownNoiseCells(cells) {
 
 async function extractFromXlsx(arrayBuffer) {
   const XLSX = await import('xlsx');
-  const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+  let workbook;
+  try {
+    workbook = XLSX.read(arrayBuffer, { type: 'array' });
+  } catch (err) {
+    // The server (server/lib/googleDrive.js) already validates ZIP
+    // structural integrity before this ever reaches the browser, so this
+    // should be rare — but it's still possible via the Cloudflare Worker
+    // proxy path, which streams bytes straight from Drive without going
+    // through that check. Rather than let a raw library message like "Bad
+    // compressed size: X != Y" reach the Secretariat verbatim (meaningless
+    // without knowing this is a ZIP-parsing internal), name the likely
+    // cause plainly.
+    throw new Error(
+      `This spreadsheet could not be read — it may have been corrupted or only partially downloaded from Google Drive. ` +
+      `Try running the AI evaluation again; if it keeps failing, verify the file opens correctly in Google Drive directly.`
+    );
+  }
   const sheetTexts = workbook.SheetNames.map(name => {
     const rows = XLSX.utils.sheet_to_json(workbook.Sheets[name], { header: 1, blankrows: false, defval: '' });
     const lines = rows

@@ -204,11 +204,55 @@ export default {
         });
       }
 
-      // Streamed straight through — never buffered in full here, and
-      // never touches Render at all.
+      // Buffered here (not streamed straight through, unlike before) so it
+      // can actually be validated. This Worker is the ONLY path a document
+      // takes in production (it's what avoids Render's bandwidth cost — see
+      // the file header comment), so if corruption isn't caught here, it
+      // isn't caught anywhere before reaching the browser's XLSX/DOCX
+      // parser, which only reports it as an opaque internal error like
+      // "Bad compressed size" — meaningless to whoever reads it. Workers
+      // have generous memory for this (candidate documents are a few MB at
+      // most), so buffering to validate is a fine trade for a real error
+      // message instead of a corrupted download reaching the browser silently.
+      const contentType = driveResp.headers.get('Content-Type') || 'application/octet-stream';
+      const declaredLength = driveResp.headers.get('Content-Length');
+      const buffer = await driveResp.arrayBuffer();
+
+      if (declaredLength && Number(declaredLength) !== buffer.byteLength) {
+        return new Response(JSON.stringify({
+          message: `Download from Google Drive was incomplete (expected ${declaredLength} bytes, got ${buffer.byteLength}). This is usually transient — try running the AI evaluation again.`
+        }), { status: 502, headers: { ...cors, 'Content-Type': 'application/json' } });
+      }
+
+      // XLSX/DOCX are ZIP archives — a truncated or corrupted one is
+      // directly verifiable by checking for the local-file-header signature
+      // at the start and the end-of-central-directory signature near the
+      // tail (see server/lib/googleDrive.js for the same check on the
+      // Render-proxy fallback path, and why this specifically matches
+      // "Bad compressed size"-style downstream parser errors).
+      const isZipBased =
+        contentType.includes('spreadsheetml.sheet') || contentType.includes('wordprocessingml.document');
+      if (isZipBased) {
+        const bytes = new Uint8Array(buffer);
+        const hasLocalFileHeader = bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4B && bytes[2] === 0x03 && bytes[3] === 0x04;
+        const tailStart = Math.max(0, bytes.length - 2048);
+        let hasEndOfCentralDir = false;
+        for (let i = tailStart; i <= bytes.length - 4; i++) {
+          if (bytes[i] === 0x50 && bytes[i + 1] === 0x4B && bytes[i + 2] === 0x05 && bytes[i + 3] === 0x06) {
+            hasEndOfCentralDir = true;
+            break;
+          }
+        }
+        if (!hasLocalFileHeader || !hasEndOfCentralDir) {
+          return new Response(JSON.stringify({
+            message: `The downloaded file is incomplete or corrupted (got ${bytes.length} bytes) — if this is a Google Sheet, it may exceed Drive's export-to-Excel size limit (try downloading it as .xlsx and re-uploading that file directly instead of linking the live Sheet). Otherwise, try running the AI evaluation again.`
+          }), { status: 502, headers: { ...cors, 'Content-Type': 'application/json' } });
+        }
+      }
+
       const headers = new Headers(cors);
-      headers.set('Content-Type', driveResp.headers.get('Content-Type') || 'application/octet-stream');
-      return new Response(driveResp.body, { status: 200, headers });
+      headers.set('Content-Type', contentType);
+      return new Response(buffer, { status: 200, headers });
     } catch (err) {
       return new Response(JSON.stringify({ message: 'Failed to fetch document from Drive: ' + err.message }), {
         status: 502,

@@ -93,7 +93,7 @@ export async function fetchDriveFile(url) {
     throw new Error(describeGoogleApiError(err, fileId));
   }
 
-  const { mimeType, name } = meta.data;
+  const { mimeType, name, size: reportedSize } = meta.data;
 
   // Google-native formats (Docs/Sheets/Slides) have no direct binary — export
   // Docs as PDF and Sheets as .xlsx so the extraction step downstream can
@@ -102,6 +102,7 @@ export async function fetchDriveFile(url) {
   const isGoogleNative = mimeType?.startsWith('application/vnd.google-apps');
   let effectiveMimeType = mimeType;
   let dataResponse;
+  let isSheetExport = false;
 
   try {
     if (isGoogleNative) {
@@ -113,6 +114,7 @@ export async function fetchDriveFile(url) {
         );
       } else if (mimeType === 'application/vnd.google-apps.spreadsheet') {
         effectiveMimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+        isSheetExport = true;
         dataResponse = await drive.files.export(
           { fileId, mimeType: effectiveMimeType },
           { responseType: 'arraybuffer' }
@@ -130,13 +132,63 @@ export async function fetchDriveFile(url) {
     throw new Error(describeGoogleApiError(err, fileId));
   }
 
+  const byteLength = Buffer.byteLength(Buffer.from(dataResponse.data));
+
+  // For a regular uploaded file, Drive tells us the authoritative size
+  // ahead of time — if what we actually received doesn't match, the
+  // download was truncated or otherwise corrupted in transit, and there's
+  // no point handing a broken buffer to the client's XLSX/DOCX parser only
+  // to have it fail later with an opaque "Bad compressed size"-style error.
+  // Catching it here, with a byte-count comparison as concrete evidence,
+  // means the error message can say exactly what went wrong instead of
+  // surfacing a ZIP-library internals message the Secretariat can't act on.
+  if (!isGoogleNative && reportedSize && Number(reportedSize) !== byteLength) {
+    throw new Error(
+      `Download from Google Drive was incomplete (expected ${reportedSize} bytes, got ${byteLength}). ` +
+      `This is usually transient — try running the AI evaluation again.`
+    );
+  }
+
+  // Native Google Sheets have no size to check ahead of time (there's no
+  // fixed binary until it's exported), so the byte-count comparison above
+  // doesn't apply to them. But Drive's export-to-another-format API has a
+  // real, documented size ceiling (historically ~10MB) that it enforces by
+  // silently truncating the result rather than erroring — which produces
+  // exactly the "ZIP header says one size, actual data is shorter"
+  // corruption a downstream XLSX parser reports as "Bad compressed size".
+  // XLSX (and DOCX) are ZIP archives, so a truncated/corrupted one is
+  // directly verifiable: every valid ZIP starts with a local-file-header
+  // signature and has an end-of-central-directory signature near the end
+  // (that's how a ZIP reader locates the file table at all) — a truncated
+  // download is missing the second one specifically. Checked here, with a
+  // concrete structural reason, instead of only surfacing as an opaque
+  // parser exception two layers downstream in the browser.
+  const isZipBased = effectiveMimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+                      effectiveMimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  if (isZipBased) {
+    const buf = Buffer.from(dataResponse.data);
+    const hasLocalFileHeader = buf.length >= 4 && buf[0] === 0x50 && buf[1] === 0x4B && buf[2] === 0x03 && buf[3] === 0x04;
+    // End-of-central-directory signature only ever needs to be searched for
+    // near the tail (it's followed by, at most, a short comment field).
+    const tail = buf.subarray(Math.max(0, buf.length - 2048));
+    const hasEndOfCentralDir = tail.includes(Buffer.from([0x50, 0x4B, 0x05, 0x06]));
+    if (!hasLocalFileHeader || !hasEndOfCentralDir) {
+      throw new Error(
+        isSheetExport
+          ? `The exported spreadsheet file is incomplete or corrupted (got ${buf.length} bytes) — this usually means the Google Sheet is too large for Drive's export-to-Excel size limit. Try downloading it from Google Sheets as .xlsx and re-uploading that file directly instead of linking the live Sheet.`
+          : `The downloaded file is incomplete or corrupted (got ${buf.length} bytes) — this is usually transient. Try running the AI evaluation again.`
+      );
+    }
+  }
+
   const base64 = Buffer.from(dataResponse.data).toString('base64');
 
   return {
     fileId,
     name: name || fileId,
     mimeType: effectiveMimeType,
-    base64
+    base64,
+    isSheetExport
   };
 }
 
