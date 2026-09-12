@@ -873,9 +873,20 @@ const SecretariatView = ({ user }) => {
         fetchRatersForVacancy(selectedItemNumber),
         fetchSecretariatForVacancy(selectedItemNumber)
       ]);
+      // GET /users/raters deliberately omits _id for non-admin (secretariat)
+      // callers — see its handler in routes.js, it's an intentional IDOR
+      // guard, not an oversight. That means every rater object here has
+      // _id === undefined, so it can't be used as this list's selection
+      // key: every rater's checkbox would read/write the same "undefined"
+      // entry in the Set, which is exactly why checking one checked all of
+      // them. This selection is purely client-side (the PDF signatory
+      // builder only ever reads name/position/designation off these
+      // objects — see PDFReport.jsx), so a synthetic per-row key is both
+      // sufficient and the right fix here, rather than touching that
+      // security boundary.
       setAttendancePool([
-        ...raters.map(u => ({ ...u, roleGroup: 'Rater' })),
-        ...secretariat.map(u => ({ ...u, roleGroup: 'Secretariat' }))
+        ...raters.map((u, i) => ({ ...u, roleGroup: 'Rater', _attendeeKey: `rater-${i}` })),
+        ...secretariat.map((u, i) => ({ ...u, roleGroup: 'Secretariat', _attendeeKey: `secretariat-${i}` }))
       ]);
       // Nobody starts checked — presence has to be an explicit, deliberate
       // confirmation for each person, not a default that has to be undone.
@@ -902,7 +913,7 @@ const SecretariatView = ({ user }) => {
   }, []);
 
   const handleConfirmAttendance = useCallback(() => {
-    const selected = attendancePool.filter(u => selectedAttendeeIds.has(u._id));
+    const selected = attendancePool.filter(u => selectedAttendeeIds.has(u._attendeeKey));
     setReportRaters(selected);
     setReportCandidateId('');
     setShowAttendanceModal(false);
@@ -4546,13 +4557,13 @@ const SecretariatView = ({ user }) => {
 
         const renderRow = (u) => (
           <label
-            key={u._id}
+            key={u._attendeeKey}
             className="flex items-start gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 cursor-pointer"
           >
             <input
               type="checkbox"
-              checked={selectedAttendeeIds.has(u._id)}
-              onChange={() => toggleAttendee(u._id)}
+              checked={selectedAttendeeIds.has(u._attendeeKey)}
+              onChange={() => toggleAttendee(u._attendeeKey)}
               className="mt-0.5 h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
             />
             <span className="flex-1 min-w-0">
