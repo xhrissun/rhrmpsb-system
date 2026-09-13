@@ -363,9 +363,9 @@ export const candidatesAPI = {
   //      locally -> aiEvaluateSubmitDocument (small text payload)
   //   3. once every doc is submitted, the server redacts + calls Gemini;
   //      aiEvaluateStatus is polled for that final result.
-  aiEvaluateStart: async (id) => {
-    const response = await api.post(`/candidates/${id}/ai-evaluate`);
-    return response.data; // { jobId, docsTotal, docs: [{key,label}] }
+  aiEvaluateStart: async (id, forceReextract = false) => {
+    const response = await api.post(`/candidates/${id}/ai-evaluate`, { forceReextract });
+    return response.data; // { jobId, docsTotal, docsCompleted, docs: [{key,label}] }
   },
   aiEvaluateFetchDocument: async (id, jobId, docKey) => {
     try {
@@ -407,6 +407,10 @@ export const candidatesAPI = {
   aiEvaluateStatus: async (id, jobId) => {
     const response = await api.get(`/candidates/${id}/ai-evaluate/status/${jobId}`);
     return response.data; // { status, stage, docsTotal, docsCompleted, currentDocLabel, result? }
+  },
+  aiEvaluateGetCached: async (id) => {
+    const response = await api.get(`/candidates/${id}/ai-evaluate/cached`);
+    return response.data; // { valid, draft?, evaluatedAt? }
   },
   getByItemNumber: async (itemNumber, includeArchived = false) => {
     // Encode the item number to handle special characters

@@ -183,7 +183,44 @@ const candidateSchema = new mongoose.Schema({
   isLateApplicant: { type: Boolean, default: false },
   isArchived: { type: Boolean, default: false },
   archivedAt: { type: Date },
-  archivedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+  archivedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+
+  // Client-extracted document text, cached so re-running an AI evaluation
+  // doesn't re-download and re-OCR every document from scratch every time.
+  // Keyed by document type (matches CANDIDATE_DOC_FIELDS in routes.js), NOT
+  // by position — the text of a PDS doesn't change depending on which item
+  // it's being evaluated for, so this is reused across ANY position for
+  // this candidate. A cache entry is only valid as long as documentUrl
+  // still matches candidate[key]; if the candidate's link for that
+  // document changes, that specific entry is stale and gets re-extracted
+  // — see routes.js's ai-evaluate start route for where this is read.
+  extractedDocumentCache: [{
+    key:          { type: String, required: true },
+    documentUrl:  { type: String, default: '' },
+    text:         { type: String, default: '' },
+    method:       { type: String, default: '' },
+    insufficient: { type: Boolean, default: false },
+    error:        { type: String, default: '' },
+    extractedAt:  { type: Date, default: Date.now }
+  }],
+
+  // The AI evaluation draft last generated for this candidate — kept so
+  // the Secretariat doesn't lose the comments/suggestedStatus/flags/
+  // "not on file" warnings just by navigating away and coming back. Only
+  // ever shown as still-valid for the SAME item number and the SAME set
+  // of competencies it was generated against (see competencyIds below) —
+  // if either changed since, it's treated as stale until re-run, since a
+  // different position or a different competency list could mean a
+  // materially different evaluation.
+  lastAiEvaluation: {
+    itemNumber:    { type: String, default: '' },
+    competencyIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Competency' }],
+    result:               { type: mongoose.Schema.Types.Mixed, default: null },
+    unavailableDocuments: [{ key: String, label: String, message: String }],
+    neverLinkedDocuments: [{ key: String, label: String }],
+    evaluatedAt:   { type: Date, default: null },
+    evaluatedBy:   { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null }
+  }
 }, { timestamps: true });
 
 // Shared age calculator

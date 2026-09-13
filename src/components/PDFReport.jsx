@@ -271,13 +271,82 @@ function buildDeliberationPDF({ vacancy, candidates, raters, includeSignatories,
     y += 10;
 
     const LH11 = 11 * 1.2;
+    const LH9b =  9 * 1.2; // board-role line
     const LH8  =  8 * 1.2;
     const LH9  =  9 * 1.2;
     const sigColW = (pageWidth - 2 * margin - 40) / 2;
     const sig1CX  = margin + sigColW / 2;
     const sig2CX  = margin + sigColW + 40 + sigColW / 2;
 
-    if (y + 60 > bodyBottom) { doc.addPage(); y = margin + 5; }
+    // The board role (raterType — Chairperson, Regular Member, etc.) is
+    // what actually seats someone on THIS deliberation, so it goes right
+    // under the name, above their general job position/designation.
+    // Secretariat signatories don't have a raterType (that field only
+    // applies to userType:'rater'), so they fall back to a plain
+    // "Secretariat" label instead of leaving that line blank.
+    function getRoleLine(sig) {
+      if (sig.raterType) return sig.raterType;
+      if (sig.roleGroup === 'Secretariat' || sig.userType === 'secretariat') return 'Secretariat';
+      return '';
+    }
+
+    function sigBlockH(sig) {
+      if (!sig) return 0;
+      const roleLines = doc.splitTextToSize(getRoleLine(sig), sigColW);
+      const posLines  = doc.splitTextToSize(sig.position    || '', sigColW);
+      const desgLines = doc.splitTextToSize(sig.designation || '', sigColW);
+      return LH11 + (roleLines[0] ? roleLines.length * LH9b + 2 : 0) + posLines.length * LH8 + 2 + desgLines.length * LH9;
+    }
+
+    function drawOneSig(sig, cx, baseY) {
+      if (!sig) return;
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.text(sig.name || 'N/A', cx, baseY, { align: 'center', maxWidth: sigColW });
+      doc.setFont('helvetica', 'normal');
+      let ty = baseY + LH11;
+
+      const roleLine = getRoleLine(sig);
+      if (roleLine) {
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'bold');
+        const roleLines = doc.splitTextToSize(roleLine, sigColW);
+        doc.text(roleLines, cx, ty, { align: 'center' });
+        ty += roleLines.length * LH9b + 2;
+        doc.setFont('helvetica', 'normal');
+      }
+
+      doc.setFontSize(8);
+      const posLines = doc.splitTextToSize(sig.position || '', sigColW);
+      doc.text(posLines, cx, ty, { align: 'center' });
+      ty += posLines.length * LH8 + 2;
+
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'italic');
+      const desgLines = doc.splitTextToSize(sig.designation || '', sigColW);
+      doc.text(desgLines, cx, ty, { align: 'center' });
+      doc.setFont('helvetica', 'normal');
+    }
+
+    // The certification sentence, the "Noted by:" heading, and at least the
+    // FIRST row of signature blocks have to land on the same page together
+    // — otherwise "Noted by:" ends up alone at the bottom of one page with
+    // its names pushed onto the next. The old check only reserved room for
+    // the sentence + heading themselves (~60pt), so it happily printed
+    // those and only discovered there wasn't room for any actual names once
+    // the loop below ran its own separate check — one page break too late.
+    // Treating "sentence + heading + first row" as a single unit up front
+    // fixes that: if it doesn't all fit, the break happens BEFORE the
+    // sentence instead of after the heading.
+    const firstRowH = raters.length > 0
+      ? Math.max(sigBlockH(raters[0]), sigBlockH(raters[1] || null))
+      : 0;
+    const introAndHeadingH = 25 + 40; // sentence block, then "Noted by:" + its gap
+    if (y + introAndHeadingH + firstRowH + 20 > bodyBottom) {
+      doc.addPage();
+      y = margin + 5;
+    }
+
     doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
     doc.text(
@@ -290,39 +359,15 @@ function buildDeliberationPDF({ vacancy, candidates, raters, includeSignatories,
     doc.text('Noted by:', margin, y);
     y += 40;
 
-    function sigBlockH(sig) {
-      if (!sig) return 0;
-      const posLines  = doc.splitTextToSize(sig.position    || '', sigColW);
-      const desgLines = doc.splitTextToSize(sig.designation || '', sigColW);
-      return LH11 + posLines.length * LH8 + 2 + desgLines.length * LH9;
-    }
-
-    function drawOneSig(sig, cx, baseY) {
-      if (!sig) return;
-      doc.setFontSize(11);
-      doc.setFont('helvetica', 'bold');
-      doc.text(sig.name || 'N/A', cx, baseY, { align: 'center', maxWidth: sigColW });
-      doc.setFont('helvetica', 'normal');
-
-      doc.setFontSize(8);
-      const posLines = doc.splitTextToSize(sig.position || '', sigColW);
-      let ty = baseY + LH11;
-      doc.text(posLines, cx, ty, { align: 'center' });
-      ty += posLines.length * LH8 + 2;
-
-      doc.setFontSize(9);
-      doc.setFont('helvetica', 'italic');
-      const desgLines = doc.splitTextToSize(sig.designation || '', sigColW);
-      doc.text(desgLines, cx, ty, { align: 'center' });
-      doc.setFont('helvetica', 'normal');
-    }
-
     for (let i = 0; i < raters.length; i += 2) {
       const sig1   = raters[i];
       const sig2   = raters[i + 1] || null;
       const blockH = Math.max(sigBlockH(sig1), sigBlockH(sig2));
 
-      if (y + blockH + 40 > bodyBottom) { doc.addPage(); y = margin + 5; }
+      // i === 0 already had its room guaranteed by the combined check
+      // above — re-checking here would just risk a redundant, unwanted
+      // page break from a slightly different height calculation.
+      if (i > 0 && y + blockH + 40 > bodyBottom) { doc.addPage(); y = margin + 5; }
       const baseY = y;
       drawOneSig(sig1, sig1CX, baseY);
       drawOneSig(sig2, sig2CX, baseY);

@@ -163,6 +163,7 @@ const SecretariatView = ({ user }) => {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState('');
   const [aiDraft, setAiDraft] = useState(null); // { comments, suggestedStatus, suggestedStatusRationale, flags, unavailableDocuments, neverLinkedDocuments, governmentEmployment }
+  const [aiDraftEvaluatedAt, setAiDraftEvaluatedAt] = useState(null); // when this draft was generated — set whether it came from a fresh run or a persisted one
   // Real progress for the currently-running job (polled from the backend —
   // not a fake/indefinite spinner). null while no job is running.
   const [aiProgress, setAiProgress] = useState(null); // { stage, docsCompleted, docsTotal, currentDocLabel }
@@ -685,7 +686,7 @@ const SecretariatView = ({ user }) => {
     }
   }, []);
 
-  const handleGenerateAiDraft = useCallback(async () => {
+  const handleGenerateAiDraft = useCallback(async (forceReextract = false) => {
     if (!selectedCandidate) return;
     stopAiPolling();
     setAiLoading(true);
@@ -695,7 +696,16 @@ const SecretariatView = ({ user }) => {
     const candidateIdAtStart = selectedCandidate;
 
     try {
-      const { jobId, docsTotal, docs } = await candidatesAPI.aiEvaluateStart(candidateIdAtStart);
+      const { jobId, docsTotal, docs, docsCompleted: cachedCount } = await candidatesAPI.aiEvaluateStart(candidateIdAtStart, forceReextract);
+
+      // docsCompleted may already be > 0 here — some in-scope documents can
+      // come straight from the extraction cache (same document link as last
+      // time, not explicitly re-extracted) and never need fetching at all.
+      // `docs` only ever lists what THIS run actually needs to download —
+      // offsetting by cachedCount keeps "reading document X of Y" honest
+      // about the work already done, rather than restarting the count from
+      // zero as if nothing had been cached.
+      const baseCompleted = cachedCount || 0;
 
       // Text extraction happens right here, in the browser, one document
       // at a time — see src/utils/clientTextExtraction.js for why this
@@ -711,7 +721,7 @@ const SecretariatView = ({ user }) => {
         if (candidateIdAtStart !== selectedCandidateRef.current) return;
 
         const doc = docs[i];
-        setAiProgress({ stage: 'processing', docsCompleted: i, docsTotal, currentDocLabel: doc.label });
+        setAiProgress({ stage: 'processing', docsCompleted: baseCompleted + i, docsTotal, currentDocLabel: doc.label });
 
         let submission;
         try {
@@ -733,7 +743,7 @@ const SecretariatView = ({ user }) => {
 
         // eslint-disable-next-line no-await-in-loop
         await candidatesAPI.aiEvaluateSubmitDocument(candidateIdAtStart, jobId, doc.key, submission);
-        setAiProgress({ stage: 'processing', docsCompleted: i + 1, docsTotal, currentDocLabel: doc.label });
+        setAiProgress({ stage: 'processing', docsCompleted: baseCompleted + i + 1, docsTotal, currentDocLabel: doc.label });
       }
 
       if (candidateIdAtStart !== selectedCandidateRef.current) return;
@@ -764,6 +774,7 @@ const SecretariatView = ({ user }) => {
           if (status.status === 'done') {
             stopAiPolling();
             setAiDraft(status.result);
+            setAiDraftEvaluatedAt(status.result?.generatedAt || new Date().toISOString());
             setAiProgress(null);
             setAiLoading(false);
             return;
@@ -823,6 +834,31 @@ const SecretariatView = ({ user }) => {
     stopAiPolling();
     setAiProgress(null);
     setAiLoading(false);
+    // The draft shown belongs to whichever candidate is selected — without
+    // this, switching candidates left the PREVIOUS candidate's AI comments/
+    // flags/suggestedStatus on screen until a fresh draft was generated,
+    // which risked a Secretariat officer reading one candidate's findings
+    // while believing they were looking at another's.
+    setAiDraft(null);
+    setAiDraftEvaluatedAt(null);
+
+    if (!selectedCandidate) return;
+    const candidateIdAtStart = selectedCandidate;
+    // A persisted evaluation is only ever loaded here, never auto-run —
+    // this simply restores what was already generated and saved for this
+    // exact candidate + item number + competency list (see GET
+    // .../ai-evaluate/cached), so navigating away and back doesn't lose
+    // the comments/flags/suggestedStatus the Secretariat already reviewed.
+    candidatesAPI.aiEvaluateGetCached(candidateIdAtStart).then(res => {
+      if (candidateIdAtStart !== selectedCandidateRef.current) return; // switched again before this resolved
+      if (res?.valid && res.draft) {
+        setAiDraft(res.draft);
+        setAiDraftEvaluatedAt(res.evaluatedAt || null);
+      }
+    }).catch(() => {
+      // Silent — this is a convenience restore, not a required load. The
+      // Secretariat can always just click Generate AI Draft.
+    });
   }, [selectedCandidate, stopAiPolling]);
 
   const applyAiCommentField = useCallback((field) => {
@@ -968,6 +1004,7 @@ const SecretariatView = ({ user }) => {
       eligibility: ''
     });
     setAiDraft(null);
+    setAiDraftEvaluatedAt(null);
     setAiError('');
     setAiLoading(false);
   }, [setSelectedCandidate]);
@@ -2162,6 +2199,7 @@ const SecretariatView = ({ user }) => {
                                 loadCommentSuggestions();
                                 setCommentSiblings([]); // clear while loading
                                 setAiDraft(null);
+                                setAiDraftEvaluatedAt(null);
                                 setAiError('');
                                 setShowCommentModal(true);
                                 // Fetch siblings for propagation panel
@@ -2682,24 +2720,45 @@ const SecretariatView = ({ user }) => {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                     </svg>
                     <p className="text-xs font-bold text-purple-800 uppercase tracking-wide">AI-Assisted Evaluation</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleGenerateAiDraft}
-                    disabled={aiLoading}
-                    aria-label="Generate AI evaluation draft"
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 disabled:opacity-60 disabled:cursor-not-allowed text-white transition-colors"
-                  >
-                    {aiLoading && (
-                      <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-                      </svg>
+                    {aiDraftEvaluatedAt && !aiLoading && (
+                      <span className="text-[10px] text-purple-500 font-normal normal-case">
+                        · Last evaluated {new Date(aiDraftEvaluatedAt).toLocaleString()}
+                      </span>
                     )}
-                    {aiLoading
-                      ? (aiProgress?.stage === 'evaluating' ? 'Analyzing with AI…' : 'Reading documents…')
-                      : (aiDraft ? 'Regenerate Draft' : 'Generate AI Draft')}
-                  </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {aiDraft && !aiLoading && (
+                      <button
+                        type="button"
+                        onClick={() => handleGenerateAiDraft(true)}
+                        aria-label="Re-extract documents and regenerate AI evaluation draft"
+                        title="Re-download and re-read every document from scratch instead of reusing last time's extracted text"
+                        className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-purple-300 text-purple-700 hover:bg-purple-100 transition-colors"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        Re-extract Documents
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleGenerateAiDraft(false)}
+                      disabled={aiLoading}
+                      aria-label="Generate AI evaluation draft"
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 disabled:opacity-60 disabled:cursor-not-allowed text-white transition-colors"
+                    >
+                      {aiLoading && (
+                        <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                        </svg>
+                      )}
+                      {aiLoading
+                        ? (aiProgress?.stage === 'evaluating' ? 'Analyzing with AI…' : 'Reading documents…')
+                        : (aiDraft ? 'Regenerate Draft' : 'Generate AI Draft')}
+                    </button>
+                  </div>
                 </div>
 
                 {aiLoading && aiProgress && (() => {

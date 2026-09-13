@@ -603,6 +603,8 @@ router.get('/users/raters', authMiddleware, async (req, res) => {
         name: r.name,
         raterType: r.raterType,
         userType: r.userType,
+        position: r.position,
+        designation: r.designation,
         assignedVacancies: r.assignedVacancies,
         assignedAssignment: r.assignedAssignment,
         assignedItemNumbers: r.assignedItemNumbers,
@@ -625,6 +627,8 @@ router.get('/users/secretariats', authMiddleware, async (req, res) => {
     const safeFields = secretariats.map(s => ({
       _id:                s._id,
       name:               s.name,
+      position:           s.position,
+      designation:        s.designation,
       assignedVacancies:  s.assignedVacancies,
       assignedAssignment: s.assignedAssignment,
       assignedItemNumbers: s.assignedItemNumbers,
@@ -1975,6 +1979,50 @@ async function finalizeAiEvaluationJob(jobId, candidate, vacancy, competencies, 
         ...draft
       }
     });
+
+    // Persist both caches now that the evaluation succeeded:
+    //  1. Extracted document text — reused by any FUTURE evaluation for
+    //     this candidate (any position) as long as each document's own
+    //     link hasn't changed since. Merged in rather than overwritten
+    //     outright, so a document type this run didn't touch (out of scope
+    //     for THIS item's QS — e.g. Certificates when training isn't
+    //     required) keeps whatever a previous run cached for it instead of
+    //     being silently lost.
+    //  2. This evaluation's own result — shown again if the Secretariat
+    //     reopens this exact candidate for this exact item with the same
+    //     competencies (see GET .../ai-evaluate/cached below), instead of
+    //     being lost the moment they navigate away. Best-effort: caching
+    //     is an optimization, not core functionality, so a failure here
+    //     doesn't affect the 'done' status already written above.
+    try {
+      const cacheByKey = new Map((candidate.extractedDocumentCache || []).map(c => [c.key, c]));
+      for (const doc of job.submittedDocs) {
+        cacheByKey.set(doc.key, {
+          key: doc.key,
+          documentUrl: candidate[doc.key] || '',
+          text: doc.text || '',
+          method: doc.method || '',
+          insufficient: !!doc.insufficient,
+          error: doc.error || '',
+          extractedAt: new Date()
+        });
+      }
+
+      await Candidate.findByIdAndUpdate(candidate._id, {
+        extractedDocumentCache: Array.from(cacheByKey.values()),
+        lastAiEvaluation: {
+          itemNumber: candidate.itemNumber,
+          competencyIds: (competencies || []).map(c => c._id),
+          result: draft,
+          unavailableDocuments: unavailableDocs,
+          neverLinkedDocuments: neverLinkedDocs,
+          evaluatedAt: new Date(),
+          evaluatedBy: user.id
+        }
+      });
+    } catch (cacheErr) {
+      console.warn('[AI evaluate] Failed to persist extraction cache / last evaluation:', cacheErr.message);
+    }
   } catch (error) {
     console.error('[AI evaluate finalize]', jobId, error);
     // Unlike other routes, we surface the real error message even in
@@ -2021,28 +2069,69 @@ router.post('/candidates/:id/ai-evaluate', aiEvaluateLimiter, authMiddleware, as
 
     const competencies = await Competency.findByVacancy(vacancy._id);
 
-    const docsToFetch = getInScopeDocFields(vacancy)
-      .filter(doc => candidate[doc.key])
-      .map(doc => ({ key: doc.key, label: doc.label }));
-
-    if (docsToFetch.length === 0) {
+    const inScopeDocs = getInScopeDocFields(vacancy).filter(doc => candidate[doc.key]);
+    if (inScopeDocs.length === 0) {
       return res.status(400).json({ message: 'This candidate has no uploaded documents relevant to this item\'s Qualification Standards to evaluate.' });
+    }
+
+    const forceReextract = req.body?.forceReextract === true;
+
+    // A document's extracted text is reused from the candidate's cache
+    // when its OWN link hasn't changed since it was last extracted — that's
+    // true regardless of which position it's being evaluated for, since a
+    // PDS's content doesn't depend on the item number. Explicitly asking to
+    // re-extract (forceReextract) bypasses the cache entirely for this run,
+    // and a document whose link DID change is always treated as fresh —
+    // the cache entry for the old link is simply not a match.
+    const cachedSubmissions = [];
+    const docsToFetch = [];
+    for (const doc of inScopeDocs) {
+      const cacheEntry = !forceReextract && (candidate.extractedDocumentCache || [])
+        .find(c => c.key === doc.key && c.documentUrl === candidate[doc.key]);
+      if (cacheEntry) {
+        cachedSubmissions.push({
+          key: doc.key,
+          label: doc.label,
+          name: doc.label,
+          text: cacheEntry.text || '',
+          insufficient: !!cacheEntry.insufficient,
+          method: cacheEntry.method || 'cached',
+          error: cacheEntry.error || ''
+        });
+      } else {
+        docsToFetch.push({ key: doc.key, label: doc.label });
+      }
     }
 
     const job = await AiEvaluationJob.create({
       candidateId: candidate._id,
       triggeredBy: req.user.id,
       status: 'processing',
-      stage: 'processing',
-      docsTotal: docsToFetch.length,
-      docsCompleted: 0
+      stage: docsToFetch.length === 0 ? 'evaluating' : 'processing',
+      docsTotal: inScopeDocs.length,
+      docsCompleted: cachedSubmissions.length,
+      submittedDocs: cachedSubmissions,
+      currentDocLabel: docsToFetch.length === 0 ? '' : (docsToFetch[0]?.label || '')
     });
+
+    if (docsToFetch.length === 0) {
+      // Every relevant document came from the cache unchanged — there's
+      // nothing for the browser to fetch or extract this run. Go straight
+      // to the redact + Gemini step, the same one document-submission
+      // would normally trigger once the last document lands.
+      finalizeAiEvaluationJob(job._id, candidate, vacancy, competencies, req.user);
+    }
 
     // Note: no URLs are returned here — the document-proxy endpoint below
     // re-resolves each key's Drive URL from the candidate record itself,
     // so nothing about where these files live is ever exposed to the
     // browser beyond "download document X for job Y".
-    res.status(202).json({ jobId: job._id, docsTotal: docsToFetch.length, docs: docsToFetch });
+    res.status(202).json({
+      jobId: job._id,
+      docsTotal: inScopeDocs.length,
+      docsCompleted: cachedSubmissions.length,
+      docs: docsToFetch
+    });
   } catch (error) {
     console.error('[POST /candidates/:id/ai-evaluate]', error);
     res.status(500).json({ message: 'Failed to start AI evaluation: ' + error.message });
@@ -2189,7 +2278,58 @@ router.post('/candidates/:id/ai-evaluate/document/:jobId/:docKey', authMiddlewar
   }
 });
 
-// Polled by the frontend every ~1.5s while the Gemini step is in flight
+// Returns the last AI evaluation generated for this candidate, but ONLY if
+// it's still valid: same item number and the exact same set of
+// competencies it was generated against. If the candidate moved to a
+// different item, or the competency list for this item changed since (an
+// admin edited it), the cached result is considered stale and this
+// returns { valid: false } rather than a possibly-outdated evaluation —
+// the frontend falls back to showing nothing until the Secretariat runs a
+// fresh one. This is what lets a Secretariat reopen a candidate they
+// evaluated earlier and immediately see the same comments/flags/
+// suggestedStatus without waiting for Gemini again.
+router.get('/candidates/:id/ai-evaluate/cached', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin' && req.user.userType !== 'secretariat') {
+    return res.status(403).json({ message: 'Access denied' });
+  }
+  try {
+    const candidate = await Candidate.findById(req.params.id);
+    if (!candidate) return res.status(404).json({ message: 'Candidate not found' });
+
+    const cached = candidate.lastAiEvaluation;
+    if (!cached || !cached.result || cached.itemNumber !== candidate.itemNumber) {
+      return res.json({ valid: false });
+    }
+
+    const vacancy = await Vacancy.findOne({
+      itemNumber: candidate.itemNumber,
+      publicationRangeId: candidate.publicationRangeId
+    });
+    if (!vacancy) return res.json({ valid: false });
+
+    const currentCompetencies = await Competency.findByVacancy(vacancy._id);
+    const currentIds = new Set(currentCompetencies.map(c => c._id.toString()));
+    const cachedIds = (cached.competencyIds || []).map(id => id.toString());
+    const sameCompetencies = cachedIds.length === currentIds.size && cachedIds.every(id => currentIds.has(id));
+
+    if (!sameCompetencies) return res.json({ valid: false });
+
+    res.json({
+      valid: true,
+      draft: {
+        ...cached.result,
+        unavailableDocuments: cached.unavailableDocuments || [],
+        neverLinkedDocuments: cached.neverLinkedDocuments || []
+      },
+      evaluatedAt: cached.evaluatedAt
+    });
+  } catch (error) {
+    console.error('[GET /candidates/:id/ai-evaluate/cached]', error);
+    res.json({ valid: false });
+  }
+});
+
+
 // (the browser drives its own progress bar during the per-document
 // extraction phase — see SecretariatView.jsx — so this mainly matters
 // once every document has been submitted and the job moves to
