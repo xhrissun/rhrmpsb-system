@@ -4,7 +4,8 @@ import Login from './components/Login';
 import ForgotPassword from './components/ForgotPassword';
 import SetPassword from './components/SetPassword';
 import Dashboard from './components/Dashboard';
-import { authAPI } from './utils/api';
+import IdleTimeoutMonitor from './components/IdleTimeoutMonitor';
+import { authAPI, usersAPI } from './utils/api';
 import { ToastProvider } from './utils/ToastContext';
 
 function App() {
@@ -71,6 +72,19 @@ function App() {
     localStorage.setItem('user', JSON.stringify(userData.user));
   };
 
+  // Lightweight presence ping — see POST /users/heartbeat and GET
+  // /users/online in routes.js. Runs once immediately on login (so a
+  // freshly-logged-in user shows up right away rather than waiting a full
+  // interval) and then every 60s for as long as a tab stays authenticated,
+  // independent of the idle-timeout tracking above — this reflects "has
+  // an open, logged-in tab", not literally "actively typing this second".
+  useEffect(() => {
+    if (!user) return undefined;
+    usersAPI.heartbeat();
+    const interval = setInterval(() => usersAPI.heartbeat(), 60 * 1000);
+    return () => clearInterval(interval);
+  }, [user]);
+
   const handleLogout = () => {
     setUser(null);
     // FIX: Use consistent key 'authToken' (matches api.js interceptor)
@@ -93,6 +107,7 @@ function App() {
     <ToastProvider>
       <Router basename={basename}>
         <div className="App">
+          {user && <IdleTimeoutMonitor onLogout={handleLogout} />}
           <Routes>
             <Route 
               path="/login" 

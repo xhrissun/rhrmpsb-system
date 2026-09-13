@@ -1228,6 +1228,84 @@ const UserSelectionModal = ({ isOpen, onClose, users, onSelectUser }) => {
 };
 
 // ─── Guides Dropdown ──────────────────────────────────────────────────────────
+// Polls GET /users/online every 15s WHILE the dropdown is open — no point
+// polling in the background when nobody's looking at it, since the list
+// is only ever a few minutes stale at most anyway (see ONLINE_THRESHOLD_MS
+// server-side). Only rendered for admin/secretariat, matching the
+// endpoint's own access check.
+const OnlineUsersDropdown = () => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [onlineUsers, setOnlineUsers] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) setIsOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    let cancelled = false;
+    const fetchOnline = async () => {
+      setLoading(true);
+      try {
+        const data = await usersAPI.getOnline();
+        if (!cancelled) setOnlineUsers(data);
+      } catch {
+        // Leave whatever was last shown — a failed refresh isn't worth
+        // clearing an otherwise-still-reasonable list.
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    fetchOnline();
+    const interval = setInterval(fetchOnline, 15 * 1000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [isOpen]);
+
+  return (
+    <div className="relative" ref={dropdownRef}>
+      <button onClick={() => setIsOpen(!isOpen)} className="navbar-button bg-teal-600 text-white hover:bg-teal-700 flex items-center gap-1.5" title="Who's currently logged in">
+        <span className="relative flex h-2 w-2">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-300 opacity-75"></span>
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
+        </span>
+        Online{onlineUsers.length > 0 ? ` (${onlineUsers.length})` : ''}
+      </button>
+      {isOpen && (
+        <div className="absolute right-0 mt-2 w-72 bg-white rounded-lg shadow-xl border border-gray-200 py-2 z-50 max-h-96 overflow-y-auto">
+          <p className="px-4 pb-2 text-[10px] font-bold text-gray-400 uppercase tracking-wide border-b border-gray-100">
+            Logged in within the last few minutes
+          </p>
+          {loading && onlineUsers.length === 0 ? (
+            <p className="px-4 py-4 text-sm text-gray-400 text-center">Loading…</p>
+          ) : onlineUsers.length === 0 ? (
+            <p className="px-4 py-4 text-sm text-gray-400 text-center">No one else appears to be online right now.</p>
+          ) : (
+            onlineUsers.map((u, i) => (
+              <div key={i} className="flex items-center gap-2.5 px-4 py-2">
+                <span className="relative flex h-2 w-2 shrink-0">
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-900 truncate">{u.name}</p>
+                  <p className="text-xs text-gray-500 truncate">
+                    {u.userType === 'rater' ? (u.raterType || 'Rater') : u.userType.charAt(0).toUpperCase() + u.userType.slice(1)}
+                  </p>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const GuidesDropdown = () => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
@@ -1365,6 +1443,9 @@ const Dashboard = ({ user, onLogout }) => {
         </div>
         <div className="navbar-buttons">
           <span className="navbar-welcome">{user.name}</span>
+          {(user.userType === USER_TYPES.SECRETARIAT || user.userType === USER_TYPES.ADMIN) && (
+            <OnlineUsersDropdown />
+          )}
           <button onClick={() => setCreatorModalOpen(true)} className="navbar-button bg-blue-600 text-white hover:bg-blue-700" title="About the Developer">
             About
           </button>

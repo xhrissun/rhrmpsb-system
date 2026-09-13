@@ -228,6 +228,21 @@ export const usersAPI = {
     const response = await api.get('/users/secretariats');
     return response.data;
   },
+  heartbeat: async () => {
+    // Fire-and-forget by design from the caller's side — see App.jsx.
+    // Failures here are non-fatal (see the route's own comment) so this
+    // deliberately doesn't throw/reject in a way that needs handling.
+    try {
+      await api.post('/users/heartbeat');
+    } catch {
+      // Ignored — a missed heartbeat just means this tab drops off the
+      // online list a little early, not something worth surfacing.
+    }
+  },
+  getOnline: async () => {
+    const response = await api.get('/users/online');
+    return response.data; // [{ name, userType, raterType, lastSeenAt }]
+  },
   exportCSV: async () => {
     const response = await api.get('/users/export-csv', {
       responseType: 'blob'

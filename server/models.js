@@ -35,6 +35,12 @@ const userSchema = new mongoose.Schema({
   },
   position:    { type: String, trim: true, default: null },
   designation: { type: String, trim: true, default: null },
+  // Updated by a lightweight heartbeat ping every ~60s while a tab is open
+  // and authenticated (see POST /users/heartbeat) — powers the "who's
+  // online" monitor. Reflects "has an open, logged-in tab", not literally
+  // "typing right now this second" — same presence definition most chat
+  // apps use.
+  lastSeenAt: { type: Date, default: null },
   administrativePrivilege: { type: Boolean, default: false },
   assignedVacancies: {
     type: String,

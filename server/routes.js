@@ -591,6 +591,44 @@ router.get('/users', authMiddleware, async (req, res) => {
   }
 });
 
+// Lightweight ping, called every ~60s by any logged-in tab (see
+// App.jsx) purely to update lastSeenAt for the online-users monitor
+// below. Deliberately does nothing else — no body, no response payload
+// beyond a bare acknowledgement — so it stays cheap enough to call this
+// often without meaningfully adding to server load.
+router.post('/users/heartbeat', authMiddleware, async (req, res) => {
+  try {
+    await User.findByIdAndUpdate(req.user.id, { lastSeenAt: new Date() });
+    res.json({ ok: true });
+  } catch (error) {
+    // Non-fatal by design — a missed heartbeat just means this user drops
+    // off the online list a little early, not a real error worth surfacing.
+    res.json({ ok: false });
+  }
+});
+
+// A user counts as "online" if they've sent a heartbeat within this
+// window — generous enough (3x the ~60s heartbeat interval) to tolerate
+// one or two missed beats (a brief network hiccup, a backgrounded tab
+// throttling its timers) without falsely showing someone as offline.
+const ONLINE_THRESHOLD_MS = 3 * 60 * 1000;
+
+router.get('/users/online', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin' && req.user.userType !== 'secretariat') {
+    return res.status(403).json({ message: 'Access denied' });
+  }
+  try {
+    const since = new Date(Date.now() - ONLINE_THRESHOLD_MS);
+    const online = await User.find({ lastSeenAt: { $gte: since } })
+      .select('name userType raterType lastSeenAt')
+      .sort({ name: 1 });
+    res.json(online);
+  } catch (error) {
+    console.error('[GET /users/online]', error);
+    res.status(500).json({ message: 'Failed to load online users' });
+  }
+});
+
 router.get('/users/raters', authMiddleware, async (req, res) => {
   // F-08 FIX: Admin gets full rater objects (including _id for management).
   // Non-admin (secretariat) gets assignment fields needed for vacancy filtering
