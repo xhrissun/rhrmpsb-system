@@ -1486,6 +1486,7 @@ const loadDataForCurrentTab = useCallback(async () => {
     filters, 
     sortConfig, 
     filteredVacanciesT, 
+    showBulkExamModal,
     handleFilterChange, 
     handleSort, 
     handleExportCSV, 
