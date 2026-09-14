@@ -182,6 +182,11 @@ const SecretariatView = ({ user }) => {
   const [govtEmpCandidate, setGovtEmpCandidate] = useState(null);
   const [govtEmpForm, setGovtEmpForm] = useState({ agency: '', position: '', status: '', employmentPeriod: '', employmentEndDate: '', preAssessmentExam: '', remarks: '' });
   const [govtEmpAiFilled, setGovtEmpAiFilled] = useState(false); // true when the form below was pre-filled from an AI suggestion and still needs human verification before saving
+  // Government employment is a fact about the PERSON, not about any one
+  // application — defaults to true so saving naturally keeps every one of
+  // this person's applications in this publication range in sync, but it's
+  // visible and toggleable, never silent. See handleSaveGovtEmp.
+  const [propagateToSiblings, setPropagateToSiblings] = useState(true);
   const [govtEmpLoading, setGovtEmpLoading] = useState(false);
   const [govtEmpCustomPositions, setGovtEmpCustomPositions] = useState([]);
   // Merge built-in positions from POSITIONS.txt with any custom ones added at runtime
@@ -1130,23 +1135,38 @@ const SecretariatView = ({ user }) => {
     const candidateObj = candidates.find(c => c._id === selectedCandidate);
     if (!candidateObj) return;
 
+    // The "within last 2 years" window is relative to the ITEM's
+    // publication end date, not to today — the same reference point the
+    // modal's own manual audit check (further down, comparing
+    // govtEmpForm.employmentEndDate against pubEndDate) already uses. Using
+    // "today" here would give a different, wrong answer for anything
+    // evaluated well after a publication closed, and would disagree with
+    // that audit check the moment the Secretariat actually opens the form.
+    const pubRangeId = candidateObj.publicationRangeId || selectedPublicationRangeRef.current;
+    const referenceDate = publicationRanges.find(r => r._id === pubRangeId)?.endDate
+      ? new Date(publicationRanges.find(r => r._id === pubRangeId).endDate)
+      : null;
+
     let employmentPeriod = '';
     let employmentEndDate = '';
     if (g.isOngoing) {
       employmentPeriod = 'present';
-    } else if (g.employmentEndDate) {
+    } else if (g.employmentEndDate && referenceDate) {
       const end = new Date(g.employmentEndDate);
       if (!Number.isNaN(end.getTime())) {
-        const twoYearsAgo = new Date();
-        twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
-        if (end >= twoYearsAgo) {
+        const twoYearsBeforeReference = new Date(referenceDate);
+        twoYearsBeforeReference.setFullYear(twoYearsBeforeReference.getFullYear() - 2);
+        if (end >= twoYearsBeforeReference && end <= referenceDate) {
           employmentPeriod = 'within_2_years';
           employmentEndDate = g.employmentEndDate;
         }
-        // Older than 2 years — leave employmentPeriod unset; agency/position/
-        // status still carry through below for the Secretariat's reference.
+        // Outside that window — leave employmentPeriod unset; agency/
+        // position/status still carry through below for reference.
       }
     }
+    // No publication range found for this candidate at all — there's no
+    // reference date to measure "within 2 years" against, so this is
+    // deliberately left unset rather than guessed against today's date.
 
     // Duration-based suggestion for "In Consideration of Pre-Assessment
     // Examination" (more_than_6_months / less_than_6_months). This is a
@@ -1176,7 +1196,7 @@ const SecretariatView = ({ user }) => {
       preAssessmentExam,
       remarks: g.evidence ? `AI-detected from documents: ${g.evidence}` : ''
     });
-  }, [aiDraft, selectedCandidate, candidates, openGovtEmpModal]);
+  }, [aiDraft, selectedCandidate, candidates, publicationRanges, openGovtEmpModal]);
 
   const closeGovtEmpModal = useCallback(() => {
     setShowGovtEmpModal(false);
@@ -1184,6 +1204,7 @@ const SecretariatView = ({ user }) => {
     setGovtEmpSiblings([]);
     setGovtEmpSiblingsLoading(false);
     setGovtEmpAiFilled(false);
+    setPropagateToSiblings(true);
     setGovtEmpForm({ agency: '', position: '', status: '', employmentPeriod: '', employmentEndDate: '', preAssessmentExam: '', remarks: '' });
   }, []);
 
@@ -1206,10 +1227,45 @@ const SecretariatView = ({ user }) => {
     }
     setGovtEmpLoading(true);
     try {
-      // Save ONLY the current candidate. Siblings must be opened individually.
       const updated = await candidatesAPI.update(govtEmpCandidate._id, {
         governmentEmployment: govtEmpForm
       });
+
+      // Government employment is a fact about the PERSON, not the specific
+      // application — when checked (default on, see propagateToSiblings
+      // above), the same save is applied to every OTHER item this same
+      // person applied to within this publication range too, not just the
+      // one record the modal happened to be opened from. Siblings are
+      // matched by full name within the same publication range (the exact
+      // same identity match the sibling panel above already relies on),
+      // so this deliberately does NOT reach across different publication
+      // ranges/years, where a name match is far less certain to be the
+      // same actual person.
+      let propagatedCount = 0;
+      if (propagateToSiblings && govtEmpSiblings.length > 0) {
+        const results = await Promise.allSettled(
+          govtEmpSiblings.map(sib =>
+            candidatesAPI.update(sib._id, { governmentEmployment: govtEmpForm })
+          )
+        );
+        const updatedSiblings = new Map();
+        results.forEach((r, i) => {
+          if (r.status === 'fulfilled') {
+            updatedSiblings.set(govtEmpSiblings[i]._id, r.value.governmentEmployment);
+            propagatedCount++;
+          }
+        });
+        if (updatedSiblings.size > 0) {
+          setCandidates(prev =>
+            prev.map(c => updatedSiblings.has(c._id) ? { ...c, governmentEmployment: updatedSiblings.get(c._id) } : c)
+          );
+        }
+        const failedCount = results.length - propagatedCount;
+        if (failedCount > 0) {
+          showToast(`Saved, but ${failedCount} other application${failedCount > 1 ? 's' : ''} could not be updated — open ${failedCount > 1 ? 'them' : 'it'} individually to retry.`, 'error');
+        }
+      }
+
       // Reflect the save in local candidates list immediately
       setCandidates(prev =>
         prev.map(c =>
@@ -1218,9 +1274,11 @@ const SecretariatView = ({ user }) => {
             : c
         )
       );
-      // If data was saved (non-empty), remove this candidate from the Review badge set
-      // since they now have their own govt emp record. If cleared (empty save), the
-      // badge would re-appear on next load if siblings still have data -- which is correct.
+      // If data was saved (non-empty), remove this candidate — and any
+      // siblings just propagated to — from the Review badge set, since
+      // they now have their own govt emp record. If cleared (empty save),
+      // the badge would re-appear on next load if data still exists
+      // elsewhere -- which is correct.
       const savedHasData = updated.governmentEmployment &&
         (updated.governmentEmployment.agency || updated.governmentEmployment.position ||
          updated.governmentEmployment.status || updated.governmentEmployment.preAssessmentExam);
@@ -1228,17 +1286,23 @@ const SecretariatView = ({ user }) => {
         setReviewBadgeIds(prev => {
           const next = new Set(prev);
           next.delete(govtEmpCandidate._id);
+          if (propagateToSiblings) govtEmpSiblings.forEach(sib => next.delete(sib._id));
           return next;
         });
       }
-      showToast('Government employment details saved.', 'success');
+      showToast(
+        propagatedCount > 0
+          ? `Government employment details saved and applied to ${propagatedCount} other application${propagatedCount > 1 ? 's' : ''}.`
+          : 'Government employment details saved.',
+        'success'
+      );
       closeGovtEmpModal();
     } catch (err) {
       showToast('Failed to save: ' + (err.response?.data?.message || err.message), 'error');
     } finally {
       setGovtEmpLoading(false);
     }
-  }, [govtEmpCandidate, govtEmpForm, closeGovtEmpModal, showToast]);
+  }, [govtEmpCandidate, govtEmpForm, govtEmpSiblings, propagateToSiblings, closeGovtEmpModal, showToast]);
 
   const handleExportCSV = useCallback(async () => {
     try {
@@ -4168,7 +4232,12 @@ const SecretariatView = ({ user }) => {
 
         // ── Audit: check employmentEndDate against the publication range's endDate ──
         // The end date must fall within [pubEndDate − 2 years, pubEndDate] to be valid.
-        const pubRange = publicationRanges.find(r => r._id === selectedPublicationRange);
+        // Uses THIS candidate's own publication range specifically — not
+        // whatever the page-level filter currently happens to be set to,
+        // which could be a different range entirely (e.g. this modal was
+        // reached via the siblings cross-reference panel further below).
+        const pubRangeIdForAudit = govtEmpCandidate.publicationRangeId || selectedPublicationRangeRef.current;
+        const pubRange = publicationRanges.find(r => r._id === pubRangeIdForAudit);
         const pubEndDate = pubRange?.endDate ? new Date(pubRange.endDate) : null;
 
         let endDateAudit = null; // null = no issue; object = warning info
@@ -4302,9 +4371,17 @@ const SecretariatView = ({ user }) => {
                           <p className="text-xs font-bold text-blue-900">
                             {govtEmpCandidate.fullName} applied to {govtEmpSiblings.length} other item{govtEmpSiblings.length > 1 ? 's' : ''}.
                           </p>
-                          <p className="text-[10px] text-blue-600 mt-0.5">
-                            This save applies ONLY to this record. Open each sibling separately to set their data.
-                          </p>
+                          <label className="flex items-start gap-1.5 mt-1.5 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={propagateToSiblings}
+                              onChange={(e) => setPropagateToSiblings(e.target.checked)}
+                              className="mt-0.5 h-3.5 w-3.5 rounded border-blue-300 text-blue-600 focus:ring-blue-500"
+                            />
+                            <span className="text-[10px] text-blue-700">
+                              Also apply this save to {govtEmpCandidate.fullName}'s other application{govtEmpSiblings.length > 1 ? 's' : ''} above — it's the same person, so their government employment status shouldn't differ by item. Uncheck to update only this record.
+                            </span>
+                          </label>
                         </div>
                       </div>
 
@@ -4630,7 +4707,9 @@ const SecretariatView = ({ user }) => {
                     ) : (
                       <>
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                        Save
+                        {propagateToSiblings && govtEmpSiblings.length > 0
+                          ? `Save & Apply to ${govtEmpSiblings.length} Other${govtEmpSiblings.length > 1 ? 's' : ''}`
+                          : 'Save'}
                       </>
                     )}
                   </button>
