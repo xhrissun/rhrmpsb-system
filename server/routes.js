@@ -1125,6 +1125,39 @@ router.post('/vacancies', authMiddleware, async (req, res) => {
   }
 });
 
+// Bulk-toggle "Requires pre-employment examination" across many items at
+// once, so an admin doesn't have to open the full edit modal for each item
+// just to flip one checkbox — see BulkPreEmploymentExamModal in
+// AdminView.jsx. Registered ahead of PUT /vacancies/:id purely for
+// readability; Express wouldn't actually confuse the two regardless of
+// order, since this path has an extra segment (/vacancies/bulk/...) that
+// :id (a single segment) can never match.
+router.put('/vacancies/bulk/pre-employment-exam', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin') return res.status(403).json({ message: 'Access denied' });
+  try {
+    const updates = Array.isArray(req.body.updates) ? req.body.updates : [];
+    if (updates.length === 0) {
+      return res.status(400).json({ message: 'No updates provided' });
+    }
+    const ops = updates
+      .filter(u => u && u.id)
+      .map(u => ({
+        updateOne: {
+          filter: { _id: u.id },
+          update: { $set: { requiresPreEmploymentExam: u.requiresPreEmploymentExam === true } }
+        }
+      }));
+    if (ops.length === 0) {
+      return res.status(400).json({ message: 'No valid updates provided' });
+    }
+    const result = await Vacancy.bulkWrite(ops, { ordered: false });
+    res.json({ modifiedCount: result.modifiedCount ?? 0 });
+  } catch (error) {
+    console.error('[PUT /vacancies/bulk/pre-employment-exam]', error);
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
+  }
+});
+
 router.put('/vacancies/:id', authMiddleware, async (req, res) => {
   if (req.user.userType !== 'admin') return res.status(403).json({ message: 'Access denied' });
   try {

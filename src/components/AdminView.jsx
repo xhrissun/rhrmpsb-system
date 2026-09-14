@@ -162,6 +162,7 @@ const AdminView = ({ user }) => {
   const [filters, setFilters] = useState({});
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
   const [showVacancyModal, setShowVacancyModal] = useState(false);
+  const [showBulkExamModal, setShowBulkExamModal] = useState(false);
   const [selectedVacancy, setSelectedVacancy] = useState(null);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [pendingAction, setPendingAction] = useState(null);
@@ -1319,6 +1320,14 @@ const loadDataForCurrentTab = useCallback(async () => {
               </button>
             )}
             <button
+              onClick={() => setShowBulkExamModal(true)}
+              className="btn-secondary px-3 py-1 rounded text-xs bg-indigo-100 text-indigo-700 hover:bg-indigo-200"
+              disabled={vacancies.length === 0}
+              title="Check/uncheck 'Requires pre-employment examination' for many items at once instead of editing them one by one"
+            >
+              Bulk: Pre-Employment Exam
+            </button>
+            <button
               onClick={() => handleAdd('vacancy')}
               className="btn-primary px-3 py-1 rounded text-xs bg-blue-500 text-white hover:bg-blue-600"
             >
@@ -1326,6 +1335,14 @@ const loadDataForCurrentTab = useCallback(async () => {
             </button>
           </div>
         </div>
+
+        {showBulkExamModal && (
+          <BulkPreEmploymentExamModal
+            vacancies={filteredVacancies}
+            onClose={() => setShowBulkExamModal(false)}
+            onSuccess={() => { setShowBulkExamModal(false); loadDataForCurrentTab(); }}
+          />
+        )}
 
         {/* Upload result banner */}
         {uploadResult && (
@@ -3343,6 +3360,129 @@ const VacancyModal = ({ editingItem, publicationRanges, onClose, onSuccess }) =>
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+};
+
+// Lets an admin flip "Requires pre-employment examination" across many
+// vacancies in one save, instead of opening the full edit modal per item
+// just for this one checkbox. Only sends the items that actually changed
+// from their original value — checking then unchecking something back to
+// its starting state costs nothing.
+const BulkPreEmploymentExamModal = ({ vacancies, onClose, onSuccess }) => {
+  const [search, setSearch] = useState('');
+  const [values, setValues] = useState(() =>
+    Object.fromEntries(vacancies.map(v => [v._id, !!v.requiresPreEmploymentExam]))
+  );
+  const [saving, setSaving] = useState(false);
+  const { showToast } = useToast();
+
+  const filtered = vacancies.filter(v => {
+    if (!search.trim()) return true;
+    const q = search.trim().toLowerCase();
+    return v.itemNumber?.toLowerCase().includes(q) ||
+           v.position?.toLowerCase().includes(q) ||
+           v.assignment?.toLowerCase().includes(q);
+  });
+
+  const changedCount = vacancies.filter(v => values[v._id] !== !!v.requiresPreEmploymentExam).length;
+
+  const toggle = (id) => setValues(prev => ({ ...prev, [id]: !prev[id] }));
+
+  // Only affects the currently-filtered (searched) rows — checking "all"
+  // while a search is active shouldn't silently touch items that are
+  // hidden by that search.
+  const setAllVisible = (checked) => {
+    setValues(prev => {
+      const next = { ...prev };
+      filtered.forEach(v => { next[v._id] = checked; });
+      return next;
+    });
+  };
+
+  const handleSave = async () => {
+    const updates = vacancies
+      .filter(v => values[v._id] !== !!v.requiresPreEmploymentExam)
+      .map(v => ({ id: v._id, requiresPreEmploymentExam: values[v._id] }));
+    if (updates.length === 0) { onClose(); return; }
+
+    setSaving(true);
+    try {
+      await vacanciesAPI.bulkUpdatePreEmploymentExam(updates);
+      showToast(`Updated ${updates.length} item${updates.length > 1 ? 's' : ''}.`, 'success');
+      onSuccess();
+    } catch (error) {
+      showToast(error.response?.data?.message || 'Failed to save changes.', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-lg flex flex-col max-h-[85vh]">
+        <div className="px-5 pt-4 pb-3 border-b border-gray-100">
+          <h2 className="text-base font-bold text-gray-900">Bulk: Requires Pre-Employment Examination</h2>
+          <p className="text-xs text-gray-500 mt-1">
+            Check or uncheck items below, then save — only items you actually change are updated.
+          </p>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by item number, position, or assignment…"
+            className="mt-2 w-full border border-gray-300 rounded px-2 py-1.5 text-sm"
+          />
+          <div className="flex gap-2 mt-2">
+            <button onClick={() => setAllVisible(true)} className="text-xs text-blue-600 hover:underline">
+              Check all {search ? 'shown' : ''}
+            </button>
+            <span className="text-gray-300">|</span>
+            <button onClick={() => setAllVisible(false)} className="text-xs text-blue-600 hover:underline">
+              Uncheck all {search ? 'shown' : ''}
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-2 py-2">
+          {filtered.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-6">No items match your search.</p>
+          ) : (
+            filtered.map(v => (
+              <label key={v._id} className="flex items-start gap-2.5 px-3 py-2 rounded-lg hover:bg-gray-50 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!!values[v._id]}
+                  onChange={() => toggle(v._id)}
+                  className="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium text-gray-900 truncate">{v.itemNumber} — {v.position}</span>
+                  <span className="block text-xs text-gray-500 truncate">{v.assignment}</span>
+                </span>
+              </label>
+            ))
+          )}
+        </div>
+
+        <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between gap-3">
+          <p className="text-xs text-gray-500">
+            {changedCount === 0 ? 'No changes yet.' : `${changedCount} item${changedCount > 1 ? 's' : ''} will be updated.`}
+          </p>
+          <div className="flex gap-2">
+            <button onClick={onClose} disabled={saving} className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-800 disabled:opacity-50">
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving || changedCount === 0}
+              className="px-4 py-1.5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg"
+            >
+              {saving ? 'Saving…' : 'Save Changes'}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -295,6 +295,11 @@ export const vacanciesAPI = {
     const response = await api.put(`/vacancies/${id}`, vacancyData);
     return response.data;
   },
+  bulkUpdatePreEmploymentExam: async (updates) => {
+    // updates: [{ id, requiresPreEmploymentExam }]
+    const response = await api.put('/vacancies/bulk/pre-employment-exam', { updates });
+    return response.data; // { modifiedCount }
+  },
   delete: async (id) => {
     const response = await api.delete(`/vacancies/${id}`);
     return response.data;
