@@ -94,6 +94,11 @@ const vacancySchema = new mongoose.Schema({
     ref: 'PublicationRange',
     required: true
   },
+  // Whether appointment to THIS item requires a pre-employment examination
+  // at all. Whether a given candidate actually needs to take it is a
+  // separate, per-candidate question — see the governmentEmployment note
+  // on Candidate below and routes.js's isPreEmploymentExamRequired.
+  requiresPreEmploymentExam: { type: Boolean, default: false },
   isArchived: { type: Boolean, default: false },
   archivedAt: { type: Date },
   archivedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }

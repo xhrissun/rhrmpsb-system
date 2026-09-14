@@ -3134,6 +3134,7 @@ const VacancyModal = ({ editingItem, publicationRanges, onClose, onSuccess }) =>
     editingItem ? {
       ...editingItem,
       publicationRangeId: editingItem.publicationRangeId || '',
+      requiresPreEmploymentExam: editingItem.requiresPreEmploymentExam ?? false,
       qualifications: {
         education: editingItem.qualifications?.education || '',
         training: editingItem.qualifications?.training || '',
@@ -3146,6 +3147,7 @@ const VacancyModal = ({ editingItem, publicationRanges, onClose, onSuccess }) =>
       assignment: '',
       salaryGrade: 1,
       publicationRangeId: '',
+      requiresPreEmploymentExam: false,
       qualifications: {
         education: '',
         training: '',
@@ -3309,6 +3311,21 @@ const VacancyModal = ({ editingItem, publicationRanges, onClose, onSuccess }) =>
               className="input-field w-full border rounded px-2 py-1 text-sm"
               rows={2}
             />
+          </div>
+          <div className="flex items-start gap-2 pt-1">
+            <input
+              type="checkbox"
+              id="requiresPreEmploymentExam"
+              checked={formData.requiresPreEmploymentExam}
+              onChange={(e) => setFormData({ ...formData, requiresPreEmploymentExam: e.target.checked })}
+              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <label htmlFor="requiresPreEmploymentExam" className="text-xs text-gray-700">
+              Requires pre-employment examination
+              <span className="block text-gray-400">
+                When checked, candidates who are NOT currently (or within the last 2 years) a government employee with 6+ months of cumulative service will be explicitly flagged as requiring this exam.
+              </span>
+            </label>
           </div>
           <div className="flex justify-end space-x-2">
             <button 

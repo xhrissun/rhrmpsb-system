@@ -4151,6 +4151,21 @@ const SecretariatView = ({ user }) => {
                             !govtEmpForm.preAssessmentExam && !govtEmpForm.remarks;
         const isWithin2Years = govtEmpForm.employmentPeriod === 'within_2_years';
 
+        // ── Pre-employment exam requirement ─────────────────────────────
+        // A candidate is EXEMPT from the pre-employment exam only if they
+        // are a government employee (present, or within the last 2 years)
+        // with 6+ months of cumulative service, regardless of appointment
+        // status (permanent/casual/contractual/etc.) — that's exactly what
+        // employmentPeriod + preAssessmentExam together already capture.
+        // Whether the exam applies AT ALL is a property of the item itself
+        // (see the "Requires pre-employment examination" checkbox on the
+        // vacancy), not of the candidate — so this only ever flags true
+        // when both conditions line up.
+        const itemVacancy = vacancies.find(v => v.itemNumber === govtEmpCandidate.itemNumber);
+        const itemRequiresExam = !!itemVacancy?.requiresPreEmploymentExam;
+        const isExemptFromExam = !!govtEmpForm.employmentPeriod && govtEmpForm.preAssessmentExam === 'more_than_6_months';
+        const needsPreEmploymentExam = itemRequiresExam && !isExemptFromExam;
+
         // ── Audit: check employmentEndDate against the publication range's endDate ──
         // The end date must fall within [pubEndDate − 2 years, pubEndDate] to be valid.
         const pubRange = publicationRanges.find(r => r._id === selectedPublicationRange);
@@ -4230,6 +4245,17 @@ const SecretariatView = ({ user }) => {
                    hasInput && govtEmpForm.employmentPeriod === 'within_2_years' ? 'Government employee within last 2 years' :
                    hasInput ? 'Government employee (period not set)' : 'No government employment details set'}
                 </div>
+
+                {itemRequiresExam && (
+                  <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold ${
+                    needsPreEmploymentExam ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'
+                  }`}>
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${needsPreEmploymentExam ? 'bg-red-500' : 'bg-emerald-500'}`} />
+                    {needsPreEmploymentExam
+                      ? 'Requires pre-employment examination — not exempt (this item requires it)'
+                      : 'Exempt from pre-employment examination — 6+ months of recent government service'}
+                  </div>
+                )}
 
                 {govtEmpAiFilled && (
                   <div className="flex items-start gap-2 rounded-xl border border-purple-200 bg-purple-50 px-4 py-3">

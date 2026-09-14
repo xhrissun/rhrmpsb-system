@@ -272,10 +272,10 @@ const USER_UPDATE_ALLOWED = [
 
 // F-06 FIX: Allowlists for vacancy and competency updates — prevent mass assignment.
 const VACANCY_CREATE_ALLOWED = [
-  'itemNumber', 'position', 'assignment', 'salaryGrade', 'qualifications', 'publicationRangeId'
+  'itemNumber', 'position', 'assignment', 'salaryGrade', 'qualifications', 'publicationRangeId', 'requiresPreEmploymentExam'
 ];
 const VACANCY_UPDATE_ALLOWED = [
-  'itemNumber', 'position', 'assignment', 'salaryGrade', 'qualifications'
+  'itemNumber', 'position', 'assignment', 'salaryGrade', 'qualifications', 'requiresPreEmploymentExam'
 ];
 const COMPETENCY_WRITE_ALLOWED = [
   'name', 'type', 'vacancyId', 'vacancyIds', 'isFixed'
@@ -1115,6 +1115,7 @@ router.post('/vacancies', authMiddleware, async (req, res) => {
       experience:  req.body.qualifications?.experience  || '',
       eligibility: req.body.qualifications?.eligibility || ''
     };
+    vacancyData.requiresPreEmploymentExam = req.body.requiresPreEmploymentExam === true;
     const vacancy = new Vacancy(vacancyData);
     await vacancy.save();
     res.json(vacancy);
@@ -1138,6 +1139,9 @@ router.put('/vacancies/:id', authMiddleware, async (req, res) => {
         experience:  req.body.qualifications?.experience  || '',
         eligibility: req.body.qualifications?.eligibility || ''
       };
+    }
+    if ('requiresPreEmploymentExam' in req.body) {
+      updateData.requiresPreEmploymentExam = req.body.requiresPreEmploymentExam === true;
     }
     const vacancy = await Vacancy.findByIdAndUpdate(req.params.id, updateData, { new: true });
     if (!vacancy) return res.status(404).json({ message: 'Vacancy not found' });
