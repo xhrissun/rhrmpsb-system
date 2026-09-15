@@ -1829,24 +1829,32 @@ function isQsRequirementWaived(value) {
   return QS_NOT_REQUIRED_VALUES.has(String(value || '').trim().toLowerCase());
 }
 
-// When an item's QS has no Training AND no Experience requirement, the
-// Training/Experience comments Gemini would write are always going to be
-// "not required" — so there's no reason to spend time/tokens fetching and
-// reading the documents that exist only to support those two comments
-// (Work Experience Sheet, Certificates, Certificate of Employment, IPCR).
-// Only the documents that support Education and Eligibility are still
-// relevant in that case. This is the single source of truth for which
-// document types are "in scope" for a given vacancy — used both to decide
-// what to fetch when a job starts, and later to correctly report which
-// document TYPES were genuinely never submitted (as opposed to submitted
-// but intentionally not scanned because they're out of scope here).
-const EDUCATION_ELIGIBILITY_ONLY_KEYS = new Set(['personalDataSheet', 'diploma', 'proofOfEligibility', 'professionalLicense']);
+// When an item's QS has no Training requirement, the Training comment
+// Gemini would write is always going to be "not required" — so there's no
+// reason to spend time/tokens reading Certificates, which exists only to
+// support that one comment. This is the ONLY document ever skipped by
+// QS waivers now.
+//
+// Work Experience Sheet, Certificate of Employment, and IPCR used to be
+// skipped too whenever BOTH Training and Experience were waived, on the
+// same reasoning — but that broke Government Employment detection (see
+// instruction #11 in aiEvaluation.js), which explicitly names these three
+// documents as its primary evidence and runs independently of whether
+// THIS item's QS happens to require Experience at all. A candidate's
+// government-employment/pre-employment-exam status is a fact that always
+// needs checking, regardless of this item's Experience requirement, so
+// these three now always stay in scope. Only Certificates — which has no
+// bearing on anything except the Training comment — is still skippable.
+//
+// This is the single source of truth for which document types are "in
+// scope" for a given vacancy — used both to decide what to fetch when a
+// job starts, and later to correctly report which document TYPES were
+// genuinely never submitted (as opposed to submitted but intentionally
+// not scanned because they're out of scope here).
 function getInScopeDocFields(vacancy) {
   const qs = vacancy?.qualifications || {};
-  const trainingAndExperienceWaived = isQsRequirementWaived(qs.training) && isQsRequirementWaived(qs.experience);
-  return trainingAndExperienceWaived
-    ? CANDIDATE_DOC_FIELDS.filter(doc => EDUCATION_ELIGIBILITY_ONLY_KEYS.has(doc.key))
-    : CANDIDATE_DOC_FIELDS;
+  const trainingWaived = isQsRequirementWaived(qs.training);
+  return CANDIDATE_DOC_FIELDS.filter(doc => doc.key !== 'certificates' || !trainingWaived);
 }
 
 // ── Diagnostics: verify Google service account credentials without touching
