@@ -61,6 +61,68 @@ class SecretariatErrorBoundary extends React.Component {
   }
 }
 
+// The fields that actually constitute a government-employment record for
+// overwrite-guard purposes. Deliberately excludes lastUpdatedBy/lastUpdatedAt
+// (bookkeeping, not data) — two records with identical substance but
+// different lastUpdatedAt timestamps should NOT be treated as "different".
+const GOVT_EMP_FIELDS = ['agency', 'position', 'status', 'employmentPeriod', 'employmentEndDate', 'preAssessmentExam', 'remarks'];
+
+// True if a government-employment record has any real data in it at all —
+// used to tell "this is a genuinely blank record, safe to fill in" apart
+// from "this already has something set, so changing it needs confirmation".
+function hasMeaningfulGovtEmpData(ge) {
+  if (!ge) return false;
+  return GOVT_EMP_FIELDS.some(f => {
+    const v = ge[f];
+    if (!v) return false;
+    // employmentEndDate may arrive as a Date object (from the DB) or a
+    // yyyy-mm-dd string (from the form) — either way, presence is what
+    // matters here, not exact type.
+    return true;
+  });
+}
+
+// True if two government-employment records differ in any field that
+// actually matters — used to distinguish "saving the exact same thing
+// again" (harmless, no confirmation needed) from "saving something
+// genuinely different over existing data" (needs the overwrite guard).
+// employmentEndDate is normalized to a plain date string first since one
+// side is often a Date object and the other a yyyy-mm-dd string from the
+// form, which would otherwise compare unequal even when they're the same day.
+function govtEmpDataDiffers(a, b) {
+  const normalize = (ge) => {
+    const out = {};
+    GOVT_EMP_FIELDS.forEach(f => {
+      let v = ge?.[f] || '';
+      if (f === 'employmentEndDate' && v) {
+        v = new Date(v).toISOString().slice(0, 10);
+      }
+      out[f] = v;
+    });
+    return out;
+  };
+  const na = normalize(a);
+  const nb = normalize(b);
+  return GOVT_EMP_FIELDS.some(f => na[f] !== nb[f]);
+}
+
+// Compact, human-readable summary of a government-employment record for
+// the overwrite-confirmation dialog — e.g. "DENR-CENRO, Forester, Permanent,
+// within 2 years (more than 6 mos)" — so confirming an overwrite means
+// actually seeing what's being replaced, not just an abstract "are you sure?".
+function summarizeGovtEmp(ge) {
+  if (!hasMeaningfulGovtEmpData(ge)) return 'No data set';
+  const parts = [];
+  if (ge.agency) parts.push(ge.agency);
+  if (ge.position) parts.push(ge.position);
+  if (ge.status) parts.push(ge.status);
+  if (ge.employmentPeriod === 'present') parts.push('present employee');
+  else if (ge.employmentPeriod === 'within_2_years') parts.push('within last 2 years');
+  if (ge.preAssessmentExam === 'more_than_6_months') parts.push('more than 6 mos');
+  else if (ge.preAssessmentExam === 'less_than_6_months') parts.push('less than 6 mos');
+  return parts.length > 0 ? parts.join(', ') : 'No data set';
+}
+
 const SecretariatView = ({ user }) => {
   const [vacancies, setVacancies] = useState([]);
   const [candidates, setCandidates] = useState([]);
@@ -190,6 +252,12 @@ const SecretariatView = ({ user }) => {
   // this person's applications in this publication range in sync, but it's
   // visible and toggleable, never silent. See handleSaveGovtEmp.
   const [propagateToSiblings, setPropagateToSiblings] = useState(true);
+  // Set when saving would overwrite EXISTING, DIFFERENT government
+  // employment data (on the record being edited, and/or on siblings
+  // propagation would touch) — holds { primaryHasConflict, conflictingSiblings }
+  // and blocks the actual save until explicitly confirmed. null = no
+  // conflict, nothing to confirm. See handleSaveGovtEmp / performGovtEmpSave.
+  const [govtEmpOverwriteConfirm, setGovtEmpOverwriteConfirm] = useState(null);
   const [govtEmpLoading, setGovtEmpLoading] = useState(false);
   const [govtEmpCustomPositions, setGovtEmpCustomPositions] = useState([]);
   // Merge built-in positions from POSITIONS.txt with any custom ones added at runtime
@@ -1257,10 +1325,11 @@ const SecretariatView = ({ user }) => {
     setGovtEmpSiblingsLoading(false);
     setGovtEmpAiFilled(false);
     setPropagateToSiblings(true);
+    setGovtEmpOverwriteConfirm(null);
     setGovtEmpForm({ agency: '', position: '', status: '', employmentPeriod: '', employmentEndDate: '', preAssessmentExam: '', remarks: '' });
   }, []);
 
-  const handleSaveGovtEmp = useCallback(async () => {
+  const performGovtEmpSave = useCallback(async () => {
     if (!govtEmpCandidate) return;
     // Determine if the form has any employment data at all.
     // A completely empty form is a valid "clear this record" save — no field is required in that case.
@@ -1277,6 +1346,7 @@ const SecretariatView = ({ user }) => {
       showToast('Employment End Date is required when "Within Last 2 Years" is selected.', 'error');
       return;
     }
+    setGovtEmpOverwriteConfirm(null); // clear any confirmation UI that led here
     setGovtEmpLoading(true);
     try {
       const updated = await candidatesAPI.update(govtEmpCandidate._id, {
@@ -1355,6 +1425,47 @@ const SecretariatView = ({ user }) => {
       setGovtEmpLoading(false);
     }
   }, [govtEmpCandidate, govtEmpForm, govtEmpSiblings, propagateToSiblings, closeGovtEmpModal, showToast]);
+
+  // The button in the modal calls THIS, not performGovtEmpSave directly.
+  // Runs the same field validations up front (so an invalid form never
+  // gets as far as a confirmation dialog), then checks whether saving
+  // would overwrite EXISTING, DIFFERENT government employment data —
+  // either on the record being edited, or on any sibling this save would
+  // propagate to. If so, it stops here and shows that overwrite explicitly
+  // for confirmation instead of saving; performGovtEmpSave only actually
+  // runs once there's nothing to conflict with, or the Secretariat has
+  // explicitly confirmed the overwrite.
+  const handleSaveGovtEmp = useCallback(() => {
+    if (!govtEmpCandidate) return;
+
+    const formIsEmpty = !govtEmpForm.agency && !govtEmpForm.position && !govtEmpForm.status &&
+                        !govtEmpForm.employmentPeriod && !govtEmpForm.employmentEndDate &&
+                        !govtEmpForm.preAssessmentExam && !govtEmpForm.remarks;
+    if (!formIsEmpty && !govtEmpForm.preAssessmentExam) {
+      showToast('Please select an option for "In Consideration of Pre-Assessment Examination" before saving.', 'error');
+      return;
+    }
+    if (govtEmpForm.employmentPeriod === 'within_2_years' && !govtEmpForm.employmentEndDate) {
+      showToast('Employment End Date is required when "Within Last 2 Years" is selected.', 'error');
+      return;
+    }
+
+    const existingPrimary = govtEmpCandidate.governmentEmployment;
+    const primaryHasConflict = hasMeaningfulGovtEmpData(existingPrimary) && govtEmpDataDiffers(existingPrimary, govtEmpForm);
+
+    const conflictingSiblings = propagateToSiblings
+      ? govtEmpSiblings.filter(sib =>
+          hasMeaningfulGovtEmpData(sib.governmentEmployment) && govtEmpDataDiffers(sib.governmentEmployment, govtEmpForm)
+        )
+      : [];
+
+    if (primaryHasConflict || conflictingSiblings.length > 0) {
+      setGovtEmpOverwriteConfirm({ primaryHasConflict, conflictingSiblings });
+      return;
+    }
+
+    performGovtEmpSave();
+  }, [govtEmpCandidate, govtEmpForm, govtEmpSiblings, propagateToSiblings, performGovtEmpSave, showToast]);
 
   const handleExportCSV = useCallback(async () => {
     try {
@@ -1606,7 +1717,15 @@ const SecretariatView = ({ user }) => {
 
   // STEP 7: Add Modal Focus Management
   useEffect(() => {
-    const anyModalOpen = showCommentModal || showViewCommentsModal || 
+    // showCommentModal deliberately stays true while the Update Status
+    // modal is minimized (see minimizeCommentModal) — the AI evaluation
+    // and its effects are tied to selectedCandidate staying set, not to
+    // whether the modal is visually showing. Scroll-locking has no such
+    // requirement, so it needs its own check: (showCommentModal &&
+    // !commentModalMinimized) is "the modal is actually covering the
+    // screen right now", which is the only time the page underneath
+    // should be prevented from scrolling.
+    const anyModalOpen = (showCommentModal && !commentModalMinimized) || showViewCommentsModal || 
                          showReportModal || showVacancyModal || 
                          showCompetenciesModal || showCommentHistoryModal ||
                          showAttendanceModal;
@@ -1617,7 +1736,7 @@ const SecretariatView = ({ user }) => {
         document.body.style.overflow = 'unset';
       };
     }
-  }, [showCommentModal, showViewCommentsModal, showReportModal, 
+  }, [showCommentModal, commentModalMinimized, showViewCommentsModal, showReportModal, 
       showVacancyModal, showCompetenciesModal, showCommentHistoryModal,
       showAttendanceModal]);
 
@@ -4803,6 +4922,82 @@ const SecretariatView = ({ user }) => {
           </div>
         );
       })()}
+
+      {govtEmpOverwriteConfirm && govtEmpCandidate && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[60] p-4" role="alertdialog" aria-modal="true" aria-labelledby="govtemp-overwrite-title">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[85vh]">
+            <div className="px-6 pt-5 pb-4 border-b border-gray-100 flex items-start gap-3">
+              <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+                <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                </svg>
+              </div>
+              <div>
+                <h2 id="govtemp-overwrite-title" className="text-base font-bold text-gray-900">This will overwrite existing data</h2>
+                <p className="text-xs text-gray-500 mt-1">
+                  Government employment details were already set, and this save would change them. Review what's being replaced before continuing.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+              {govtEmpOverwriteConfirm.primaryHasConflict && (
+                <div>
+                  <p className="text-xs font-bold text-gray-700 mb-1.5">{govtEmpCandidate.fullName} — {govtEmpCandidate.itemNumber}</p>
+                  <div className="rounded-lg border border-gray-200 divide-y divide-gray-100 overflow-hidden">
+                    <div className="px-3 py-2 bg-red-50">
+                      <p className="text-[10px] font-bold text-red-500 uppercase tracking-wide">Current (will be replaced)</p>
+                      <p className="text-xs text-gray-700 mt-0.5">{summarizeGovtEmp(govtEmpCandidate.governmentEmployment)}</p>
+                    </div>
+                    <div className="px-3 py-2 bg-emerald-50">
+                      <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wide">New</p>
+                      <p className="text-xs text-gray-700 mt-0.5">{summarizeGovtEmp(govtEmpForm)}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {govtEmpOverwriteConfirm.conflictingSiblings.length > 0 && (
+                <div>
+                  <p className="text-xs font-bold text-gray-700 mb-1.5">
+                    {govtEmpOverwriteConfirm.conflictingSiblings.length} other application{govtEmpOverwriteConfirm.conflictingSiblings.length > 1 ? 's' : ''} with different existing data
+                  </p>
+                  <div className="space-y-2">
+                    {govtEmpOverwriteConfirm.conflictingSiblings.map(sib => (
+                      <div key={sib._id} className="rounded-lg border border-gray-200 overflow-hidden">
+                        <p className="px-3 pt-2 text-xs font-semibold text-gray-800">{sib.itemNumber}</p>
+                        <div className="px-3 pb-2">
+                          <p className="text-[10px] font-bold text-red-500 uppercase tracking-wide mt-1">Current</p>
+                          <p className="text-xs text-gray-600">{summarizeGovtEmp(sib.governmentEmployment)}</p>
+                          {sib.governmentEmployment?.lastUpdatedBy?.name && (
+                            <p className="text-[10px] text-gray-400 mt-0.5">Last set by {sib.governmentEmployment.lastUpdatedBy.name}</p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-1.5">All of these will be replaced with: {summarizeGovtEmp(govtEmpForm)}</p>
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
+              <button
+                onClick={() => setGovtEmpOverwriteConfirm(null)}
+                className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={performGovtEmpSave}
+                className="px-4 py-2 text-sm font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
+              >
+                Overwrite & Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showCommentModal && commentModalMinimized && candidateDetails && (
         <div className="fixed bottom-5 right-5 z-50">
