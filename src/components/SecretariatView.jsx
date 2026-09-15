@@ -8,6 +8,7 @@ import { competenciesAPI } from '../utils/api';
 import { COMPETENCY_TYPES } from '../utils/constants';
 import CompetencyDetailModal from './CompetencyDetailModal';
 import { extractTextClientSide } from '../utils/clientTextExtraction';
+import { markBusy, clearBusy } from '../utils/busyTracker';
 
 // Error Boundary Component
 class SecretariatErrorBoundary extends React.Component {
@@ -143,6 +144,7 @@ const SecretariatView = ({ user }) => {
   const [candidateDetails, setCandidateDetails] = useState(null);
   const [vacancyDetails, setVacancyDetails] = useState(null);
   const [showCommentModal, setShowCommentModal] = useState(false);
+  const [commentModalMinimized, setCommentModalMinimized] = useState(false); // hides the Update Status modal's content WITHOUT touching selectedCandidate — see closeCommentModal vs minimizeCommentModal below
   const [showViewCommentsModal, setShowViewCommentsModal] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
   const [showVacancyModal, setShowVacancyModal] = useState(false);
@@ -168,6 +170,7 @@ const SecretariatView = ({ user }) => {
   // not a fake/indefinite spinner). null while no job is running.
   const [aiProgress, setAiProgress] = useState(null); // { stage, docsCompleted, docsTotal, currentDocLabel }
   const aiPollRef = useRef(null); // interval id, so we can cancel on unmount/candidate change
+  const aiBusyKeyRef = useRef(null); // the busyTracker key for whichever AI evaluation is currently running, if any — see handleGenerateAiDraft
   const selectedCandidateRef = useRef(selectedCandidate); // lets the async extraction loop notice a mid-run candidate switch
 
   const [commentSuggestions, setCommentSuggestions] = useState({
@@ -699,6 +702,15 @@ const SecretariatView = ({ user }) => {
     setAiProgress({ stage: 'starting', docsCompleted: 0, docsTotal: 0, currentDocLabel: '' });
 
     const candidateIdAtStart = selectedCandidate;
+    // Marked busy for the ENTIRE operation — document fetch/extract/submit
+    // AND the Gemini polling that follows — because both halves would be
+    // left permanently stuck if this tab disappeared mid-way (see
+    // busyTracker.js). Cleared at every point below that sets
+    // aiLoading(false); those are exactly the "this concluded, one way or
+    // another" moments.
+    const busyKey = `ai-evaluation:${candidateIdAtStart}`;
+    aiBusyKeyRef.current = busyKey;
+    markBusy(busyKey);
 
     try {
       const { jobId, docsTotal, docs, docsCompleted: cachedCount } = await candidatesAPI.aiEvaluateStart(candidateIdAtStart, forceReextract);
@@ -768,6 +780,7 @@ const SecretariatView = ({ user }) => {
           stopAiPolling();
           setAiProgress(null);
           setAiLoading(false);
+          clearBusy(busyKey);
           setAiError('AI evaluation is taking much longer than expected. It may still finish in the background — try Generate AI Draft again in a bit to check.');
           return;
         }
@@ -782,6 +795,7 @@ const SecretariatView = ({ user }) => {
             setAiDraftEvaluatedAt(status.result?.generatedAt || new Date().toISOString());
             setAiProgress(null);
             setAiLoading(false);
+            clearBusy(busyKey);
             return;
           }
 
@@ -800,6 +814,7 @@ const SecretariatView = ({ user }) => {
           stopAiPolling();
           setAiProgress(null);
           setAiLoading(false);
+          clearBusy(busyKey);
           const data = pollErr.response?.data;
           let message = data?.message
             || (pollErr.message === 'Network Error'
@@ -819,6 +834,7 @@ const SecretariatView = ({ user }) => {
       console.error('Failed to generate AI draft:', error);
       setAiProgress(null);
       setAiLoading(false);
+      clearBusy(busyKey);
       const data = error.response?.data;
       let message = data?.message || error.message || 'Failed to generate AI draft.';
       if (data?.unavailableDocuments?.length) {
@@ -839,6 +855,18 @@ const SecretariatView = ({ user }) => {
     stopAiPolling();
     setAiProgress(null);
     setAiLoading(false);
+    // Safety net: if a job was marked busy for whatever candidate this
+    // effect is walking away from, it's being abandoned here (the
+    // extraction loop's own abort-check will bail out the moment it next
+    // checks selectedCandidateRef) — so the busy flag needs to go with it.
+    // Under normal use this should rarely fire while a job is actually
+    // running, since both the modal's close button and opening a
+    // different candidate's modal are guarded against that below — this
+    // is a backstop for any path that isn't.
+    if (aiBusyKeyRef.current) {
+      clearBusy(aiBusyKeyRef.current);
+      aiBusyKeyRef.current = null;
+    }
     // The draft shown belongs to whichever candidate is selected — without
     // this, switching candidates left the PREVIOUS candidate's AI comments/
     // flags/suggestedStatus on screen until a fresh draft was generated,
@@ -997,7 +1025,18 @@ const SecretariatView = ({ user }) => {
   }, []);
 
   const closeCommentModal = useCallback(() => {
+    // Defensive backstop: the close button itself is disabled while
+    // aiLoading is true (see the modal's header below), but if this ever
+    // gets called anyway, minimize instead of actually closing — a real
+    // close clears selectedCandidate, which is exactly what would abandon
+    // the in-flight job (see the effect that watches selectedCandidate,
+    // and busyTracker.js for why that's a real problem, not just a UX one).
+    if (aiLoading) {
+      setCommentModalMinimized(true);
+      return;
+    }
     setShowCommentModal(false);
+    setCommentModalMinimized(false);
     setCommentSiblings([]);
     setCommentSiblingsLoading(false);
     setSelectedCandidate('');
@@ -1012,7 +1051,20 @@ const SecretariatView = ({ user }) => {
     setAiDraftEvaluatedAt(null);
     setAiError('');
     setAiLoading(false);
-  }, [setSelectedCandidate]);
+  }, [aiLoading, setSelectedCandidate]);
+
+  // Hides the Update Status modal WITHOUT touching selectedCandidate, so
+  // the AI evaluation's document-fetch loop and Gemini-polling interval —
+  // both tied to selectedCandidate staying put — keep running exactly as
+  // if the modal were still open. Pairs with the floating indicator
+  // rendered near the bottom of this component while minimized.
+  const minimizeCommentModal = useCallback(() => {
+    setCommentModalMinimized(true);
+  }, []);
+
+  const restoreCommentModal = useCallback(() => {
+    setCommentModalMinimized(false);
+  }, []);
 
   const closeViewCommentsModal = useCallback(() => {
     setShowViewCommentsModal(false);
@@ -2264,6 +2316,21 @@ const SecretariatView = ({ user }) => {
                           {!candidate.isArchived && (
                             <button
                               onClick={async () => {
+                                // An AI evaluation running for a DIFFERENT
+                                // candidate must finish (or be watched) before
+                                // starting another — switching selectedCandidate
+                                // here would abandon that job (see the effect
+                                // that watches it, and busyTracker.js). Same
+                                // candidate, already minimized → just restore
+                                // instead of re-running every fetch below.
+                                if (aiLoading && selectedCandidate && selectedCandidate !== candidate._id) {
+                                  showToast('An AI evaluation is still running for another candidate. Open it from the minimized panel to view progress before starting a new one.', 'error');
+                                  return;
+                                }
+                                if (selectedCandidate === candidate._id && showCommentModal) {
+                                  restoreCommentModal();
+                                  return;
+                                }
                                 setSelectedCandidate(candidate._id);
                                 loadCandidateDetails(candidate._id);
                                 loadCommentSuggestions();
@@ -2272,6 +2339,7 @@ const SecretariatView = ({ user }) => {
                                 setAiDraftEvaluatedAt(null);
                                 setAiError('');
                                 setShowCommentModal(true);
+                                setCommentModalMinimized(false);
                                 // Fetch siblings for propagation panel
                                 const pubRangeId = candidate.publicationRangeId || selectedPublicationRangeRef.current;
                                 if (pubRangeId) {
@@ -2682,7 +2750,7 @@ const SecretariatView = ({ user }) => {
         </div>
       )}
 
-      {showCommentModal && candidateDetails && (
+      {showCommentModal && candidateDetails && !commentModalMinimized && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true" aria-labelledby="update-status-title">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl flex flex-col max-h-[92vh]">
             {/* ── Header ── */}
@@ -2696,15 +2764,31 @@ const SecretariatView = ({ user }) => {
                   <span className="mt-1 inline-block text-xs font-semibold px-2.5 py-0.5 rounded-full bg-orange-100 text-orange-700">Archived</span>
                 )}
               </div>
-              <button
-                onClick={closeCommentModal}
-                aria-label="Close update status modal"
-                className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
+              <div className="flex items-center gap-1 shrink-0">
+                {aiLoading && (
+                  <button
+                    onClick={minimizeCommentModal}
+                    aria-label="Minimize — the AI evaluation keeps running in the background"
+                    title="Minimize — the AI evaluation keeps running in the background"
+                    className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
+                    </svg>
+                  </button>
+                )}
+                <button
+                  onClick={closeCommentModal}
+                  disabled={aiLoading}
+                  aria-label={aiLoading ? 'Closing is disabled while AI evaluation is running — minimize instead' : 'Close update status modal'}
+                  title={aiLoading ? 'Closing is disabled while AI evaluation is running — use minimize instead so it can finish.' : undefined}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
             </div>
             
             {candidateDetails.isArchived && (
@@ -4719,6 +4803,34 @@ const SecretariatView = ({ user }) => {
           </div>
         );
       })()}
+
+      {showCommentModal && commentModalMinimized && candidateDetails && (
+        <div className="fixed bottom-5 right-5 z-50">
+          <button
+            onClick={restoreCommentModal}
+            className="flex items-center gap-3 bg-white border border-gray-200 shadow-xl rounded-2xl pl-4 pr-5 py-3 hover:shadow-2xl transition-shadow"
+            aria-label={`Restore Update Status for ${candidateDetails.fullName}`}
+          >
+            {aiLoading ? (
+              <div className="w-5 h-5 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin shrink-0" />
+            ) : aiDraft ? (
+              <div className="w-5 h-5 rounded-full bg-emerald-100 flex items-center justify-center shrink-0">
+                <svg className="w-3 h-3 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+              </div>
+            ) : (
+              <div className="w-5 h-5 rounded-full bg-gray-100 shrink-0" />
+            )}
+            <div className="text-left min-w-0">
+              <p className="text-xs font-semibold text-gray-900 truncate max-w-[180px]">{candidateDetails.fullName}</p>
+              <p className="text-[11px] text-gray-500">
+                {aiLoading
+                  ? (aiProgress?.stage === 'evaluating' ? 'AI analyzing…' : `Reading documents… ${aiProgress?.docsCompleted ?? 0}/${aiProgress?.docsTotal ?? 0}`)
+                  : aiDraft ? 'AI draft ready — click to view' : 'Update Status minimized'}
+              </p>
+            </div>
+          </button>
+        </div>
+      )}
 
       {showAttendanceModal && (() => {
         const raters = attendancePool.filter(u => u.roleGroup === 'Rater');

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { isBusy, useIsBusy } from '../utils/busyTracker';
 
 // How long with NO user interaction (mouse, keyboard, scroll, touch)
 // before showing the warning. This is deliberately much shorter than the
@@ -21,18 +22,36 @@ const ACTIVITY_EVENTS = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchst
 // out you'd been logged out was to refresh and get redirected. This
 // warns first, with a clear countdown, and only actually logs out if
 // nobody responds.
+//
+// Also respects busyTracker's isBusy(): an idle-triggered logout while
+// something like an AI evaluation is running wouldn't just interrupt it —
+// it would leave the server-side job permanently stuck, since it's
+// waiting on documents only THIS browser tab is fetching/submitting (see
+// busyTracker.js and SecretariatView's handleGenerateAiDraft). So the
+// warning simply never appears while busy, and re-arms once the operation
+// finishes, rather than firing on a timer that has no idea a real
+// operation is in flight.
 export default function IdleTimeoutMonitor({ onLogout }) {
   const [showWarning, setShowWarning] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(COUNTDOWN_SECONDS);
   const showWarningRef = useRef(false);
   const warningTimerRef = useRef(null);
   const countdownIntervalRef = useRef(null);
+  const appIsBusy = useIsBusy();
 
   useEffect(() => { showWarningRef.current = showWarning; }, [showWarning]);
 
   const startWarningTimer = useCallback(() => {
     clearTimeout(warningTimerRef.current);
     warningTimerRef.current = setTimeout(() => {
+      if (isBusy()) {
+        // Re-arm the same timer rather than showing the warning — once
+        // whatever's running finishes, idle-then-warn behavior resumes
+        // from a full IDLE_WARNING_MS, exactly as if the person had just
+        // been active (starting an evaluation IS activity, after all).
+        startWarningTimer();
+        return;
+      }
       setShowWarning(true);
       setSecondsLeft(COUNTDOWN_SECONDS);
     }, IDLE_WARNING_MS);
@@ -60,12 +79,33 @@ export default function IdleTimeoutMonitor({ onLogout }) {
     };
   }, [startWarningTimer]);
 
+  // Rare edge case, but a real one: something becomes busy (e.g. an AI
+  // evaluation started from a different browser tab logged in as the same
+  // user) WHILE the warning is already showing. Dismiss it immediately
+  // rather than letting a countdown that's already running finish and log
+  // out over an operation that only just started.
+  useEffect(() => {
+    if (appIsBusy && showWarning) {
+      setShowWarning(false);
+      startWarningTimer();
+    }
+  }, [appIsBusy, showWarning, startWarningTimer]);
+
   useEffect(() => {
     if (!showWarning) return undefined;
     countdownIntervalRef.current = setInterval(() => {
       setSecondsLeft(prev => {
         if (prev <= 1) {
           clearInterval(countdownIntervalRef.current);
+          // Final safety check right before actually logging out — belt
+          // and suspenders alongside the checks above, for the narrow
+          // window where something became busy in the countdown's very
+          // last second.
+          if (isBusy()) {
+            setShowWarning(false);
+            startWarningTimer();
+            return COUNTDOWN_SECONDS;
+          }
           onLogout();
           return 0;
         }
@@ -73,7 +113,7 @@ export default function IdleTimeoutMonitor({ onLogout }) {
       });
     }, 1000);
     return () => clearInterval(countdownIntervalRef.current);
-  }, [showWarning, onLogout]);
+  }, [showWarning, onLogout, startWarningTimer]);
 
   const handleStayLoggedIn = () => {
     setShowWarning(false);

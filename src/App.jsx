@@ -6,6 +6,7 @@ import SetPassword from './components/SetPassword';
 import Dashboard from './components/Dashboard';
 import IdleTimeoutMonitor from './components/IdleTimeoutMonitor';
 import { authAPI, usersAPI } from './utils/api';
+import { isBusy } from './utils/busyTracker';
 import { ToastProvider } from './utils/ToastContext';
 
 function App() {
@@ -85,7 +86,36 @@ function App() {
     return () => clearInterval(interval);
   }, [user]);
 
+  // Warns before a refresh or tab close while something like an AI
+  // evaluation is running — that operation fetches/OCRs/submits documents
+  // from THIS tab one at a time (see busyTracker.js), and the server-side
+  // job has no way to recover if the tab disappears mid-way; it's just
+  // permanently stuck waiting for documents that will never arrive.
+  // Browsers don't allow a custom message in the confirmation dialog
+  // (a long-standing security restriction, not an oversight here) — the
+  // dialog itself, giving the person a chance to cancel, is what matters.
+  useEffect(() => {
+    const handleBeforeUnload = (event) => {
+      if (!isBusy()) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
+
   const handleLogout = () => {
+    // Same reasoning as the beforeunload guard above, but for an explicit
+    // in-app logout click rather than a browser-level close/refresh: this
+    // one CAN be stopped outright (unlike beforeunload, this isn't a
+    // browser security restriction), so it is, unless the person
+    // confirms they want to proceed anyway.
+    if (isBusy()) {
+      const proceed = window.confirm(
+        'An AI evaluation (or other background task) is still running. Logging out now will leave it stuck incomplete — it cannot resume once you leave.\n\nLog out anyway?'
+      );
+      if (!proceed) return;
+    }
     setUser(null);
     // FIX: Use consistent key 'authToken' (matches api.js interceptor)
     localStorage.removeItem('authToken');
