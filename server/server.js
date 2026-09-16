@@ -1,10 +1,12 @@
 import express from 'express';
+import http from 'http';
 import mongoose from 'mongoose';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import fileUpload from 'express-fileupload';
 import routes from './routes.js';
 import dotenv from 'dotenv';
+import { initSocket } from './lib/socket.js';
 // import { runMigration } from './migration_add_publication_ranges.js';
 
 dotenv.config();
@@ -159,8 +161,17 @@ app.use('*', (req, res) => {
 });
 
 // ── Start server ──────────────────────────────────────────────────────────────
+// app.listen() (Express's shorthand) implicitly creates its own http.Server
+// under the hood — but Socket.IO needs a reference to that server to attach
+// to, so it's created explicitly here instead and Express is mounted onto it
+// as its request handler. Functionally identical to app.listen() for every
+// existing REST route; this only changes what's needed to also serve chat's
+// WebSocket connections on the same port.
+const httpServer = http.createServer(app);
+initSocket(httpServer, corsOptions);
+
 const PORT = process.env.PORT || 5001;
-app.listen(PORT, '0.0.0.0', () => {
+httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
   console.log(`Keep-alive endpoint: /ping`);
   console.log(`Health check endpoint: /health`);

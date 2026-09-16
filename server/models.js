@@ -634,6 +634,19 @@ const aiEvaluationLogSchema = new mongoose.Schema({
   createdAt:     { type: Date, default: Date.now }
 });
 
+// A single shared channel for Secretariat + Admin coordination — not a
+// full DM/multi-room system. senderName is denormalized (copied at send
+// time rather than populated on every read) so displaying a long message
+// history never needs a join back to User just to show who said what;
+// it's a deliberate trade-off, same reasoning as storing a name snapshot
+// anywhere else in this codebase that renders often but changes rarely.
+const chatMessageSchema = new mongoose.Schema({
+  senderId:   { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  senderName: { type: String, required: true, trim: true },
+  message:    { type: String, required: true, trim: true, maxlength: 2000 }
+}, { timestamps: true });
+chatMessageSchema.index({ createdAt: -1 });
+
 // ── Create models ─────────────────────────────────────────────────────────────
 const User            = mongoose.model('User',             userSchema);
 const Vacancy         = mongoose.model('Vacancy',          vacancySchema);
@@ -648,5 +661,6 @@ const PDFCache        = mongoose.model('PDFCache',         pdfCacheSchema);
 const SystemSettings  = mongoose.model('SystemSettings',   systemSettingsSchema);
 const AiEvaluationLog = mongoose.model('AiEvaluationLog',  aiEvaluationLogSchema);
 const AiEvaluationJob = mongoose.model('AiEvaluationJob',  aiEvaluationJobSchema);
+const ChatMessage     = mongoose.model('ChatMessage',      chatMessageSchema);
 
-export { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, NotificationLog, InterviewSession, PDFCache, SystemSettings, AiEvaluationLog, AiEvaluationJob };
+export { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, NotificationLog, InterviewSession, PDFCache, SystemSettings, AiEvaluationLog, AiEvaluationJob, ChatMessage };

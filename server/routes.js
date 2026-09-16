@@ -6,7 +6,8 @@ import crypto from 'crypto';
 import mongoose from 'mongoose';
 import { parse } from 'csv-parse/sync';
 import rateLimit from 'express-rate-limit';
-import { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, InterviewSession, PDFCache, SystemSettings, AiEvaluationLog, AiEvaluationJob } from './models.js';
+import { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, InterviewSession, PDFCache, SystemSettings, AiEvaluationLog, AiEvaluationJob, ChatMessage } from './models.js';
+import { broadcastChatMessage } from './lib/socket.js';
 
 import { evaluateCandidateWithAI } from './lib/aiEvaluation.js';
 import { fetchDriveFile, extractDriveFileId } from './lib/googleDrive.js';
@@ -626,6 +627,58 @@ router.get('/users/online', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('[GET /users/online]', error);
     res.status(500).json({ message: 'Failed to load online users' });
+  }
+});
+
+// A single shared channel for Secretariat + Admin coordination — same
+// audience as the online-users list right above, not a multi-room/DM
+// system. History is loaded over plain REST (paginated backward via
+// `before`); real-time delivery of NEW messages happens over the
+// WebSocket connection set up in lib/socket.js. Sending always goes
+// through this REST endpoint rather than being accepted over the socket
+// too, so it gets the same auth/validation/error-handling as every other
+// write in this app for free.
+router.get('/chat/messages', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin' && req.user.userType !== 'secretariat') {
+    return res.status(403).json({ message: 'Access denied' });
+  }
+  try {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
+    const filter = req.query.before ? { createdAt: { $lt: new Date(req.query.before) } } : {};
+    // Fetched newest-first (for a cheap, index-backed query), then
+    // reversed so the response is already in the oldest-to-newest order
+    // a chat UI actually wants to render top-to-bottom.
+    const messages = await ChatMessage.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+    res.json(messages.reverse());
+  } catch (error) {
+    console.error('[GET /chat/messages]', error);
+    res.status(500).json({ message: 'Failed to load chat messages' });
+  }
+});
+
+router.post('/chat/messages', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin' && req.user.userType !== 'secretariat') {
+    return res.status(403).json({ message: 'Access denied' });
+  }
+  try {
+    const text = (req.body.message || '').trim();
+    if (!text) return res.status(400).json({ message: 'Message cannot be empty' });
+    if (text.length > 2000) return res.status(400).json({ message: 'Message is too long (max 2000 characters)' });
+
+    const saved = await ChatMessage.create({
+      senderId: req.user._id,
+      senderName: req.user.name,
+      message: text
+    });
+    const payload = saved.toObject();
+    broadcastChatMessage(payload); // fan-out to every connected socket, including the sender's own other tabs
+    res.status(201).json(payload);
+  } catch (error) {
+    console.error('[POST /chat/messages]', error);
+    res.status(500).json({ message: 'Failed to send message' });
   }
 });
 

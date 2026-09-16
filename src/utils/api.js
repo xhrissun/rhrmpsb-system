@@ -199,6 +199,18 @@ export const authAPI = {
 };
 
 // Users API
+export const chatAPI = {
+  getMessages: async (before) => {
+    const params = before ? { before } : {};
+    const response = await api.get('/chat/messages', { params });
+    return response.data; // oldest to newest
+  },
+  sendMessage: async (message) => {
+    const response = await api.post('/chat/messages', { message });
+    return response.data;
+  },
+};
+
 export const usersAPI = {
   getAll: async () => {
     const response = await api.get('/users');

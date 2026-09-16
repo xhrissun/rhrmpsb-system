@@ -9,6 +9,7 @@ import { COMPETENCY_TYPES } from '../utils/constants';
 import CompetencyDetailModal from './CompetencyDetailModal';
 import { extractTextClientSide } from '../utils/clientTextExtraction';
 import { markBusy, clearBusy } from '../utils/busyTracker';
+import ChatPanel from './ChatPanel';
 
 // Error Boundary Component
 class SecretariatErrorBoundary extends React.Component {
@@ -5129,6 +5130,8 @@ const SecretariatView = ({ user }) => {
           </div>
         </div>
       )}
+
+      <ChatPanel currentUserId={user._id} />
     </div>
   );
 };
