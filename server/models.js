@@ -634,18 +634,48 @@ const aiEvaluationLogSchema = new mongoose.Schema({
   createdAt:     { type: Date, default: Date.now }
 });
 
-// A single shared channel for Secretariat + Admin coordination — not a
-// full DM/multi-room system. senderName is denormalized (copied at send
-// time rather than populated on every read) so displaying a long message
-// history never needs a join back to User just to show who said what;
-// it's a deliberate trade-off, same reasoning as storing a name snapshot
+// A shared team channel AND 1-on-1 DMs, both Secretariat + Admin only —
+// recipientId distinguishes the two: null means the shared "Team Chat"
+// channel, set means a private message between exactly sender and
+// recipient. senderName is denormalized (copied at send time rather than
+// populated on every read) so displaying a long message history never
+// needs a join back to User just to show who said what; it's a
+// deliberate trade-off, same reasoning as storing a name snapshot
 // anywhere else in this codebase that renders often but changes rarely.
+//
+// mentions is resolved CLIENT-SIDE (the mention autocomplete already
+// knows exactly which user was selected) and passed in as real user IDs
+// — not parsed back out of the message text server-side. Text-based
+// "@Name" parsing is inherently ambiguous (which "John" was meant, does
+// "@John" also match "@John Smith") in a way that picking from a
+// dropdown never is, so there's no reason to redo that work less
+// reliably on the server.
 const chatMessageSchema = new mongoose.Schema({
-  senderId:   { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  senderName: { type: String, required: true, trim: true },
-  message:    { type: String, required: true, trim: true, maxlength: 2000 }
+  senderId:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  senderName:  { type: String, required: true, trim: true },
+  recipientId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  message:     { type: String, required: true, trim: true, maxlength: 2000 },
+  mentions:    [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }]
 }, { timestamps: true });
 chatMessageSchema.index({ createdAt: -1 });
+chatMessageSchema.index({ senderId: 1, recipientId: 1, createdAt: -1 });
+chatMessageSchema.index({ recipientId: 1, senderId: 1, createdAt: -1 });
+
+// Tracks the last time a user viewed a given conversation, so unread
+// counts can be computed as "messages in this conversation newer than my
+// lastReadAt" rather than maintaining a separate read/unread flag on every
+// individual message (which would mean writing to N message documents
+// every time a conversation is opened, instead of one row here).
+// conversationKey is 'team' for the shared channel, or the OTHER
+// participant's user id (as a string) for a DM — from any one user's
+// point of view, a DM conversation has exactly one other participant, so
+// their id alone is enough to identify it uniquely for that user.
+const chatReadSchema = new mongoose.Schema({
+  userId:           { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  conversationKey:  { type: String, required: true },
+  lastReadAt:       { type: Date, default: Date.now }
+});
+chatReadSchema.index({ userId: 1, conversationKey: 1 }, { unique: true });
 
 // ── Create models ─────────────────────────────────────────────────────────────
 const User            = mongoose.model('User',             userSchema);
@@ -662,5 +692,6 @@ const SystemSettings  = mongoose.model('SystemSettings',   systemSettingsSchema)
 const AiEvaluationLog = mongoose.model('AiEvaluationLog',  aiEvaluationLogSchema);
 const AiEvaluationJob = mongoose.model('AiEvaluationJob',  aiEvaluationJobSchema);
 const ChatMessage     = mongoose.model('ChatMessage',      chatMessageSchema);
+const ChatRead        = mongoose.model('ChatRead',         chatReadSchema);
 
-export { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, NotificationLog, InterviewSession, PDFCache, SystemSettings, AiEvaluationLog, AiEvaluationJob, ChatMessage };
+export { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, NotificationLog, InterviewSession, PDFCache, SystemSettings, AiEvaluationLog, AiEvaluationJob, ChatMessage, ChatRead };

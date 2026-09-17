@@ -6,8 +6,8 @@ import crypto from 'crypto';
 import mongoose from 'mongoose';
 import { parse } from 'csv-parse/sync';
 import rateLimit from 'express-rate-limit';
-import { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, InterviewSession, PDFCache, SystemSettings, AiEvaluationLog, AiEvaluationJob, ChatMessage } from './models.js';
-import { broadcastChatMessage } from './lib/socket.js';
+import { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, InterviewSession, PDFCache, SystemSettings, AiEvaluationLog, AiEvaluationJob, ChatMessage, ChatRead } from './models.js';
+import { broadcastChatMessage, notifyMention } from './lib/socket.js';
 
 import { evaluateCandidateWithAI } from './lib/aiEvaluation.js';
 import { fetchDriveFile, extractDriveFileId } from './lib/googleDrive.js';
@@ -630,21 +630,52 @@ router.get('/users/online', authMiddleware, async (req, res) => {
   }
 });
 
-// A single shared channel for Secretariat + Admin coordination — same
-// audience as the online-users list right above, not a multi-room/DM
-// system. History is loaded over plain REST (paginated backward via
-// `before`); real-time delivery of NEW messages happens over the
-// WebSocket connection set up in lib/socket.js. Sending always goes
-// through this REST endpoint rather than being accepted over the socket
-// too, so it gets the same auth/validation/error-handling as every other
-// write in this app for free.
-router.get('/chat/messages', authMiddleware, async (req, res) => {
+// Team Chat channel AND 1-on-1 DMs, both Secretariat + Admin only — same
+// audience as the online-users list above. History is loaded over plain
+// REST (paginated backward via `before`); real-time delivery of NEW
+// messages happens over the WebSocket connection set up in lib/socket.js.
+// Sending always goes through the REST endpoint below rather than being
+// accepted over the socket too, so it gets the same auth/validation/
+// error-handling as every other write in this app for free.
+const CHAT_AUDIENCE = (req, res, next) => {
   if (req.user.userType !== 'admin' && req.user.userType !== 'secretariat') {
     return res.status(403).json({ message: 'Access denied' });
   }
+  next();
+};
+
+// The list of people available to DM or @mention — everyone in the chat
+// audience, not just who's currently online (you can start a DM or
+// mention someone who's offline right now, same as any real messenger;
+// they'll just see it next time they're online).
+router.get('/chat/roster', authMiddleware, CHAT_AUDIENCE, async (req, res) => {
+  try {
+    const roster = await User.find({ userType: { $in: ['admin', 'secretariat'] }, _id: { $ne: req.user._id } })
+      .select('name userType')
+      .sort({ name: 1 });
+    res.json(roster);
+  } catch (error) {
+    console.error('[GET /chat/roster]', error);
+    res.status(500).json({ message: 'Failed to load roster' });
+  }
+});
+
+// ?with=<userId> → that DM thread. Omitted → the shared Team Chat channel.
+router.get('/chat/messages', authMiddleware, CHAT_AUDIENCE, async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
     const filter = req.query.before ? { createdAt: { $lt: new Date(req.query.before) } } : {};
+
+    if (req.query.with) {
+      const otherId = req.query.with;
+      filter.$or = [
+        { senderId: req.user._id, recipientId: otherId },
+        { senderId: otherId, recipientId: req.user._id }
+      ];
+    } else {
+      filter.recipientId = null;
+    }
+
     // Fetched newest-first (for a cheap, index-backed query), then
     // reversed so the response is already in the oldest-to-newest order
     // a chat UI actually wants to render top-to-bottom.
@@ -659,26 +690,137 @@ router.get('/chat/messages', authMiddleware, async (req, res) => {
   }
 });
 
-router.post('/chat/messages', authMiddleware, async (req, res) => {
-  if (req.user.userType !== 'admin' && req.user.userType !== 'secretariat') {
-    return res.status(403).json({ message: 'Access denied' });
-  }
+router.post('/chat/messages', authMiddleware, CHAT_AUDIENCE, async (req, res) => {
   try {
     const text = (req.body.message || '').trim();
     if (!text) return res.status(400).json({ message: 'Message cannot be empty' });
     if (text.length > 2000) return res.status(400).json({ message: 'Message is too long (max 2000 characters)' });
 
+    let recipientId = null;
+    if (req.body.recipientId) {
+      const recipient = await User.findById(req.body.recipientId).select('userType');
+      if (!recipient || (recipient.userType !== 'admin' && recipient.userType !== 'secretariat')) {
+        return res.status(400).json({ message: 'Invalid recipient' });
+      }
+      recipientId = req.body.recipientId;
+    }
+
+    // mentionedUserIds comes straight from the composer's @mention
+    // autocomplete — see the note on the schema for why this isn't
+    // re-parsed out of the message text server-side. Still validated
+    // against the real roster rather than trusted blindly, and — for a
+    // DM — silently narrowed to just the recipient, since mentioning
+    // anyone else in a private conversation wouldn't make sense (they
+    // have no way to see it) and shouldn't notify a third party.
+    let mentions = [];
+    if (Array.isArray(req.body.mentionedUserIds) && req.body.mentionedUserIds.length > 0) {
+      const validRoster = await User.find({
+        _id: { $in: req.body.mentionedUserIds },
+        userType: { $in: ['admin', 'secretariat'] }
+      }).select('_id');
+      const validIds = new Set(validRoster.map(u => u._id.toString()));
+      mentions = req.body.mentionedUserIds.filter(id => validIds.has(id));
+      if (recipientId) mentions = mentions.filter(id => id === recipientId);
+    }
+
     const saved = await ChatMessage.create({
       senderId: req.user._id,
       senderName: req.user.name,
-      message: text
+      recipientId,
+      message: text,
+      mentions
     });
     const payload = saved.toObject();
-    broadcastChatMessage(payload); // fan-out to every connected socket, including the sender's own other tabs
+    broadcastChatMessage(payload); // fan-out to the right room(s), including the sender's own other tabs
+    mentions.forEach(userId => notifyMention(userId, payload));
     res.status(201).json(payload);
   } catch (error) {
     console.error('[POST /chat/messages]', error);
     res.status(500).json({ message: 'Failed to send message' });
+  }
+});
+
+// One row per conversation the current user is part of: the shared Team
+// Chat channel (always present) plus one entry per person they've
+// exchanged DMs with — each with its last message and unread count, the
+// standard "conversation list" shape any messenger's inbox view needs.
+router.get('/chat/conversations', authMiddleware, CHAT_AUDIENCE, async (req, res) => {
+  try {
+    const myId = req.user._id;
+
+    const [reads, dmPartners, lastTeamMsg] = await Promise.all([
+      ChatRead.find({ userId: myId }).lean(),
+      ChatMessage.aggregate([
+        { $match: { recipientId: { $ne: null }, $or: [{ senderId: myId }, { recipientId: myId }] } },
+        { $addFields: { otherId: { $cond: [{ $eq: ['$senderId', myId] }, '$recipientId', '$senderId'] } } },
+        { $sort: { createdAt: -1 } },
+        { $group: { _id: '$otherId', lastMessage: { $first: '$message' }, lastMessageAt: { $first: '$createdAt' }, lastSenderId: { $first: '$senderId' } } }
+      ]),
+      ChatMessage.findOne({ recipientId: null }).sort({ createdAt: -1 }).lean()
+    ]);
+
+    const readByKey = new Map(reads.map(r => [r.conversationKey, r.lastReadAt]));
+    const otherIds = dmPartners.map(p => p._id);
+    const otherUsers = await User.find({ _id: { $in: otherIds } }).select('name').lean();
+    const nameById = new Map(otherUsers.map(u => [u._id.toString(), u.name]));
+
+    const conversations = [];
+
+    conversations.push({
+      key: 'team',
+      name: 'Team Chat',
+      lastMessage: lastTeamMsg?.message || null,
+      lastMessageAt: lastTeamMsg?.createdAt || null,
+      unreadCount: lastTeamMsg
+        ? await ChatMessage.countDocuments({
+            recipientId: null,
+            senderId: { $ne: myId },
+            createdAt: { $gt: readByKey.get('team') || new Date(0) }
+          })
+        : 0
+    });
+
+    for (const p of dmPartners) {
+      const key = p._id.toString();
+      conversations.push({
+        key,
+        name: nameById.get(key) || 'Unknown user',
+        lastMessage: p.lastMessage,
+        lastMessageAt: p.lastMessageAt,
+        unreadCount: p.lastSenderId.toString() === myId.toString() ? 0 : await ChatMessage.countDocuments({
+          senderId: p._id,
+          recipientId: myId,
+          createdAt: { $gt: readByKey.get(key) || new Date(0) }
+        })
+      });
+    }
+
+    conversations.sort((a, b) => {
+      if (a.key === 'team') return -1;
+      if (b.key === 'team') return 1;
+      return new Date(b.lastMessageAt || 0) - new Date(a.lastMessageAt || 0);
+    });
+
+    res.json(conversations);
+  } catch (error) {
+    console.error('[GET /chat/conversations]', error);
+    res.status(500).json({ message: 'Failed to load conversations' });
+  }
+});
+
+router.post('/chat/mark-read', authMiddleware, CHAT_AUDIENCE, async (req, res) => {
+  try {
+    const key = req.body.conversationKey;
+    if (!key) return res.status(400).json({ message: 'conversationKey is required' });
+    await ChatRead.findOneAndUpdate(
+      { userId: req.user._id, conversationKey: key },
+      { lastReadAt: new Date() },
+      { upsert: true }
+    );
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('[POST /chat/mark-read]', error);
+    res.status(500).json({ message: 'Failed to mark as read' });
   }
 });
 

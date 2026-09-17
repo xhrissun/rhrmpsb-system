@@ -1,6 +1,6 @@
 import { Server } from 'socket.io';
 import jwt from 'jsonwebtoken';
-import { User } from '../models.js';
+import { User } from './models.js';
 
 // Kept as a module-level singleton (rather than passed around as a
 // parameter everywhere) so routes.js can broadcast a new chat message
@@ -52,6 +52,12 @@ export function initSocket(httpServer, corsOptions) {
 
   ioInstance.on('connection', (socket) => {
     socket.join(CHAT_ROOM);
+    // A personal room, independent of the shared team-chat room — this is
+    // how a DM reaches exactly its two participants (and nobody else),
+    // and how a mention ping can be delivered to one specific person
+    // regardless of which conversation (team channel or another DM) it
+    // happened in.
+    socket.join(`user:${socket.user.id}`);
     // No further per-socket event handlers are needed on the receive side
     // — sending happens over the normal authenticated REST endpoint
     // (POST /chat/messages in routes.js), which persists the message and
@@ -70,6 +76,23 @@ export function getIO() {
   return ioInstance;
 }
 
+// message.recipientId set → DM: delivered only to the two personal rooms
+// involved (so it never reaches anyone else's socket, not just "isn't
+// shown" client-side — actual server-side delivery scoping). Unset →
+// team channel: delivered to everyone in the shared room.
 export function broadcastChatMessage(message) {
-  ioInstance?.to(CHAT_ROOM).emit('chat:new-message', message);
+  if (!ioInstance) return;
+  if (message.recipientId) {
+    ioInstance.to(`user:${message.recipientId}`).to(`user:${message.senderId}`).emit('chat:new-message', message);
+  } else {
+    ioInstance.to(CHAT_ROOM).emit('chat:new-message', message);
+  }
+}
+
+// Separate from the message delivery above: a lightweight ping so a
+// mentioned user's client can surface a distinct notification (sound,
+// highlight) even for a team-channel message they'd already receive via
+// the room broadcast — this fires in ADDITION to that, not instead of it.
+export function notifyMention(userId, message) {
+  ioInstance?.to(`user:${userId}`).emit('chat:mentioned', message);
 }

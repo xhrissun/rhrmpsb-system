@@ -200,14 +200,28 @@ export const authAPI = {
 
 // Users API
 export const chatAPI = {
-  getMessages: async (before) => {
-    const params = before ? { before } : {};
+  // conversationKey: undefined/'team' for the shared channel, or a user id for a DM
+  getMessages: async (conversationKey, before) => {
+    const params = {};
+    if (before) params.before = before;
+    if (conversationKey && conversationKey !== 'team') params.with = conversationKey;
     const response = await api.get('/chat/messages', { params });
     return response.data; // oldest to newest
   },
-  sendMessage: async (message) => {
-    const response = await api.post('/chat/messages', { message });
+  sendMessage: async (message, { recipientId = null, mentionedUserIds = [] } = {}) => {
+    const response = await api.post('/chat/messages', { message, recipientId, mentionedUserIds });
     return response.data;
+  },
+  getRoster: async () => {
+    const response = await api.get('/chat/roster');
+    return response.data; // [{ _id, name, userType }]
+  },
+  getConversations: async () => {
+    const response = await api.get('/chat/conversations');
+    return response.data; // [{ key, name, lastMessage, lastMessageAt, unreadCount }]
+  },
+  markRead: async (conversationKey) => {
+    await api.post('/chat/mark-read', { conversationKey });
   },
 };
 

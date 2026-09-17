@@ -5131,7 +5131,7 @@ const SecretariatView = ({ user }) => {
         </div>
       )}
 
-      <ChatPanel currentUserId={user._id} />
+      <ChatPanel currentUserId={user._id} currentUserName={user.name} />
     </div>
   );
 };
