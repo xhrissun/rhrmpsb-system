@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { chatAPI } from '../utils/api';
+import { chatAPI, usersAPI } from '../utils/api';
 import { connectSocket, disconnectSocket } from '../utils/socket';
 import { playChatNotificationSound, isChatSoundMuted, setChatSoundMuted } from '../utils/chatSound';
 import { EMOJI_GROUPS } from '../utils/emojiList';
@@ -70,6 +70,7 @@ export default function ChatPanel({ currentUserId, currentUserName }) {
   const [loadingMore, setLoadingMore] = useState(false);
 
   const [connected, setConnected] = useState(false);
+  const [onlineIds, setOnlineIds] = useState(new Set()); // reuses the same GET /users/online this app's "who's online" dropdown already uses
   const [soundMuted, setSoundMuted] = useState(isChatSoundMuted());
   const [draft, setDraft] = useState('');
   const [mentionedUserIds, setMentionedUserIds] = useState([]);
@@ -93,6 +94,8 @@ export default function ChatPanel({ currentUserId, currentUserName }) {
     map.set(currentUserId, currentUserName);
     return map;
   }, [roster, currentUserId, currentUserName]);
+  const nameByIdRef = useRef(nameById); // read inside socket handlers below, for the same reason viewRef exists — roster loads asynchronously, and this must see the CURRENT map once it does, not the empty one from mount
+  useEffect(() => { nameByIdRef.current = nameById; }, [nameById]);
 
   // A conversation's key, from MY point of view, for an incoming message:
   // 'team' for the shared channel, otherwise whichever of sender/recipient
@@ -111,10 +114,15 @@ export default function ChatPanel({ currentUserId, currentUserName }) {
 
     (async () => {
       try {
-        const [convos, people] = await Promise.all([chatAPI.getConversations(), chatAPI.getRoster()]);
+        const [convos, people, online] = await Promise.all([
+          chatAPI.getConversations(),
+          chatAPI.getRoster(),
+          usersAPI.getOnline()
+        ]);
         if (!cancelled) {
           setConversations(convos);
           setRoster(people);
+          setOnlineIds(new Set(online.map(u => u._id)));
         }
       } catch {
         // Leave the panel usable — it'll just show an empty list until
@@ -146,7 +154,7 @@ export default function ChatPanel({ currentUserId, currentUserName }) {
           const existing = prev.find(c => c.key === key);
           const updated = {
             key,
-            name: key === 'team' ? 'Team Chat' : (existing?.name || nameById.get(key) || 'Unknown user'),
+            name: key === 'team' ? 'Team Chat' : (existing?.name || nameByIdRef.current.get(key) || 'Unknown user'),
             lastMessage: message.message,
             lastMessageAt: message.createdAt,
             unreadCount: isMine || isActiveAndOpen ? (existing?.unreadCount || 0) : (existing?.unreadCount || 0) + 1
@@ -191,11 +199,11 @@ export default function ChatPanel({ currentUserId, currentUserName }) {
     }
 
     return () => { cancelled = true; };
-    // conversationKeyFor/nameById/showToast are all stable enough in
-    // practice for this listener's purposes and deliberately excluded —
-    // re-subscribing on every conversations/roster update would drop and
-    // reattach the socket listeners far more than needed. isOpen/
-    // activeKey/view are read via refs (see above) specifically so this
+    // conversationKeyFor/showToast are stable enough in practice for this
+    // listener's purposes and deliberately excluded — re-subscribing on
+    // every conversations/roster update would drop and reattach the
+    // socket listeners far more than needed. isOpen/activeKey/view/
+    // nameById are all read via refs (see above) specifically so this
     // effect can stay mounted once without those reads going stale.
     // currentUserId is the one value this genuinely depends on identity-wise.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -208,6 +216,27 @@ export default function ChatPanel({ currentUserId, currentUserName }) {
     const nearBottom = !list || list.scrollHeight - list.scrollTop - list.clientHeight < 150;
     if (nearBottom) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [threadsByKey, activeKey, view]);
+
+  // ── Online status refresh ────────────────────────────────────────────
+  // Same GET /users/online this app's navbar "who's online" dropdown
+  // uses, polled only while this panel is actually open — matching that
+  // dropdown's own "no point polling when nobody's looking" reasoning.
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    let cancelled = false;
+    const refreshOnline = async () => {
+      try {
+        const online = await usersAPI.getOnline();
+        if (!cancelled) setOnlineIds(new Set(online.map(u => u._id)));
+      } catch {
+        // Leave whatever was last known — a failed refresh isn't worth
+        // flickering everyone to "offline".
+      }
+    };
+    refreshOnline();
+    const interval = setInterval(refreshOnline, 15 * 1000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [isOpen]);
 
   // ── Navigation ─────────────────────────────────────────────────────────
   const openPanel = useCallback(() => {
@@ -385,6 +414,11 @@ export default function ChatPanel({ currentUserId, currentUserName }) {
                 </button>
               )}
               <h3 className="text-sm font-bold text-white truncate">{view === 'thread' ? activeName : 'Chat'}</h3>
+              {view === 'thread' && activeKey !== 'team' && (
+                <span className={`text-[10px] shrink-0 ${onlineIds.has(activeKey) ? 'text-emerald-200' : 'text-white/50'}`}>
+                  {onlineIds.has(activeKey) ? '● online' : 'offline'}
+                </span>
+              )}
               <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${connected ? 'bg-emerald-300' : 'bg-gray-300'}`} title={connected ? 'Connected' : 'Reconnecting…'} />
             </div>
             <div className="flex items-center gap-2 shrink-0">
@@ -414,8 +448,16 @@ export default function ChatPanel({ currentUserId, currentUserName }) {
                       onClick={() => openConversation(c.key, c.name)}
                       className="w-full text-left px-4 py-3 border-b border-gray-100 hover:bg-white flex items-center gap-3 transition-colors"
                     >
-                      <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 ${c.key === 'team' ? 'bg-emerald-600' : 'bg-teal-600'}`}>
-                        {c.key === 'team' ? '#' : c.name.charAt(0).toUpperCase()}
+                      <div className="relative shrink-0">
+                        <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold ${c.key === 'team' ? 'bg-emerald-600' : 'bg-teal-600'}`}>
+                          {c.key === 'team' ? '#' : c.name.charAt(0).toUpperCase()}
+                        </div>
+                        {c.key !== 'team' && (
+                          <span
+                            className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white ${onlineIds.has(c.key) ? 'bg-emerald-500' : 'bg-gray-300'}`}
+                            title={onlineIds.has(c.key) ? 'Online' : 'Offline'}
+                          />
+                        )}
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-2">
@@ -443,10 +485,19 @@ export default function ChatPanel({ currentUserId, currentUserName }) {
                       onClick={() => startNewDM(p)}
                       className="w-full text-left px-4 py-2.5 hover:bg-white flex items-center gap-3 transition-colors"
                     >
-                      <div className="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center text-white text-xs font-bold shrink-0">
-                        {p.name.charAt(0).toUpperCase()}
+                      <div className="relative shrink-0">
+                        <div className="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center text-white text-xs font-bold">
+                          {p.name.charAt(0).toUpperCase()}
+                        </div>
+                        <span
+                          className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${onlineIds.has(p._id) ? 'bg-emerald-500' : 'bg-gray-300'}`}
+                          title={onlineIds.has(p._id) ? 'Online' : 'Offline'}
+                        />
                       </div>
-                      <p className="text-sm text-gray-700 truncate">{p.name}</p>
+                      <div className="min-w-0 flex-1 flex items-center gap-1.5">
+                        <p className="text-sm text-gray-700 truncate">{p.name}</p>
+                        {onlineIds.has(p._id) && <span className="text-[10px] text-emerald-600 font-medium shrink-0">online</span>}
+                      </div>
                     </button>
                   ))}
                 </>
