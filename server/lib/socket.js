@@ -1,6 +1,6 @@
 import { Server } from 'socket.io';
 import jwt from 'jsonwebtoken';
-import { User } from './models.js';
+import { User } from '../models.js';
 
 // Kept as a module-level singleton (rather than passed around as a
 // parameter everywhere) so routes.js can broadcast a new chat message
