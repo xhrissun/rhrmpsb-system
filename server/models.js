@@ -289,6 +289,56 @@ candidateSchema.set('toJSON', {
   }
 });
 
+// PERF: .lean() queries return plain objects, which bypass the toJSON
+// transform above entirely — so a lean candidate would serialize with
+// whatever `age` happens to be stored, reintroducing the stale-age bug that
+// transform exists to prevent. This applies the exact same rule (including
+// the same same-calendar-year short-circuit) to lean results, so list
+// endpoints can use .lean() for the memory/CPU win without any observable
+// change to the JSON the client receives.
+//
+// It also restores the schema defaults that hydration used to supply for
+// free. This matters: a candidate created before a field existed has no such
+// key stored in MongoDB at all, and a hydrated document silently substituted
+// the schema default (e.g. commentsHistory: []) before serializing. A lean
+// query returns the raw stored document instead, so without this the API
+// would start emitting `undefined` where it always emitted `[]`, and
+// unguarded client code like SecretariatView's `sib.commentsHistory.filter()`
+// would throw. Filling them here keeps the response shape byte-identical to
+// what the frontend has always received.
+//
+// Mutates in place and returns its argument — no second array allocated,
+// which is the whole point on a large candidate list.
+export function prepareCandidateResponse(docs) {
+  if (!docs) return docs;
+  const list = Array.isArray(docs) ? docs : [docs];
+  const currentYear = new Date().getFullYear();
+
+  for (const d of list) {
+    if (!d) continue;
+
+    // Live age — same rule (and same short-circuit) as the toJSON transform.
+    if (d.dateOfBirth) {
+      const storedYear = d.updatedAt ? new Date(d.updatedAt).getFullYear() : null;
+      if (!(storedYear && storedYear === currentYear && d.age != null)) {
+        d.age = computeAge(d.dateOfBirth);
+      }
+    }
+
+    // Array defaults hydration used to fill in.
+    if (!d.commentsHistory) d.commentsHistory = [];
+    if (!d.statusHistory)   d.statusHistory   = [];
+
+    // Nested-object defaults. Only filled when the whole path is missing —
+    // a partially-populated object is left exactly as stored, matching what
+    // hydration produced.
+    if (!d.comments) {
+      d.comments = { education: '', training: '', experience: '', eligibility: '' };
+    }
+  }
+  return docs;
+}
+
 // ── Competency Schema ─────────────────────────────────────────────────────────
 const competencySchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },

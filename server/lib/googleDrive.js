@@ -132,7 +132,14 @@ export async function fetchDriveFile(url) {
     throw new Error(describeGoogleApiError(err, fileId));
   }
 
-  const byteLength = Buffer.byteLength(Buffer.from(dataResponse.data));
+  // Allocated ONCE and reused everywhere below — this used to be
+  // Buffer.from(dataResponse.data) called three separate times (here, in
+  // the ZIP-integrity check, and again to produce the base64 return value),
+  // each an independent copy of the same bytes. On a 5MB document that was
+  // roughly 15MB of redundant allocation before even counting the base64
+  // string itself or the caller's own decode step.
+  const buf = Buffer.from(dataResponse.data);
+  const byteLength = buf.length;
 
   // For a regular uploaded file, Drive tells us the authoritative size
   // ahead of time — if what we actually received doesn't match, the
@@ -166,7 +173,6 @@ export async function fetchDriveFile(url) {
   const isZipBased = effectiveMimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
                       effectiveMimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
   if (isZipBased) {
-    const buf = Buffer.from(dataResponse.data);
     const hasLocalFileHeader = buf.length >= 4 && buf[0] === 0x50 && buf[1] === 0x4B && buf[2] === 0x03 && buf[3] === 0x04;
     // End-of-central-directory signature only ever needs to be searched for
     // near the tail (it's followed by, at most, a short comment field).
@@ -181,13 +187,16 @@ export async function fetchDriveFile(url) {
     }
   }
 
-  const base64 = Buffer.from(dataResponse.data).toString('base64');
-
   return {
     fileId,
     name: name || fileId,
     mimeType: effectiveMimeType,
-    base64,
+    buffer: buf,
+    // Lazy getter, not a precomputed field — most callers (the byte-proxy
+    // route) only need `buffer` now and should never pay for a base64
+    // encode they don't use. Anything that still reads `.base64` gets it
+    // computed on demand, from the SAME buffer, not a fresh Drive fetch.
+    get base64() { return buf.toString('base64'); },
     isSheetExport
   };
 }

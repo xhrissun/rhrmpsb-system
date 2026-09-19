@@ -109,7 +109,16 @@ startServer();
 // ── Lightweight ping endpoint ─────────────────────────────────────────────────
 app.get('/ping', (req, res) => {
   const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] Ping received from ${req.ip}`);
+  // Heap is logged here because the keep-alive runs on a fixed interval,
+  // which makes the Render log itself a usable memory trace: a healthy
+  // process sawtooths around a stable baseline, while a leak shows as a
+  // monotonic climb. This is what lets a future OOM be diagnosed from the
+  // log alone instead of guessing.
+  const { heapUsed, rss } = process.memoryUsage();
+  const mb = (bytes) => Math.round(bytes / 1024 / 1024);
+  console.log(
+    `[${timestamp}] Ping received from ${req.ip} — heap ${mb(heapUsed)}MB, rss ${mb(rss)}MB, up ${Math.floor(process.uptime() / 3600)}h`
+  );
   res.status(200).send('pong');
 });
 

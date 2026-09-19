@@ -6,7 +6,7 @@ import crypto from 'crypto';
 import mongoose from 'mongoose';
 import { parse } from 'csv-parse/sync';
 import rateLimit from 'express-rate-limit';
-import { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, InterviewSession, PDFCache, SystemSettings, AiEvaluationLog, AiEvaluationJob, ChatMessage, ChatRead } from './models.js';
+import { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, InterviewSession, PDFCache, SystemSettings, AiEvaluationLog, AiEvaluationJob, ChatMessage, ChatRead, prepareCandidateResponse } from './models.js';
 import { broadcastChatMessage, notifyMention } from './lib/socket.js';
 
 import { evaluateCandidateWithAI } from './lib/aiEvaluation.js';
@@ -281,6 +281,28 @@ const VACANCY_UPDATE_ALLOWED = [
 const COMPETENCY_WRITE_ALLOWED = [
   'name', 'type', 'vacancyId', 'vacancyIds', 'isFixed'
 ];
+
+// ── Candidate response projection (MEMORY FIX) ───────────────────────────────
+// Two fields on candidateSchema are large and grow without bound relative to
+// the rest of the document:
+//
+//   extractedDocumentCache — up to ~6,000 chars of extracted text per
+//     document type (MAX_EXTRACTED_CHARS in clientTextExtraction.js), across
+//     up to 11 document types, so ~66KB of pure text per candidate.
+//   lastAiEvaluation.result — the entire Gemini draft payload (Mixed).
+//
+// Both exist ONLY so the server can avoid re-extracting/re-evaluating; no
+// client screen reads either one (the AI panel gets its data from
+// GET /candidates/:id/ai-evaluate/cached, which reads lastAiEvaluation
+// server-side). Shipping them on every candidate-list response meant a few
+// hundred candidates could cost 100MB+ of transient heap per request once
+// Mongoose hydration and JSON.stringify are both counted.
+//
+// Excluding them here is invisible to the frontend and is the single biggest
+// win available. The AI-evaluate routes deliberately do NOT use this
+// projection — they fetch the full document because they genuinely need the
+// cache.
+const CANDIDATE_CLIENT_PROJECTION = '-extractedDocumentCache -lastAiEvaluation';
 
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1475,11 +1497,15 @@ router.get('/candidates', authMiddleware, async (req, res) => {
         return res.json([]); // No assignments — return nothing
       }
       // assignedVacancies === 'all': no filter, rater sees everything
-      const candidates = await Candidate.find(filter);
-      return res.json(candidates);
+      const candidates = await Candidate.find(filter)
+        .select(CANDIDATE_CLIENT_PROJECTION)
+        .lean();
+      return res.json(prepareCandidateResponse(candidates));
     }
-    const candidates = await Candidate.find();
-    res.json(candidates);
+    const candidates = await Candidate.find()
+      .select(CANDIDATE_CLIENT_PROJECTION)
+      .lean();
+    res.json(prepareCandidateResponse(candidates));
   } catch (error) {
     console.error('[GET /candidates]', error);
     res.status(500).json({ message: 'Server error' });
@@ -1557,11 +1583,20 @@ router.get('/candidates/export-csv', exportLimiter, authMiddleware, async (req, 
 
     const candidates = await Candidate.find(filter)
       .populate('commentsHistory.commentedBy', 'name')
-      .sort({ fullName: 1 });
+      .select(CANDIDATE_CLIENT_PROJECTION)
+      .sort({ fullName: 1 })
+      .lean();
     if (candidates.length === 0) return res.status(404).json({ message: 'No candidates found for export' });
 
+    // This CSV reads c.age directly rather than going through toJSON, so the
+    // same live-age rule has to be applied explicitly now that it's lean.
+    prepareCandidateResponse(candidates);
+
     const getLastCommenterInfo = (candidate, field) => {
-      const fieldHistory = candidate.commentsHistory
+      // Lean docs return the raw stored document: a candidate created before
+      // commentsHistory existed has no such key at all, where a hydrated doc
+      // would have substituted the schema default []. Guard explicitly.
+      const fieldHistory = (candidate.commentsHistory || [])
         .filter(h => h.field === field)
         .sort((a, b) => new Date(b.commentedAt) - new Date(a.commentedAt));
       if (fieldHistory.length > 0) {
@@ -1641,8 +1676,10 @@ router.get('/candidates/item/:itemNumber', authMiddleware, async (req, res) => {
     const candidates = await Candidate.find(query)
       .populate('commentsHistory.commentedBy', 'name userType')
       .populate('statusHistory.changedBy', 'name userType')
-      .sort({ fullName: 1 });
-    res.json(candidates);
+      .select(CANDIDATE_CLIENT_PROJECTION)
+      .sort({ fullName: 1 })
+      .lean();
+    res.json(prepareCandidateResponse(candidates));
   } catch (error) {
     console.error('[GET /candidates/item/:itemNumber]', error);
     res.status(500).json({ message: 'Server error' });
@@ -1803,8 +1840,10 @@ router.get('/candidates/by-publication/:publicationRangeId', authMiddleware, asy
     const candidates = await Candidate.find(query)
       .populate('commentsHistory.commentedBy', 'name userType')
       .populate('statusHistory.changedBy', 'name userType')
-      .sort({ fullName: 1 });
-    res.json(candidates);
+      .select(CANDIDATE_CLIENT_PROJECTION)
+      .sort({ fullName: 1 })
+      .lean();
+    res.json(prepareCandidateResponse(candidates));
   } catch (error) {
     console.error('[GET /candidates/by-publication]', error);
     res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
@@ -1965,8 +2004,11 @@ router.get('/candidates/siblings', authMiddleware, async (req, res) => {
       .select('_id fullName itemNumber governmentEmployment comments commentsHistory')
       .populate('governmentEmployment.lastUpdatedBy', 'name')
       .populate('commentsHistory.commentedBy', 'name')
-      .sort({ itemNumber: 1 });
-    res.json(siblings);
+      .sort({ itemNumber: 1 })
+      .lean();
+    // Age is not in this projection, but the array/object defaults still
+    // matter — SecretariatView calls sib.commentsHistory.filter() unguarded.
+    res.json(prepareCandidateResponse(siblings));
   } catch (error) {
     console.error('[GET /candidates/siblings]', error);
     res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
@@ -1978,9 +2020,11 @@ router.get('/candidates/:id', authMiddleware, async (req, res) => {
   try {
     const candidate = await Candidate.findById(req.params.id)
       .populate('commentsHistory.commentedBy', 'name userType')
-      .populate('statusHistory.changedBy', 'name userType');
+      .populate('statusHistory.changedBy', 'name userType')
+      .select(CANDIDATE_CLIENT_PROJECTION)
+      .lean();
     if (!candidate) return res.status(404).json({ message: 'Candidate not found' });
-    res.json(candidate);
+    res.json(prepareCandidateResponse(candidate));
   } catch (error) {
     console.error('[GET /candidates/:id]', error);
     res.status(500).json({ message: 'Server error' });
@@ -2434,13 +2478,20 @@ router.get('/candidates/:id/ai-evaluate/document/:jobId/:docKey', authMiddleware
     }
 
     const docField = CANDIDATE_DOC_FIELDS.find(d => d.key === req.params.docKey);
-    const candidate = await Candidate.findById(req.params.id);
+    // Only the one URL field is needed here — loading the whole candidate
+    // pulled in its extracted-document cache and last AI draft too.
+    const candidate = docField
+      ? await Candidate.findById(req.params.id).select(docField.key).lean()
+      : null;
     if (!docField || !candidate || !candidate[docField.key]) {
       return res.status(404).json({ message: 'Document not found for this candidate.' });
     }
 
     const file = await fetchDriveFile(candidate[docField.key]);
-    const buffer = Buffer.from(file.base64, 'base64');
+    // Send the downloaded bytes straight through. This previously encoded to
+    // base64 and immediately decoded back, roughly tripling peak memory for
+    // every document proxied for no benefit.
+    const buffer = file.buffer;
     res.set('Content-Type', file.mimeType || 'application/octet-stream');
     res.set('X-Document-Name', encodeURIComponent(file.name || docField.label));
     res.send(buffer);
@@ -2472,7 +2523,11 @@ router.get('/candidates/:id/ai-evaluate/document-token/:jobId/:docKey', authMidd
     }
 
     const docField = CANDIDATE_DOC_FIELDS.find(d => d.key === req.params.docKey);
-    const candidate = await Candidate.findById(req.params.id);
+    // Only the one URL field is needed here — loading the whole candidate
+    // pulled in its extracted-document cache and last AI draft too.
+    const candidate = docField
+      ? await Candidate.findById(req.params.id).select(docField.key).lean()
+      : null;
     if (!docField || !candidate || !candidate[docField.key]) {
       return res.status(404).json({ message: 'Document not found for this candidate.' });
     }
@@ -2833,6 +2888,7 @@ router.put('/candidates/:id', authMiddleware, async (req, res) => {
     }
 
     const candidate = await Candidate.findByIdAndUpdate(req.params.id, updateData, { new: true, runValidators: true })
+      .select(CANDIDATE_CLIENT_PROJECTION)
       .populate('commentsHistory.commentedBy', 'name userType')
       .populate('statusHistory.changedBy', 'name userType');
     if (!candidate) return res.status(404).json({ message: 'Candidate not found' });
