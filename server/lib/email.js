@@ -147,6 +147,8 @@ async function sendViaBrevo({ to, subject, html }) {
         subject,
         htmlContent: html,
       }),
+      // Never let a slow email provider hang a login / reset request.
+      signal: AbortSignal.timeout(10000),
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -155,7 +157,7 @@ async function sendViaBrevo({ to, subject, html }) {
     }
     return data;
   } catch (error) {
-    console.error('[email] Brevo send failed:', error);
+    console.error('[email] Brevo send failed:', error?.name === 'TimeoutError' ? 'timed out after 10s' : error);
     throw new Error('Failed to send email notification');
   }
 }

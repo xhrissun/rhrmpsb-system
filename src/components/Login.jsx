@@ -1,7 +1,15 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { Eye, EyeOff, Mail, Lock, AlertCircle, CheckCircle2, ShieldCheck } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock, AlertCircle, AlertTriangle, Clock, CheckCircle2, ShieldCheck } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { authAPI } from '../utils/api';
+import {
+  describeAuthError,
+  passwordInputHints,
+  failedLoginCount,
+  SLOW_NOTICE_AFTER_MS,
+  LOCK_MINUTES,
+  MAX_ATTEMPTS_BEFORE_LOCK,
+} from '../utils/authErrors';
 
 const OTP_RESEND_COOLDOWN_SEC = 60;
 
@@ -22,7 +30,34 @@ const Login = React.memo(({ onLogin }) => {
   const [resendCooldown, setResendCooldown] = useState(0);
   const cooldownRef = useRef(null);
 
-  useEffect(() => () => { if (cooldownRef.current) clearInterval(cooldownRef.current); }, []);
+  // ── Warnings / prompts ─────────────────────────────────────────────────────
+  const [capsLockOn, setCapsLockOn] = useState(false);
+  const [slowNotice, setSlowNotice] = useState(false);   // request is taking a while
+  const [wrongCount, setWrongCount] = useState(() => failedLoginCount.get());
+  const [locked, setLocked] = useState(false);
+  const slowTimerRef = useRef(null);
+
+  useEffect(() => () => {
+    if (cooldownRef.current) clearInterval(cooldownRef.current);
+    if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
+  }, []);
+
+  // Shows "the server may be waking up" if a request is still pending after a few seconds.
+  const beginSlowWatch = () => {
+    setSlowNotice(false);
+    if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
+    slowTimerRef.current = setTimeout(() => setSlowNotice(true), SLOW_NOTICE_AFTER_MS);
+  };
+  const endSlowWatch = () => {
+    if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
+    setSlowNotice(false);
+  };
+
+  const trackCapsLock = (e) => {
+    if (typeof e.getModifierState === 'function') setCapsLockOn(e.getModifierState('CapsLock'));
+  };
+
+  const passwordHints = passwordInputHints(formData.password);
 
   const startCooldown = () => {
     setResendCooldown(OTP_RESEND_COOLDOWN_SEC);
@@ -47,8 +82,14 @@ const Login = React.memo(({ onLogin }) => {
     if (!formData.email.trim()) { setError('Email is required.'); return; }
     if (!formData.password) { setError('Password is required.'); return; }
 
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      setError('You appear to be offline. This is not a problem with your password. Reconnect to the internet and try again.');
+      return;
+    }
+
     setLoading(true);
     setError('');
+    beginSlowWatch();
 
     try {
       // Clear stale session state before login
@@ -68,18 +109,28 @@ const Login = React.memo(({ onLogin }) => {
       // authenticated endpoint on its own).
       setPendingToken(response.pendingToken);
       setMaskedEmail(response.maskedEmail || '');
+      failedLoginCount.reset();
+      setWrongCount(0);
+      setLocked(false);
       setStage('otp');
       startCooldown();
     } catch (err) {
       console.error('Login error:', err);
-      if (err.response?.status === 429) {
-        setError('Too many login attempts. Please wait 15 minutes and try again.');
-      } else if (err.response?.status === 423) {
-        setError(err.response.data?.message || 'Account temporarily locked. Please try again later.');
-      } else {
-        setError(err.response?.data?.message || 'Login failed. Please check your credentials and try again.');
+      const info = await describeAuthError(err, 'login');
+      setError(info.message);
+      if (info.kind === 'invalid_credentials') {
+        setWrongCount(failedLoginCount.bump());
+        setLocked(false);
+      } else if (info.kind === 'locked') {
+        // The server has locked the account — stop counting and stop the user retrying.
+        failedLoginCount.reset();
+        setWrongCount(0);
+        setLocked(true);
       }
+      // Every other kind (network, timeout, rate limit, server) is NOT a wrong
+      // password, so it must not push the user toward the lockout warning.
     } finally {
+      endSlowWatch();
       setLoading(false);
     }
   };
@@ -89,18 +140,22 @@ const Login = React.memo(({ onLogin }) => {
     if (!otp.trim()) { setOtpError('Verification code is required.'); return; }
     setOtpLoading(true);
     setOtpError('');
+    beginSlowWatch();
     try {
       const response = await authAPI.verifyOtp(pendingToken, otp.trim());
       localStorage.setItem('authToken', response.token);
       onLogin(response);
     } catch (err) {
       console.error('OTP verification error:', err);
-      if (err.response?.status === 429) {
-        setOtpError(err.response.data?.message || 'Too many attempts. Please log in again.');
+      const info = await describeAuthError(err, 'otp');
+      if (info.kind === 'unauthorized' || info.kind === 'other') {
+        // Server messages here are already specific (wrong / expired / too many attempts).
+        setOtpError(err.response?.data?.message || info.message);
       } else {
-        setOtpError(err.response?.data?.message || 'Incorrect verification code.');
+        setOtpError(info.message);
       }
     } finally {
+      endSlowWatch();
       setOtpLoading(false);
     }
   };
@@ -112,7 +167,8 @@ const Login = React.memo(({ onLogin }) => {
       await authAPI.resendOtp(pendingToken);
       startCooldown();
     } catch (err) {
-      setOtpError(err.response?.data?.message || 'Could not resend code. Please try again.');
+      const info = await describeAuthError(err, 'resendOtp');
+      setOtpError(err.response?.data?.message || info.message);
     }
   };
 
@@ -194,6 +250,10 @@ const Login = React.memo(({ onLogin }) => {
                   placeholder="Enter your email"
                   aria-describedby={error ? 'error-message' : undefined}
                   autoComplete="email"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  inputMode="email"
                 />
               </div>
             </div>
@@ -220,6 +280,13 @@ const Login = React.memo(({ onLogin }) => {
                   placeholder="Enter your password"
                   aria-describedby={error ? 'error-message' : undefined}
                   autoComplete="current-password"
+                  // Phone keyboards capitalize / autocorrect / append a space in
+                  // plain-text fields (which this becomes when "show password" is on).
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  onKeyUp={trackCapsLock}
+                  onKeyDown={trackCapsLock}
                 />
                 <button
                   type="button"
@@ -232,6 +299,20 @@ const Login = React.memo(({ onLogin }) => {
               </div>
             </div>
 
+            {/* Pre-submit warnings */}
+            {capsLockOn && (
+              <div className="flex items-center space-x-2 p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm" role="status">
+                <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                <span>Caps Lock is on. Passwords are case-sensitive.</span>
+              </div>
+            )}
+            {passwordHints.map((h) => (
+              <div key={h} className="flex items-center space-x-2 p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm" role="status">
+                <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                <span>{h}</span>
+              </div>
+            ))}
+
             {/* Error Message */}
             {error && (
               <div
@@ -242,6 +323,34 @@ const Login = React.memo(({ onLogin }) => {
               >
                 <AlertCircle className="h-4 w-4 flex-shrink-0" />
                 <span>{error}</span>
+              </div>
+            )}
+
+            {/* Approaching lockout: only counts genuine "wrong password" answers */}
+            {!locked && wrongCount >= 3 && (
+              <div className="flex items-start space-x-2 p-3 bg-amber-50 border border-amber-300 rounded-xl text-amber-900 text-sm" role="alert">
+                <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                <span>
+                  {wrongCount} wrong passwords so far. After {MAX_ATTEMPTS_BEFORE_LOCK} the account is locked for {LOCK_MINUTES} minutes
+                  (even the right password is refused during that time). Please stop guessing and{' '}
+                  <Link to="/forgot-password" className="font-semibold underline">reset your password</Link> instead.
+                </span>
+              </div>
+            )}
+            {locked && (
+              <div className="flex items-start space-x-2 p-3 bg-red-50 border border-red-300 rounded-xl text-red-800 text-sm" role="alert">
+                <Lock className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                <span>
+                  This account is locked. Retrying will not help until the lock ends.{' '}
+                  <Link to="/forgot-password" className="font-semibold underline">Reset your password</Link> to unlock it right away.
+                </span>
+              </div>
+            )}
+
+            {loading && slowNotice && (
+              <div className="flex items-start space-x-2 p-3 bg-sky-50 border border-sky-200 rounded-xl text-sky-800 text-sm" role="status" aria-live="polite">
+                <Clock className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                <span>Still working. The server may be waking up, which can take up to a minute. Please keep this page open and don't press Sign In again.</span>
               </div>
             )}
 
@@ -300,6 +409,13 @@ const Login = React.memo(({ onLogin }) => {
               />
             </div>
 
+            {otpLoading && slowNotice && (
+              <div className="flex items-start space-x-2 p-3 bg-sky-50 border border-sky-200 rounded-xl text-sky-800 text-sm" role="status" aria-live="polite">
+                <Clock className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                <span>Still verifying. Please keep this page open.</span>
+              </div>
+            )}
+
             {otpError && (
               <div id="otp-error-message" className="flex items-center space-x-2 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm" role="alert" aria-live="polite">
                 <AlertCircle className="h-4 w-4 flex-shrink-0" />
@@ -324,6 +440,11 @@ const Login = React.memo(({ onLogin }) => {
                 </div>
               )}
             </button>
+
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Didn't get the code? Check your Spam/Junk and Promotions folders. Codes expire after 10 minutes, and only the
+              newest code works, so wait for the email before pressing "Resend code".
+            </p>
 
             <div className="flex items-center justify-between text-sm">
               <button type="button" onClick={handleBackToCredentials} className="text-slate-500 hover:text-slate-700 underline">

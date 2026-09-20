@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Lock, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { authAPI } from '../utils/api';
+import { describeAuthError } from '../utils/authErrors';
 
 const PASSWORD_RULES = [
   { test: (pw) => pw.length >= 8, label: 'At least 8 characters' },
@@ -29,6 +30,7 @@ const SetPassword = React.memo(() => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const [linkProblem, setLinkProblem] = useState(false);
 
   const linkValid = Boolean(uid && token);
 
@@ -40,15 +42,22 @@ const SetPassword = React.memo(() => {
     if (password !== confirmPassword) { setError('Passwords do not match.'); return; }
     setLoading(true);
     setError('');
+    setLinkProblem(false);
     try {
       await authAPI.setPassword(uid, token, password);
       setSuccess(true);
       setTimeout(() => navigate('/login', { replace: true }), 2500);
     } catch (err) {
-      if (err.response?.status === 429) {
-        setError('Too many attempts. Please wait 15 minutes and try again.');
+      const info = await describeAuthError(err, 'setPassword');
+      const serverMsg = err.response?.data?.message || '';
+      if (err.response?.status === 400 && /link|expired/i.test(serverMsg)) {
+        // Bad/expired/superseded link — the fix is a fresh link, not retrying this form.
+        setLinkProblem(true);
+        setError(`${serverMsg} Only the most recent email link works — if you requested more than once, open the newest email.`);
+      } else if (err.response?.status === 400 && serverMsg) {
+        setError(serverMsg); // password-policy message
       } else {
-        setError(err.response?.data?.message || 'This link is invalid or has expired. Please request a new one.');
+        setError(info.message);
       }
     } finally {
       setLoading(false);
@@ -77,7 +86,7 @@ const SetPassword = React.memo(() => {
           {!linkValid ? (
             <div className="flex items-center space-x-2 p-4 bg-red-500/20 border border-red-500/30 rounded-xl text-red-200 text-sm">
               <AlertCircle className="h-5 w-5 flex-shrink-0" />
-              <span>This link is missing required information. Please use the link exactly as it appeared in your email, or request a new one.</span>
+              <span>This link is missing required information. Please use the link exactly as it appeared in your email (some email apps cut long links), or request a new one.</span>
             </div>
           ) : success ? (
             <div className="space-y-4">
@@ -145,6 +154,12 @@ const SetPassword = React.memo(() => {
                   <AlertCircle className="h-4 w-4 flex-shrink-0" />
                   <span>{error}</span>
                 </div>
+              )}
+
+              {linkProblem && (
+                <Link to="/forgot-password" className="block text-center text-sm font-semibold text-blue-300 hover:text-blue-200 underline">
+                  Request a new reset link
+                </Link>
               )}
 
               <button

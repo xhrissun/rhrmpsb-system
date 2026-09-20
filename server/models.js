@@ -74,6 +74,7 @@ const userSchema = new mongoose.Schema({
   // ── Brute-force protection ────────────────────────────────────────────────
   failedLoginAttempts: { type: Number, default: 0, select: false },
   lockUntil:           { type: Date, default: null, select: false },
+  lastFailedLoginAt:   { type: Date, default: null, select: false },
   lastLoginAt:         { type: Date, default: null }
 }, { timestamps: true });
 
@@ -501,6 +502,7 @@ userSchema.methods.toJSON = function() {
   delete user.otpLastSentAt;
   delete user.failedLoginAttempts;
   delete user.lockUntil;
+  delete user.lastFailedLoginAt;
   return user;
 };
 

@@ -61,7 +61,15 @@ const globalLimiter = rateLimit({
   max: 500,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { message: 'Too many requests. Please try again later.' }
+  handler: (req, res) => {
+    const resetMs = req.rateLimit?.resetTime ? new Date(req.rateLimit.resetTime).getTime() : Date.now() + 15 * 60 * 1000;
+    console.warn(`[rate-limit] GLOBAL 429 ${req.method} ${req.originalUrl} ip=${req.ip} xff="${req.headers['x-forwarded-for'] || ''}"`);
+    res.status(429).json({
+      message: 'Too many requests. Please try again later.',
+      code: 'RATE_LIMITED_GLOBAL',
+      retryAfterSeconds: Math.max(1, Math.ceil((resetMs - Date.now()) / 1000))
+    });
+  }
 });
 
 // ── Auth-specific rate limiter (stricter) ─────────────────────────────────────
@@ -75,6 +83,24 @@ export const authLimiter = rateLimit({
 
 // ── Middleware ────────────────────────────────────────────────────────────────
 app.use(cors(corsOptions));
+
+// ── Auth request log ─────────────────────────────────────────────────────────
+// One line per /api/auth/* call (method, path, status, duration, IP, origin —
+// never bodies, passwords, or tokens). Registered BEFORE the global limiter so
+// rate-limited requests show up too. Makes "users can't log in but there are
+// no logs" diagnosable: you can now see whether requests arrive, from which
+// IP (as Express sees it), and how they were answered.
+app.use('/api/auth', (req, res, next) => {
+  const started = Date.now();
+  res.on('finish', () => {
+    console.log(
+      `[auth] ${req.method} ${req.originalUrl} -> ${res.statusCode} ${Date.now() - started}ms ` +
+      `ip=${req.ip} xff="${req.headers['x-forwarded-for'] || ''}" origin="${req.headers.origin || ''}"`
+    );
+  });
+  next();
+});
+
 app.use(globalLimiter);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));

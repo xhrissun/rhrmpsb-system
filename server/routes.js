@@ -73,55 +73,36 @@ const AI_EVALUATION_SETTINGS_KEY = 'aiEvaluation';
 const router = express.Router();
 
 // ── Auth rate limiters ────────────────────────────────────────────────────────
-// loginLimiter: guards the unauthenticated login endpoint (strict)
-const loginLimiter = rateLimit({
+// All limits are per client IP. Every 429 carries a machine-readable `code` and
+// `retryAfterSeconds` so the login screens can tell "too many requests from
+// your connection" apart from "wrong password" / "account locked", and log the
+// event server-side (a rate-limited request never reaches the route handler,
+// so without this it leaves no trace at all).
+const buildAuthLimiter = (max, message) => rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 20,
+  max,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { message: 'Too many login attempts. Please wait 15 minutes before trying again.' }
-});
-// verifyLimiter: guards verify-password (user is already authenticated, more lenient)
-const verifyLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 30,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { message: 'Too many verification attempts. Please wait 15 minutes before trying again.' }
+  handler: (req, res) => {
+    const resetMs = req.rateLimit?.resetTime ? new Date(req.rateLimit.resetTime).getTime() : Date.now() + 15 * 60 * 1000;
+    const retryAfterSeconds = Math.max(1, Math.ceil((resetMs - Date.now()) / 1000));
+    console.warn(`[rate-limit] 429 ${req.method} ${req.originalUrl} ip=${req.ip} xff="${req.headers['x-forwarded-for'] || ''}"`);
+    res.status(429).json({ message, code: 'RATE_LIMITED', retryAfterSeconds });
+  }
 });
 
+// loginLimiter: guards the unauthenticated login endpoint (strict)
+const loginLimiter = buildAuthLimiter(20, 'Too many login attempts. Please wait 15 minutes before trying again.');
+// verifyLimiter: guards verify-password (user is already authenticated, more lenient)
+const verifyLimiter = buildAuthLimiter(30, 'Too many verification attempts. Please wait 15 minutes before trying again.');
 // otpVerifyLimiter: guards OTP verification (post-password, still unauthenticated)
-const otpVerifyLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { message: 'Too many verification attempts. Please wait 15 minutes before trying again.' }
-});
+const otpVerifyLimiter = buildAuthLimiter(20, 'Too many verification attempts. Please wait 15 minutes before trying again.');
 // otpResendLimiter: guards OTP resend requests
-const otpResendLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { message: 'Too many code requests. Please wait before requesting another code.' }
-});
+const otpResendLimiter = buildAuthLimiter(10, 'Too many code requests. Please wait before requesting another code.');
 // forgotPasswordLimiter: guards the unauthenticated forgot-password request endpoint
-const forgotPasswordLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 5,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { message: 'Too many password reset requests. Please wait 15 minutes before trying again.' }
-});
+const forgotPasswordLimiter = buildAuthLimiter(5, 'Too many password reset requests. Please wait 15 minutes before trying again.');
 // setPasswordLimiter: guards the token-based set/reset-password submission endpoint
-const setPasswordLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { message: 'Too many attempts. Please wait 15 minutes before trying again.' }
-});
+const setPasswordLimiter = buildAuthLimiter(10, 'Too many attempts. Please wait 15 minutes before trying again.');
 
 // F-15 FIX: Stricter limiter for bulk export/report endpoints — prevents data exfiltration loops.
 const exportLimiter = rateLimit({
@@ -320,35 +301,58 @@ router.post('/auth/login', loginLimiter, async (req, res) => {
   }
   try {
     const user = await User.findOne({ email: email.trim().toLowerCase() })
-      .select('+password +failedLoginAttempts +lockUntil');
+      .select('+password +failedLoginAttempts +lockUntil +lastFailedLoginAt');
     // Generic message for both "no such user" and "wrong password" — avoids
     // leaking which emails are registered.
-    if (!user) return res.status(401).json({ message: 'Invalid credentials' });
+    if (!user) return res.status(401).json({ message: 'Invalid credentials', code: 'INVALID_CREDENTIALS' });
 
     if (user.lockUntil && user.lockUntil > new Date()) {
-      const minutesLeft = Math.ceil((user.lockUntil - new Date()) / 60000);
-      return res.status(423).json({ message: `Account temporarily locked due to repeated failed attempts. Try again in ${minutesLeft} minute(s).` });
+      const retryAfterSeconds = Math.ceil((user.lockUntil - new Date()) / 1000);
+      const minutesLeft = Math.ceil(retryAfterSeconds / 60);
+      return res.status(423).json({
+        message: `Account temporarily locked due to repeated failed attempts. Try again in ${minutesLeft} minute(s).`,
+        code: 'ACCOUNT_LOCKED',
+        retryAfterSeconds
+      });
     }
 
     if (user.mustSetPassword) {
-      return res.status(403).json({ message: 'Please set your password using the link sent to your email before signing in. Contact your administrator if you need it resent.' });
+      return res.status(403).json({
+        message: 'Please set your password using the link sent to your email before signing in. Contact your administrator if you need it resent.',
+        code: 'MUST_SET_PASSWORD'
+      });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      const attempts = (user.failedLoginAttempts || 0) + 1;
-      const update = { failedLoginAttempts: attempts };
+      // Failures only count toward a lockout if they happen within one lock
+      // window of each other — otherwise five typos spread over weeks would
+      // eventually lock someone out of a perfectly healthy account.
+      const windowMs = ACCOUNT_LOCK_MINUTES * 60 * 1000;
+      const stale = !user.lastFailedLoginAt || (Date.now() - user.lastFailedLoginAt.getTime()) > windowMs;
+      const attempts = (stale ? 0 : (user.failedLoginAttempts || 0)) + 1;
+      const update = { failedLoginAttempts: attempts, lastFailedLoginAt: new Date() };
       if (attempts >= MAX_FAILED_LOGIN_ATTEMPTS) {
-        update.lockUntil = new Date(Date.now() + ACCOUNT_LOCK_MINUTES * 60 * 1000);
+        update.lockUntil = new Date(Date.now() + windowMs);
         update.failedLoginAttempts = 0;
+        await User.findByIdAndUpdate(user._id, update);
+        console.warn(`[auth] account locked for ${ACCOUNT_LOCK_MINUTES}m after ${MAX_FAILED_LOGIN_ATTEMPTS} wrong passwords: userId=${user._id} ip=${req.ip}`);
+        // Tell them NOW that the account is locked, instead of a plain
+        // "Invalid credentials" that silently locks it and leaves them
+        // guessing why the correct password then keeps failing.
+        return res.status(423).json({
+          message: `Too many wrong passwords. This account is now locked for ${ACCOUNT_LOCK_MINUTES} minutes.`,
+          code: 'ACCOUNT_LOCKED',
+          retryAfterSeconds: ACCOUNT_LOCK_MINUTES * 60
+        });
       }
       await User.findByIdAndUpdate(user._id, update);
-      return res.status(401).json({ message: 'Invalid credentials' });
+      return res.status(401).json({ message: 'Invalid credentials', code: 'INVALID_CREDENTIALS' });
     }
 
     // Successful password check — reset any brute-force counters.
     if (user.failedLoginAttempts || user.lockUntil) {
-      await User.findByIdAndUpdate(user._id, { failedLoginAttempts: 0, lockUntil: null });
+      await User.findByIdAndUpdate(user._id, { failedLoginAttempts: 0, lockUntil: null, lastFailedLoginAt: null });
     }
 
     // ── Issue OTP for two-factor authentication ────────────────────────────
@@ -364,7 +368,7 @@ router.post('/auth/login', loginLimiter, async (req, res) => {
       await sendOtpEmail(user.email, user.name, otp, OTP_EXPIRY_MINUTES);
     } catch (emailError) {
       console.error('[POST /auth/login] Failed to send OTP email:', emailError);
-      return res.status(502).json({ message: 'Could not send verification code email. Please try again shortly.' });
+      return res.status(502).json({ message: 'Could not send the verification code email. Your password was correct. Please try signing in again in a minute.', code: 'EMAIL_FAILED' });
     }
 
     // Purpose-scoped, short-lived token — verified separately from the main
@@ -516,20 +520,38 @@ router.post('/auth/forgot-password', forgotPasswordLimiter, async (req, res) => 
   const generic = { message: 'If an account exists for that email, a password reset link has been sent.' };
   if (!email) return res.status(400).json({ message: 'Email is required' });
   try {
-    const user = await User.findOne({ email: String(email).trim().toLowerCase() });
+    const user = await User.findOne({ email: String(email).trim().toLowerCase() })
+      .select('+passwordResetExpiresAt');
     if (!user) return res.json(generic); // don't reveal existence
+
+    // Double-click / impatient re-request protection: if a reset link was
+    // issued less than a minute ago, don't mint a new token — that would
+    // silently invalidate the email that is probably still in flight. (Admin
+    // invite links live 24h, so they never match this window.)
+    const remainingMs = user.passwordResetExpiresAt ? user.passwordResetExpiresAt.getTime() - Date.now() : 0;
+    const issuedWithinLastMinute =
+      remainingMs > (PASSWORD_RESET_EXPIRY_MIN - 1) * 60 * 1000 &&
+      remainingMs <= PASSWORD_RESET_EXPIRY_MIN * 60 * 1000;
+    if (issuedWithinLastMinute) return res.json(generic);
 
     const token = generateSecureToken();
     await User.findByIdAndUpdate(user._id, {
       passwordResetTokenHash: sha256(token),
       passwordResetExpiresAt: new Date(Date.now() + PASSWORD_RESET_EXPIRY_MIN * 60 * 1000)
     });
-    await sendPasswordResetEmail(user.email, user.name, token, user._id.toString(), PASSWORD_RESET_EXPIRY_MIN);
+
+    // Answer immediately and send in the background: the email provider being
+    // slow must never make this request hang (the user would see an endless
+    // spinner). Failures are logged so they are no longer invisible.
     res.json(generic);
+    sendPasswordResetEmail(user.email, user.name, token, user._id.toString(), PASSWORD_RESET_EXPIRY_MIN)
+      .catch((emailError) => {
+        console.error(`[POST /auth/forgot-password] reset email FAILED to send for userId=${user._id}:`, emailError.message);
+      });
   } catch (error) {
     console.error('[POST /auth/forgot-password]', error);
     // Still return the generic message so the client experience doesn't change.
-    res.json(generic);
+    if (!res.headersSent) res.json(generic);
   }
 });
 
@@ -567,6 +589,7 @@ router.post('/auth/set-password', setPasswordLimiter, async (req, res) => {
       passwordResetExpiresAt: null,
       failedLoginAttempts: 0,
       lockUntil: null,
+      lastFailedLoginAt: null,
       otpCodeHash: null,
       otpExpiresAt: null,
       otpAttempts: 0
@@ -1043,6 +1066,7 @@ router.put('/users/:id/change-password', authMiddleware, async (req, res) => {
       passwordResetExpiresAt: null,
       failedLoginAttempts: 0,
       lockUntil: null,
+      lastFailedLoginAt: null,
       otpCodeHash: null,
       otpExpiresAt: null,
       otpAttempts: 0
@@ -1076,6 +1100,7 @@ router.post('/users/:id/send-password-setup', authMiddleware, async (req, res) =
       passwordResetExpiresAt: new Date(Date.now() + PASSWORD_SETUP_EXPIRY_HRS * 60 * 60 * 1000),
       failedLoginAttempts: 0,
       lockUntil: null,
+      lastFailedLoginAt: null,
       otpCodeHash: null,
       otpExpiresAt: null,
       otpAttempts: 0

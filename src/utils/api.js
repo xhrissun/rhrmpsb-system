@@ -7,6 +7,17 @@ const API_BASE_URL = import.meta.env.PROD
   ? 'https://rhrmpsb-system.onrender.com/api' 
   : 'http://localhost:5001/api';
 
+// Origin of the backend without the /api suffix — used by the connectivity
+// probe in authErrors.js (the server's /ping route lives at the root).
+export const API_ORIGIN = API_BASE_URL.replace(/\/api$/, '');
+
+// Per-request timeout for the pre-login auth calls only. Without a timeout a
+// stuck request leaves the spinner running forever. 60s is long enough to
+// ride out a Render cold start (~30-50s) but short enough to give the user
+// a real, actionable message instead of an endless spinner.
+export const AUTH_REQUEST_TIMEOUT_MS = 60000;
+const AUTH_REQ = { timeout: AUTH_REQUEST_TIMEOUT_MS };
+
 // Create axios instance
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -150,7 +161,7 @@ export function stopAuthKeepAlive() {
 // Auth API
 export const authAPI = {
   login: async (credentials) => {
-    const response = await api.post('/auth/login', credentials);
+    const response = await api.post('/auth/login', credentials, AUTH_REQ);
     return response.data;
   },
   // Safe credential check for in-app re-authentication gates: verifies
@@ -180,20 +191,20 @@ export const authAPI = {
   // Step 2 of login: exchange the pendingToken from login() + the emailed
   // code for a real session token/user.
   verifyOtp: async (pendingToken, otp) => {
-    const response = await api.post('/auth/verify-otp', { pendingToken, otp });
+    const response = await api.post('/auth/verify-otp', { pendingToken, otp }, AUTH_REQ);
     return response.data;
   },
   resendOtp: async (pendingToken) => {
-    const response = await api.post('/auth/resend-otp', { pendingToken });
+    const response = await api.post('/auth/resend-otp', { pendingToken }, AUTH_REQ);
     return response.data;
   },
   // ── Forgot / set password (self-service, and admin invite links) ───────────
   forgotPassword: async (email) => {
-    const response = await api.post('/auth/forgot-password', { email });
+    const response = await api.post('/auth/forgot-password', { email }, AUTH_REQ);
     return response.data;
   },
   setPassword: async (uid, token, newPassword) => {
-    const response = await api.post('/auth/set-password', { uid, token, newPassword });
+    const response = await api.post('/auth/set-password', { uid, token, newPassword }, AUTH_REQ);
     return response.data;
   },
 };

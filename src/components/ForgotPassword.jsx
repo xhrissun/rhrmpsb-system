@@ -1,34 +1,70 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { Mail, AlertCircle, CheckCircle2, ArrowLeft } from 'lucide-react';
+import { Mail, AlertCircle, CheckCircle2, ArrowLeft, Clock, Info } from 'lucide-react';
 import { authAPI } from '../utils/api';
+import { describeAuthError, SLOW_NOTICE_AFTER_MS } from '../utils/authErrors';
+
+const RESEND_COOLDOWN_SEC = 60;
+const EMAIL_LOOKS_VALID = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const ForgotPassword = React.memo(() => {
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [slowNotice, setSlowNotice] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
+  const slowTimerRef = useRef(null);
+  const cooldownRef = useRef(null);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!email.trim()) { setError('Email is required.'); return; }
+  useEffect(() => () => {
+    if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
+    if (cooldownRef.current) clearInterval(cooldownRef.current);
+  }, []);
+
+  const startCooldown = () => {
+    setCooldown(RESEND_COOLDOWN_SEC);
+    if (cooldownRef.current) clearInterval(cooldownRef.current);
+    cooldownRef.current = setInterval(() => {
+      setCooldown((prev) => {
+        if (prev <= 1) { clearInterval(cooldownRef.current); return 0; }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  const sendRequest = async () => {
+    const cleaned = email.trim().toLowerCase();
+    if (!cleaned) { setError('Email is required.'); return; }
+    if (!EMAIL_LOOKS_VALID.test(cleaned)) {
+      setError('That does not look like a complete email address (for example name@denr.gov.ph). Please check for typos.');
+      return;
+    }
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      setError('You appear to be offline. Reconnect to the internet and try again.');
+      return;
+    }
     setLoading(true);
     setError('');
+    setSlowNotice(false);
+    slowTimerRef.current = setTimeout(() => setSlowNotice(true), SLOW_NOTICE_AFTER_MS);
     try {
-      await authAPI.forgotPassword(email.trim().toLowerCase());
+      await authAPI.forgotPassword(cleaned);
       // Always show the same generic confirmation, whether or not the email
       // is registered — the server never reveals which accounts exist.
       setSubmitted(true);
+      startCooldown();
     } catch (err) {
-      if (err.response?.status === 429) {
-        setError('Too many requests. Please wait 15 minutes and try again.');
-      } else {
-        setError('Something went wrong. Please try again shortly.');
-      }
+      const info = await describeAuthError(err, 'forgot');
+      setError(info.message);
     } finally {
+      if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
+      setSlowNotice(false);
       setLoading(false);
     }
   };
+
+  const handleSubmit = (e) => { e.preventDefault(); sendRequest(); };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-green-900 to-slate-900 flex items-center justify-center p-4 sm:p-6">
@@ -49,8 +85,43 @@ const ForgotPassword = React.memo(() => {
             <div className="space-y-6">
               <div className="flex items-start space-x-2 p-4 bg-green-500/20 border border-green-500/30 rounded-xl text-green-100 text-sm">
                 <CheckCircle2 className="h-5 w-5 flex-shrink-0 mt-0.5" />
-                <span>If an account exists for that email, a password reset link has been sent. Please check your inbox (and spam folder).</span>
+                <span>If an account exists for <strong>{email.trim().toLowerCase()}</strong>, a password reset link is on its way.</span>
               </div>
+
+              <div className="flex items-start space-x-2 p-4 bg-white/10 border border-white/20 rounded-xl text-slate-200 text-xs sm:text-sm leading-relaxed">
+                <Info className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                <ul className="list-disc pl-4 space-y-1">
+                  <li>It can take a few minutes. Check <strong>Spam / Junk</strong> and <strong>Promotions</strong> too.</li>
+                  <li>Nothing arrived? Make sure the address above is the one your administrator registered, with no typos.</li>
+                  <li>The link works for <strong>60 minutes</strong> and only the <strong>newest</strong> email works. If you request again, ignore the older email.</li>
+                  <li>Resetting your password also unlocks your account if it was locked from too many wrong attempts.</li>
+                  <li>Still nothing after 10 minutes? Contact your administrator.</li>
+                </ul>
+              </div>
+
+              {error && (
+                <div className="flex items-start space-x-2 p-3 bg-red-500/20 border border-red-500/30 rounded-xl text-red-200 text-sm" role="alert">
+                  <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                  <span>{error}</span>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={sendRequest}
+                disabled={loading || cooldown > 0}
+                className="w-full py-2.5 px-4 border border-white/30 text-white text-sm font-medium rounded-xl hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {loading ? 'Sending...' : cooldown > 0 ? `Send again in ${cooldown}s` : 'Send the link again'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setSubmitted(false); setError(''); }}
+                className="block w-full text-center text-sm text-slate-300 hover:text-white underline"
+              >
+                Use a different email
+              </button>
               <Link to="/login" className="flex items-center justify-center gap-2 text-sm text-blue-300 hover:text-blue-200 underline">
                 <ArrowLeft className="h-4 w-4" /> Back to Sign In
               </Link>
@@ -72,6 +143,10 @@ const ForgotPassword = React.memo(() => {
                     className="w-full pl-10 pr-4 py-2.5 sm:py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-sm sm:text-base"
                     placeholder="Enter your email"
                     autoComplete="email"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    inputMode="email"
                   />
                 </div>
               </div>
@@ -80,6 +155,13 @@ const ForgotPassword = React.memo(() => {
                 <div className="flex items-center space-x-2 p-3 bg-red-500/20 border border-red-500/30 rounded-xl text-red-200 text-sm" role="alert">
                   <AlertCircle className="h-4 w-4 flex-shrink-0" />
                   <span>{error}</span>
+                </div>
+              )}
+
+              {loading && slowNotice && (
+                <div className="flex items-start space-x-2 p-3 bg-sky-500/20 border border-sky-400/30 rounded-xl text-sky-100 text-sm" role="status" aria-live="polite">
+                  <Clock className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                  <span>Still working. The server may be waking up, which can take up to a minute. Please keep this page open.</span>
                 </div>
               )}
 
