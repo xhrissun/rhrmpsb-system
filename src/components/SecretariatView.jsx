@@ -11,6 +11,21 @@ import { extractTextClientSide } from '../utils/clientTextExtraction';
 import { markBusy, clearBusy } from '../utils/busyTracker';
 import ChatPanel from './ChatPanel';
 
+// Visual language for the four candidate statuses, shared by the Update
+// Status modal's header/border tinting and its "current status" badge.
+// Colors intentionally match the rest of this file's existing status
+// conventions (green=long list, yellow=for review, red=disqualified,
+// gray=general list) rather than utils/constants.js's getStatusColor,
+// which uses blue for long_list — kept separate here so this modal stays
+// visually consistent with the status pills used everywhere else in
+// SecretariatView (e.g. the sibling propagation panel, table row rings).
+const UPDATE_STATUS_MODAL_META = {
+  general_list: { label: 'General List', badge: 'bg-gray-100 text-gray-700 border-gray-200',    dot: 'bg-gray-400',   headerBg: 'bg-gray-50',   headerBorder: 'border-gray-200',   ring: 'ring-gray-200' },
+  for_review:   { label: 'For Review',   badge: 'bg-yellow-100 text-yellow-800 border-yellow-200', dot: 'bg-yellow-500', headerBg: 'bg-yellow-50', headerBorder: 'border-yellow-200', ring: 'ring-yellow-300' },
+  long_list:    { label: 'Long List',    badge: 'bg-green-100 text-green-800 border-green-200',  dot: 'bg-green-500',  headerBg: 'bg-green-50',  headerBorder: 'border-green-200',  ring: 'ring-green-300' },
+  disqualified: { label: 'Disqualified', badge: 'bg-red-100 text-red-800 border-red-200',        dot: 'bg-red-500',    headerBg: 'bg-red-50',    headerBorder: 'border-red-200',    ring: 'ring-red-300' }
+};
+
 // Error Boundary Component
 class SecretariatErrorBoundary extends React.Component {
   constructor(props) {
@@ -1162,8 +1177,15 @@ const SecretariatView = ({ user }) => {
 
   const closeVacancyModal = useCallback(() => {
     setShowVacancyModal(false);
-    setVacancyDetails(null);
-  }, []);
+    // When opened from within the Update Status modal (showCommentModal
+    // still true), vacancyDetails is also what that modal's Position card
+    // reads from — clearing it here would blank that card out from under
+    // the still-open parent. Only clear it when Vacancy Details was opened
+    // standalone (from the candidates table).
+    if (!showCommentModal) {
+      setVacancyDetails(null);
+    }
+  }, [showCommentModal]);
 
   const closeCompetenciesModal = useCallback(() => {
     setShowCompetenciesModal(false);
@@ -2883,19 +2905,30 @@ const SecretariatView = ({ user }) => {
         </div>
       )}
 
-      {showCommentModal && candidateDetails && !commentModalMinimized && (
+      {showCommentModal && candidateDetails && !commentModalMinimized && (() => {
+        const currentStatusMeta = UPDATE_STATUS_MODAL_META[candidateDetails.status] || UPDATE_STATUS_MODAL_META.general_list;
+        return (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true" aria-labelledby="update-status-title">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl flex flex-col max-h-[92vh]">
+          <div className={`bg-white rounded-xl shadow-2xl w-full max-w-5xl flex flex-col max-h-[92vh] ring-2 ${currentStatusMeta.ring}`}>
             {/* ── Header ── */}
-            <div className="px-6 py-4 border-b border-gray-100 shrink-0 flex items-center justify-between gap-4">
+            <div className={`px-6 py-4 border-b shrink-0 flex items-center justify-between gap-4 ${currentStatusMeta.headerBg} ${currentStatusMeta.headerBorder}`}>
               <div className="min-w-0">
                 <p className="text-xs font-semibold text-indigo-500 uppercase tracking-wide mb-0.5">Update Status</p>
                 <h2 id="update-status-title" className="text-lg font-bold text-gray-900 leading-tight truncate">
                   {candidateDetails.fullName}
                 </h2>
-                {candidateDetails.isArchived && (
-                  <span className="mt-1 inline-block text-xs font-semibold px-2.5 py-0.5 rounded-full bg-orange-100 text-orange-700">Archived</span>
-                )}
+                <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+                  <span
+                    className={`inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-0.5 rounded-full border ${currentStatusMeta.badge}`}
+                    aria-label={`Current status: ${currentStatusMeta.label}`}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${currentStatusMeta.dot}`} />
+                    Current: {currentStatusMeta.label}
+                  </span>
+                  {candidateDetails.isArchived && (
+                    <span className="inline-block text-xs font-semibold px-2.5 py-0.5 rounded-full bg-orange-100 text-orange-700">Archived</span>
+                  )}
+                </div>
               </div>
               <div className="flex items-center gap-1 shrink-0">
                 {aiLoading && (
@@ -2953,11 +2986,23 @@ const SecretariatView = ({ user }) => {
             {/* Position + Documents row */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {vacancyDetails && (
-                <div className="bg-indigo-50 rounded-lg px-4 py-3 border border-indigo-100">
-                  <p className="text-[10px] font-semibold text-indigo-400 uppercase tracking-wide mb-1.5">Position</p>
+                <button
+                  type="button"
+                  onClick={() => setShowVacancyModal(true)}
+                  aria-label={`View vacancy details and competencies for ${vacancyDetails.position}`}
+                  title="View vacancy details and competencies"
+                  className="text-left bg-indigo-50 hover:bg-indigo-100 rounded-lg px-4 py-3 border border-indigo-100 transition-colors group"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[10px] font-semibold text-indigo-400 uppercase tracking-wide mb-1.5">Position</p>
+                    <svg className="w-3.5 h-3.5 text-indigo-400 group-hover:translate-x-0.5 transition-transform shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </div>
                   <p className="text-sm font-bold text-indigo-900">{vacancyDetails.position}</p>
                   <p className="text-xs text-indigo-600 mt-0.5">{vacancyDetails.assignment} · SG {vacancyDetails.salaryGrade}</p>
-                </div>
+                  <p className="text-[10px] text-indigo-400 mt-1 font-semibold">View details &amp; competencies →</p>
+                </button>
               )}
               <div className="bg-gray-50 rounded-lg px-4 py-3 border border-gray-100">
                 <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Documents</p>
@@ -3415,29 +3460,57 @@ const SecretariatView = ({ user }) => {
             <div className="flex justify-end gap-2 px-6 py-4 border-t border-gray-100 shrink-0">
               <button
                 onClick={() => handleStatusUpdate(CANDIDATE_STATUS.LONG_LIST)}
-                aria-label="Mark candidate as long listed"
-                className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-colors"
+                aria-label={candidateDetails.status === CANDIDATE_STATUS.LONG_LIST ? 'Candidate is currently long listed' : 'Mark candidate as long listed'}
+                aria-pressed={candidateDetails.status === CANDIDATE_STATUS.LONG_LIST}
+                className={`px-4 py-2 rounded-lg text-white text-sm font-semibold transition-colors flex items-center gap-1.5
+                  ${candidateDetails.status === CANDIDATE_STATUS.LONG_LIST
+                    ? 'bg-green-700 ring-2 ring-offset-1 ring-green-400'
+                    : 'bg-blue-600 hover:bg-blue-700'}`}
               >
+                {candidateDetails.status === CANDIDATE_STATUS.LONG_LIST && (
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
                 Long List
               </button>
               <button
                 onClick={() => handleStatusUpdate(CANDIDATE_STATUS.FOR_REVIEW)}
-                aria-label="Mark candidate for review"
-                className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold transition-colors"
+                aria-label={candidateDetails.status === CANDIDATE_STATUS.FOR_REVIEW ? 'Candidate is currently marked for review' : 'Mark candidate for review'}
+                aria-pressed={candidateDetails.status === CANDIDATE_STATUS.FOR_REVIEW}
+                className={`px-4 py-2 rounded-lg text-white text-sm font-semibold transition-colors flex items-center gap-1.5
+                  ${candidateDetails.status === CANDIDATE_STATUS.FOR_REVIEW
+                    ? 'bg-amber-700 ring-2 ring-offset-1 ring-amber-400'
+                    : 'bg-amber-500 hover:bg-amber-600'}`}
               >
+                {candidateDetails.status === CANDIDATE_STATUS.FOR_REVIEW && (
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
                 For Review
               </button>
               <button
                 onClick={() => handleStatusUpdate(CANDIDATE_STATUS.DISQUALIFIED)}
-                aria-label="Disqualify candidate"
-                className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-semibold transition-colors"
+                aria-label={candidateDetails.status === CANDIDATE_STATUS.DISQUALIFIED ? 'Candidate is currently disqualified' : 'Disqualify candidate'}
+                aria-pressed={candidateDetails.status === CANDIDATE_STATUS.DISQUALIFIED}
+                className={`px-4 py-2 rounded-lg text-white text-sm font-semibold transition-colors flex items-center gap-1.5
+                  ${candidateDetails.status === CANDIDATE_STATUS.DISQUALIFIED
+                    ? 'bg-red-800 ring-2 ring-offset-1 ring-red-400'
+                    : 'bg-red-600 hover:bg-red-700'}`}
               >
+                {candidateDetails.status === CANDIDATE_STATUS.DISQUALIFIED && (
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
                 Disqualify
               </button>
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {showVacancyModal && vacancyDetails && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50" role="dialog" aria-modal="true" aria-labelledby="vacancy-details-title">
