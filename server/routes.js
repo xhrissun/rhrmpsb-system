@@ -1543,9 +1543,19 @@ router.get('/candidates/export-summary-csv', exportLimiter, authMiddleware, asyn
     const activeRanges = await PublicationRange.find({ isArchived: false }, '_id');
     const activeRangeIds = activeRanges.map(r => r._id);
 
+    // MEMORY FIX: exclude the large/unbounded fields (see CANDIDATE_CLIENT_PROJECTION
+    // above) before sorting. Without this, Mongo has to hold full documents
+    // (which can carry 100KB+ each from extractedDocumentCache/lastAiEvaluation)
+    // in memory to sort by fullName, which blows the 32MB in-memory sort limit
+    // and 500s once there are enough candidates. .lean() + .allowDiskUse(true)
+    // are added as extra headroom.
     const candidates = await Candidate.find(
       { publicationRangeId: { $in: activeRangeIds }, isArchived: false }
-    ).sort({ fullName: 1 });
+    )
+      .select(CANDIDATE_CLIENT_PROJECTION)
+      .sort({ fullName: 1 })
+      .allowDiskUse(true)
+      .lean();
     if (candidates.length === 0) return res.status(404).json({ message: 'No candidates found for export' });
 
     const vacancies = await Vacancy.find({ publicationRangeId: { $in: activeRangeIds } }, 'itemNumber position assignment');

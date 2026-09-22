@@ -478,6 +478,10 @@ userSchema.index({ raterType: 1 });
 candidateSchema.index({ publicationRangeId: 1, isArchived: 1, status: 1 });
 candidateSchema.index({ itemNumber: 1, publicationRangeId: 1 });
 candidateSchema.index({ itemNumber: 1 });
+// Supports the export-summary-csv sort (publicationRangeId + isArchived filter,
+// sorted by fullName): lets Mongo walk this index in order instead of doing an
+// in-memory sort, which is what was exceeding the 32MB sort limit before.
+candidateSchema.index({ publicationRangeId: 1, isArchived: 1, fullName: 1 });
 
 competencySchema.index({ isFixed: 1 });
 
