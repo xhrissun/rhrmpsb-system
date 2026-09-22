@@ -12,7 +12,7 @@ import { broadcastChatMessage, notifyMention } from './lib/socket.js';
 import { evaluateCandidateWithAI } from './lib/aiEvaluation.js';
 import { fetchDriveFile, extractDriveFileId } from './lib/googleDrive.js';
 import { redactCandidateText } from './lib/redact.js';
-import { sendOtpEmail, sendPasswordSetupEmail, sendPasswordResetEmail } from './lib/email.js';
+import { sendOtpEmail, sendPasswordSetupEmail, sendPasswordResetEmail, sendDeviceTrustedEmail } from './lib/email.js';
 
 // ── Two-factor / password-reset security constants ────────────────────────────
 const OTP_EXPIRY_MINUTES        = 10;   // login OTP validity window
@@ -22,6 +22,8 @@ const PASSWORD_RESET_EXPIRY_MIN = 60;   // self-service "forgot password" link v
 const PASSWORD_SETUP_EXPIRY_HRS = 24;   // admin-triggered "set your password" invite validity
 const MAX_FAILED_LOGIN_ATTEMPTS = 5;    // failed password attempts before temporary lockout
 const ACCOUNT_LOCK_MINUTES      = 15;   // lockout duration once the threshold above is hit
+const DEVICE_TOKEN_EXPIRY_DAYS  = 30;   // "remember this device" window; slides forward on each use
+const MAX_TRUSTED_DEVICES       = 10;   // per user — oldest is evicted beyond this so the list can't grow unbounded
 
 // SHA-256 hash used for OTP codes and reset/setup tokens — these are single-use,
 // short-lived, high-entropy secrets, so a fast hash (rather than bcrypt) is the
@@ -64,6 +66,27 @@ const maskEmail = (email) => {
   if (!domain) return email;
   const visible = local.slice(0, Math.min(2, local.length));
   return `${visible}${'*'.repeat(Math.max(local.length - visible.length, 3))}@${domain}`;
+};
+
+// Best-effort, dependency-free User-Agent summary used to label trusted
+// devices (e.g. "Chrome on Windows"). Not meant to be exhaustive — just
+// enough for a person to recognize "that's my phone" / "that's my laptop"
+// on the Manage Devices screen.
+const describeUserAgent = (ua) => {
+  if (!ua) return 'Unknown device';
+  const browser =
+    /Edg\//.test(ua) ? 'Edge' :
+    /OPR\//.test(ua) ? 'Opera' :
+    /Chrome\//.test(ua) ? 'Chrome' :
+    /Firefox\//.test(ua) ? 'Firefox' :
+    /Safari\//.test(ua) ? 'Safari' : 'Browser';
+  const os =
+    /Android/.test(ua) ? 'Android' :
+    /iPhone|iPad|iPod/.test(ua) ? 'iOS' :
+    /Mac OS X/.test(ua) ? 'macOS' :
+    /Windows/.test(ua) ? 'Windows' :
+    /Linux/.test(ua) ? 'Linux' : 'Unknown OS';
+  return `${browser} on ${os}`;
 };
 
 // Key used in the SystemSettings collection for the admin on/off toggle.
@@ -295,7 +318,7 @@ const CANDIDATE_CLIENT_PROJECTION = '-extractedDocumentCache -lastAiEvaluation';
 // used to call any authenticated route) that must be exchanged for a real
 // session via POST /auth/verify-otp.
 router.post('/auth/login', loginLimiter, async (req, res) => {
-  const { email, password } = req.body;
+  const { email, password, deviceToken } = req.body;
   if (!email || !password) {
     return res.status(400).json({ message: 'Email and password are required' });
   }
@@ -355,6 +378,32 @@ router.post('/auth/login', loginLimiter, async (req, res) => {
       await User.findByIdAndUpdate(user._id, { failedLoginAttempts: 0, lockUntil: null, lastFailedLoginAt: null });
     }
 
+    // ── Skip OTP entirely if a valid, trusted device token was presented ────
+    // "Remember this device" (set at OTP-verification time, see POST
+    // /auth/verify-otp) lets a returning, already-2FA'd browser sign straight
+    // in. A missing/unknown/expired/revoked token just falls through to the
+    // normal OTP flow below — this is purely an optional shortcut, never a
+    // replacement for the password check above.
+    if (deviceToken) {
+      const userWithDevices = await User.findById(user._id).select('+trustedDevices');
+      const tokenHash = sha256(deviceToken);
+      const device = (userWithDevices.trustedDevices || []).find(
+        d => d.expiresAt > new Date() && timingSafeEqualHex(tokenHash, d.tokenHash)
+      );
+      if (device) {
+        device.lastUsedAt = new Date();
+        device.lastIp = req.ip;
+        // Sliding expiry — same idea as the session JWT's refresh below.
+        // A device signing in regularly stays trusted; one left idle for
+        // the full window falls back to requiring a code again.
+        device.expiresAt = new Date(Date.now() + DEVICE_TOKEN_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
+        await userWithDevices.save();
+        await User.findByIdAndUpdate(user._id, { lastLoginAt: new Date() });
+        const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '8h' });
+        return res.json({ requiresOtp: false, token, user: userWithDevices.toJSON() });
+      }
+    }
+
     // ── Issue OTP for two-factor authentication ────────────────────────────
     const otp = generateOtp();
     await User.findByIdAndUpdate(user._id, {
@@ -394,7 +443,7 @@ router.post('/auth/login', loginLimiter, async (req, res) => {
 // Step 2 of login: exchange the pending token + emailed OTP for a real
 // session token.
 router.post('/auth/verify-otp', otpVerifyLimiter, async (req, res) => {
-  const { pendingToken, otp } = req.body;
+  const { pendingToken, otp, rememberDevice } = req.body;
   if (!pendingToken || !otp) {
     return res.status(400).json({ message: 'Verification code is required' });
   }
@@ -433,8 +482,43 @@ router.post('/auth/verify-otp', otpVerifyLimiter, async (req, res) => {
       lastLoginAt: new Date()
     });
 
+    // ── "Remember this device" — register a long-lived trusted-device token ──
+    // so future logins from this browser can skip straight past OTP (see the
+    // deviceToken check in POST /auth/login). Failure here (e.g. the
+    // notification email) must never fail the login itself.
+    let deviceToken;
+    if (rememberDevice) {
+      try {
+        deviceToken = generateSecureToken();
+        const label = describeUserAgent(req.headers['user-agent']);
+        const deviceDoc = await User.findById(user._id).select('+trustedDevices');
+        deviceDoc.trustedDevices.push({
+          tokenHash: sha256(deviceToken),
+          label,
+          createdAt: new Date(),
+          lastUsedAt: new Date(),
+          expiresAt: new Date(Date.now() + DEVICE_TOKEN_EXPIRY_DAYS * 24 * 60 * 60 * 1000),
+          lastIp: req.ip
+        });
+        // Cap the list so repeatedly checking "remember this device" (new
+        // browsers, cleared cookies, etc.) can't grow it without bound —
+        // evict the oldest entries beyond the limit.
+        if (deviceDoc.trustedDevices.length > MAX_TRUSTED_DEVICES) {
+          deviceDoc.trustedDevices.sort((a, b) => a.createdAt - b.createdAt);
+          deviceDoc.trustedDevices.splice(0, deviceDoc.trustedDevices.length - MAX_TRUSTED_DEVICES);
+        }
+        await deviceDoc.save();
+        sendDeviceTrustedEmail(user.email, user.name, label).catch(e =>
+          console.error('[POST /auth/verify-otp] device-trusted email failed:', e)
+        );
+      } catch (deviceError) {
+        console.error('[POST /auth/verify-otp] failed to register trusted device:', deviceError);
+        deviceToken = undefined;
+      }
+    }
+
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '8h' });
-    res.json({ token, user: user.toJSON() });
+    res.json({ token, user: user.toJSON(), ...(deviceToken ? { deviceToken } : {}) });
   } catch (error) {
     console.error('[POST /auth/verify-otp]', error);
     res.status(500).json({ message: 'Server error' });
@@ -481,6 +565,65 @@ router.post('/auth/resend-otp', otpResendLimiter, async (req, res) => {
 
 router.get('/auth/me', authMiddleware, async (req, res) => {
   res.json(req.user);
+});
+
+// ── Trusted device management ("remember this device") ──────────────────────
+// List the authenticated user's trusted devices. If the caller's raw device
+// token is presented via the X-Device-Token header (sent automatically by
+// the frontend whenever one is stored — see api.js), the matching entry is
+// flagged isCurrent so the Manage Devices screen can highlight "this device".
+router.get('/auth/trusted-devices', authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select('+trustedDevices');
+    const rawCurrentToken = req.headers['x-device-token'];
+    const currentTokenHash = rawCurrentToken ? sha256(rawCurrentToken) : null;
+    const devices = (user.trustedDevices || [])
+      .slice()
+      .sort((a, b) => new Date(b.lastUsedAt) - new Date(a.lastUsedAt))
+      .map(d => ({
+        id: d._id,
+        label: d.label,
+        createdAt: d.createdAt,
+        lastUsedAt: d.lastUsedAt,
+        expiresAt: d.expiresAt,
+        lastIp: d.lastIp,
+        isCurrent: !!currentTokenHash && timingSafeEqualHex(currentTokenHash, d.tokenHash)
+      }));
+    res.json({ devices });
+  } catch (error) {
+    console.error('[GET /auth/trusted-devices]', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Revoke every trusted device at once ("sign out all remembered devices").
+// Placed before the :deviceId route below only for readability — Express
+// distinguishes them by path shape, not declaration order.
+router.delete('/auth/trusted-devices', authMiddleware, async (req, res) => {
+  try {
+    await User.updateOne({ _id: req.user._id }, { $set: { trustedDevices: [] } });
+    res.json({ message: 'All trusted devices were removed. Every device, including this one, will need a verification code next time it signs in.' });
+  } catch (error) {
+    console.error('[DELETE /auth/trusted-devices]', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Revoke a single trusted device by id.
+router.delete('/auth/trusted-devices/:deviceId', authMiddleware, async (req, res) => {
+  if (!mongoose.Types.ObjectId.isValid(req.params.deviceId)) {
+    return res.status(400).json({ message: 'Invalid device id' });
+  }
+  try {
+    await User.updateOne(
+      { _id: req.user._id },
+      { $pull: { trustedDevices: { _id: req.params.deviceId } } }
+    );
+    res.json({ message: 'Device removed. It will need a verification code next time it signs in.' });
+  } catch (error) {
+    console.error('[DELETE /auth/trusted-devices/:deviceId]', error);
+    res.status(500).json({ message: 'Server error' });
+  }
 });
 
 // Lightweight credential check used ONLY by in-app re-authentication gates
@@ -592,7 +735,8 @@ router.post('/auth/set-password', setPasswordLimiter, async (req, res) => {
       lastFailedLoginAt: null,
       otpCodeHash: null,
       otpExpiresAt: null,
-      otpAttempts: 0
+      otpAttempts: 0,
+      trustedDevices: [] // a changed password invalidates any previously-trusted browsers
     });
     res.json({ message: 'Password set successfully. You can now sign in.' });
   } catch (error) {
@@ -1037,7 +1181,8 @@ router.put('/auth/change-password', authMiddleware, async (req, res) => {
     await User.findByIdAndUpdate(req.user._id, {
       password: hashedPassword,
       failedLoginAttempts: 0,
-      lockUntil: null
+      lockUntil: null,
+      trustedDevices: [] // a changed password invalidates any previously-trusted browsers
     });
     res.json({ message: 'Password changed successfully' });
   } catch (error) {
@@ -1069,7 +1214,8 @@ router.put('/users/:id/change-password', authMiddleware, async (req, res) => {
       lastFailedLoginAt: null,
       otpCodeHash: null,
       otpExpiresAt: null,
-      otpAttempts: 0
+      otpAttempts: 0,
+      trustedDevices: [] // a changed password invalidates any previously-trusted browsers
     });
     res.json({ message: `Password updated successfully for ${user.name}`, userName: user.name });
   } catch (error) {

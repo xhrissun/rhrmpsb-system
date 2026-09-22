@@ -28,6 +28,7 @@ const Login = React.memo(({ onLogin }) => {
   const [otpError, setOtpError] = useState('');
   const [otpLoading, setOtpLoading] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
+  const [rememberDevice, setRememberDevice] = useState(false);
   const cooldownRef = useRef(null);
 
   // ── Warnings / prompts ─────────────────────────────────────────────────────
@@ -103,7 +104,18 @@ const Login = React.memo(({ onLogin }) => {
       ];
       keysToRemove.forEach((key) => localStorage.removeItem(key));
 
-      const response = await authAPI.login(formData);
+      const response = await authAPI.login({ ...formData, deviceToken: localStorage.getItem('deviceToken') || undefined });
+
+      // ── Trusted device: server skipped OTP entirely ─────────────────────
+      if (response.requiresOtp === false) {
+        localStorage.setItem('authToken', response.token);
+        failedLoginCount.reset();
+        setWrongCount(0);
+        setLocked(false);
+        onLogin(response);
+        return;
+      }
+
       // Password verified — server has emailed a one-time code. Move to the
       // OTP step; no session exists yet (pendingToken cannot call any
       // authenticated endpoint on its own).
@@ -142,8 +154,11 @@ const Login = React.memo(({ onLogin }) => {
     setOtpError('');
     beginSlowWatch();
     try {
-      const response = await authAPI.verifyOtp(pendingToken, otp.trim());
+      const response = await authAPI.verifyOtp(pendingToken, otp.trim(), rememberDevice);
       localStorage.setItem('authToken', response.token);
+      if (response.deviceToken) {
+        localStorage.setItem('deviceToken', response.deviceToken);
+      }
       onLogin(response);
     } catch (err) {
       console.error('OTP verification error:', err);
@@ -177,6 +192,7 @@ const Login = React.memo(({ onLogin }) => {
     setOtp('');
     setOtpError('');
     setPendingToken('');
+    setRememberDevice(false);
     if (cooldownRef.current) clearInterval(cooldownRef.current);
     setResendCooldown(0);
   };
@@ -422,6 +438,19 @@ const Login = React.memo(({ onLogin }) => {
                 <span>{otpError}</span>
               </div>
             )}
+
+            <label className="flex items-start gap-2.5 p-3 bg-slate-50 border border-slate-200 rounded-xl cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={rememberDevice}
+                onChange={(e) => setRememberDevice(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-500"
+              />
+              <span className="text-sm text-slate-700">
+                Remember this device for 30 days
+                <span className="block text-xs text-slate-500 mt-0.5">Skip the verification code next time you sign in from this browser. Only choose this on a device you don't share.</span>
+              </span>
+            </label>
 
             <button
               type="submit"

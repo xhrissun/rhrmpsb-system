@@ -203,6 +203,21 @@ export async function sendPasswordResetEmail(to, name, token, userId, expiryMinu
   return send({ to, subject: 'Reset your RHRMPSB account password', html });
 }
 
+// ── New trusted device registered ("remember this device" at login) ─────────
+// Sent whenever someone checks "remember this device" — a lightweight,
+// non-blocking security notice, not a confirmation the user has to act on.
+// The caller (POST /auth/verify-otp) fires this and does not await/fail the
+// login on its result.
+export async function sendDeviceTrustedEmail(to, name, deviceLabel) {
+  const html = wrap(`
+    <p>Hi ${escapeHtml(name)},</p>
+    <p>A device was just marked as trusted on your RHRMPSB account. It will not be asked for a verification code to sign in for the next 30 days:</p>
+    <p style="font-size:16px; font-weight:700; text-align:center; margin: 20px 0; color:#166534;">${escapeHtml(deviceLabel)}</p>
+    <p>If this wasn't you, sign in, remove it from <strong>Manage Devices</strong>, and change your password right away.</p>
+  `);
+  return send({ to, subject: 'A new device was trusted on your RHRMPSB account', html });
+}
+
 function escapeHtml(str) {
   return String(str || '')
     .replace(/&/g, '&amp;')

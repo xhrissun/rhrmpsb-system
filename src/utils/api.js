@@ -59,6 +59,14 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    // Sent on every request (harmless if the route doesn't look at it) so
+    // GET /auth/trusted-devices can flag which entry is "this device"
+    // without a separate round trip. Same secret used by POST /auth/login
+    // to skip OTP — see authAPI.login below.
+    const deviceToken = localStorage.getItem('deviceToken');
+    if (deviceToken) {
+      config.headers['X-Device-Token'] = deviceToken;
+    }
     return config;
   },
   (error) => {
@@ -160,6 +168,9 @@ export function stopAuthKeepAlive() {
 
 // Auth API
 export const authAPI = {
+  // credentials: { email, password, deviceToken? } — deviceToken (from
+  // localStorage, if this browser was previously "remembered") lets the
+  // server skip OTP entirely; see the requiresOtp flag in the response.
   login: async (credentials) => {
     const response = await api.post('/auth/login', credentials, AUTH_REQ);
     return response.data;
@@ -189,13 +200,29 @@ export const authAPI = {
   },
   // ── Two-factor authentication (email OTP) ──────────────────────────────────
   // Step 2 of login: exchange the pendingToken from login() + the emailed
-  // code for a real session token/user.
-  verifyOtp: async (pendingToken, otp) => {
-    const response = await api.post('/auth/verify-otp', { pendingToken, otp }, AUTH_REQ);
+  // code for a real session token/user. rememberDevice, when true, has the
+  // server register this browser as trusted so future logins can skip OTP
+  // (see authAPI.login / the deviceToken field) — the server returns a
+  // deviceToken to store for that.
+  verifyOtp: async (pendingToken, otp, rememberDevice) => {
+    const response = await api.post('/auth/verify-otp', { pendingToken, otp, rememberDevice }, AUTH_REQ);
     return response.data;
   },
   resendOtp: async (pendingToken) => {
     const response = await api.post('/auth/resend-otp', { pendingToken }, AUTH_REQ);
+    return response.data;
+  },
+  // ── Trusted device management ("remember this device") ─────────────────────
+  getTrustedDevices: async () => {
+    const response = await api.get('/auth/trusted-devices');
+    return response.data;
+  },
+  revokeTrustedDevice: async (deviceId) => {
+    const response = await api.delete(`/auth/trusted-devices/${deviceId}`);
+    return response.data;
+  },
+  revokeAllTrustedDevices: async () => {
+    const response = await api.delete('/auth/trusted-devices');
     return response.data;
   },
   // ── Forgot / set password (self-service, and admin invite links) ───────────

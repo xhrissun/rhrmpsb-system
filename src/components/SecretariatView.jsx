@@ -4029,6 +4029,10 @@ const SecretariatView = ({ user }) => {
                     setCpLoading(true);
                     try {
                       await usersAPI.changeSelfPassword(cpCurrentPwd, cpNewPwd);
+                      // Server invalidates all trusted devices on password
+                      // change; drop the stale local one too so this browser
+                      // doesn't keep presenting a token that's now rejected.
+                      localStorage.removeItem('deviceToken');
                       setCpSuccess(true);
                     } catch (err) {
                       setCpError(err.response?.data?.message || 'Failed to change password');

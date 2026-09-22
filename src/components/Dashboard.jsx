@@ -3,6 +3,7 @@ import RaterView from './RaterView';
 import SecretariatView from './SecretariatView';
 import AdminView from './AdminView';
 import InterviewSummaryGeneratorV2 from './InterviewSummaryGeneratorV2';
+import TrustedDevicesModal from './TrustedDevicesModal';
 import { USER_TYPES } from '../utils/constants';
 import { usersAPI } from '../utils/api';
 
@@ -1359,6 +1360,7 @@ const Dashboard = ({ user, onLogout }) => {
   const [passwordChangeModal, setPasswordChangeModal] = useState({ isOpen: false, user: null });
   const [successMessage, setSuccessMessage] = useState('');
   const [creatorModalOpen, setCreatorModalOpen] = useState(false);
+  const [trustedDevicesModalOpen, setTrustedDevicesModalOpen] = useState(false);
   const [logoutConfirmModalOpen, setLogoutConfirmModalOpen] = useState(false);
   const [starBEIGuideOpen, setStarBEIGuideOpen] = useState(false);
 
@@ -1449,6 +1451,9 @@ const Dashboard = ({ user, onLogout }) => {
           <button onClick={() => setCreatorModalOpen(true)} className="navbar-button bg-blue-600 text-white hover:bg-blue-700" title="About the Developer">
             About
           </button>
+          <button onClick={() => setTrustedDevicesModalOpen(true)} className="navbar-button bg-slate-600 text-white hover:bg-slate-700" title="Manage devices that can skip the sign-in verification code">
+            🔒 Devices
+          </button>
           <GuidesDropdown />
           {user.userType === USER_TYPES.RATER && (
             <button
@@ -1490,6 +1495,8 @@ const Dashboard = ({ user, onLogout }) => {
       <main className="p-6">{renderContent()}</main>
 
       <CreatorProfileModal isOpen={creatorModalOpen} onClose={() => setCreatorModalOpen(false)} />
+
+      <TrustedDevicesModal isOpen={trustedDevicesModalOpen} onClose={() => setTrustedDevicesModalOpen(false)} />
 
       <UserSelectionModal isOpen={userSelectionModal} onClose={handleCloseUserSelection} users={users} onSelectUser={handleSelectUser} />
 

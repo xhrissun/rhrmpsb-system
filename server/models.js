@@ -75,7 +75,30 @@ const userSchema = new mongoose.Schema({
   failedLoginAttempts: { type: Number, default: 0, select: false },
   lockUntil:           { type: Date, default: null, select: false },
   lastFailedLoginAt:   { type: Date, default: null, select: false },
-  lastLoginAt:         { type: Date, default: null }
+  lastLoginAt:         { type: Date, default: null },
+
+  // ── Trusted devices ("remember this device" — skips OTP on login) ─────────
+  // Only the SHA-256 hash of each device token is stored; the raw token
+  // exists only in the browser's localStorage and in the one-time response
+  // that issues it — same pattern as OTP codes and password reset tokens
+  // above. expiresAt slides forward on each successful use (see POST
+  // /auth/login), so a device in regular use stays trusted indefinitely,
+  // while one left idle for the full window falls back to requiring OTP.
+  // Cleared entirely whenever the password changes (see /auth/set-password,
+  // /auth/change-password, /users/:id/change-password) so a stolen password
+  // can't be paired with a previously-trusted browser.
+  trustedDevices: {
+    type: [{
+      tokenHash:  { type: String, required: true },
+      label:      { type: String, trim: true, default: 'Unknown device' },
+      createdAt:  { type: Date, default: Date.now },
+      lastUsedAt: { type: Date, default: Date.now },
+      expiresAt:  { type: Date, required: true },
+      lastIp:     { type: String, default: null }
+    }],
+    default: [],
+    select: false
+  }
 }, { timestamps: true });
 
 // ── Vacancy Schema ────────────────────────────────────────────────────────────
@@ -507,6 +530,10 @@ userSchema.methods.toJSON = function() {
   delete user.failedLoginAttempts;
   delete user.lockUntil;
   delete user.lastFailedLoginAt;
+  // Defense in depth: strip this even if a query explicitly selected it
+  // (e.g. the trusted-device lookups in routes.js) so a raw tokenHash can
+  // never leak through a response that happens to call .toJSON().
+  delete user.trustedDevices;
   return user;
 };
 

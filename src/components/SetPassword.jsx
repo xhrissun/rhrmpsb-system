@@ -45,6 +45,9 @@ const SetPassword = React.memo(() => {
     setLinkProblem(false);
     try {
       await authAPI.setPassword(uid, token, password);
+      // This invalidates any trusted devices server-side; clear the local
+      // one too so this browser doesn't keep offering a now-dead token.
+      localStorage.removeItem('deviceToken');
       setSuccess(true);
       setTimeout(() => navigate('/login', { replace: true }), 2500);
     } catch (err) {
