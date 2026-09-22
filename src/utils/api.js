@@ -476,6 +476,15 @@ export const candidatesAPI = {
     const response = await api.get(`/candidates/item/${encodedItemNumber}${params}`);
     return response.data;
   },
+  // Batch version — one request for many item numbers, instead of firing
+  // one getByItemNumber per item in parallel (or fetching getAll() and
+  // filtering client-side). Prefer this over either of those whenever the
+  // full set of item numbers needed is known up front.
+  getByItemNumbers: async (itemNumbers, includeArchived = false) => {
+    if (!itemNumbers || itemNumbers.length === 0) return [];
+    const response = await api.post('/candidates/by-item-numbers', { itemNumbers, includeArchived });
+    return response.data;
+  },
   getBoardByItem: async (itemNumber) => {
     const encodedItemNumber = encodeURIComponent(itemNumber);
     const response = await api.get(`/candidates/item/${encodedItemNumber}/board`);

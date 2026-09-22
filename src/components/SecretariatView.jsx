@@ -1514,14 +1514,12 @@ const SecretariatView = ({ user }) => {
         return;
       }
 
-      // 3. Load candidates for all vacancies
+      // 3. Load candidates for all vacancies — one batch request instead of
+      // firing one GET per item number in parallel (a Secretariat with
+      // broad assignment scope could have dozens of items, meaning dozens
+      // of simultaneous round-trips just to build this one summary).
       const allItemNumbers = allVacancies.map(v => v.itemNumber);
-      const candidatesRes = await Promise.all(
-        allItemNumbers.map(itemNumber => candidatesAPI.getByItemNumber(itemNumber, false))
-      );
-      const allCandidates = Array.from(
-        new Map(candidatesRes.flat().map(c => [c._id, c])).values()
-      );
+      const allCandidates = await candidatesAPI.getByItemNumbers(allItemNumbers, false);
 
       // 4. Build summary grouped by assignment
       const summaryMap = {};

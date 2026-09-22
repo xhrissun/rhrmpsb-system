@@ -1102,11 +1102,13 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       const requiredTypes = sg && sg <= 14 ? requiredSG14Types : allTypes;
       const requiredRaterCount = requiredTypes.size; // 2 for SG≤14, 6 for SG≥15
 
-      // 5. Fetch ALL candidates for ALL sibling item numbers
-      const allCandidates = await candidatesAPI.getAll();
+      // 5. Fetch candidates for just the sibling item numbers, not every
+      // candidate in the system — allItemNumbers is usually only 1-3 items
+      // (same position + assignment within one publication range).
+      const allCandidates = await candidatesAPI.getByItemNumbers(allItemNumbers, false);
       // Candidates on the long list for any sibling item number
       const relevantCandidates = allCandidates.filter(
-        c => !c.isArchived && allItemNumbers.includes(c.itemNumber) && c.status === 'long_list'
+        c => allItemNumbers.includes(c.itemNumber) && c.status === 'long_list'
       );
 
       // 6. Fetch competencies for the vacancy (needed for psycho/potential computation)

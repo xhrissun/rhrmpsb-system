@@ -1710,6 +1710,42 @@ router.get('/candidates/item/:itemNumber', authMiddleware, async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
+
+// PERF: batch version of the route above — accepts many item numbers in one
+// request instead of the caller firing one GET per item number in parallel
+// (SecretariatView's Assignment Summary did exactly this: a Secretariat
+// assigned to dozens of items meant dozens of simultaneous round-trips just
+// to build one summary) or fetching every candidate in the system and
+// filtering client-side (InterviewSummaryGeneratorV2's sibling-item PDF
+// export did this — correct, but pulling every candidate everywhere has to
+// re-download to find a handful of sibling items).
+//
+// POST, not GET-with-query-string: a Secretariat with 'all' assignment scope
+// can legitimately have a long enough item-number list that it's not worth
+// gambling on a URL-length ceiling — the list belongs in a body, not a
+// query param, once it's unbounded.
+router.post('/candidates/by-item-numbers', authMiddleware, async (req, res) => {
+  try {
+    const itemNumbers = Array.isArray(req.body.itemNumbers)
+      ? [...new Set(req.body.itemNumbers.filter(Boolean))]
+      : [];
+    if (itemNumbers.length === 0) return res.json([]);
+
+    const query = { itemNumber: { $in: itemNumbers } };
+    if (req.body.includeArchived !== true) query.isArchived = false;
+
+    const candidates = await Candidate.find(query)
+      .populate('commentsHistory.commentedBy', 'name userType')
+      .populate('statusHistory.changedBy', 'name userType')
+      .select(CANDIDATE_CLIENT_PROJECTION)
+      .sort({ fullName: 1 })
+      .lean();
+    res.json(prepareCandidateResponse(candidates));
+  } catch (error) {
+    console.error('[POST /candidates/by-item-numbers]', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
 // ── PERF: Batch board endpoint — SG-aware rater counts ────────────────────────
 // For SG≤14 positions only REGMEM and END-USER ratings count toward completion.
 // For SG≥15 all 6 rater types count. raterCount and requiredRaters in the
