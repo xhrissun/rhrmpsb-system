@@ -2072,9 +2072,10 @@ router.get('/candidates/siblings', authMiddleware, async (req, res) => {
     };
     if (excludeId) query._id = { $ne: excludeId };
     const siblings = await Candidate.find(query)
-      .select('_id fullName itemNumber governmentEmployment comments commentsHistory')
+      .select('_id fullName itemNumber governmentEmployment comments commentsHistory status statusHistory')
       .populate('governmentEmployment.lastUpdatedBy', 'name')
       .populate('commentsHistory.commentedBy', 'name')
+      .populate('statusHistory.changedBy', 'name')
       .sort({ itemNumber: 1 })
       .lean();
     // Age is not in this projection, but the array/object defaults still

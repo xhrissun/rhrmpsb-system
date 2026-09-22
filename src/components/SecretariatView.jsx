@@ -277,6 +277,19 @@ const SecretariatView = ({ user }) => {
   // "Use" button — clicking it copies only that one field, leaving others untouched.
   const [commentSiblings, setCommentSiblings] = useState([]);
 
+  // Which sibling cards in the propagation panel are expanded. Each card is
+  // collapsed by default behind an action badge (e.g. "For Review by
+  // Clarisse O. Noriel") and only reveals its per-field comments — with
+  // "Use" buttons — once clicked open. Keyed by sibling _id.
+  const [expandedCommentSiblingIds, setExpandedCommentSiblingIds] = useState(new Set());
+  const toggleCommentSiblingExpanded = useCallback((id) => {
+    setExpandedCommentSiblingIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
   // Loading states for sibling fetch — shows a spinner in the panel while the
   // API call is in flight so the user isn't startled by content appearing abruptly.
   const [govtEmpSiblingsLoading, setGovtEmpSiblingsLoading] = useState(false);
@@ -1108,6 +1121,7 @@ const SecretariatView = ({ user }) => {
     setCommentModalMinimized(false);
     setCommentSiblings([]);
     setCommentSiblingsLoading(false);
+    setExpandedCommentSiblingIds(new Set());
     setSelectedCandidate('');
     setCandidateDetails(null);
     setComments({
@@ -2453,6 +2467,7 @@ const SecretariatView = ({ user }) => {
                                 loadCandidateDetails(candidate._id);
                                 loadCommentSuggestions();
                                 setCommentSiblings([]); // clear while loading
+                                setExpandedCommentSiblingIds(new Set());
                                 setAiDraft(null);
                                 setAiDraftEvaluatedAt(null);
                                 setAiError('');
@@ -3219,66 +3234,116 @@ const SecretariatView = ({ user }) => {
                     </div>
 
                     {/* Siblings WITH comment data */}
-                    {sibsWithData.length > 0 && (
-                      <div className="space-y-2">
-                        <p className="text-[10px] font-bold text-blue-700 uppercase tracking-wide">Comments saved on other applications:</p>
-                        {sibsWithData.map(sib => {
-                          const sibVacancy = vacancies.find(v => v.itemNumber === sib.itemNumber);
-                          // For each field, find the last commentsHistory entry for that field
-                          // to show exactly who entered that specific comment.
-                          const getFieldAuthor = (field) => {
-                            if (!sib.commentsHistory?.length) return null;
-                            const entries = sib.commentsHistory.filter(e => e.field === field);
-                            return entries.length ? entries[entries.length - 1].commentedBy : null;
-                          };
-                          return (
-                            <div key={sib._id} className="bg-white rounded-lg border border-blue-200 px-3 py-2.5 space-y-1.5">
-                              {/* Item + position */}
-                              <div className="flex items-center gap-1.5 min-w-0">
-                                <svg className="w-3 h-3 shrink-0 text-blue-400" fill="currentColor" viewBox="0 0 24 24">
-                                  <path d="M12 3L2 9h2v10h3v-6h3v6h4v-6h3v6h3V9h2L12 3z" />
-                                </svg>
-                                <span className="text-xs font-bold text-blue-800">{sib.itemNumber}</span>
-                                {sibVacancy?.position && (
-                                  <span className="text-[10px] text-blue-500 truncate">{sibVacancy.position}</span>
+                    {sibsWithData.length > 0 && (() => {
+                      // Action badge shown on each sibling's collapsed header — mirrors
+                      // the same status values/colors used in the Status History modal.
+                      const STATUS_META = {
+                        for_review:   { label: 'For Review',   badge: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
+                        long_list:    { label: 'Long List',    badge: 'bg-green-100 text-green-800 border-green-200' },
+                        disqualified: { label: 'Disqualify',   badge: 'bg-red-100 text-red-800 border-red-200' },
+                        general_list: { label: 'General List', badge: 'bg-gray-100 text-gray-700 border-gray-200' }
+                      };
+                      // Who to credit for the sibling's current action: prefer the
+                      // statusHistory entry that produced the CURRENT status, fall back
+                      // to the most recent status change, then to whoever last left a
+                      // comment (covers records saved before statusHistory existed).
+                      const getStatusActor = (sib) => {
+                        const history = (sib.statusHistory || []).slice()
+                          .sort((a, b) => new Date(b.changedAt) - new Date(a.changedAt));
+                        const matching = history.find(h => h.newStatus === sib.status);
+                        if (matching) return matching.changedBy;
+                        if (history.length) return history[0].changedBy;
+                        const comments_ = (sib.commentsHistory || []).slice()
+                          .sort((a, b) => new Date(b.commentedAt) - new Date(a.commentedAt));
+                        return comments_.length ? comments_[0].commentedBy : null;
+                      };
+                      return (
+                        <div className="space-y-2">
+                          <p className="text-[10px] font-bold text-blue-700 uppercase tracking-wide">Comments saved on other applications:</p>
+                          {sibsWithData.map(sib => {
+                            const sibVacancy = vacancies.find(v => v.itemNumber === sib.itemNumber);
+                            // For each field, find the last commentsHistory entry for that field
+                            // to show exactly who entered that specific comment.
+                            const getFieldAuthor = (field) => {
+                              if (!sib.commentsHistory?.length) return null;
+                              const entries = sib.commentsHistory.filter(e => e.field === field);
+                              return entries.length ? entries[entries.length - 1].commentedBy : null;
+                            };
+                            const meta = STATUS_META[sib.status] || STATUS_META.general_list;
+                            const actor = getStatusActor(sib);
+                            const isExpanded = expandedCommentSiblingIds.has(sib._id);
+                            return (
+                              <div key={sib._id} className="bg-white rounded-lg border border-blue-200 overflow-hidden">
+                                {/* Collapsed header: item + position + action dropdown trigger */}
+                                <button
+                                  type="button"
+                                  onClick={() => toggleCommentSiblingExpanded(sib._id)}
+                                  aria-expanded={isExpanded}
+                                  aria-label={`${meta.label} on ${sib.itemNumber}${actor?.name ? ` by ${actor.name}` : ''} — toggle to view comments`}
+                                  className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-left hover:bg-blue-50/60 transition-colors"
+                                >
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    <svg className="w-3 h-3 shrink-0 text-blue-400" fill="currentColor" viewBox="0 0 24 24">
+                                      <path d="M12 3L2 9h2v10h3v-6h3v6h4v-6h3v6h3V9h2L12 3z" />
+                                    </svg>
+                                    <span className="text-xs font-bold text-blue-800 shrink-0">{sib.itemNumber}</span>
+                                    {sibVacancy?.position && (
+                                      <span className="text-[10px] text-blue-500 truncate">{sibVacancy.position}</span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border whitespace-nowrap ${meta.badge}`}>
+                                      {meta.label}{actor?.name ? ` by ${actor.name}` : ''}
+                                    </span>
+                                    <svg
+                                      className={`w-3.5 h-3.5 text-blue-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                                      fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                                    >
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                    </svg>
+                                  </div>
+                                </button>
+                                {/* Expanded body: per-field comments, for reference or reuse */}
+                                {isExpanded && (
+                                  <div className="px-3 pb-2.5 pt-2 border-t border-blue-100 space-y-1.5">
+                                    {FIELDS.map(field => {
+                                      const val = sib.comments?.[field]?.trim();
+                                      if (!val) return null;
+                                      const author = getFieldAuthor(field);
+                                      const isCurrentUser = author?._id === user._id || author === user._id;
+                                      return (
+                                        <div key={field} className="flex items-start justify-between gap-2 pl-1 border-l-2 border-blue-100">
+                                          <div className="min-w-0 flex-1 space-y-0.5">
+                                            <div className="flex items-center gap-1.5">
+                                              <span className="text-[10px] font-bold text-gray-500 uppercase">{field}</span>
+                                              {author?.name && (
+                                                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
+                                                  isCurrentUser ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
+                                                }`}>
+                                                  {isCurrentUser ? 'You' : author.name}
+                                                </span>
+                                              )}
+                                            </div>
+                                            <p className="text-[10px] text-gray-700 break-words line-clamp-2">{val}</p>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => setComments(prev => ({ ...prev, [field]: val }))}
+                                            className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2 py-1 rounded-lg border border-indigo-200 transition-colors shrink-0"
+                                          >
+                                            Use
+                                          </button>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
                                 )}
                               </div>
-                              {/* Per-field rows */}
-                              {FIELDS.map(field => {
-                                const val = sib.comments?.[field]?.trim();
-                                if (!val) return null;
-                                const author = getFieldAuthor(field);
-                                const isCurrentUser = author?._id === user._id || author === user._id;
-                                return (
-                                  <div key={field} className="flex items-start justify-between gap-2 pl-1 border-l-2 border-blue-100">
-                                    <div className="min-w-0 flex-1 space-y-0.5">
-                                      <div className="flex items-center gap-1.5">
-                                        <span className="text-[10px] font-bold text-gray-500 uppercase">{field}</span>
-                                        {author?.name && (
-                                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
-                                            isCurrentUser ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
-                                          }`}>
-                                            {isCurrentUser ? 'You' : author.name}
-                                          </span>
-                                        )}
-                                      </div>
-                                      <p className="text-[10px] text-gray-700 break-words line-clamp-2">{val}</p>
-                                    </div>
-                                    <button
-                                      type="button"
-                                      onClick={() => setComments(prev => ({ ...prev, [field]: val }))}
-                                      className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2 py-1 rounded-lg border border-indigo-200 transition-colors shrink-0"
-                                    >
-                                      Use
-                                    </button>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
 
                     {/* Siblings WITHOUT comment data */}
                     {sibsWithout.length > 0 && (
