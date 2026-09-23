@@ -149,8 +149,24 @@ async function rasterizeAndOcrPdf(arrayBuffer) {
         canvas.width = Math.ceil(viewport.width);
         canvas.height = Math.ceil(viewport.height);
         const ctx = canvas.getContext('2d');
+        // intent: 'print' matters here for more than terminology. PDF.js's
+        // default ('display') render schedules its page-drawing work across
+        // requestAnimationFrame callbacks so it doesn't block a visible
+        // page's UI thread — but rAF is fully suspended by every major
+        // browser whenever the tab isn't the focused/visible one, so that
+        // render() promise simply never resolves while the Secretariat has
+        // switched windows or tabs, which is exactly the "pausing" being
+        // reported (it only shows up on scanned documents that need this
+        // OCR path — a normal text-layer PDF never reaches page.render() at
+        // all, see extractPdfTextLayer above). 'print' intent schedules the
+        // same work via a microtask instead, which the browser runs
+        // regardless of tab visibility. It's also the semantically correct
+        // choice anyway: this canvas is never shown on screen, it's a
+        // full-fidelity export for OCR to read, not an interactive display
+        // render — 'print' intent is what PDF.js's own print pipeline uses
+        // for exactly that kind of off-screen, non-interactive render.
         // eslint-disable-next-line no-await-in-loop
-        await page.render({ canvasContext: ctx, viewport }).promise;
+        await page.render({ canvasContext: ctx, viewport, intent: 'print' }).promise;
         // eslint-disable-next-line no-await-in-loop
         const { data } = await worker.recognize(canvas);
         const pageText = (data?.text || '').trim();
