@@ -1,3 +1,4 @@
+// src/components/SecretariatView.jsx
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import usePersistedState from '../utils/usePersistedState';
 import { vacanciesAPI, candidatesAPI, usersAPI, publicationRangesAPI } from '../utils/api';
@@ -250,6 +251,12 @@ const SecretariatView = ({ user }) => {
   const aiPollRef = useRef(null); // interval id, so we can cancel on unmount/candidate change
   const aiBusyKeyRef = useRef(null); // the busyTracker key for whichever AI evaluation is currently running, if any — see handleGenerateAiDraft
   const selectedCandidateRef = useRef(selectedCandidate); // lets the async extraction loop notice a mid-run candidate switch
+  // Id of the candidate whose details were MOST RECENTLY requested (set synchronously, before the await).
+  // A getById response is only applied if its id still matches — otherwise a slow response for candidate B
+  // could overwrite the modal after the Secretariat already moved on to candidate C (or closed the modal).
+  const latestDetailsRequestRef = useRef(null);
+  const statusSavingRef = useRef(false); // synchronous double-click guard for the Long List / For Review / Disqualify buttons
+  const [statusSaving, setStatusSaving] = useState(false);
 
   const [commentSuggestions, setCommentSuggestions] = useState({
     education: [],
@@ -344,6 +351,7 @@ const SecretariatView = ({ user }) => {
 
   const [statusFilter, setStatusFilter] = useState(null);
   const [lateFilter, setLateFilter] = useState(false);
+  const [commentsEditedFilter, setCommentsEditedFilter] = useState(false); // show ONLY candidates with at least one comment-history entry (comments were modified at some point)
   const [showAssignmentSummary, setShowAssignmentSummary] = useState(false);
   const [showCBSManual, setShowCBSManual] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
@@ -393,7 +401,8 @@ const SecretariatView = ({ user }) => {
     const forReview = candidates.filter(c => c.status === CANDIDATE_STATUS.FOR_REVIEW).length;
     const disqualified = candidates.filter(c => c.status === CANDIDATE_STATUS.DISQUALIFIED).length;
     const lateCount = candidates.filter(c => c.isLateApplicant).length;
-    return { total, longListed, forReview, disqualified, lateCount };
+    const commentsEditedCount = candidates.filter(c => (c.commentsHistory?.length || 0) > 0).length;
+    return { total, longListed, forReview, disqualified, lateCount, commentsEditedCount };
   }, [candidates]);
 
   const genderStats = useMemo(() => {
@@ -450,13 +459,20 @@ const SecretariatView = ({ user }) => {
     if (lateFilter) {
       filtered = filtered.filter(c => lateApplicants.has(c._id) || c.isLateApplicant);
     }
+
+    if (commentsEditedFilter) {
+      filtered = filtered.filter(c => (c.commentsHistory?.length || 0) > 0);
+    }
     
     return filtered;
-  }, [candidates, statusFilter, genderFilter, govtEmpFilter, lateFilter, lateApplicants]);
+  }, [candidates, statusFilter, genderFilter, govtEmpFilter, lateFilter, lateApplicants, commentsEditedFilter]);
 
   const loadCandidateDetails = useCallback(async (candidateId) => {
+    latestDetailsRequestRef.current = candidateId;
     try {
       const candidate = await candidatesAPI.getById(candidateId);
+      // STALE-RESPONSE GUARD: a newer open/close happened while this request was in flight — DROP this result.
+      if (latestDetailsRequestRef.current !== candidateId) return;
       setCandidateDetails(candidate);
       setComments(candidate.comments || {
         education: '',
@@ -467,11 +483,18 @@ const SecretariatView = ({ user }) => {
       const vacancy = vacancies.find(v => v.itemNumber === candidate.itemNumber);
       setVacancyDetails(vacancy || null);
     } catch (error) {
+      if (latestDetailsRequestRef.current !== candidateId) return;
       console.error('Failed to load candidate details:', error);
       showToast('Failed to load candidate details.', 'error');
+      // Nothing to show: tear the modal down fully so no invisible modal state (or body scroll-lock) is left behind.
+      latestDetailsRequestRef.current = null;
       setCandidateDetails(null);
+      setShowCommentModal(false);
+      setCommentModalMinimized(false);
+      setSelectedCandidate('');
+      setComments({ education: '', training: '', experience: '', eligibility: '' });
     }
-  }, [vacancies, showToast]);
+  }, [vacancies, showToast, setSelectedCandidate]);
 
   const loadCommentSuggestions = useCallback(async () => {
     try {
@@ -1001,24 +1024,68 @@ const SecretariatView = ({ user }) => {
     setComments(prev => ({ ...prev, ...aiDraft.comments }));
   }, [aiDraft]);
 
+  // Full teardown of everything the Update Status modal holds for a candidate. Used after a successful
+  // save so NOTHING from the candidate just actioned can leak into the next one opened.
+  const resetCommentModalState = useCallback(() => {
+    latestDetailsRequestRef.current = null; // any still-in-flight getById is now stale and will be dropped
+    setShowCommentModal(false);
+    setCommentModalMinimized(false);
+    setCommentSiblings([]);
+    setCommentSiblingsLoading(false);
+    setExpandedCommentSiblingIds(new Set());
+    setSelectedCandidate('');
+    setCandidateDetails(null);
+    setComments({
+      education: '',
+      training: '',
+      experience: '',
+      eligibility: ''
+    });
+    setAiDraft(null);
+    setAiDraftEvaluatedAt(null);
+    setAiError('');
+    setAiLoading(false);
+  }, [setSelectedCandidate]);
+
   const handleStatusUpdate = useCallback(async (status) => {
+    if (statusSavingRef.current) return; // already saving — ignore rapid repeat clicks
+    // Capture the target ONCE. Everything below uses targetId, never a later-read selectedCandidate.
+    const targetId = selectedCandidate;
+    // OWNERSHIP GUARD: refuse to save unless the loaded details/comments belong to the candidate being actioned.
+    if (!targetId || !candidateDetails || candidateDetails._id !== targetId) {
+      showToast('Candidate details are still loading. Please wait a moment and try again.', 'error');
+      return;
+    }
+    statusSavingRef.current = true;
+    setStatusSaving(true);
     try {
       const updateData = {
         status,
         comments
       };
-      await candidatesAPI.update(selectedCandidate, updateData);
-      setCandidateDetails(prev => ({ ...prev, status, comments }));
+      const saved = await candidatesAPI.update(targetId, updateData);
       setCandidates(prev =>
-        prev.map(c => (c._id === selectedCandidate ? { ...c, status, comments } : c))
+        prev.map(c => (c._id === targetId
+          ? {
+              ...c,
+              status,
+              comments,
+              // take the server's history so the "Comments Edited" badge/filter updates immediately
+              commentsHistory: saved?.commentsHistory ?? c.commentsHistory,
+              statusHistory: saved?.statusHistory ?? c.statusHistory
+            }
+          : c))
       );
-      setShowCommentModal(false);
+      resetCommentModalState();
       showToast('Candidate status updated successfully!', 'success');
     } catch (error) {
       console.error('Failed to update status:', error);
       showToast('Failed to update status: ' + (error.response?.data?.message || error.message), 'error');
+    } finally {
+      statusSavingRef.current = false;
+      setStatusSaving(false);
     }
-  }, [comments, selectedCandidate, showToast]);
+  }, [comments, selectedCandidate, candidateDetails, resetCommentModalState, showToast]);
 
   const handleViewComments = useCallback((candidate) => {
     const vacancy = vacancies.find(v => v.itemNumber === candidate.itemNumber);
@@ -1132,6 +1199,7 @@ const SecretariatView = ({ user }) => {
       setCommentModalMinimized(true);
       return;
     }
+    latestDetailsRequestRef.current = null; // drop any still-in-flight getById
     setShowCommentModal(false);
     setCommentModalMinimized(false);
     setCommentSiblings([]);
@@ -1958,6 +2026,7 @@ const SecretariatView = ({ user }) => {
                       setStatusFilter(null);
                       setGenderFilter(null);
                       setLateFilter(false);
+                      setCommentsEditedFilter(false);
                     }}
                     aria-label="Filter by publication range"
                     className="w-full px-3 py-2 border-2 border-purple-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:border-white bg-white text-sm font-medium shadow-sm"
@@ -2101,6 +2170,22 @@ const SecretariatView = ({ user }) => {
                 >
                   <span className="text-xl font-bold leading-none">{stats.lateCount}</span>
                   <span className="text-xs font-semibold leading-tight">Late</span>
+                </button>
+
+                {/* Comments Edited — clickable filter: candidates whose comments were modified at any point (has comment history) */}
+                <button
+                  onClick={() => setCommentsEditedFilter(f => !f)}
+                  aria-pressed={commentsEditedFilter}
+                  aria-label="Filter by candidates with edited comments"
+                  title="Candidates whose comments were modified at any point — open History to verify each"
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 cursor-pointer transition-all text-amber-800 ${
+                    commentsEditedFilter
+                      ? 'border-amber-500 bg-amber-100 ring-2 ring-amber-300'
+                      : 'border-amber-300 bg-amber-50 hover:shadow-md'
+                  }`}
+                >
+                  <span className="text-xl font-bold leading-none">{stats.commentsEditedCount}</span>
+                  <span className="text-xs font-semibold leading-tight">Comments Edited</span>
                 </button>
 
                 {/* Divider */}
@@ -2461,10 +2546,17 @@ const SecretariatView = ({ user }) => {
                           <button
                             onClick={() => handleViewCommentHistory(candidate)}
                             aria-label={`View comment history for ${candidate.fullName}`}
-                            className="bg-purple-600 hover:bg-purple-700 text-white px-2 py-1 rounded text-xs transition-colors duration-200"
-                            title="View Comment History"
+                            className={`${(candidate.commentsHistory?.length || 0) > 0 ? 'bg-amber-600 hover:bg-amber-700 ring-2 ring-amber-300' : 'bg-purple-600 hover:bg-purple-700'} text-white px-2 py-1 rounded text-xs transition-colors duration-200 flex items-center gap-1`}
+                            title={(candidate.commentsHistory?.length || 0) > 0
+                              ? `Comments edited ${candidate.commentsHistory.length} time(s) — click to verify`
+                              : 'View Comment History'}
                           >
                             History
+                            {(candidate.commentsHistory?.length || 0) > 0 && (
+                              <span className="bg-white text-amber-700 rounded-full px-1.5 text-[10px] font-bold leading-4">
+                                {candidate.commentsHistory.length}
+                              </span>
+                            )}
                           </button>
                           {/* Only show Update button for non-archived candidates */}
                           {!candidate.isArchived && (
@@ -2485,6 +2577,11 @@ const SecretariatView = ({ user }) => {
                                   restoreCommentModal();
                                   return;
                                 }
+                                // CLEAR PREVIOUS CANDIDATE'S STATE FIRST — the modal only renders once
+                                // candidateDetails is set again by the load below, so it can never show
+                                // (or save) the previous candidate's comments for this one.
+                                setCandidateDetails(null);
+                                setComments({ education: '', training: '', experience: '', eligibility: '' });
                                 setSelectedCandidate(candidate._id);
                                 loadCandidateDetails(candidate._id);
                                 loadCommentSuggestions();
@@ -2830,7 +2927,7 @@ const SecretariatView = ({ user }) => {
                     Comment History
                   </h3>
                   <div className="space-y-4">
-                    {commentHistoryData.commentsHistory
+                    {[...commentHistoryData.commentsHistory]
                       .sort((a, b) => new Date(b.commentedAt) - new Date(a.commentedAt))
                       .map((entry, index) => (
                         <div key={index} className="border-l-4 border-purple-500 bg-gray-50 p-4 rounded-r-lg">
@@ -2908,7 +3005,7 @@ const SecretariatView = ({ user }) => {
       {showCommentModal && candidateDetails && !commentModalMinimized && (() => {
         const currentStatusMeta = UPDATE_STATUS_MODAL_META[candidateDetails.status] || UPDATE_STATUS_MODAL_META.general_list;
         return (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true" aria-labelledby="update-status-title">
+        <div key={candidateDetails._id} className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true" aria-labelledby="update-status-title">
           <div className={`bg-white rounded-xl shadow-2xl w-full max-w-5xl flex flex-col max-h-[92vh] ring-2 ${currentStatusMeta.ring}`}>
             {/* ── Header ── */}
             <div className={`px-6 py-4 border-b shrink-0 flex items-center justify-between gap-4 ${currentStatusMeta.headerBg} ${currentStatusMeta.headerBorder}`}>
@@ -3460,9 +3557,10 @@ const SecretariatView = ({ user }) => {
             <div className="flex justify-end gap-2 px-6 py-4 border-t border-gray-100 shrink-0">
               <button
                 onClick={() => handleStatusUpdate(CANDIDATE_STATUS.LONG_LIST)}
+                disabled={statusSaving}
                 aria-label={candidateDetails.status === CANDIDATE_STATUS.LONG_LIST ? 'Candidate is currently long listed' : 'Mark candidate as long listed'}
                 aria-pressed={candidateDetails.status === CANDIDATE_STATUS.LONG_LIST}
-                className={`px-4 py-2 rounded-lg text-white text-sm font-semibold transition-colors flex items-center gap-1.5
+                className={`px-4 py-2 rounded-lg text-white text-sm font-semibold transition-colors flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed
                   ${candidateDetails.status === CANDIDATE_STATUS.LONG_LIST
                     ? 'bg-green-700 ring-2 ring-offset-1 ring-green-400'
                     : 'bg-blue-600 hover:bg-blue-700'}`}
@@ -3476,9 +3574,10 @@ const SecretariatView = ({ user }) => {
               </button>
               <button
                 onClick={() => handleStatusUpdate(CANDIDATE_STATUS.FOR_REVIEW)}
+                disabled={statusSaving}
                 aria-label={candidateDetails.status === CANDIDATE_STATUS.FOR_REVIEW ? 'Candidate is currently marked for review' : 'Mark candidate for review'}
                 aria-pressed={candidateDetails.status === CANDIDATE_STATUS.FOR_REVIEW}
-                className={`px-4 py-2 rounded-lg text-white text-sm font-semibold transition-colors flex items-center gap-1.5
+                className={`px-4 py-2 rounded-lg text-white text-sm font-semibold transition-colors flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed
                   ${candidateDetails.status === CANDIDATE_STATUS.FOR_REVIEW
                     ? 'bg-amber-700 ring-2 ring-offset-1 ring-amber-400'
                     : 'bg-amber-500 hover:bg-amber-600'}`}
@@ -3492,9 +3591,10 @@ const SecretariatView = ({ user }) => {
               </button>
               <button
                 onClick={() => handleStatusUpdate(CANDIDATE_STATUS.DISQUALIFIED)}
+                disabled={statusSaving}
                 aria-label={candidateDetails.status === CANDIDATE_STATUS.DISQUALIFIED ? 'Candidate is currently disqualified' : 'Disqualify candidate'}
                 aria-pressed={candidateDetails.status === CANDIDATE_STATUS.DISQUALIFIED}
-                className={`px-4 py-2 rounded-lg text-white text-sm font-semibold transition-colors flex items-center gap-1.5
+                className={`px-4 py-2 rounded-lg text-white text-sm font-semibold transition-colors flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed
                   ${candidateDetails.status === CANDIDATE_STATUS.DISQUALIFIED
                     ? 'bg-red-800 ring-2 ring-offset-1 ring-red-400'
                     : 'bg-red-600 hover:bg-red-700'}`}
