@@ -3036,22 +3036,75 @@ const SecretariatView = ({ user }) => {
                     <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">Eligibility</p>
                     <p className="font-semibold text-gray-800 whitespace-nowrap">{candidate.eligibility || '—'}</p>
                   </div>
-                  <div>
-                    <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">Assigned Secretariat</p>
-                    {secretariatRoster === null ? (
-                      <p className="text-gray-400 text-xs italic">Loading…</p>
-                    ) : responsibleSecretariats.length > 0 ? (
-                      <div className="flex flex-wrap gap-1">
-                        {responsibleSecretariats.map(sec => (
-                          <span key={String(sec._id)} className="inline-flex items-center px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-semibold">
-                            {sec.name}
-                          </span>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="font-semibold text-gray-400">Unassigned</p>
-                    )}
+                </div>
+
+                {/* Documents */}
+                <div className="px-6 py-4 border-b border-gray-100">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Documents</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {DOCS.map(doc => (
+                      <button
+                        key={doc.key}
+                        onClick={() => candidate[doc.key] && openDocumentLink(candidate[doc.key])}
+                        aria-label={`Open ${doc.label}`}
+                        disabled={!candidate[doc.key]}
+                        title={doc.label}
+                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-semibold transition-all
+                          ${candidate[doc.key]
+                            ? `${doc.color} hover:shadow-sm hover:scale-105 cursor-pointer`
+                            : 'bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed'
+                          }`}
+                      >
+                        {candidate[doc.key] && (
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                          </svg>
+                        )}
+                        {doc.abbr}
+                      </button>
+                    ))}
                   </div>
+                </div>
+
+                {/* Comment fields */}
+                <div className="px-6 py-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {COMMENT_FIELDS.map(field => {
+                    const hasContent = !!comments[field.key];
+                    return (
+                      <div key={field.key} className={`rounded-xl border p-4 ${hasContent ? 'bg-white border-gray-200' : 'bg-gray-50 border-gray-100'}`}>
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className={`w-6 h-6 rounded-md flex items-center justify-center ${hasContent ? 'bg-indigo-100' : 'bg-gray-100'}`}>
+                            <svg className={`w-3.5 h-3.5 ${hasContent ? 'text-indigo-600' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={field.icon} />
+                            </svg>
+                          </div>
+                          <span className={`text-xs font-bold uppercase tracking-wide ${hasContent ? 'text-gray-700' : 'text-gray-400'}`}>{field.label}</span>
+                        </div>
+                        {hasContent
+                          ? <p className="text-sm text-gray-800 leading-relaxed">{comments[field.key]}</p>
+                          : <p className="text-xs text-gray-400 italic">No comment provided.</p>
+                        }
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Assigned secretariat */}
+                <div className="px-6 py-4 border-t border-b border-gray-100">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Assigned Secretariat</p>
+                  {secretariatRoster === null ? (
+                    <p className="text-gray-400 text-xs italic">Loading…</p>
+                  ) : responsibleSecretariats.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {responsibleSecretariats.map(sec => (
+                        <span key={String(sec._id)} className="inline-flex items-center px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-semibold">
+                          {sec.name}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm font-semibold text-gray-400">Unassigned</p>
+                  )}
                 </div>
 
                 {/* Government employment data */}
@@ -3168,57 +3221,6 @@ const SecretariatView = ({ user }) => {
                       })}
                     </div>
                   )}
-                </div>
-
-                {/* Documents */}
-                <div className="px-6 py-4 border-b border-gray-100">
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Documents</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {DOCS.map(doc => (
-                      <button
-                        key={doc.key}
-                        onClick={() => candidate[doc.key] && openDocumentLink(candidate[doc.key])}
-                        aria-label={`Open ${doc.label}`}
-                        disabled={!candidate[doc.key]}
-                        title={doc.label}
-                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-semibold transition-all
-                          ${candidate[doc.key]
-                            ? `${doc.color} hover:shadow-sm hover:scale-105 cursor-pointer`
-                            : 'bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed'
-                          }`}
-                      >
-                        {candidate[doc.key] && (
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                          </svg>
-                        )}
-                        {doc.abbr}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Comment fields */}
-                <div className="px-6 py-5 grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {COMMENT_FIELDS.map(field => {
-                    const hasContent = !!comments[field.key];
-                    return (
-                      <div key={field.key} className={`rounded-xl border p-4 ${hasContent ? 'bg-white border-gray-200' : 'bg-gray-50 border-gray-100'}`}>
-                        <div className="flex items-center gap-2 mb-2">
-                          <div className={`w-6 h-6 rounded-md flex items-center justify-center ${hasContent ? 'bg-indigo-100' : 'bg-gray-100'}`}>
-                            <svg className={`w-3.5 h-3.5 ${hasContent ? 'text-indigo-600' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={field.icon} />
-                            </svg>
-                          </div>
-                          <span className={`text-xs font-bold uppercase tracking-wide ${hasContent ? 'text-gray-700' : 'text-gray-400'}`}>{field.label}</span>
-                        </div>
-                        {hasContent
-                          ? <p className="text-sm text-gray-800 leading-relaxed">{comments[field.key]}</p>
-                          : <p className="text-xs text-gray-400 italic">No comment provided.</p>
-                        }
-                      </div>
-                    );
-                  })}
                 </div>
               </div>
 
