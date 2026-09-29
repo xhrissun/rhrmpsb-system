@@ -3091,9 +3091,13 @@ router.put('/candidates/:id', authMiddleware, async (req, res) => {
       ['education', 'training', 'experience', 'eligibility'].forEach(field => {
         const oldComment = currentCandidate.comments?.[field] || '';
         const newComment = newComments[field] || '';
-        if (newComment !== oldComment && newComment.trim() !== '') {
+        // Log every real change, INCLUDING a comment being blanked out
+        // (newComment === ''). Whitespace-only differences are not changes.
+        // previousComment lets readers tell an initial comment (was blank)
+        // from an update (replaced or cleared an existing comment).
+        if (newComment.trim() !== oldComment.trim()) {
           historyEntries.push({
-            field, comment: newComment,
+            field, comment: newComment, previousComment: oldComment,
             status: updateData.status || currentCandidate.status,
             commentedBy: req.user._id, commentedAt: new Date()
           });

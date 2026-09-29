@@ -171,7 +171,12 @@ const candidateSchema = new mongoose.Schema({
       enum: ['education', 'training', 'experience', 'eligibility'],
       required: true
     },
-    comment:     { type: String, required: true },
+    // '' means the comment was blanked out (cleared) in this entry. It is
+    // deliberately NOT required so a clear can be logged.
+    comment:     { type: String, default: '' },
+    // What the comment said immediately before this entry ('' = the field was
+    // blank, i.e. this entry is the INITIAL comment, not an update).
+    previousComment: { type: String, default: '' },
     status:      { type: String, enum: ['general_list', 'long_list', 'for_review', 'disqualified'] },
     commentedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     commentedAt: { type: Date, default: Date.now }

@@ -27,6 +27,25 @@ const UPDATE_STATUS_MODAL_META = {
   disqualified: { label: 'Disqualified', badge: 'bg-red-100 text-red-800 border-red-200',        dot: 'bg-red-500',    headerBg: 'bg-red-50',    headerBorder: 'border-red-200',    ring: 'ring-red-300' }
 };
 
+// Comment-history helpers.
+// Per field, the FIRST history entry is the initial comment (blank -> comment).
+// Every later entry for that field is an UPDATE (comment changed, or blanked
+// out). Returns entries oldest-first, each tagged with isInitial / isCleared.
+const annotateCommentHistory = (history) => {
+  const seenFields = new Set();
+  return [...(history || [])]
+    .sort((a, b) => new Date(a.commentedAt) - new Date(b.commentedAt))
+    .map(entry => {
+      const isInitial = !seenFields.has(entry.field);
+      seenFields.add(entry.field);
+      return { ...entry, isInitial, isCleared: !(entry.comment || '').trim() };
+    });
+};
+
+// Number of per-field updates made AFTER the initial comment(s).
+const getCommentUpdateCount = (candidate) =>
+  annotateCommentHistory(candidate?.commentsHistory).filter(e => !e.isInitial).length;
+
 // Error Boundary Component
 class SecretariatErrorBoundary extends React.Component {
   constructor(props) {
@@ -166,7 +185,7 @@ const SecretariatView = ({ user }) => {
   });
   const [showCompetenciesModal, setShowCompetenciesModal] = useState(false);
   const [showCommentHistoryModal, setShowCommentHistoryModal] = useState(false);
-  const [commentHistoryData, setCommentHistoryData] = useState(null);
+  const [commentHistorySnapshot, setCommentHistoryData] = useState(null); // which candidate's history modal is open (the live data is derived below so it never goes stale)
   const [genderFilter, setGenderFilter] = useState(null);
 
   // Government Employment table filters
@@ -351,7 +370,7 @@ const SecretariatView = ({ user }) => {
 
   const [statusFilter, setStatusFilter] = useState(null);
   const [lateFilter, setLateFilter] = useState(false);
-  const [commentsEditedFilter, setCommentsEditedFilter] = useState(false); // show ONLY candidates with at least one comment-history entry (comments were modified at some point)
+  const [commentsEditedFilter, setCommentsEditedFilter] = useState(false); // show ONLY candidates with at least one comment UPDATE (after the initial comment)
   const [showAssignmentSummary, setShowAssignmentSummary] = useState(false);
   const [showCBSManual, setShowCBSManual] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
@@ -395,13 +414,21 @@ const SecretariatView = ({ user }) => {
     }
   }, []);
 
+  // Always read the open History modal's data from the live candidates list,
+  // so a status/comment save shows up in it immediately (no page refresh).
+  // Falls back to the snapshot for candidates not in the current list.
+  const commentHistoryData = useMemo(() => {
+    if (!commentHistorySnapshot) return null;
+    return candidates.find(c => c._id === commentHistorySnapshot._id) || commentHistorySnapshot;
+  }, [commentHistorySnapshot, candidates]);
+
   const stats = useMemo(() => {
     const total = candidates.length;
     const longListed = candidates.filter(c => c.status === CANDIDATE_STATUS.LONG_LIST).length;
     const forReview = candidates.filter(c => c.status === CANDIDATE_STATUS.FOR_REVIEW).length;
     const disqualified = candidates.filter(c => c.status === CANDIDATE_STATUS.DISQUALIFIED).length;
     const lateCount = candidates.filter(c => c.isLateApplicant).length;
-    const commentsEditedCount = candidates.filter(c => (c.commentsHistory?.length || 0) > 0).length;
+    const commentsEditedCount = candidates.filter(c => getCommentUpdateCount(c) > 0).length;
     return { total, longListed, forReview, disqualified, lateCount, commentsEditedCount };
   }, [candidates]);
 
@@ -461,7 +488,7 @@ const SecretariatView = ({ user }) => {
     }
 
     if (commentsEditedFilter) {
-      filtered = filtered.filter(c => (c.commentsHistory?.length || 0) > 0);
+      filtered = filtered.filter(c => getCommentUpdateCount(c) > 0);
     }
     
     return filtered;
@@ -2172,12 +2199,12 @@ const SecretariatView = ({ user }) => {
                   <span className="text-xs font-semibold leading-tight">Late</span>
                 </button>
 
-                {/* Comments Edited — clickable filter: candidates whose comments were modified at any point (has comment history) */}
+                {/* Comments Edited — clickable filter: candidates with at least one comment UPDATE after the initial comment */}
                 <button
                   onClick={() => setCommentsEditedFilter(f => !f)}
                   aria-pressed={commentsEditedFilter}
                   aria-label="Filter by candidates with edited comments"
-                  title="Candidates whose comments were modified at any point — open History to verify each"
+                  title="Candidates whose comments were updated after the initial comment (changed or cleared) — open History to verify each"
                   className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 cursor-pointer transition-all text-amber-800 ${
                     commentsEditedFilter
                       ? 'border-amber-500 bg-amber-100 ring-2 ring-amber-300'
@@ -2543,21 +2570,26 @@ const SecretariatView = ({ user }) => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex space-x-2">
-                          <button
-                            onClick={() => handleViewCommentHistory(candidate)}
-                            aria-label={`View comment history for ${candidate.fullName}`}
-                            className={`${(candidate.commentsHistory?.length || 0) > 0 ? 'bg-amber-600 hover:bg-amber-700 ring-2 ring-amber-300' : 'bg-purple-600 hover:bg-purple-700'} text-white px-2 py-1 rounded text-xs transition-colors duration-200 flex items-center gap-1`}
-                            title={(candidate.commentsHistory?.length || 0) > 0
-                              ? `Comments edited ${candidate.commentsHistory.length} time(s) — click to verify`
-                              : 'View Comment History'}
-                          >
-                            History
-                            {(candidate.commentsHistory?.length || 0) > 0 && (
-                              <span className="bg-white text-amber-700 rounded-full px-1.5 text-[10px] font-bold leading-4">
-                                {candidate.commentsHistory.length}
-                              </span>
-                            )}
-                          </button>
+                          {(() => {
+                            const updateCount = getCommentUpdateCount(candidate);
+                            return (
+                              <button
+                                onClick={() => handleViewCommentHistory(candidate)}
+                                aria-label={`View comment history for ${candidate.fullName}`}
+                                className={`${updateCount > 0 ? 'bg-amber-600 hover:bg-amber-700 ring-2 ring-amber-300' : 'bg-purple-600 hover:bg-purple-700'} text-white px-2 py-1 rounded text-xs transition-colors duration-200 flex items-center gap-1`}
+                                title={updateCount > 0
+                                  ? `Comments updated ${updateCount} time(s) after the initial comment — click to verify`
+                                  : 'View Comment History'}
+                              >
+                                History
+                                {updateCount > 0 && (
+                                  <span className="bg-white text-amber-700 rounded-full px-1.5 text-[10px] font-bold leading-4">
+                                    {updateCount}
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })()}
                           {/* Only show Update button for non-archived candidates */}
                           {!candidate.isArchived && (
                             <button
@@ -2927,8 +2959,8 @@ const SecretariatView = ({ user }) => {
                     Comment History
                   </h3>
                   <div className="space-y-4">
-                    {[...commentHistoryData.commentsHistory]
-                      .sort((a, b) => new Date(b.commentedAt) - new Date(a.commentedAt))
+                    {annotateCommentHistory(commentHistoryData.commentsHistory)
+                      .reverse() /* newest first */
                       .map((entry, index) => (
                         <div key={index} className="border-l-4 border-purple-500 bg-gray-50 p-4 rounded-r-lg">
                           <div className="flex justify-between items-start mb-2">
@@ -2940,6 +2972,13 @@ const SecretariatView = ({ user }) => {
                                 'bg-yellow-100 text-yellow-800'
                               }`}>
                                 {entry.field.toUpperCase()}
+                              </span>
+                              <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                                entry.isInitial ? 'bg-emerald-100 text-emerald-800' :
+                                entry.isCleared ? 'bg-red-100 text-red-800' :
+                                'bg-amber-100 text-amber-800'
+                              }`}>
+                                {entry.isInitial ? 'INITIAL' : entry.isCleared ? 'CLEARED' : 'UPDATED'}
                               </span>
                               <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                                 entry.status === 'long_list' ? 'bg-green-100 text-green-800' :
@@ -2965,9 +3004,16 @@ const SecretariatView = ({ user }) => {
                               </div>
                             </div>
                           </div>
-                          <p className="text-gray-800 text-sm mt-2 leading-relaxed">
-                            {entry.comment}
-                          </p>
+                          {entry.isCleared ? (
+                            <p className="text-gray-500 text-sm mt-2 italic">Comment was blanked out.</p>
+                          ) : (
+                            <p className="text-gray-800 text-sm mt-2 leading-relaxed">{entry.comment}</p>
+                          )}
+                          {!entry.isInitial && entry.previousComment && (
+                            <p className="text-gray-500 text-xs mt-2 leading-relaxed">
+                              <span className="font-semibold">Previously:</span> {entry.previousComment}
+                            </p>
+                          )}
                         </div>
                       ))}
                   </div>
