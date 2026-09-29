@@ -159,6 +159,43 @@ function summarizeGovtEmp(ge) {
   return parts.length > 0 ? parts.join(', ') : 'No data set';
 }
 
+// ─── Multi-item application detection ───────────────────────────────────────
+// Returns { [candidateId]: [{ _id, itemNumber }] } — for each candidate, the
+// OTHER item numbers the same person (same name, same publication range) also
+// applied to under the SAME assignment AND SAME position. Only candidates that
+// have at least one such sibling appear in the result.
+const normName = (s) => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+const buildMultiItemMap = (candidateList, vacancyList) => {
+  const byRangeItem = new Map();
+  const byItem = new Map();
+  (vacancyList || []).forEach(v => {
+    byRangeItem.set(`${String(v.publicationRangeId || '')}|${v.itemNumber}`, v);
+    if (!byItem.has(v.itemNumber)) byItem.set(v.itemNumber, v);
+  });
+  const groups = new Map();
+  (candidateList || []).forEach(c => {
+    if (c.isArchived) return;
+    const rangeId = String(c.publicationRangeId || '');
+    const v = byRangeItem.get(`${rangeId}|${c.itemNumber}`) || byItem.get(c.itemNumber);
+    if (!v) return;
+    const key = [normName(c.fullName), rangeId, normName(v.assignment), normName(v.position)].join('||');
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(c);
+  });
+  const result = {};
+  groups.forEach(group => {
+    if (new Set(group.map(g => g.itemNumber)).size < 2) return;
+    group.forEach(c => {
+      const others = group
+        .filter(o => o._id !== c._id && o.itemNumber !== c.itemNumber)
+        .map(o => ({ _id: o._id, itemNumber: o.itemNumber }))
+        .sort((a, b) => String(a.itemNumber).localeCompare(String(b.itemNumber), undefined, { numeric: true }));
+      if (others.length > 0) result[c._id] = others;
+    });
+  });
+  return result;
+};
+
 const SecretariatView = ({ user }) => {
   const [vacancies, setVacancies] = useState([]);
   const [candidates, setCandidates] = useState([]);
@@ -249,6 +286,15 @@ const SecretariatView = ({ user }) => {
   const [reportCandidateId, setReportCandidateId] = useState('');
   const [reportItemNumber, setReportItemNumber] = useState('');
   const [viewCandidateData, setViewCandidateData] = useState(null);
+  // View-modal enhancements: responsible secretariat, other applications, multi-item marker
+  const [secretariatRoster, setSecretariatRoster] = useState(null); // null = not loaded yet
+  const [rangeVacancies, setRangeVacancies] = useState([]);          // all vacancies in the selected range (unscoped)
+  const [multiItemMap, setMultiItemMap] = useState({});              // candidateId -> [{ _id, itemNumber }]
+  const [multiItemPopup, setMultiItemPopup] = useState(null);        // { candidate, others }
+  const [viewSiblings, setViewSiblings] = useState([]);
+  const [viewSiblingsLoading, setViewSiblingsLoading] = useState(false);
+  const [showOtherApps, setShowOtherApps] = useState(false);
+  const [expandedOtherAppIds, setExpandedOtherAppIds] = useState(new Set());
   const [comments, setComments] = useState({
     education: '',
     training: '',
@@ -671,6 +717,40 @@ const SecretariatView = ({ user }) => {
   useEffect(() => { showArchivedRangesRef.current             = showArchivedRanges; },       [showArchivedRanges]);
   useEffect(() => { setSelectedPublicationRangeRef.current    = setSelectedPublicationRange; }, [setSelectedPublicationRange]);
 
+  // ─── View modal: load secretariat roster (once) + this candidate's other applications ───
+  useEffect(() => {
+    if (!showViewCommentsModal || secretariatRoster !== null) return;
+    let cancelled = false;
+    usersAPI.getSecretariats()
+      .then(r => { if (!cancelled) setSecretariatRoster(Array.isArray(r) ? r : []); })
+      .catch(() => { if (!cancelled) setSecretariatRoster([]); });
+    return () => { cancelled = true; };
+  }, [showViewCommentsModal, secretariatRoster]);
+
+  useEffect(() => {
+    setShowOtherApps(false);
+    setExpandedOtherAppIds(new Set());
+    setViewSiblings([]);
+    if (!showViewCommentsModal || !viewCandidateData) return;
+    const c = viewCandidateData.candidate;
+    const pubRangeId = c.publicationRangeId || selectedPublicationRangeRef.current;
+    if (!pubRangeId) return;
+    let cancelled = false;
+    setViewSiblingsLoading(true);
+    candidatesAPI.getSiblings(c.fullName, c._id, pubRangeId)
+      .then(r => { if (!cancelled) setViewSiblings(Array.isArray(r) ? r : []); })
+      .catch(() => { /* non-fatal: button just shows no other applications */ })
+      .finally(() => { if (!cancelled) setViewSiblingsLoading(false); });
+    return () => { cancelled = true; };
+  }, [showViewCommentsModal, viewCandidateData]);
+
+  // Vacancy lookup that isn't limited to this secretariat's assigned items.
+  const getVacancyForItem = useCallback((itemNumber, rangeId) => {
+    const pool = [...rangeVacancies, ...vacancies];
+    return pool.find(v => v.itemNumber === itemNumber && (!rangeId || String(v.publicationRangeId) === String(rangeId)))
+      || pool.find(v => v.itemNumber === itemNumber);
+  }, [rangeVacancies, vacancies]);
+
   // ─── loadCandidatesByFilters ─────────────────────────────────────────────
   // ZERO state deps — every value read from refs. This function reference
   // NEVER changes, so nothing re-fires because it was recreated.
@@ -731,9 +811,9 @@ const SecretariatView = ({ user }) => {
       // Compute Review badge IDs.
       // When a single itemNumber is filtered, siblings from other items are not in
       // `unique`. Fetch all candidates for the pub range so we can cross-reference.
+      let allForBadge = unique;
       try {
         const pubRange = selectedPublicationRangeRef.current;
-        let allForBadge = unique;
         if (currentFilters.itemNumber && pubRange) {
           const allInRange = await candidatesAPI.getByPublicationRange(pubRange, includeArchived);
           allForBadge = Array.from(new Map([...unique, ...allInRange].map(c => [c._id, c])).values());
@@ -755,6 +835,24 @@ const SecretariatView = ({ user }) => {
         setReviewBadgeIds(badgeIds);
       } catch {
         setReviewBadgeIds(new Set());
+      }
+
+      // Multi-item marker: candidates who applied to several item numbers of the
+      // same position in the same assignment. Uses the unscoped vacancy list for
+      // the range so siblings on items outside this secretariat's scope resolve.
+      try {
+        let vacPool = currentVacancies;
+        const pubRange = selectedPublicationRangeRef.current;
+        if (pubRange) {
+          try {
+            const rangeVacs = await vacanciesAPI.getByPublicationRange(pubRange, includeArchived);
+            if (Array.isArray(rangeVacs) && rangeVacs.length) vacPool = rangeVacs;
+          } catch { /* fall back to scoped vacancies */ }
+        }
+        setRangeVacancies(vacPool);
+        setMultiItemMap(buildMultiItemMap(allForBadge, vacPool));
+      } catch {
+        setMultiItemMap({});
       }
     } catch (err) {
       console.error('Failed to load candidates:', err);
@@ -2437,6 +2535,21 @@ const SecretariatView = ({ user }) => {
                                   ARCHIVED
                                 </span>
                               )}
+                              {/* Multi-item marker: same position + assignment, several item numbers */}
+                              {multiItemMap[candidate._id]?.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setMultiItemPopup({ candidate, others: multiItemMap[candidate._id] })}
+                                  title={`Also applied to ${multiItemMap[candidate._id].length} other item number${multiItemMap[candidate._id].length > 1 ? 's' : ''} for this position — click to see`}
+                                  aria-label={`${candidate.fullName} also applied to ${multiItemMap[candidate._id].length} other item numbers for this position`}
+                                  className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-fuchsia-100 text-fuchsia-700 border border-fuchsia-200 text-[10px] font-bold hover:bg-fuchsia-200 transition-colors focus:outline-none focus:ring-2 focus:ring-fuchsia-400"
+                                >
+                                  <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
+                                  </svg>
+                                  +{multiItemMap[candidate._id].length} item{multiItemMap[candidate._id].length > 1 ? 's' : ''}
+                                </button>
+                              )}
                               {/* Review badge: driven by reviewBadgeIds computed on load, works across all filter levels */}
                               {reviewBadgeIds.has(candidate._id) && (
                                 <button
@@ -2676,6 +2789,41 @@ const SecretariatView = ({ user }) => {
       </div>
 
       {/* Modals */}
+      {multiItemPopup && (() => {
+        const { candidate: mc, others } = multiItemPopup;
+        const rangeId = mc.publicationRangeId;
+        const here = getVacancyForItem(mc.itemNumber, rangeId);
+        return (
+          <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center p-4" style={{ zIndex: 60 }} role="dialog" aria-modal="true" aria-labelledby="multi-item-title" onClick={() => setMultiItemPopup(null)}>
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+              <div className="px-5 py-4 bg-fuchsia-600 text-white rounded-t-xl relative">
+                <button onClick={() => setMultiItemPopup(null)} aria-label="Close" className="absolute top-2.5 right-3 text-white/80 hover:text-white text-xl leading-none">×</button>
+                <h3 id="multi-item-title" className="text-base font-bold pr-6 break-words">{mc.fullName}</h3>
+                <p className="text-xs opacity-90 mt-0.5 break-words">
+                  Applied to {others.length + 1} item numbers for the same position
+                  {here ? ` · ${here.position} · ${here.assignment}` : ''}
+                </p>
+              </div>
+              <div className="p-4 overflow-y-auto space-y-2">
+                <div className="flex items-center justify-between rounded-lg border border-fuchsia-300 bg-fuchsia-50 px-3 py-2">
+                  <span className="font-mono text-sm font-bold text-fuchsia-800">{mc.itemNumber}</span>
+                  <span className="text-[10px] font-bold uppercase tracking-wide text-fuchsia-700">This row</span>
+                </div>
+                {others.map(o => (
+                  <div key={o._id} className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2">
+                    <span className="font-mono text-sm font-semibold text-gray-800">{o.itemNumber}</span>
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Also applied</span>
+                  </div>
+                ))}
+              </div>
+              <div className="px-5 py-3 border-t border-gray-100 flex justify-end">
+                <button onClick={() => setMultiItemPopup(null)} className="px-4 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold transition-colors">Close</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {showViewCommentsModal && viewCandidateData && (() => {
         const { candidate, vacancy } = viewCandidateData;
         const comments = candidate.comments || {};
@@ -2729,6 +2877,41 @@ const SecretariatView = ({ user }) => {
                                                                'bg-gray-600';
         const bannerText =
           candidate.status === CANDIDATE_STATUS.FOR_REVIEW ? 'text-gray-900' : 'text-white';
+
+        // ── Responsible secretariat(s) for this item number ──
+        const modalVacancy = vacancy || getVacancyForItem(candidate.itemNumber, candidate.publicationRangeId);
+        const responsibleSecretariats = (secretariatRoster || []).filter(sec => {
+          switch (sec.assignedVacancies) {
+            case 'all':        return true;
+            case 'assignment': return !!sec.assignedAssignment && !!modalVacancy && sec.assignedAssignment === modalVacancy.assignment;
+            case 'specific':   return (sec.assignedItemNumbers || []).includes(candidate.itemNumber);
+            default:           return false;
+          }
+        });
+
+        // ── Government employment data ──
+        const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' }) : '';
+        const geSummary = (g) => {
+          g = g || {};
+          const has = !!(g.agency || g.position || g.status || g.employmentPeriod || g.preAssessmentExam || g.remarks);
+          return {
+            has,
+            rows: [
+              { label: 'Agency',   value: g.agency },
+              { label: 'Position', value: g.position },
+              { label: 'Status',   value: g.status },
+              { label: 'Period',   value: g.employmentPeriod === 'present' ? 'Present employment'
+                                        : g.employmentPeriod === 'within_2_years' ? `Within last 2 years${g.employmentEndDate ? ` (ended ${fmtDate(g.employmentEndDate)})` : ''}` : '' },
+              { label: 'Pre-assessment', value: g.preAssessmentExam === 'more_than_6_months' ? 'More than 6 months in govt service'
+                                        : g.preAssessmentExam === 'less_than_6_months' ? 'Less than 6 months in govt service' : '' },
+            ].filter(r => r.value),
+            remarks: g.remarks || '',
+            updatedBy: g.lastUpdatedBy && typeof g.lastUpdatedBy === 'object' ? g.lastUpdatedBy.name : '',
+            updatedAt: fmtDate(g.lastUpdatedAt),
+          };
+        };
+        const candidateGe = geSummary(candidate.governmentEmployment);
+        const otherAppCount = viewSiblings.length;
 
         return (
           <div className="fixed inset-0 bg-black bg-opacity-40 backdrop-blur-sm flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true" aria-labelledby="view-comments-title">
@@ -2793,6 +2976,138 @@ const SecretariatView = ({ user }) => {
                     <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">Eligibility</p>
                     <p className="font-semibold text-gray-800 whitespace-nowrap">{candidate.eligibility || '—'}</p>
                   </div>
+                  <div>
+                    <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">Assigned Secretariat</p>
+                    {secretariatRoster === null ? (
+                      <p className="text-gray-400 text-xs italic">Loading…</p>
+                    ) : responsibleSecretariats.length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {responsibleSecretariats.map(sec => (
+                          <span key={String(sec._id)} className="inline-flex items-center px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-semibold">
+                            {sec.name}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="font-semibold text-gray-400">Unassigned</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Government employment data */}
+                <div className="px-6 py-4 border-b border-gray-100">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Government Employment</p>
+                    {!candidate.isArchived && (
+                      <button
+                        type="button"
+                        onClick={() => { closeViewCommentsModal(); openGovtEmpModal(candidate); }}
+                        className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 hover:underline"
+                      >
+                        {candidateGe.has ? 'Edit' : 'Add details'}
+                      </button>
+                    )}
+                  </div>
+                  {candidateGe.has ? (
+                    <div className="rounded-xl border border-gray-200 bg-white p-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                        {candidateGe.rows.map(r => (
+                          <div key={r.label}>
+                            <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">{r.label}</p>
+                            <p className="font-semibold text-gray-800 break-words">{r.value}</p>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-3 pt-3 border-t border-gray-100">
+                        <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5">Remarks</p>
+                        {candidateGe.remarks
+                          ? <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{candidateGe.remarks}</p>
+                          : <p className="text-xs text-gray-400 italic">No remarks.</p>}
+                      </div>
+                      {(candidateGe.updatedBy || candidateGe.updatedAt) && (
+                        <p className="text-[10px] text-gray-400 mt-2">
+                          Last updated{candidateGe.updatedBy ? ` by ${candidateGe.updatedBy}` : ''}{candidateGe.updatedAt ? ` on ${candidateGe.updatedAt}` : ''}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-gray-400 italic">No government employment data recorded.</p>
+                  )}
+                </div>
+
+                {/* Other applications */}
+                <div className="px-6 py-4 border-b border-gray-100">
+                  <button
+                    type="button"
+                    onClick={() => setShowOtherApps(v => !v)}
+                    disabled={viewSiblingsLoading || otherAppCount === 0}
+                    aria-expanded={showOtherApps}
+                    className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all
+                      ${otherAppCount > 0
+                        ? 'bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200 hover:bg-fuchsia-100 cursor-pointer'
+                        : 'bg-gray-50 text-gray-400 border-gray-100 cursor-not-allowed'}`}
+                  >
+                    {viewSiblingsLoading
+                      ? 'Checking other applications…'
+                      : otherAppCount > 0
+                        ? `${showOtherApps ? 'Hide' : 'View'} other applications (${otherAppCount})`
+                        : 'No other applications'}
+                  </button>
+
+                  {showOtherApps && otherAppCount > 0 && (
+                    <div className="mt-3 space-y-2">
+                      {viewSiblings.map(sib => {
+                        const sv = getVacancyForItem(sib.itemNumber, candidate.publicationRangeId);
+                        const samePosition = !!sv && !!modalVacancy && sv.position === modalVacancy.position && sv.assignment === modalVacancy.assignment;
+                        const expanded = expandedOtherAppIds.has(sib._id);
+                        const sibGe = geSummary(sib.governmentEmployment);
+                        return (
+                          <div key={sib._id} className="rounded-xl border border-gray-200 bg-white">
+                            <div className="flex flex-wrap items-center gap-2 px-3 py-2">
+                              <span className="font-mono text-sm font-bold text-gray-800">{sib.itemNumber}</span>
+                              {sv && <span className="text-xs text-gray-600 break-words min-w-0">{sv.position} · {sv.assignment}</span>}
+                              {samePosition && (
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-fuchsia-100 text-fuchsia-700">Same position</span>
+                              )}
+                              <span className={`ml-auto px-2 py-0.5 rounded-full text-[10px] font-medium ${getStatusColor(sib.status)}`}>{getStatusLabel(sib.status)}</span>
+                              <button
+                                type="button"
+                                onClick={() => setExpandedOtherAppIds(prev => {
+                                  const next = new Set(prev);
+                                  next.has(sib._id) ? next.delete(sib._id) : next.add(sib._id);
+                                  return next;
+                                })}
+                                className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 hover:underline"
+                              >
+                                {expanded ? 'Hide details' : 'Comments & govt data'}
+                              </button>
+                            </div>
+                            {expanded && (
+                              <div className="px-3 pb-3 pt-1 border-t border-gray-100 space-y-2 text-sm">
+                                {['education', 'training', 'experience', 'eligibility'].map(k => (
+                                  <div key={k}>
+                                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">{k}</p>
+                                    {sib.comments?.[k]
+                                      ? <p className="text-gray-800 leading-relaxed">{sib.comments[k]}</p>
+                                      : <p className="text-xs text-gray-400 italic">No comment provided.</p>}
+                                  </div>
+                                ))}
+                                <div>
+                                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Government employment</p>
+                                  {sibGe.has ? (
+                                    <p className="text-gray-800 leading-relaxed">
+                                      {sibGe.rows.map(r => `${r.label}: ${r.value}`).join(' · ')}
+                                      {sibGe.remarks ? ` · Remarks: ${sibGe.remarks}` : ''}
+                                    </p>
+                                  ) : <p className="text-xs text-gray-400 italic">None recorded.</p>}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {/* Documents */}
