@@ -385,11 +385,32 @@ function buildDeliberationPDF({ vacancy, candidates, raters, includeSignatories,
   return doc;
 }
 
+// ─── Resolve ONE vacancy + its active candidates ─────────────────────────────
+// Item numbers are only unique within a publication range, and the API returns
+// archived records too. So match on item number AND range, prefer an active
+// vacancy, and drop archived candidates. Never merges sibling item numbers.
+function resolveSingleItem(vacanciesRes, candidatesRes, itemNumber, publicationRangeId = null) {
+  const sameRange = (rangeId) =>
+    !publicationRangeId || String(rangeId) === String(publicationRangeId);
+
+  const matches = vacanciesRes.filter(v => v.itemNumber === itemNumber && sameRange(v.publicationRangeId));
+  const vacancy = matches.find(v => !v.isArchived) || matches[0];
+  if (!vacancy) return { vacancy: null, candidates: [] };
+
+  const candidates = candidatesRes
+    .filter(c =>
+      c.itemNumber === vacancy.itemNumber &&
+      String(c.publicationRangeId) === String(vacancy.publicationRangeId) &&
+      !c.isArchived
+    )
+    .sort((a, b) => (a.fullName || '').localeCompare(b.fullName));
+  return { vacancy, candidates };
+}
+
 // ─── PDFReport component — full deliberation report WITH signatories ──────────
-const PDFReport = ({ itemNumber, user, raters }) => {
+const PDFReport = ({ itemNumber, publicationRangeId = null, user, raters }) => {
   const [vacancy,    setVacancy]    = useState(null);
   const [candidates, setCandidates] = useState([]);
-  const [siblingItemNumbers, setSiblingItemNumbers] = useState([]);
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState('');
 
@@ -403,19 +424,11 @@ const PDFReport = ({ itemNumber, user, raters }) => {
           vacanciesAPI.getAll(),
           candidatesAPI.getAll(),
         ]);
-        const found = vacanciesRes.find(v => v.itemNumber === itemNumber);
+        const { vacancy: found, candidates: itemCandidates } =
+          resolveSingleItem(vacanciesRes, candidatesRes, itemNumber, publicationRangeId);
         if (!found) throw new Error('VACANCY NOT FOUND FOR THE SPECIFIED ITEM NUMBER');
         setVacancy(found);
-        // Collect all item numbers sharing the same position + assignment
-        const sibling = vacanciesRes.filter(
-          v => v.position === found.position && v.assignment === found.assignment
-        ).map(v => v.itemNumber).filter(Boolean).sort();
-        setSiblingItemNumbers(sibling);
-        setCandidates(
-          candidatesRes
-            .filter(c => c.itemNumber === itemNumber)
-            .sort((a, b) => (a.fullName || '').localeCompare(b.fullName))
-        );
+        setCandidates(itemCandidates);
       } catch (err) {
         console.error('FAILED TO LOAD REPORT DATA:', err);
         setError('FAILED TO LOAD REPORT DATA. PLEASE TRY AGAIN.');
@@ -423,7 +436,7 @@ const PDFReport = ({ itemNumber, user, raters }) => {
         setLoading(false);
       }
     })();
-  }, [itemNumber]);
+  }, [itemNumber, publicationRangeId]);
 
   const generatePDF = () => {
     try {
@@ -431,7 +444,7 @@ const PDFReport = ({ itemNumber, user, raters }) => {
         setError('MISSING VACANCY OR CANDIDATE DATA.');
         return;
       }
-      const doc = buildDeliberationPDF({ vacancy, candidates, raters, includeSignatories: true, allItemNumbers: siblingItemNumbers });
+      const doc = buildDeliberationPDF({ vacancy, candidates, raters, includeSignatories: true, allItemNumbers: [vacancy.itemNumber] });
       doc.save(`Summary_${vacancy.itemNumber}.pdf`);
     } catch (err) {
       console.error('FAILED TO GENERATE PDF:', err.message, err.stack);
@@ -496,30 +509,25 @@ const PDFReport = ({ itemNumber, user, raters }) => {
 };
 
 // ─── Longlist-only export — NO signatories, NO certifying clause ──────────────
-export async function generateLongListPDF(itemNumber) {
+// Generates the PDF for EXACTLY ONE vacancy. Item numbers are only unique
+// within a publication range, so the vacancy and its candidates are matched
+// on item number AND publication range, and archived records are excluded.
+// Sibling item numbers are deliberately NOT merged into the header/footer.
+export async function generateLongListPDF(itemNumber, publicationRangeId = null) {
   const [vacanciesRes, candidatesRes] = await Promise.all([
     vacanciesAPI.getAll(),
     candidatesAPI.getAll(),
   ]);
 
-  const vacancy = vacanciesRes.find(v => v.itemNumber === itemNumber);
+  const { vacancy, candidates } = resolveSingleItem(vacanciesRes, candidatesRes, itemNumber, publicationRangeId);
   if (!vacancy) throw new Error('Vacancy not found for item: ' + itemNumber);
-
-  // Collect all item numbers sharing the same position + assignment
-  const allItemNumbers = vacanciesRes
-    .filter(v => v.position === vacancy.position && v.assignment === vacancy.assignment)
-    .map(v => v.itemNumber).filter(Boolean).sort();
-
-  const candidates = candidatesRes
-    .filter(c => c.itemNumber === itemNumber)
-    .sort((a, b) => (a.fullName || '').localeCompare(b.fullName));
 
   const doc = buildDeliberationPDF({
     vacancy,
     candidates,
     raters: [],
     includeSignatories: false,
-    allItemNumbers,
+    allItemNumbers: [vacancy.itemNumber],
   });
 
   doc.save(`Longlist_${vacancy.itemNumber}.pdf`);

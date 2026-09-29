@@ -417,6 +417,15 @@ const SecretariatView = ({ user }) => {
   const [statusFilter, setStatusFilter] = useState(null);
   const [lateFilter, setLateFilter] = useState(false);
   const [commentsEditedFilter, setCommentsEditedFilter] = useState(false); // show ONLY candidates with at least one comment UPDATE (after the initial comment)
+  // Clears every list-level filter (status cards, gender, govt-employment, late, comments-edited).
+  // Called whenever a dropdown selection changes so a new list never inherits the previous list's filters.
+  const resetListFilters = useCallback(() => {
+    setStatusFilter(null);
+    setGenderFilter(null);
+    setGovtEmpFilter(null);
+    setLateFilter(false);
+    setCommentsEditedFilter(false);
+  }, []);
   const [showAssignmentSummary, setShowAssignmentSummary] = useState(false);
   const [showCBSManual, setShowCBSManual] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
@@ -434,6 +443,8 @@ const SecretariatView = ({ user }) => {
   // STEP 1: Add Required Refs
   const isInitialMount = useRef(true);
   const loadingCandidates = useRef(false);
+  const reloadRequested = useRef(false);        // a filter change arrived while a load was in flight
+  const loadCandidatesSelfRef = useRef(null);   // lets the loader re-run itself from its own finally block
   const previousFilters = useRef({
     assignment: '',
     position: '',
@@ -755,7 +766,12 @@ const SecretariatView = ({ user }) => {
   // ZERO state deps — every value read from refs. This function reference
   // NEVER changes, so nothing re-fires because it was recreated.
   const loadCandidatesByFilters = useCallback(async () => {
-    if (loadingCandidates.current) return;
+    // A load is already running. Do NOT silently drop this call — the dropdowns
+    // may have changed since it started. Remember it and re-run when it finishes.
+    if (loadingCandidates.current) {
+      reloadRequested.current = true;
+      return;
+    }
 
     const currentFilters = {
       assignment:       selectedAssignmentRef.current,
@@ -799,6 +815,20 @@ const SecretariatView = ({ user }) => {
         filteredCandidates = (await Promise.all(
           itemNums.map(n => candidatesAPI.getByItemNumber(n, includeArchived))
         )).flat();
+      }
+
+      // If the dropdowns changed while we were fetching, this result is for a
+      // selection the user has already left — discard it and reload instead.
+      const latestFilters = {
+        assignment:       selectedAssignmentRef.current,
+        position:         selectedPositionRef.current,
+        itemNumber:       selectedItemNumberRef.current,
+        publicationRange: selectedPublicationRangeRef.current,
+      };
+      if (JSON.stringify(latestFilters) !== JSON.stringify(currentFilters)) {
+        previousFilters.current = null;
+        reloadRequested.current = true;
+        return;
       }
 
       const unique = Array.from(new Map(filteredCandidates.map(c => [c._id, c])).values());
@@ -859,11 +889,19 @@ const SecretariatView = ({ user }) => {
       setError('Failed to load candidates.');
       showToast('Failed to load candidates', 'error');
       setCandidates([]);
+      previousFilters.current = null; // a failed load must not block retrying the same selection
     } finally {
-      setCandidatesLoading(false);
       loadingCandidates.current = false;
+      if (reloadRequested.current) {
+        reloadRequested.current = false;
+        // Keep the spinner up and go again with the latest dropdown values.
+        loadCandidatesSelfRef.current?.();
+      } else {
+        setCandidatesLoading(false);
+      }
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  loadCandidatesSelfRef.current = loadCandidatesByFilters;
 
   // ─── ALL load callbacks have [] deps — every value read from refs ──────────
   // This guarantees these function references NEVER change, so no useEffect
@@ -1283,7 +1321,7 @@ const SecretariatView = ({ user }) => {
     if (!selectedItemNumber) return;
     try {
       setLongListPDFLoading(true);
-      await generateLongListPDF(selectedItemNumber);
+      await generateLongListPDF(selectedItemNumber, selectedPublicationRange || null);
       showToast('Longlist PDF generated successfully!', 'success');
     } catch (err) {
       console.error('Failed to generate Longlist PDF:', err);
@@ -1291,7 +1329,7 @@ const SecretariatView = ({ user }) => {
     } finally {
       setLongListPDFLoading(false);
     }
-  }, [selectedItemNumber, showToast]);
+  }, [selectedItemNumber, selectedPublicationRange, showToast]);
 
   const handleViewVacancy = useCallback((itemNumber) => {
     const vacancy = vacancies.find(v => v.itemNumber === itemNumber);
@@ -1885,6 +1923,7 @@ const SecretariatView = ({ user }) => {
             setSelectedItemNumber('');
             setSelectedCandidate('');
             setCandidates([]);
+            previousFilters.current = null;
             setCandidateDetails(null);
             setVacancyDetails(null);
           }
@@ -1893,6 +1932,7 @@ const SecretariatView = ({ user }) => {
           setSelectedItemNumber('');
           setSelectedCandidate('');
           setCandidates([]);
+            previousFilters.current = null;
           setCandidateDetails(null);
           setVacancyDetails(null);
         }
@@ -1904,6 +1944,7 @@ const SecretariatView = ({ user }) => {
         setPositions([]);
         setItemNumbers([]);
         setCandidates([]);
+            previousFilters.current = null;
         setCandidateDetails(null);
         setVacancyDetails(null);
       }
@@ -1912,6 +1953,7 @@ const SecretariatView = ({ user }) => {
       setPositions([]);
       setItemNumbers([]);
       setCandidates([]);
+            previousFilters.current = null;
       setSelectedAssignment('');
       setSelectedPosition('');
       setSelectedItemNumber('');
@@ -2148,10 +2190,8 @@ const SecretariatView = ({ user }) => {
                       setSelectedAssignment('');
                       setSelectedPosition('');
                       setSelectedItemNumber('');
-                      setStatusFilter(null);
-                      setGenderFilter(null);
-                      setLateFilter(false);
-                      setCommentsEditedFilter(false);
+                      previousFilters.current = null;
+                      resetListFilters();
                     }}
                     aria-label="Filter by publication range"
                     className="w-full px-3 py-2 border-2 border-purple-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:border-white bg-white text-sm font-medium shadow-sm"
@@ -2215,7 +2255,16 @@ const SecretariatView = ({ user }) => {
                   <select
                     id="assignment-select"
                     value={selectedAssignment}
-                    onChange={(e) => setSelectedAssignment(e.target.value)}
+                    onChange={(e) => {
+                      // New assignment = fresh Position and Item Number choices and a clean filter slate
+                      setSelectedAssignment(e.target.value);
+                      setSelectedPosition('');
+                      setSelectedItemNumber('');
+                      setPositions([]);
+                      setItemNumbers([]);
+                      previousFilters.current = null;
+                      resetListFilters();
+                    }}
                     aria-label="Filter by assignment"
                     className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white text-sm font-medium shadow-sm"
                   >
@@ -2230,7 +2279,14 @@ const SecretariatView = ({ user }) => {
                   <select
                     id="position-select"
                     value={selectedPosition}
-                    onChange={(e) => setSelectedPosition(e.target.value)}
+                    onChange={(e) => {
+                      // New position = fresh Item Number choices and a clean filter slate
+                      setSelectedPosition(e.target.value);
+                      setSelectedItemNumber('');
+                      setItemNumbers([]);
+                      previousFilters.current = null;
+                      resetListFilters();
+                    }}
                     aria-label="Filter by position"
                     className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white text-sm font-medium disabled:bg-gray-100 shadow-sm"
                     disabled={!selectedAssignment}
@@ -2246,7 +2302,11 @@ const SecretariatView = ({ user }) => {
                   <select
                     id="item-number-select"
                     value={selectedItemNumber}
-                    onChange={(e) => setSelectedItemNumber(e.target.value)}
+                    onChange={(e) => {
+                      setSelectedItemNumber(e.target.value);
+                      previousFilters.current = null;
+                      resetListFilters();
+                    }}
                     aria-label="Filter by item number"
                     className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white text-sm font-medium disabled:bg-gray-100 shadow-sm"
                     disabled={!selectedPosition}
@@ -5725,6 +5785,7 @@ const SecretariatView = ({ user }) => {
             <PDFReport 
               candidateId={reportCandidateId} 
               itemNumber={reportItemNumber} 
+              publicationRangeId={selectedPublicationRange || null}
               user={user} 
               raters={reportRaters}
             />
