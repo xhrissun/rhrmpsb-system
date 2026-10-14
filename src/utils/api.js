@@ -640,6 +640,12 @@ export const ratingsAPI = {
     const response = await api.get(`/ratings/candidate/${candidateId}`);
     return response.data;
   },
+  // Batch: one request for many candidates → { [candidateId]: Rating[] }
+  getByCandidates: async (candidateIds) => {
+    if (!candidateIds || candidateIds.length === 0) return {};
+    const response = await api.post('/ratings/by-candidates', { candidateIds });
+    return response.data;
+  },
   getByRater: async (raterId) => {
     const response = await api.get(`/ratings/rater/${raterId}`);
     return response.data;
@@ -953,6 +959,14 @@ export const settingsAPI = {
   // Admin-only audit trail of past AI evaluations, including the literal
   // (redacted) text that was sent to Gemini for each one — for privacy
   // spot-checks without needing to regenerate a draft.
+  getOtpStatus: async () => {
+    const response = await api.get('/settings/otp');
+    return response.data; // { enabled } — true = OTP required at login
+  },
+  setOtpStatus: async (enabled) => {
+    const response = await api.put('/settings/otp', { enabled });
+    return response.data;
+  },
   getAiEvaluationLogs: async (limit = 25) => {
     const response = await api.get('/ai-evaluation-logs', { params: { limit } });
     return response.data;

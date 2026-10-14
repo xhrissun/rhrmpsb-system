@@ -93,6 +93,11 @@ const describeUserAgent = (ua) => {
 // Defaults to DISABLED (fail closed) until an admin explicitly turns it on.
 const AI_EVALUATION_SETTINGS_KEY = 'aiEvaluation';
 
+// Admin on/off switch for email OTP (two-factor) at login. Unlike the AI toggle
+// this defaults to ON (fail closed): OTP stays required until an admin
+// explicitly turns it off in System Settings.
+const OTP_REQUIRED_SETTINGS_KEY = 'otpRequired';
+
 const router = express.Router();
 
 // ── Auth rate limiters ────────────────────────────────────────────────────────
@@ -376,6 +381,21 @@ router.post('/auth/login', loginLimiter, async (req, res) => {
     // Successful password check — reset any brute-force counters.
     if (user.failedLoginAttempts || user.lockUntil) {
       await User.findByIdAndUpdate(user._id, { failedLoginAttempts: 0, lockUntil: null, lastFailedLoginAt: null });
+    }
+
+    // ── Admin has switched OTP off for everyone (System Settings) ───────────
+    // Password was already verified above, so this only removes the second
+    // factor — lockout/brute-force protection still applies. Toggling it back
+    // on takes effect on the very next login; no restart or redeploy needed.
+    const otpRequired = await SystemSettings.getFlag(OTP_REQUIRED_SETTINGS_KEY, true);
+    if (!otpRequired) {
+      const sessionUser = await User.findByIdAndUpdate(
+        user._id,
+        { lastLoginAt: new Date(), otpCodeHash: null, otpExpiresAt: null, otpAttempts: 0, otpLastSentAt: null },
+        { new: true }
+      );
+      const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '8h' });
+      return res.json({ requiresOtp: false, token, user: sessionUser.toJSON() });
     }
 
     // ── Skip OTP entirely if a valid, trusted device token was presented ────
@@ -2965,6 +2985,37 @@ router.put('/settings/ai-evaluation', authMiddleware, async (req, res) => {
   }
 });
 
+// ── OTP (two-factor) admin toggle ───────────────────────────────────────────
+// Admin-only for both read and write. Off = every user signs in with just
+// email + password; On (default) = emailed one-time code is required.
+router.get('/settings/otp', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin') return res.status(403).json({ message: 'Access denied' });
+  try {
+    const enabled = await SystemSettings.getFlag(OTP_REQUIRED_SETTINGS_KEY, true);
+    res.json({ enabled });
+  } catch (error) {
+    console.error('[GET /settings/otp]', error);
+    res.status(500).json({ message: 'Failed to load OTP setting.' });
+  }
+});
+
+router.put('/settings/otp', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin') return res.status(403).json({ message: 'Access denied' });
+  try {
+    const { enabled } = req.body;
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ message: '"enabled" must be true or false.' });
+    }
+    await SystemSettings.setFlag(OTP_REQUIRED_SETTINGS_KEY, enabled, req.user.id);
+    // Audit trail in the server logs: who changed it, when, from where.
+    console.warn(`[settings] OTP requirement set to ${enabled ? 'ON' : 'OFF'} by userId=${req.user.id} ip=${req.ip}`);
+    res.json({ enabled });
+  } catch (error) {
+    console.error('[PUT /settings/otp]', error);
+    res.status(500).json({ message: 'Failed to update OTP setting.' });
+  }
+});
+
 // Admin-only audit view: exactly what has been sent to Gemini, per past
 // evaluation, so privacy/redaction can be spot-checked without burning
 // another Gemini call. `promptText` here is the literal text that left
@@ -3521,6 +3572,33 @@ router.get('/ratings/candidate/:candidateId', authMiddleware, async (req, res) =
     res.json(ratings);
   } catch (error) {
     console.error('[GET /ratings/candidate/:id]', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Batch version of GET /ratings/candidate/:id — one request for many candidates
+// instead of one per candidate (which blew through the rate limiter on the
+// interview-summary screens). Same visibility rules as the single endpoint.
+router.post('/ratings/by-candidates', authMiddleware, async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body.candidateIds)
+      ? [...new Set(req.body.candidateIds.filter(Boolean).map(String))].slice(0, 1000)
+      : [];
+    if (ids.length === 0) return res.json({});
+    const query = { candidateId: { $in: ids } };
+    if (req.user.userType === 'rater') query.raterId = req.user._id;
+    const ratings = await Rating.find(query)
+      .populate('raterId', 'name raterType position designation')
+      .populate('competencyId', 'name type');
+    const byCandidate = {};
+    ids.forEach(id => { byCandidate[id] = []; });
+    ratings.forEach(r => {
+      const key = String(r.candidateId);
+      (byCandidate[key] || (byCandidate[key] = [])).push(r);
+    });
+    res.json(byCandidate);
+  } catch (error) {
+    console.error('[POST /ratings/by-candidates]', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

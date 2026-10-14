@@ -794,27 +794,24 @@ const SecretariatView = ({ user }) => {
 
       let filteredCandidates = [];
 
+      // One request regardless of how many items are selected (was one request
+      // PER item number, which exhausted the server's rate limit → 429).
       if (itemNumber) {
         filteredCandidates = await candidatesAPI.getByItemNumber(itemNumber, includeArchived);
-      } else if (position) {
-        const itemNums = currentVacancies
-          .filter(v => v.assignment === assignment && v.position === position)
-          .map(v => v.itemNumber);
-        filteredCandidates = (await Promise.all(
-          itemNums.map(n => candidatesAPI.getByItemNumber(n, includeArchived))
-        )).flat();
-      } else if (assignment) {
-        const itemNums = currentVacancies
-          .filter(v => v.assignment === assignment)
-          .map(v => v.itemNumber);
-        filteredCandidates = (await Promise.all(
-          itemNums.map(n => candidatesAPI.getByItemNumber(n, includeArchived))
-        )).flat();
       } else {
-        const itemNums = currentVacancies.map(v => v.itemNumber);
-        filteredCandidates = (await Promise.all(
-          itemNums.map(n => candidatesAPI.getByItemNumber(n, includeArchived))
-        )).flat();
+        let itemNums;
+        if (position) {
+          itemNums = currentVacancies
+            .filter(v => v.assignment === assignment && v.position === position)
+            .map(v => v.itemNumber);
+        } else if (assignment) {
+          itemNums = currentVacancies
+            .filter(v => v.assignment === assignment)
+            .map(v => v.itemNumber);
+        } else {
+          itemNums = currentVacancies.map(v => v.itemNumber);
+        }
+        filteredCandidates = await candidatesAPI.getByItemNumbers(itemNums, includeArchived);
       }
 
       // If the dropdowns changed while we were fetching, this result is for a

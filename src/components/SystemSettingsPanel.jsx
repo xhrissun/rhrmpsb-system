@@ -5,6 +5,9 @@ import { useToast } from '../utils/ToastContext';
 
 const SystemSettingsPanel = () => {
   const [aiEnabled, setAiEnabled] = useState(false);
+  const [otpEnabled, setOtpEnabled] = useState(true);
+  const [otpLoading, setOtpLoading] = useState(true);
+  const [otpSaving, setOtpSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [logs, setLogs] = useState([]);
@@ -16,7 +19,42 @@ const SystemSettingsPanel = () => {
   useEffect(() => {
     loadStatus();
     loadLogs();
+    loadOtpStatus();
   }, []);
+
+  const loadOtpStatus = async () => {
+    try {
+      setOtpLoading(true);
+      const data = await settingsAPI.getOtpStatus();
+      setOtpEnabled(!!data.enabled);
+    } catch (err) {
+      console.error('Failed to load OTP setting:', err);
+      showToast('Failed to load OTP setting', 'error');
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
+  const handleOtpToggle = async () => {
+    const next = !otpEnabled;
+    // Turning OTP off weakens login security for EVERY account — make the
+    // admin confirm it. Turning it back on needs no confirmation.
+    if (!next && !window.confirm(
+      'Turn OFF one-time-code (OTP) verification for ALL users?\n\n' +
+      'Everyone will be able to sign in with just email and password until you turn it back on.'
+    )) return;
+    setOtpSaving(true);
+    try {
+      const data = await settingsAPI.setOtpStatus(next);
+      setOtpEnabled(!!data.enabled);
+      showToast(data.enabled ? 'OTP verification is now ON' : 'OTP verification is now OFF for all users', 'success');
+    } catch (err) {
+      console.error('Failed to update OTP setting:', err);
+      showToast(err.response?.data?.message || 'Failed to update OTP setting', 'error');
+    } finally {
+      setOtpSaving(false);
+    }
+  };
 
   const loadLogs = async () => {
     try {
@@ -65,6 +103,53 @@ const SystemSettingsPanel = () => {
 
   return (
     <div className="max-w-2xl">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+        <h3 className="text-lg font-semibold text-gray-800 mb-1">Login OTP Verification</h3>
+        <p className="text-sm text-gray-500 mb-4">
+          When ON, users must enter a one-time code emailed to them after their password.
+          When OFF, every user signs in with email and password only. Takes effect on the
+          next login; users who are already signed in are not affected.
+        </p>
+        {!otpLoading && !otpEnabled && (
+          <div className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 leading-relaxed">
+            OTP is currently disabled for all users. Account lockout after repeated wrong
+            passwords still applies.
+          </div>
+        )}
+        {otpLoading ? (
+          <div className="text-sm text-gray-400">Loading current setting…</div>
+        ) : (
+          <div className="flex items-center justify-between border-t border-gray-100 pt-4">
+            <div>
+              <div className="text-sm font-medium text-gray-800">
+                OTP verification is currently {otpEnabled ? 'ON' : 'OFF'}
+              </div>
+              <div className="text-xs text-gray-400">
+                {otpEnabled
+                  ? 'An emailed code is required at every sign-in (unless the device is trusted).'
+                  : 'Email + password is enough to sign in.'}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleOtpToggle}
+              disabled={otpSaving}
+              className={`relative inline-flex h-7 w-14 items-center rounded-full transition-colors duration-200 focus:outline-none disabled:opacity-50 ${
+                otpEnabled ? 'bg-green-500' : 'bg-gray-300'
+              }`}
+              aria-pressed={otpEnabled}
+              aria-label="Toggle OTP verification"
+            >
+              <span
+                className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform duration-200 ${
+                  otpEnabled ? 'translate-x-8' : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </div>
+        )}
+      </div>
+
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <h3 className="text-lg font-semibold text-gray-800 mb-1">AI-Assisted Evaluation</h3>
         <p className="text-sm text-gray-500 mb-4">

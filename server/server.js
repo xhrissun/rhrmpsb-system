@@ -56,11 +56,16 @@ const corsOptions = {
 };
 
 // ── Global rate limiter (all routes) ─────────────────────────────────────────
+// Limits are per client IP. A whole office/LAN usually shares ONE public IP, so
+// this has to cover every rater + secretariat behind it, not a single person.
+// (Was 500, which a few people loading dropdowns/reports could exhaust.)
+// Override without a code change via the GLOBAL_RATE_LIMIT_MAX env var on Render.
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 500,
+  max: parseInt(process.env.GLOBAL_RATE_LIMIT_MAX, 10) || 3000,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => req.method === 'OPTIONS',
   handler: (req, res) => {
     const resetMs = req.rateLimit?.resetTime ? new Date(req.rateLimit.resetTime).getTime() : Date.now() + 15 * 60 * 1000;
     console.warn(`[rate-limit] GLOBAL 429 ${req.method} ${req.originalUrl} ip=${req.ip} xff="${req.headers['x-forwarded-for'] || ''}"`);

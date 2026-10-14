@@ -54,743 +54,14 @@ const formatTimeSince = (date) => {
   return `${days}d ago`;
 };
 
-// ─── Skeleton loader ───────────────────────────────────────────────────────────
-const SkeletonCard = () => (
-  <div className="bg-white rounded-xl border border-gray-100 p-5 animate-pulse">
-    <div className="flex items-start justify-between mb-3">
-      <div className="h-4 bg-gray-200 rounded w-3/5"></div>
-      <div className="h-10 w-16 bg-gray-200 rounded-lg"></div>
-    </div>
-    <div className="h-3 bg-gray-100 rounded w-2/5 mb-3"></div>
-    <div className="h-2 bg-gray-100 rounded-full w-full mb-2"></div>
-    <div className="h-3 bg-gray-100 rounded w-1/3"></div>
-  </div>
-);
+// ─── E-signature data-URL cache (shared across candidates in a bulk export) ───
+const ESIG_DATA_CACHE = {};
 
-
-// ─── Metric Card ──────────────────────────────────────────────────────────────
-const MetricCard = ({ icon, label, value, sub, color = 'blue' }) => {
-  const colorMap = {
-    blue:   { bg: 'bg-blue-50',   border: 'border-blue-100',   text: 'text-blue-700',   icon: 'text-blue-400'   },
-    green:  { bg: 'bg-green-50',  border: 'border-green-100',  text: 'text-green-700',  icon: 'text-green-400'  },
-    amber:  { bg: 'bg-amber-50',  border: 'border-amber-100',  text: 'text-amber-700',  icon: 'text-amber-400'  },
-    purple: { bg: 'bg-purple-50', border: 'border-purple-100', text: 'text-purple-700', icon: 'text-purple-400' },
-    rose:   { bg: 'bg-rose-50',   border: 'border-rose-100',   text: 'text-rose-700',   icon: 'text-rose-400'   },
-  };
-  const c = colorMap[color] || colorMap.blue;
-  return (
-    <div className={`${c.bg} ${c.border} border rounded-xl p-4 flex items-start gap-3`}>
-      <div className={`${c.icon} mt-0.5 flex-shrink-0`}>{icon}</div>
-      <div className="min-w-0">
-        <p className="text-xs text-gray-500 font-medium truncate">{label}</p>
-        <p className={`text-xl font-bold ${c.text} leading-tight`}>{value}</p>
-        {sub && <p className="text-xs text-gray-400 mt-0.5 truncate">{sub}</p>}
-      </div>
-    </div>
-  );
-};
-
-// ─── ISGv2 Access Gate ─────────────────────────────────────────────────────────
-const ISGv2AccessGate = ({ onGranted }) => {
-  const [step, setStep] = useState('select'); // 'select' | 'credentials'
-  const [role, setRole] = useState(''); // 'admin' | 'secretariat'
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-
-  const handleRoleSelect = (selectedRole) => {
-    setRole(selectedRole);
-    setEmail('');
-    setPassword('');
-    setError('');
-    setStep('credentials');
-  };
-
-  const handleVerify = async () => {
-    if (!email.trim() || !password.trim()) {
-      setError('Please enter your email and password.');
-      return;
-    }
-    setLoading(true);
-    setError('');
-    try {
-      const result = await authAPI.loginSafe({ email: email.trim().toLowerCase(), password });
-      const loggedInUser = result.user;
-
-      // Enforce that the claimed role matches the actual userType
-      if (role === 'admin' && loggedInUser.userType !== 'admin') {
-        setError('These credentials do not belong to an Admin account.');
-        return;
-      }
-      if (role === 'secretariat' && loggedInUser.userType !== 'secretariat') {
-        setError('These credentials do not belong to a Secretariat account.');
-        return;
-      }
-
-      // Grant access — pass the verified user so the main component can scope the data
-      onGranted({ role, scopedUser: loggedInUser });
-    } catch (err) {
-      setError('Invalid email or password. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-
-        {/* Header */}
-        <div className="bg-gradient-to-r from-blue-700 to-blue-600 px-6 py-5">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-white bg-opacity-20 flex items-center justify-center flex-shrink-0">
-              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-            </div>
-            <div>
-              <h1 className="text-base font-bold text-white leading-tight">Interview Summary Generator</h1>
-              <p className="text-blue-200 text-xs leading-tight">HRMPSB · DENR Region IV-A</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="px-6 py-6">
-          {step === 'select' ? (
-            <>
-              <p className="text-sm font-semibold text-gray-700 mb-1">Who are you?</p>
-              <p className="text-xs text-gray-500 mb-5">Select your role to continue. You will need to verify your credentials.</p>
-              <div className="flex flex-col gap-3">
-                <button
-                  onClick={() => handleRoleSelect('admin')}
-                  className="flex items-center gap-4 w-full border-2 border-gray-200 hover:border-blue-400 hover:bg-blue-50 rounded-xl px-5 py-4 transition-all text-left group"
-                >
-                  <div className="w-10 h-10 rounded-lg bg-blue-100 group-hover:bg-blue-200 flex items-center justify-center flex-shrink-0 transition-colors">
-                    <svg className="w-5 h-5 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                    </svg>
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-gray-800">Admin</p>
-                    <p className="text-xs text-gray-500">Full access to all assignments and item numbers</p>
-                  </div>
-                </button>
-
-                <button
-                  onClick={() => handleRoleSelect('secretariat')}
-                  className="flex items-center gap-4 w-full border-2 border-gray-200 hover:border-green-400 hover:bg-green-50 rounded-xl px-5 py-4 transition-all text-left group"
-                >
-                  <div className="w-10 h-10 rounded-lg bg-green-100 group-hover:bg-green-200 flex items-center justify-center flex-shrink-0 transition-colors">
-                    <svg className="w-5 h-5 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                    </svg>
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-gray-800">Secretariat</p>
-                    <p className="text-xs text-gray-500">Access limited to your assigned item numbers only</p>
-                  </div>
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-              <button
-                onClick={() => { setStep('select'); setError(''); }}
-                className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 mb-4 transition-colors"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
-                Back
-              </button>
-
-              <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg mb-4 text-xs font-semibold ${role === 'admin' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={role === 'admin' ? "M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" : "M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"} />
-                </svg>
-                {role === 'admin' ? 'Admin' : 'Secretariat'} Verification
-              </div>
-
-              <p className="text-xs text-gray-500 mb-4">Enter your {role === 'admin' ? 'admin' : 'secretariat'} account credentials to continue.</p>
-
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Email</label>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={e => setEmail(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && handleVerify()}
-                    placeholder="Enter your email"
-                    className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                    disabled={loading}
-                    autoFocus
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Password</label>
-                  <div className="relative">
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      value={password}
-                      onChange={e => setPassword(e.target.value)}
-                      onKeyDown={e => e.key === 'Enter' && handleVerify()}
-                      placeholder="Enter your password"
-                      className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2.5 pr-10 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                      disabled={loading}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(s => !s)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                      tabIndex={-1}
-                    >
-                      {showPassword
-                        ? <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 4.411m0 0L21 21" /></svg>
-                        : <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                      }
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {error && (
-                <div className="mt-3 flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">
-                  <svg className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <p className="text-xs text-red-600">{error}</p>
-                </div>
-              )}
-
-              <button
-                onClick={handleVerify}
-                disabled={loading}
-                className={`w-full mt-4 py-2.5 rounded-lg text-sm font-semibold text-white transition-all flex items-center justify-center gap-2 ${role === 'admin' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'} disabled:opacity-60 disabled:cursor-not-allowed`}
-              >
-                {loading
-                  ? <><svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg> Verifying...</>
-                  : 'Verify & Continue'
-                }
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ─── Main Component ────────────────────────────────────────────────────────────
-const InterviewSummaryGeneratorV2 = ({ user }) => {
-  // ─── Gate state ──────────────────────────────────────────────────────────────
-  const [gateAccess, setGateAccess] = useState(null); // null = not yet verified; { role, scopedUser }
-
-  // Filter state
-  const [publicationRanges, setPublicationRanges] = useState([]);
-  const [selectedPublicationRange, setSelectedPublicationRange] = useState('');
-  const [assignments, setAssignments] = useState([]);
-  const [selectedAssignment, setSelectedAssignment] = useState('');
-  const [positions, setPositions] = useState([]);
-  const [selectedPosition, setSelectedPosition] = useState('');
-  const [items, setItems] = useState([]);
-  const [selectedItem, setSelectedItem] = useState('');
-  const [vacancies, setVacancies] = useState([]);
-
-  // Candidate board state
-  const [candidateBoard, setCandidateBoard] = useState([]);
-  const [boardLoading, setBoardLoading] = useState(false);
-  const [boardLoadTime, setBoardLoadTime] = useState(null);
-  const [boardSalaryGrade, setBoardSalaryGrade] = useState(null); // from batch endpoint
-  const [boardRequiredRaters, setBoardRequiredRaters] = useState(null); // null until server confirms: 2 for SG≤14, 6 for SG≥15
-
-  // Board search/filter
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filterRated, setFilterRated] = useState('all'); // 'all'|'rated'|'unrated'
-
-  // Modal state
-  const [modalOpen, setModalOpen] = useState(false);
-  const [selectedCandidate, setSelectedCandidate] = useState(null);
-  const [candidateDetails, setCandidateDetails] = useState(null);
-  const [vacancyDetails, setVacancyDetails] = useState(null);
-  const [salaryGrade, setSalaryGrade] = useState(null);
-  const [ratings, setRatings] = useState([]);
-  // The item number actually being shown in the modal — may differ from selectedItem
-  // when the modal was opened via a notification while a different item was selected.
-  const [modalItemNumber, setModalItemNumber] = useState('');
-  const [modalAllItemNumbers, setModalAllItemNumbers] = useState([]);
-  const [groupedCompetencies, setGroupedCompetencies] = useState({ basic: [], organizational: [], leadership: [], minimum: [] });
-  const [raters, setRaters] = useState([]);
-  const [modalLoading, setModalLoading] = useState(false);
-  const [autoRefresh, setAutoRefresh] = useState(false);
-  const [lastRefresh, setLastRefresh] = useState(new Date());
-  const [testMode, setTestMode] = useState(false);
-  const [testScores, setTestScores] = useState({}); // { "RATERTYPE:COMP_CODE": score }
-  const autoRefreshRef = useRef(null);
-
-  // ─── Notification state — persisted in DB via ratingLogsAPI ──────────────────
-  const [notifications, setNotifications] = useState([]);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [notifOpen, setNotifOpen] = useState(false);
-  const [initLoading, setInitLoading] = useState(true);
-  const lastNotifPollRef = useRef(null); // null until we know the latest timestamp from DB
-  const notifPanelRef = useRef(null);
-
-  // ─── Stable refs so the notification poll can access current state without re-subscribing ──
-  const selectedItemRef = useRef(selectedItem);
-  const selectedCandidateRef = useRef(selectedCandidate);
-  const modalOpenRef = useRef(modalOpen);
-  // FIX: track the item the modal is ACTUALLY showing (not the dropdown selectedItem)
-  const modalItemNumberRef = useRef(modalItemNumber);
-
-  // ── Load persisted notifications on mount ───────────────────────────────────
-  useEffect(() => {
-    const loadPersistedNotifications = async () => {
-      // Only summary_viewer and admin have access to GET /rating-logs/recent for hydration.
-      const canViewNotifs = user?.userType === 'summary_viewer' || user?.userType === 'admin';
-
-      if (!canViewNotifs) {
-        lastNotifPollRef.current = new Date().toISOString();
-        return;
-      }
-
-      try {
-        // Hydrate the notification panel from stored logs (last 30, all time).
-        // getNotifications() calls /rating-logs/recent with no `since` param,
-        // which the backend interprets as a hydration load and returns last 30.
-        const stored = await ratingLogsAPI.getNotifications();
-        if (Array.isArray(stored) && stored.length > 0) {
-          setNotifications(stored.slice(0, 30));
-
-          // Restore unread count using the last-read timestamp in localStorage.
-          const lastReadAt = localStorage.getItem('notif_lastReadAt') || '';
-          const unread = stored.filter(n => (n.createdAt ?? '') > lastReadAt).length;
-          setUnreadCount(Math.min(unread, 30));
-
-          // Use the actual max createdAt as the poll cursor (don't assume sort order).
-          const latest = stored.reduce((max, n) => {
-            const t = n.createdAt ?? '';
-            return t > max ? t : max;
-          }, '');
-          lastNotifPollRef.current = latest || new Date().toISOString();
-        } else {
-          lastNotifPollRef.current = new Date().toISOString();
-        }
-      } catch (err) {
-        // If the server returns 403 fall through gracefully so polling can still start.
-        if (err?.response?.status !== 403) {
-          console.warn('Failed to load persisted notifications:', err);
-        }
-        lastNotifPollRef.current = new Date().toISOString();
-      }
-    };
-    loadPersistedNotifications();
-  }, [user?.userType]);
-
-  useEffect(() => { selectedItemRef.current = selectedItem; }, [selectedItem]);
-  useEffect(() => { selectedCandidateRef.current = selectedCandidate; }, [selectedCandidate]);
-  useEffect(() => { modalOpenRef.current = modalOpen; }, [modalOpen]);
-  useEffect(() => { modalItemNumberRef.current = modalItemNumber; }, [modalItemNumber]);
-
-  // ─── System-wide notification polling (every 30s, admin + summary_viewer) ───
-  useEffect(() => {
-    // Only admins and summary_viewers have access to rating-logs endpoints.
-    if (user?.userType !== 'admin' && user?.userType !== 'summary_viewer') return;
-
-    const poll = async () => {
-      // Don't poll until the initial load has set the cursor
-      if (!lastNotifPollRef.current) return;
-      try {
-        const recent = await ratingLogsAPI.getRecent(lastNotifPollRef.current);
-        lastNotifPollRef.current = new Date().toISOString();
-        if (recent.length > 0) {
-          setNotifications(prev => [...recent, ...prev].slice(0, 30));
-          setUnreadCount(prev => prev + recent.length);
-
-          // ── Auto-refresh live view when new activity is detected ──────────────
-          // 1. If a board is currently shown, silently refresh the candidate cards
-          const currentItem = selectedItemRef.current;
-          if (currentItem) {
-            try {
-              const { board, salaryGrade: sg, requiredRaters: rr } = await candidatesAPI.getBoardByItem(currentItem);
-              setBoardSalaryGrade(sg);
-              setBoardRequiredRaters(rr ?? (sg && sg <= 14 ? 2 : 6));
-              setCandidateBoard(prev => {
-                const sorted = [...board].sort((a, b) => {
-                  if (a.lastRatedAt && b.lastRatedAt) return new Date(b.lastRatedAt) - new Date(a.lastRatedAt);
-                  if (a.lastRatedAt) return -1;
-                  if (b.lastRatedAt) return 1;
-                  return a.name.localeCompare(b.name);
-                });
-                return sorted;
-              });
-            } catch { /* silent — board refresh is non-critical */ }
-          }
-
-          // 2. If a candidate modal is open, silently refresh it too
-          if (modalOpenRef.current && selectedCandidateRef.current) {
-            try {
-              // FIX: use modalItemNumberRef (the item the modal is actually showing),
-              // NOT selectedItemRef (the dropdown). They differ when the modal was
-              // opened via a notification while a different item was selected in
-              // the dropdown — using selectedItemRef caused a blank modal.
-              await loadModalData(selectedCandidateRef.current.id, modalItemNumberRef.current);
-            } catch { /* silent */ }
-          }
-        }
-      } catch (err) {
-        // Silence expected 403s; surface unexpected errors for debugging
-        if (err?.response?.status !== 403) {
-          console.warn('Notification poll error:', err);
-        }
-      }
-    };
-    // Initial poll after 10s so it doesn't fire on first load
-    const initialTimer = setTimeout(poll, 10000);
-    const interval = setInterval(poll, 30000);
-    return () => {
-      clearTimeout(initialTimer);
-      clearInterval(interval);
-    };
-  }, [user?.userType]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ─── Close notification panel when clicking outside ───────────────────────────
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (notifPanelRef.current && !notifPanelRef.current.contains(e.target)) {
-        setNotifOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  // ─── Initial load ────────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!gateAccess) return; // Don't load until gate is cleared
-    const fetchInitialData = async () => {
-      try {
-        setInitLoading(true);
-        const [vacanciesRes, ratersData, pubRangesRes] = await Promise.all([
-          vacanciesAPI.getAll(),
-          usersAPI.getRaters(),
-          publicationRangesAPI.getActive()
-        ]);
-        let activeVacancies = vacanciesRes.filter(v => !v.isArchived);
-
-        // ── Secretariat scoping: mirror SecretariatView assignment logic ──────
-        if (gateAccess.role === 'secretariat') {
-          const su = gateAccess.scopedUser;
-          if (su.assignedVacancies === 'specific') {
-            const allowed = su.assignedItemNumbers || [];
-            activeVacancies = activeVacancies.filter(v => allowed.includes(v.itemNumber));
-          } else if (su.assignedVacancies === 'assignment') {
-            activeVacancies = activeVacancies.filter(v => v.assignment === su.assignedAssignment);
-          }
-          // 'all' falls through unfiltered
-        }
-
-        setVacancies(activeVacancies);
-        const uniqueAssignments = [...new Set(
-          activeVacancies.map(v => v.assignment).filter(a => a && a.trim())
-        )].sort();
-        setAssignments(uniqueAssignments);
-        setRaters(ratersData);
-        setPublicationRanges(pubRangesRes);
-      } catch (err) {
-        console.error('Failed to load initial data:', err);
-      } finally {
-        setInitLoading(false);
-      }
-    };
-    fetchInitialData();
-  }, [gateAccess]);
-
-  // ─── Position loader ─────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!selectedAssignment) {
-      setPositions([]);
-      setSelectedPosition('');
-      setItems([]);
-      setSelectedItem('');
-      setCandidateBoard([]);
-      return;
-    }
-    const filtered = vacancies.filter(v =>
-      v.assignment === selectedAssignment &&
-      (!selectedPublicationRange || v.publicationRangeId === selectedPublicationRange)
-    );
-    const uniquePositions = [...new Set(filtered.map(v => v.position).filter(Boolean))].sort();
-    setPositions(uniquePositions);
-    setSelectedPosition('');
-    setItems([]);
-    setSelectedItem('');
-    setCandidateBoard([]);
-  }, [selectedAssignment, selectedPublicationRange, vacancies]);
-
-  // ─── Item loader ─────────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!selectedPosition) {
-      setItems([]);
-      setSelectedItem('');
-      setCandidateBoard([]);
-      return;
-    }
-    const filtered = vacancies.filter(v =>
-      v.assignment === selectedAssignment &&
-      v.position === selectedPosition &&
-      (!selectedPublicationRange || v.publicationRangeId === selectedPublicationRange)
-    );
-    const uniqueItems = [...new Set(filtered.map(v => v.itemNumber).filter(Boolean))].sort();
-    setItems(uniqueItems);
-    setSelectedItem('');
-    setCandidateBoard([]);
-  }, [selectedPosition, selectedAssignment, selectedPublicationRange, vacancies]);
-
-  // ─── Candidate board loader ───────────────────────────────────────────────────
-  useEffect(() => {
-    if (!selectedItem) {
-      setCandidateBoard([]);
-      return;
-    }
-    loadCandidateBoard();
-  }, [selectedItem]);
-
-  const loadCandidateBoard = useCallback(async () => {
-    if (!selectedItem) return;
-    const t0 = performance.now();
-    setBoardLoading(true);
-    setSearchQuery('');
-    setFilterRated('all');
-    try {
-      // Fast path: single batch request (2 DB queries instead of 1+N)
-      const { board, salaryGrade: sg, requiredRaters: rr } = await candidatesAPI.getBoardByItem(selectedItem);
-      setBoardSalaryGrade(sg);
-      setBoardRequiredRaters(rr ?? (sg && sg <= 14 ? 2 : 6));
-      const sorted = [...board].sort((a, b) => {
-        if (a.lastRatedAt && b.lastRatedAt) return new Date(b.lastRatedAt) - new Date(a.lastRatedAt);
-        if (a.lastRatedAt) return -1;
-        if (b.lastRatedAt) return 1;
-        return a.name.localeCompare(b.name);
-      });
-      setCandidateBoard(sorted);
-      setBoardLoadTime(Math.round(performance.now() - t0));
-    } catch (batchErr) {
-      console.warn('Batch board endpoint unavailable, falling back to legacy load:', batchErr.message);
-      // Fallback: original N+1 approach so board still loads even if backend not yet deployed
-      try {
-        const allCandidates = await candidatesAPI.getAll();
-        const itemCandidates = allCandidates.filter(
-          c => !c.isArchived && c.itemNumber === selectedItem && c.status === 'long_list'
-        );
-        const enriched = await Promise.all(
-          itemCandidates.map(async (c) => {
-            try {
-              const candidateRatings = await ratingsAPI.getByCandidate(c._id);
-              const itemRatings = candidateRatings.filter(r => r.itemNumber === selectedItem);
-              const uniqueRaterIds = [...new Set(itemRatings.map(r => String(r.raterId?._id || r.raterId)))];
-              // Compute CER score (0-10) matching the modal formula
-              const byType = { basic: [], organizational: [], leadership: [], minimum: [] };
-              itemRatings.forEach(r => { if (r.score > 0 && byType[r.competencyType]) byType[r.competencyType].push(r.score); });
-              const typeAvg = arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
-              const basicAvg = typeAvg(byType.basic);
-              const orgAvg   = typeAvg(byType.organizational);
-              const leadAvg  = typeAvg(byType.leadership);
-              const minAvg   = typeAvg(byType.minimum);
-              const psychoSocial = basicAvg * 2;
-              const potential = boardSalaryGrade && boardSalaryGrade >= 18
-                ? ((orgAvg + leadAvg + minAvg) / 3) * 2
-                : ((orgAvg + minAvg) / 2) * 2;
-              const cerScore = (psychoSocial === 0 && potential === 0)
-                ? 0
-                : Math.round(((psychoSocial + potential) / 2) * 100) / 100;
-              const lastRatedAt = itemRatings.length > 0
-                ? itemRatings.reduce((latest, r) => {
-                    const d = new Date(r.interviewDate || r.createdAt || 0);
-                    return d > latest ? d : latest;
-                  }, new Date(0))
-                : null;
-              return { id: c._id, name: c.fullName, cerScore, raterCount: uniqueRaterIds.length, lastRatedAt };
-            } catch {
-              return { id: c._id, name: c.fullName, cerScore: 0, raterCount: 0, lastRatedAt: null };
-            }
-          })
-        );
-        const sorted = enriched.sort((a, b) => {
-          if (a.lastRatedAt && b.lastRatedAt) return new Date(b.lastRatedAt) - new Date(a.lastRatedAt);
-          if (a.lastRatedAt) return -1;
-          if (b.lastRatedAt) return 1;
-          return a.name.localeCompare(b.name);
-        });
-        setCandidateBoard(sorted);
-        setBoardLoadTime(Math.round(performance.now() - t0));
-      } catch (fallbackErr) {
-        console.error('Failed to load candidate board (fallback also failed):', fallbackErr);
-      }
-    } finally {
-      setBoardLoading(false);
-    }
-  }, [selectedItem]);
-
-  // ─── Live metrics — derived from board, zero extra requests ─────────────────
-  const metrics = useMemo(() => {
-    if (!candidateBoard.length) return null;
-    const total = candidateBoard.length;
-    const rated = candidateBoard.filter(c => c.raterCount > 0).length;
-    const fullyRated = boardRequiredRaters
-      ? candidateBoard.filter(c => c.raterCount >= boardRequiredRaters).length
-      : 0;
-    const scores = candidateBoard.filter(c => c.cerScore > 0).map(c => c.cerScore);
-    const avgScore = scores.length
-      ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 100) / 100 : 0;
-    const topScorer = candidateBoard.reduce((top, c) => c.cerScore > (top?.cerScore || 0) ? c : top, null);
-    const recentActivity = [...candidateBoard]
-      .filter(c => c.lastRatedAt)
-      .sort((a, b) => new Date(b.lastRatedAt) - new Date(a.lastRatedAt))[0];
-    return {
-      total, rated, fullyRated, avgScore, topScorer, recentActivity,
-      ratedPct: Math.round((rated / total) * 100),
-      fullyRatedPct: Math.round((fullyRated / total) * 100),
-    };
-  }, [candidateBoard, boardRequiredRaters]);
-
-  // ─── Filtered board ───────────────────────────────────────────────────────────
-  const filteredBoard = useMemo(() => {
-    let list = candidateBoard;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      list = list.filter(c => c.name.toLowerCase().includes(q));
-    }
-    if (filterRated === 'rated')   list = list.filter(c => c.raterCount > 0);
-    if (filterRated === 'unrated') list = list.filter(c => c.raterCount === 0);
-    return list;
-  }, [candidateBoard, searchQuery, filterRated]);
-
-  // ─── Open modal for a candidate ───────────────────────────────────────────────
-  const openCandidateModal = async (candidate) => {
-    setSelectedCandidate(candidate);
-    setModalOpen(true);
-    setModalLoading(true);
-    setModalItemNumber(selectedItem);
-    try {
-      await loadModalData(candidate.id, selectedItem);
-    } finally {
-      setModalLoading(false);
-    }
-  };
-
-  const loadModalData = async (candidateId, overrideItemNumber) => {
-    // overrideItemNumber is used when the notification's item differs from current selectedItem
-    // (React state hasn't flushed yet when this is called from handleNotifClick)
-    const effectiveItem = overrideItemNumber ?? selectedItem;
-
-    // ── FIX: Do NOT touch any state until ALL data is fetched. ──────────────────
-    // The old code spread state updates across multiple await boundaries. When the
-    // background poll triggered a silent refresh, React would re-render between
-    // awaits with partially-reset state — e.g. ratings already cleared but
-    // groupedCompetencies still from the previous load — causing scores to flash
-    // blank until the full load completed.
-    // Solution: fetch everything first, then commit all state in one synchronous
-    // block so React batches it into a single render with no blank intermediate frame.
-
-    const [candidateData, ratingsData, allVacancies] = await Promise.all([
-      candidatesAPI.getById(candidateId),
-      ratingsAPI.getByCandidate(candidateId),
-      vacanciesAPI.getAll()
-    ]);
-
-    const filteredRatings = ratingsData.filter(r => r.itemNumber === effectiveItem);
-
-    const vacancy = allVacancies.find(v =>
-      !v.isArchived &&
-      v.itemNumber === effectiveItem &&
-      (!selectedPublicationRange || String(v.publicationRangeId) === String(selectedPublicationRange))
-    );
-
-    // All item numbers sharing the same position + assignment (for merged display in PDF)
-    const siblingItemNumbers = vacancy
-      ? allVacancies
-          .filter(v => !v.isArchived && v.position === vacancy.position && v.assignment === vacancy.assignment)
-          .map(v => v.itemNumber).filter(Boolean).sort()
-      : [effectiveItem];
-
-    const resolvedSalaryGrade = vacancy?.salaryGrade || boardSalaryGrade || null;
-
-    // Re-fetch raters if missing (e.g. non-admin got stripped _id)
-    let resolvedRaters = raters;
-    if (raters.length === 0 || !raters[0]?._id) {
-      try {
-        resolvedRaters = await usersAPI.getRaters();
-      } catch (e) {
-        console.warn('Could not re-fetch raters:', e.message);
-      }
-    }
-
-    let newGroupedCompetencies = { basic: [], organizational: [], leadership: [], minimum: [] };
-    if (vacancy) {
-      const competencyData = await competenciesAPI.getByVacancy(vacancy._id);
-      const sorted = competencyData
-        .map(c => ({ id: c._id, name: c.name, type: c.type, code: c.name.toUpperCase().replace(/ /g, '_') }))
-        .sort((a, b) => {
-          const order = { basic: 1, organizational: 2, leadership: 3, minimum: 4 };
-          return order[a.type] !== order[b.type]
-            ? order[a.type] - order[b.type]
-            : a.name.localeCompare(b.name);
-        });
-      newGroupedCompetencies = {
-        basic: sorted.filter(c => c.type === 'basic').map((c, i) => ({ ...c, ordinal: i + 1 })),
-        organizational: sorted.filter(c => c.type === 'organizational').map((c, i) => ({ ...c, ordinal: i + 1 })),
-        leadership: sorted.filter(c => c.type === 'leadership').map((c, i) => ({ ...c, ordinal: i + 1 })),
-        minimum: sorted.filter(c => c.type === 'minimum').map((c, i) => ({ ...c, ordinal: i + 1 })),
-      };
-    }
-
-    // ── Commit everything in one synchronous block → single React render ────────
-    setModalItemNumber(effectiveItem);
-    setModalAllItemNumbers(siblingItemNumbers);
-    setCandidateDetails(candidateData);
-    setRatings(filteredRatings);
-    setVacancyDetails(vacancy);
-    setSalaryGrade(resolvedSalaryGrade);
-    if (resolvedRaters !== raters) setRaters(resolvedRaters);
-    setGroupedCompetencies(newGroupedCompetencies);
-    setLastRefresh(new Date());
-  };
-
-  const closeModal = () => {
-    setModalOpen(false);
-    setSelectedCandidate(null);
-    setCandidateDetails(null);
-    setRatings([]);
-    setModalItemNumber('');
-    setModalAllItemNumbers([]);
-    setGroupedCompetencies({ basic: [], organizational: [], leadership: [], minimum: [] });
-    setAutoRefresh(false);
-    setTestMode(false);
-    setTestScores({});
-    if (autoRefreshRef.current) clearInterval(autoRefreshRef.current);
-  };
-
-  // ─── Auto-refresh inside modal ────────────────────────────────────────────────
-  useEffect(() => {
-    if (autoRefreshRef.current) clearInterval(autoRefreshRef.current);
-    if (!autoRefresh || !selectedCandidate || !modalOpen) return;
-    autoRefreshRef.current = setInterval(async () => {
-      try {
-        // FIX: pass modalItemNumber explicitly — never let loadModalData fall back
-        // to selectedItem (the dropdown), which may differ when the modal was
-        // opened via a notification click while a different item was selected.
-        await loadModalData(selectedCandidate.id, modalItemNumber || undefined);
-      } catch (err) {
-        console.error('Auto-refresh failed:', err);
-      }
-    }, 30000);
-    return () => { if (autoRefreshRef.current) clearInterval(autoRefreshRef.current); };
-  }, [autoRefresh, selectedCandidate, modalOpen, modalItemNumber]);
-
-  // ─── Score calculation helpers ────────────────────────────────────────────────
+// ─── Scoring helpers as a pure factory ────────────────────────────────────────
+// Everything the summary needs to compute scores, parameterised on the data for
+// ONE candidate/item instead of reading React state. Used by the on-screen modal
+// and by the PDF renderer (single and bulk).
+const makeScorers = ({ ratings, groupedCompetencies, salaryGrade, modalItemNumber, testMode = false, testScores = {} }) => {
   const getRaterTypeCode = (raterType) => {
     switch (raterType) {
       case 'Chairperson': return 'CHAIR';
@@ -887,396 +158,44 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
 
   const shouldShowLeadership = () => salaryGrade >= 18 && groupedCompetencies.leadership.length > 0;
 
-  // ─── Long Evaluator CSV Export ────────────────────────────────────────────────
-  const [csvExporting, setCsvExporting] = useState(false);
-  const [exportAllCsvExporting, setExportAllCsvExporting] = useState(false);
-
-  const exportToLongEvaluatorCSV = async ({ exportAll = false } = {}) => {
-    if (!exportAll && (!selectedItem || !selectedAssignment || !selectedPosition)) return;
-    if (exportAll) setExportAllCsvExporting(true);
-    else setCsvExporting(true);
-    try {
-      // ── EXPORT ALL MODE: iterate every unique position+assignment group ──────
-      if (exportAll) {
-        // Collect all secretariats once
-        let secretariats = [];
-        try { secretariats = await usersAPI.getSecretariats(); } catch { /* leave empty */ }
-
-        // Rater list
-        const raterList = raters.length > 0 ? raters : (await usersAPI.getRaters().catch(() => []));
-
-        // Fetch all candidates once
-        const allCandidatesData = await candidatesAPI.getAll();
-
-        // Group vacancies by position+assignment to get unique groups
-        const groups = {};
-        vacancies.forEach(v => {
-          const key = `${v.position}||${v.assignment}`;
-          if (!groups[key]) groups[key] = [];
-          groups[key].push(v);
-        });
-
-        const allRows = [];
-        for (const [, groupVacancies] of Object.entries(groups)) {
-          const firstVacancy = groupVacancies[0];
-          const groupPosition = firstVacancy.position;
-          const groupAssignment = firstVacancy.assignment;
-          const allItemNumbers = [...new Set(groupVacancies.map(v => v.itemNumber).filter(Boolean))].sort();
-          const itemCell = allItemNumbers.join(' / ');
-          const sg = firstVacancy.salaryGrade || null;
-
-          const pubRange = publicationRanges.find(pr =>
-            groupVacancies.some(v => String(v.publicationRangeId) === String(pr._id))
-          );
-          const publicationName = pubRange?.name || '';
-
-          const assignedSec = secretariats.find(s => {
-            if (s.assignedVacancies === 'all') return true;
-            if (s.assignedVacancies === 'assignment') return s.assignedAssignment === groupAssignment;
-            if (s.assignedVacancies === 'specific') return allItemNumbers.some(n => (s.assignedItemNumbers || []).includes(n));
-            return false;
-          });
-          const secretariatName = assignedSec?.name || '';
-
-          const requiredSG14Types = new Set(['Regular Member', 'End-User']);
-          const allRaterTypes = new Set(['Chairperson', 'Vice-Chairperson', 'Regular Member', 'DENREU', 'Gender and Development', 'End-User']);
-          const requiredTypes = sg && sg <= 14 ? requiredSG14Types : allRaterTypes;
-          const requiredRaterCount = requiredTypes.size;
-
-          let competencyData = [];
-          try { competencyData = await competenciesAPI.getByVacancy(firstVacancy._id); } catch { /* skip */ }
-          const compsByType = { basic: [], organizational: [], leadership: [], minimum: [] };
-          competencyData.forEach(c => {
-            if (compsByType[c.type]) compsByType[c.type].push({ ...c, code: c.name.toUpperCase().replace(/ /g, '_') });
-          });
-
-          const relevantCandidates = allCandidatesData.filter(
-            c => !c.isArchived && allItemNumbers.includes(c.itemNumber) && c.status === 'long_list'
-          );
-
-          const raterIdToType = {};
-          raterList.forEach(r => { raterIdToType[String(r._id)] = r.raterType; });
-
-          const groupRows = await Promise.all(relevantCandidates.map(async (candidate) => {
-            const candidateItemNum = candidate.itemNumber;
-            let candidateRatings = [];
-            try { candidateRatings = await ratingsAPI.getByCandidate(candidate._id); } catch { /* skip */ }
-            const itemRatings = candidateRatings.filter(r => r.itemNumber === candidateItemNum);
-
-            const qualifiedRaterIds = new Set();
-            itemRatings.forEach(r => {
-              if (r.score > 0) {
-                const rid = String(r.raterId?._id || r.raterId);
-                const rType = r.raterId?.raterType || raterIdToType[rid] || '';
-                if (requiredTypes.has(rType)) qualifiedRaterIds.add(rid);
-              }
-            });
-            const raterCount = qualifiedRaterIds.size;
-            const hasAnyRating = raterCount > 0;
-            const isComplete = raterCount >= requiredRaterCount;
-
-            let psychoSocial = '', potential = '';
-            if (hasAnyRating) {
-              if (!isComplete) {
-                psychoSocial = 'INCOMPLETE'; potential = 'INCOMPLETE';
-              } else {
-                const avgForType = (type) => {
-                  const comps = compsByType[type] || [];
-                  if (!comps.length) return 0;
-                  let total = 0, rated = 0;
-                  comps.forEach(comp => {
-                    const raterTypesList = Array.from(requiredTypes);
-                    const validScores = raterTypesList.map(rt => {
-                      const r = itemRatings.find(rating =>
-                        rating.competencyId?.name?.toUpperCase().replace(/ /g, '_') === comp.code &&
-                        (rating.raterId?.raterType || raterIdToType[String(rating.raterId?._id || rating.raterId)]) === rt &&
-                        rating.competencyType === type && rating.score > 0
-                      );
-                      return r ? r.score : null;
-                    }).filter(s => s !== null);
-                    const compAvg = validScores.length > 0 ? validScores.reduce((a, b) => a + b, 0) / validScores.length : 0;
-                    if (compAvg > 0) { total += compAvg; rated++; }
-                  });
-                  if (!rated) return 0;
-                  return type === 'minimum' ? total / comps.length : total / 5;
-                };
-                const ps = avgForType('basic') * 2;
-                const pot = sg && sg >= 18
-                  ? ((avgForType('organizational') + avgForType('leadership') + avgForType('minimum')) / 3) * 2
-                  : ((avgForType('organizational') + avgForType('minimum')) / 2) * 2;
-                psychoSocial = ps > 0 ? (Math.round(ps * 100) / 100) : '';
-                potential = pot > 0 ? (Math.round(pot * 100) / 100) : '';
-              }
-            }
-
-            return {
-              code: publicationName, assignedTo: secretariatName,
-              position: groupPosition, item: itemCell, salaryGrade: sg || '',
-              assignment: groupAssignment, fullName: candidate.fullName,
-              email: '', phone: '', preAssessment: '',
-              link1: candidate.personalDataSheet || '',
-              link2: candidate.workExperienceSheet || '',
-              pds: candidate.personalDataSheet ? `=HYPERLINK("${candidate.personalDataSheet}","PDS")` : '',
-              wes: candidate.workExperienceSheet ? `=HYPERLINK("${candidate.workExperienceSheet}","WES")` : '',
-              examNumber: '', interview: hasAnyRating ? 'YES' : 'NO',
-              jktScore: '', psycho: psychoSocial, potential: potential,
-            };
-          }));
-          allRows.push(...groupRows);
-        }
-
-        allRows.sort((a, b) => {
-          const posComp = a.position.localeCompare(b.position);
-          if (posComp !== 0) return posComp;
-          const assComp = a.assignment.localeCompare(b.assignment);
-          if (assComp !== 0) return assComp;
-          return a.fullName.localeCompare(b.fullName);
-        });
-
-        const headers = [
-          'CODE','ASSIGNED TO','POSITION','ITEM','SALARY GRADE','ASSIGNMENT',
-          'FULL NAME','EMAIL','PHONE NUMBER','PRE-ASSESSMENT','1','2','PDS','WES',
-          'EXAMINEE NUMBER','INTERVIEW','JKT SCORE','PSYCHO','POTENTIAL'
-        ];
-        const escapeCSV = (val) => {
-          const s = String(val ?? '');
-          if (s.includes(',') || s.includes('"') || s.includes('\n')) return `"${s.replace(/"/g, '""')}"`;
-          return s;
-        };
-        const csvLines = [
-          headers.map(escapeCSV).join(','),
-          ...allRows.map(r => [
-            r.code, r.assignedTo, r.position, r.item, r.salaryGrade, r.assignment,
-            r.fullName, r.email, r.phone, r.preAssessment, r.link1, r.link2,
-            r.pds, r.wes, r.examNumber, r.interview, r.jktScore, r.psycho, r.potential
-          ].map(escapeCSV).join(','))
-        ];
-        const csvContent = '\uFEFF' + csvLines.join('\r\n');
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `LONG_EVALUATOR_ALL_${new Date().toISOString().slice(0,10)}.csv`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-        return;
-      }
-
-      // ── SINGLE-ITEM MODE (original behaviour) ────────────────────────────────
-      // 1. Gather vacancy info — find all sibling item numbers (same position + assignment)
-      const siblingVacancies = vacancies.filter(
-        v => v.position === selectedPosition && v.assignment === selectedAssignment
-      );
-      const allItemNumbers = [...new Set(siblingVacancies.map(v => v.itemNumber).filter(Boolean))].sort();
-      const itemCell = allItemNumbers.join(' / ');
-
-      // Use the vacancy for the selected item for salary grade
-      const refVacancy = vacancies.find(v => v.itemNumber === selectedItem && v.assignment === selectedAssignment);
-      const sg = refVacancy?.salaryGrade || boardSalaryGrade || null;
-
-      // 2. Publication name (CODE column)
-      const pubRange = publicationRanges.find(pr => {
-        if (selectedPublicationRange) return String(pr._id) === String(selectedPublicationRange);
-        return siblingVacancies.some(v => String(v.publicationRangeId) === String(pr._id));
-      });
-      const publicationName = pubRange?.name || '';
-
-      // 3. Secretariat assigned to this item (ASSIGNED TO column)
-      let secretariatName = '';
-      try {
-        const secretariats = await usersAPI.getSecretariats();
-        const assignedSec = secretariats.find(s => {
-          if (s.assignedVacancies === 'all') return true;
-          if (s.assignedVacancies === 'assignment') return s.assignedAssignment === selectedAssignment;
-          if (s.assignedVacancies === 'specific') return (s.assignedItemNumbers || []).includes(selectedItem);
-          return false;
-        });
-        secretariatName = assignedSec?.name || '';
-      } catch { /* leave blank if fetch fails */ }
-
-      // 4. Required rater count for completeness check
-      const requiredSG14Types = new Set(['Regular Member', 'End-User']);
-      const allTypes = new Set(['Chairperson', 'Vice-Chairperson', 'Regular Member', 'DENREU', 'Gender and Development', 'End-User']);
-      const requiredTypes = sg && sg <= 14 ? requiredSG14Types : allTypes;
-      const requiredRaterCount = requiredTypes.size; // 2 for SG≤14, 6 for SG≥15
-
-      // 5. Fetch candidates for just the sibling item numbers, not every
-      // candidate in the system — allItemNumbers is usually only 1-3 items
-      // (same position + assignment within one publication range).
-      const allCandidates = await candidatesAPI.getByItemNumbers(allItemNumbers, false);
-      // Candidates on the long list for any sibling item number
-      const relevantCandidates = allCandidates.filter(
-        c => allItemNumbers.includes(c.itemNumber) && c.status === 'long_list'
-      );
-
-      // 6. Fetch competencies for the vacancy (needed for psycho/potential computation)
-      let competencyData = [];
-      if (refVacancy) {
-        try {
-          competencyData = await competenciesAPI.getByVacancy(refVacancy._id);
-        } catch { /* leave blank if fails */ }
-      }
-      const compsByType = { basic: [], organizational: [], leadership: [], minimum: [] };
-      competencyData.forEach(c => {
-        const type = c.type;
-        if (compsByType[type]) compsByType[type].push({ ...c, code: c.name.toUpperCase().replace(/ /g, '_') });
-      });
-
-      // 7. Rater list (needed to map raterId → raterType)
-      const raterList = raters.length > 0 ? raters : (await usersAPI.getRaters().catch(() => []));
-
-      // 8. For each candidate, fetch ratings and compute scores
-      const rows = await Promise.all(relevantCandidates.map(async (candidate) => {
-        // Use the candidate's own itemNumber (they may be under different sibling items)
-        const candidateItemNum = candidate.itemNumber;
-
-        let candidateRatings = [];
-        try {
-          candidateRatings = await ratingsAPI.getByCandidate(candidate._id);
-        } catch { /* leave empty */ }
-        // Filter to the candidate's item number
-        const itemRatings = candidateRatings.filter(r => r.itemNumber === candidateItemNum);
-
-        // Determine which raters have submitted (using rater type from raterList)
-        const raterIdToType = {};
-        raterList.forEach(r => { raterIdToType[String(r._id)] = r.raterType; });
-
-        // Count unique required raters who submitted any score > 0
-        const qualifiedRaterIds = new Set();
-        itemRatings.forEach(r => {
-          if (r.score > 0) {
-            const rid = String(r.raterId?._id || r.raterId);
-            const rType = r.raterId?.raterType || raterIdToType[rid] || '';
-            if (requiredTypes.has(rType)) qualifiedRaterIds.add(rid);
-          }
-        });
-        const raterCount = qualifiedRaterIds.size;
-        const hasAnyRating = raterCount > 0;
-        const isComplete = raterCount >= requiredRaterCount;
-
-        // Compute psychoSocial and potential
-        let psychoSocial = '';
-        let potential = '';
-
-        if (hasAnyRating) {
-          if (!isComplete) {
-            psychoSocial = 'INCOMPLETE';
-            potential = 'INCOMPLETE';
-          } else {
-            // Compute per-competency averages (same formula as calculateFinalScores)
-            const avgForType = (type) => {
-              const comps = compsByType[type] || [];
-              if (!comps.length) return 0;
-              let total = 0, rated = 0;
-              comps.forEach(comp => {
-                const raterTypesList = Array.from(requiredTypes);
-                const validScores = raterTypesList.map(rt => {
-                  const r = itemRatings.find(rating =>
-                    rating.competencyId?.name?.toUpperCase().replace(/ /g, '_') === comp.code &&
-                    (rating.raterId?.raterType || raterIdToType[String(rating.raterId?._id || rating.raterId)]) === rt &&
-                    rating.competencyType === type &&
-                    rating.score > 0
-                  );
-                  return r ? r.score : null;
-                }).filter(s => s !== null);
-                const compAvg = validScores.length > 0
-                  ? validScores.reduce((a, b) => a + b, 0) / validScores.length
-                  : 0;
-                if (compAvg > 0) { total += compAvg; rated++; }
-              });
-              if (!rated) return 0;
-              return type === 'minimum' ? total / comps.length : total / 5;
-            };
-
-            const basicAvg = avgForType('basic');
-            const orgAvg = avgForType('organizational');
-            const leadershipAvg = avgForType('leadership');
-            const minimumAvg = avgForType('minimum');
-
-            const ps = basicAvg * 2;
-            const pot = sg && sg >= 18
-              ? ((orgAvg + leadershipAvg + minimumAvg) / 3) * 2
-              : ((orgAvg + minimumAvg) / 2) * 2;
-
-            psychoSocial = ps > 0 ? (Math.round(ps * 100) / 100) : '';
-            potential = pot > 0 ? (Math.round(pot * 100) / 100) : '';
-          }
-        }
-
-        return {
-          code: publicationName,
-          assignedTo: secretariatName,
-          position: selectedPosition,
-          item: itemCell,
-          salaryGrade: sg || '',
-          assignment: selectedAssignment,
-          fullName: candidate.fullName,
-          email: '',
-          phone: '',
-          preAssessment: '',
-          link1: candidate.personalDataSheet || '',
-          link2: candidate.workExperienceSheet || '',
-          pds: candidate.personalDataSheet ? `=HYPERLINK("${candidate.personalDataSheet}","PDS")` : '',
-          wes: candidate.workExperienceSheet ? `=HYPERLINK("${candidate.workExperienceSheet}","WES")` : '',
-          examNumber: '',
-          interview: hasAnyRating ? 'YES' : 'NO',
-          jktScore: '',
-          psycho: psychoSocial,
-          potential: potential,
-        };
-      }));
-
-      // 9. Sort by full name
-      rows.sort((a, b) => a.fullName.localeCompare(b.fullName));
-
-      // 10. Build CSV
-      const headers = [
-        'CODE','ASSIGNED TO','POSITION','ITEM','SALARY GRADE','ASSIGNMENT',
-        'FULL NAME','EMAIL','PHONE NUMBER','PRE-ASSESSMENT','1','2','PDS','WES',
-        'EXAMINEE NUMBER','INTERVIEW','JKT SCORE','PSYCHO','POTENTIAL'
-      ];
-
-      const escapeCSV = (val) => {
-        const s = String(val ?? '');
-        if (s.includes(',') || s.includes('"') || s.includes('\n')) {
-          return `"${s.replace(/"/g, '""')}"`;
-        }
-        return s;
-      };
-
-      const csvLines = [
-        headers.map(escapeCSV).join(','),
-        ...rows.map(r => [
-          r.code, r.assignedTo, r.position, r.item, r.salaryGrade, r.assignment,
-          r.fullName, r.email, r.phone, r.preAssessment, r.link1, r.link2,
-          r.pds, r.wes, r.examNumber, r.interview, r.jktScore, r.psycho, r.potential
-        ].map(escapeCSV).join(','))
-      ];
-
-      const csvContent = '\uFEFF' + csvLines.join('\r\n'); // BOM for Excel UTF-8
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      const safeName = `${selectedPosition}_${selectedAssignment}`.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 60);
-      link.href = url;
-      link.download = `LONG_EVALUATOR_${safeName}.csv`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('CSV export failed:', err);
-    } finally {
-      setCsvExporting(false);
-      setExportAllCsvExporting(false);
-    }
+  return {
+    getRaterTypeCode, isRaterRequired, getRatingDisplay, calculateRowAverage,
+    calculateCompetencyTypeAverage, calculateFinalScores, shouldShowLeadership,
   };
+};
 
-  // ─── PDF Export ───────────────────────────────────────────────────────────────
-  const exportToPDF = async () => {
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+// ─── Competency list → { basic, organizational, leadership, minimum } ──────────
+const groupCompetencyData = (competencyData) => {
+  const sorted = competencyData
+    .map(c => ({ id: c._id, name: c.name, type: c.type, code: c.name.toUpperCase().replace(/ /g, '_') }))
+    .sort((a, b) => {
+      const order = { basic: 1, organizational: 2, leadership: 3, minimum: 4 };
+      return order[a.type] !== order[b.type]
+        ? order[a.type] - order[b.type]
+        : a.name.localeCompare(b.name);
+    });
+  const pick = (type) => sorted.filter(c => c.type === type).map((c, i) => ({ ...c, ordinal: i + 1 }));
+  return { basic: pick('basic'), organizational: pick('organizational'), leadership: pick('leadership'), minimum: pick('minimum') };
+};
+
+// ─── Draw ONE candidate's "Summary of Interview Scores" onto `doc` ─────────────
+// Draws starting on the doc's CURRENT page (the caller adds a page first for every
+// candidate after the first). Pure with respect to React state: everything it needs
+// arrives in `ctx`. Returns the page range it used.
+//   ctx = { candidateDetails, vacancyDetails, salaryGrade, ratings, groupedCompetencies,
+//           modalItemNumber, modalAllItemNumbers, raters, testMode?, testScores? }
+const renderInterviewSummaryPDF = async (doc, ctx) => {
+  const {
+    candidateDetails, vacancyDetails, ratings, groupedCompetencies,
+    modalItemNumber, modalAllItemNumbers, raters,
+  } = ctx;
+  const { getRatingDisplay, calculateRowAverage, calculateFinalScores, shouldShowLeadership, getRaterTypeCode } = makeScorers(ctx);
+
+  // autoTable remembers the last table per doc — reset it so this candidate's
+  // first table doesn't start below the PREVIOUS candidate's last table.
+  doc.lastAutoTable = undefined;
+  const startPage = doc.getNumberOfPages();
+
     const scores = calculateFinalScores();
 
     // ── Page geometry ────────────────────────────────────────────────────────────
@@ -1583,10 +502,12 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     const signerNames = signatories.map(([name]) => name);
 
     // Fetch only what's needed and convert to data URL for jsPDF
-    const esigCache = {};
+    // Module-level cache: in a bulk export the same signature is reused for every
+    // candidate, so it is fetched once instead of once per candidate.
+    const esigCache = ESIG_DATA_CACHE;
     await Promise.all(
       Object.entries(ESIG_ASSETS)
-        .filter(([name]) => signerNames.includes(name))
+        .filter(([name]) => signerNames.includes(name) && !esigCache[name])
         .map(([name, url]) => fetch(url)
           .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.blob(); })
           .then(blob => new Promise((res, rej) => {
@@ -1601,7 +522,7 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
     // ─────────────────────────────────────────────────────────────────────────────
 
     // Determine whether any sigs were actually loaded (affects vertical spacing)
-    const hasSigs = Object.keys(esigCache).length > 0;
+    const hasSigs = signerNames.some(n => esigCache[n]);
     const SIG_H = 12; // mm — height reserved for e-sig image
     const SIG_GAP = 2; // mm — gap between image bottom and name line
 
@@ -1641,14 +562,1250 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
       if (col === 2) { col = 0; rowY += 16; }
     });
 
-    // ── Add footers to every page now that page count is known ───────────────────
-    const totalPages = doc.getNumberOfPages();
-    for (let p = 1; p <= totalPages; p++) {
+    // ── Add footers to THIS candidate's pages only ───────────────────────────────
+    // Numbered "Page 1 of N" per candidate, so a merged bulk PDF still reads as
+    // N separate summaries.
+    const endPage = doc.getNumberOfPages();
+    const totalPages = endPage - startPage + 1;
+    for (let p = startPage; p <= endPage; p++) {
       doc.setPage(p);
-      drawFooter(p, totalPages);
+      drawFooter(p - startPage + 1, totalPages);
+    }
+    return { startPage, endPage };
+};
+
+// ─── Skeleton loader ───────────────────────────────────────────────────────────
+const SkeletonCard = () => (
+  <div className="bg-white rounded-xl border border-gray-100 p-5 animate-pulse">
+    <div className="flex items-start justify-between mb-3">
+      <div className="h-4 bg-gray-200 rounded w-3/5"></div>
+      <div className="h-10 w-16 bg-gray-200 rounded-lg"></div>
+    </div>
+    <div className="h-3 bg-gray-100 rounded w-2/5 mb-3"></div>
+    <div className="h-2 bg-gray-100 rounded-full w-full mb-2"></div>
+    <div className="h-3 bg-gray-100 rounded w-1/3"></div>
+  </div>
+);
+
+
+// ─── Metric Card ──────────────────────────────────────────────────────────────
+const MetricCard = ({ icon, label, value, sub, color = 'blue' }) => {
+  const colorMap = {
+    blue:   { bg: 'bg-blue-50',   border: 'border-blue-100',   text: 'text-blue-700',   icon: 'text-blue-400'   },
+    green:  { bg: 'bg-green-50',  border: 'border-green-100',  text: 'text-green-700',  icon: 'text-green-400'  },
+    amber:  { bg: 'bg-amber-50',  border: 'border-amber-100',  text: 'text-amber-700',  icon: 'text-amber-400'  },
+    purple: { bg: 'bg-purple-50', border: 'border-purple-100', text: 'text-purple-700', icon: 'text-purple-400' },
+    rose:   { bg: 'bg-rose-50',   border: 'border-rose-100',   text: 'text-rose-700',   icon: 'text-rose-400'   },
+  };
+  const c = colorMap[color] || colorMap.blue;
+  return (
+    <div className={`${c.bg} ${c.border} border rounded-xl p-4 flex items-start gap-3`}>
+      <div className={`${c.icon} mt-0.5 flex-shrink-0`}>{icon}</div>
+      <div className="min-w-0">
+        <p className="text-xs text-gray-500 font-medium truncate">{label}</p>
+        <p className={`text-xl font-bold ${c.text} leading-tight`}>{value}</p>
+        {sub && <p className="text-xs text-gray-400 mt-0.5 truncate">{sub}</p>}
+      </div>
+    </div>
+  );
+};
+
+// ─── ISGv2 Access Gate ─────────────────────────────────────────────────────────
+const ISGv2AccessGate = ({ onGranted }) => {
+  const [step, setStep] = useState('select'); // 'select' | 'credentials'
+  const [role, setRole] = useState(''); // 'admin' | 'secretariat'
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleRoleSelect = (selectedRole) => {
+    setRole(selectedRole);
+    setEmail('');
+    setPassword('');
+    setError('');
+    setStep('credentials');
+  };
+
+  const handleVerify = async () => {
+    if (!email.trim() || !password.trim()) {
+      setError('Please enter your email and password.');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      const result = await authAPI.loginSafe({ email: email.trim().toLowerCase(), password });
+      const loggedInUser = result.user;
+
+      // Enforce that the claimed role matches the actual userType
+      if (role === 'admin' && loggedInUser.userType !== 'admin') {
+        setError('These credentials do not belong to an Admin account.');
+        return;
+      }
+      if (role === 'secretariat' && loggedInUser.userType !== 'secretariat') {
+        setError('These credentials do not belong to a Secretariat account.');
+        return;
+      }
+
+      // Grant access — pass the verified user so the main component can scope the data
+      onGranted({ role, scopedUser: loggedInUser });
+    } catch (err) {
+      setError('Invalid email or password. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+
+        {/* Header */}
+        <div className="bg-gradient-to-r from-blue-700 to-blue-600 px-6 py-5">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-white bg-opacity-20 flex items-center justify-center flex-shrink-0">
+              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+            </div>
+            <div>
+              <h1 className="text-base font-bold text-white leading-tight">Interview Summary Generator</h1>
+              <p className="text-blue-200 text-xs leading-tight">HRMPSB · DENR Region IV-A</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-6 py-6">
+          {step === 'select' ? (
+            <>
+              <p className="text-sm font-semibold text-gray-700 mb-1">Who are you?</p>
+              <p className="text-xs text-gray-500 mb-5">Select your role to continue. You will need to verify your credentials.</p>
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={() => handleRoleSelect('admin')}
+                  className="flex items-center gap-4 w-full border-2 border-gray-200 hover:border-blue-400 hover:bg-blue-50 rounded-xl px-5 py-4 transition-all text-left group"
+                >
+                  <div className="w-10 h-10 rounded-lg bg-blue-100 group-hover:bg-blue-200 flex items-center justify-center flex-shrink-0 transition-colors">
+                    <svg className="w-5 h-5 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-gray-800">Admin</p>
+                    <p className="text-xs text-gray-500">Full access to all assignments and item numbers</p>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => handleRoleSelect('secretariat')}
+                  className="flex items-center gap-4 w-full border-2 border-gray-200 hover:border-green-400 hover:bg-green-50 rounded-xl px-5 py-4 transition-all text-left group"
+                >
+                  <div className="w-10 h-10 rounded-lg bg-green-100 group-hover:bg-green-200 flex items-center justify-center flex-shrink-0 transition-colors">
+                    <svg className="w-5 h-5 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-gray-800">Secretariat</p>
+                    <p className="text-xs text-gray-500">Access limited to your assigned item numbers only</p>
+                  </div>
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => { setStep('select'); setError(''); }}
+                className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 mb-4 transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+                Back
+              </button>
+
+              <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg mb-4 text-xs font-semibold ${role === 'admin' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={role === 'admin' ? "M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" : "M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"} />
+                </svg>
+                {role === 'admin' ? 'Admin' : 'Secretariat'} Verification
+              </div>
+
+              <p className="text-xs text-gray-500 mb-4">Enter your {role === 'admin' ? 'admin' : 'secretariat'} account credentials to continue.</p>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Email</label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleVerify()}
+                    placeholder="Enter your email"
+                    className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    disabled={loading}
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Password</label>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleVerify()}
+                      placeholder="Enter your password"
+                      className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2.5 pr-10 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                      disabled={loading}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(s => !s)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      tabIndex={-1}
+                    >
+                      {showPassword
+                        ? <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 4.411m0 0L21 21" /></svg>
+                        : <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                      }
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {error && (
+                <div className="mt-3 flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">
+                  <svg className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <p className="text-xs text-red-600">{error}</p>
+                </div>
+              )}
+
+              <button
+                onClick={handleVerify}
+                disabled={loading}
+                className={`w-full mt-4 py-2.5 rounded-lg text-sm font-semibold text-white transition-all flex items-center justify-center gap-2 ${role === 'admin' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'} disabled:opacity-60 disabled:cursor-not-allowed`}
+              >
+                {loading
+                  ? <><svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg> Verifying...</>
+                  : 'Verify & Continue'
+                }
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Main Component ────────────────────────────────────────────────────────────
+const InterviewSummaryGeneratorV2 = ({ user }) => {
+  // ─── Gate state ──────────────────────────────────────────────────────────────
+  const [gateAccess, setGateAccess] = useState(null); // null = not yet verified; { role, scopedUser }
+
+  // Filter state
+  const [publicationRanges, setPublicationRanges] = useState([]);
+  const [selectedPublicationRange, setSelectedPublicationRange] = useState('');
+  const [assignments, setAssignments] = useState([]);
+  const [selectedAssignment, setSelectedAssignment] = useState('');
+  const [positions, setPositions] = useState([]);
+  const [selectedPosition, setSelectedPosition] = useState('');
+  const [items, setItems] = useState([]);
+  const [selectedItem, setSelectedItem] = useState('');
+  const [vacancies, setVacancies] = useState([]);
+
+  // Candidate board state
+  const [candidateBoard, setCandidateBoard] = useState([]);
+  const [boardLoading, setBoardLoading] = useState(false);
+  const [boardLoadTime, setBoardLoadTime] = useState(null);
+  const [boardSalaryGrade, setBoardSalaryGrade] = useState(null); // from batch endpoint
+  const [boardRequiredRaters, setBoardRequiredRaters] = useState(null); // null until server confirms: 2 for SG≤14, 6 for SG≥15
+
+  // Board search/filter
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterRated, setFilterRated] = useState('all'); // 'all'|'rated'|'unrated'
+
+  // Modal state
+  const [modalOpen, setModalOpen] = useState(false);
+  const [selectedCandidate, setSelectedCandidate] = useState(null);
+  const [candidateDetails, setCandidateDetails] = useState(null);
+  const [vacancyDetails, setVacancyDetails] = useState(null);
+  const [salaryGrade, setSalaryGrade] = useState(null);
+  const [ratings, setRatings] = useState([]);
+  // The item number actually being shown in the modal — may differ from selectedItem
+  // when the modal was opened via a notification while a different item was selected.
+  const [modalItemNumber, setModalItemNumber] = useState('');
+  const [modalAllItemNumbers, setModalAllItemNumbers] = useState([]);
+  const [groupedCompetencies, setGroupedCompetencies] = useState({ basic: [], organizational: [], leadership: [], minimum: [] });
+  const [raters, setRaters] = useState([]);
+  const [modalLoading, setModalLoading] = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [lastRefresh, setLastRefresh] = useState(new Date());
+  const [testMode, setTestMode] = useState(false);
+
+  // Bulk PDF export: multi-select on the candidate board
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [bulkExporting, setBulkExporting] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0 });
+  const [bulkMsg, setBulkMsg] = useState(null); // { type: 'success'|'error', text }
+  const [testScores, setTestScores] = useState({}); // { "RATERTYPE:COMP_CODE": score }
+  const autoRefreshRef = useRef(null);
+
+  // ─── Notification state — persisted in DB via ratingLogsAPI ──────────────────
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [initLoading, setInitLoading] = useState(true);
+  const lastNotifPollRef = useRef(null); // null until we know the latest timestamp from DB
+  const notifPanelRef = useRef(null);
+
+  // ─── Stable refs so the notification poll can access current state without re-subscribing ──
+  const selectedItemRef = useRef(selectedItem);
+  const selectedCandidateRef = useRef(selectedCandidate);
+  const modalOpenRef = useRef(modalOpen);
+  // FIX: track the item the modal is ACTUALLY showing (not the dropdown selectedItem)
+  const modalItemNumberRef = useRef(modalItemNumber);
+
+  // ── Load persisted notifications on mount ───────────────────────────────────
+  useEffect(() => {
+    const loadPersistedNotifications = async () => {
+      // Only summary_viewer and admin have access to GET /rating-logs/recent for hydration.
+      const canViewNotifs = user?.userType === 'summary_viewer' || user?.userType === 'admin';
+
+      if (!canViewNotifs) {
+        lastNotifPollRef.current = new Date().toISOString();
+        return;
+      }
+
+      try {
+        // Hydrate the notification panel from stored logs (last 30, all time).
+        // getNotifications() calls /rating-logs/recent with no `since` param,
+        // which the backend interprets as a hydration load and returns last 30.
+        const stored = await ratingLogsAPI.getNotifications();
+        if (Array.isArray(stored) && stored.length > 0) {
+          setNotifications(stored.slice(0, 30));
+
+          // Restore unread count using the last-read timestamp in localStorage.
+          const lastReadAt = localStorage.getItem('notif_lastReadAt') || '';
+          const unread = stored.filter(n => (n.createdAt ?? '') > lastReadAt).length;
+          setUnreadCount(Math.min(unread, 30));
+
+          // Use the actual max createdAt as the poll cursor (don't assume sort order).
+          const latest = stored.reduce((max, n) => {
+            const t = n.createdAt ?? '';
+            return t > max ? t : max;
+          }, '');
+          lastNotifPollRef.current = latest || new Date().toISOString();
+        } else {
+          lastNotifPollRef.current = new Date().toISOString();
+        }
+      } catch (err) {
+        // If the server returns 403 fall through gracefully so polling can still start.
+        if (err?.response?.status !== 403) {
+          console.warn('Failed to load persisted notifications:', err);
+        }
+        lastNotifPollRef.current = new Date().toISOString();
+      }
+    };
+    loadPersistedNotifications();
+  }, [user?.userType]);
+
+  useEffect(() => { selectedItemRef.current = selectedItem; }, [selectedItem]);
+  useEffect(() => { selectedCandidateRef.current = selectedCandidate; }, [selectedCandidate]);
+  useEffect(() => { modalOpenRef.current = modalOpen; }, [modalOpen]);
+  useEffect(() => { modalItemNumberRef.current = modalItemNumber; }, [modalItemNumber]);
+
+  // ─── System-wide notification polling (every 30s, admin + summary_viewer) ───
+  useEffect(() => {
+    // Only admins and summary_viewers have access to rating-logs endpoints.
+    if (user?.userType !== 'admin' && user?.userType !== 'summary_viewer') return;
+
+    const poll = async () => {
+      // Don't poll until the initial load has set the cursor
+      if (!lastNotifPollRef.current) return;
+      try {
+        const recent = await ratingLogsAPI.getRecent(lastNotifPollRef.current);
+        lastNotifPollRef.current = new Date().toISOString();
+        if (recent.length > 0) {
+          setNotifications(prev => [...recent, ...prev].slice(0, 30));
+          setUnreadCount(prev => prev + recent.length);
+
+          // ── Auto-refresh live view when new activity is detected ──────────────
+          // 1. If a board is currently shown, silently refresh the candidate cards
+          const currentItem = selectedItemRef.current;
+          if (currentItem) {
+            try {
+              const { board, salaryGrade: sg, requiredRaters: rr } = await candidatesAPI.getBoardByItem(currentItem);
+              setBoardSalaryGrade(sg);
+              setBoardRequiredRaters(rr ?? (sg && sg <= 14 ? 2 : 6));
+              setCandidateBoard(prev => {
+                const sorted = [...board].sort((a, b) => {
+                  if (a.lastRatedAt && b.lastRatedAt) return new Date(b.lastRatedAt) - new Date(a.lastRatedAt);
+                  if (a.lastRatedAt) return -1;
+                  if (b.lastRatedAt) return 1;
+                  return a.name.localeCompare(b.name);
+                });
+                return sorted;
+              });
+            } catch { /* silent — board refresh is non-critical */ }
+          }
+
+          // 2. If a candidate modal is open, silently refresh it too
+          if (modalOpenRef.current && selectedCandidateRef.current) {
+            try {
+              // FIX: use modalItemNumberRef (the item the modal is actually showing),
+              // NOT selectedItemRef (the dropdown). They differ when the modal was
+              // opened via a notification while a different item was selected in
+              // the dropdown — using selectedItemRef caused a blank modal.
+              await loadModalData(selectedCandidateRef.current.id, modalItemNumberRef.current);
+            } catch { /* silent */ }
+          }
+        }
+      } catch (err) {
+        // Silence expected 403s; surface unexpected errors for debugging
+        if (err?.response?.status !== 403) {
+          console.warn('Notification poll error:', err);
+        }
+      }
+    };
+    // Initial poll after 10s so it doesn't fire on first load
+    const initialTimer = setTimeout(poll, 10000);
+    const interval = setInterval(poll, 30000);
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(interval);
+    };
+  }, [user?.userType]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ─── Close notification panel when clicking outside ───────────────────────────
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (notifPanelRef.current && !notifPanelRef.current.contains(e.target)) {
+        setNotifOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // ─── Initial load ────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!gateAccess) return; // Don't load until gate is cleared
+    const fetchInitialData = async () => {
+      try {
+        setInitLoading(true);
+        const [vacanciesRes, ratersData, pubRangesRes] = await Promise.all([
+          vacanciesAPI.getAll(),
+          usersAPI.getRaters(),
+          publicationRangesAPI.getActive()
+        ]);
+        let activeVacancies = vacanciesRes.filter(v => !v.isArchived);
+
+        // ── Secretariat scoping: mirror SecretariatView assignment logic ──────
+        if (gateAccess.role === 'secretariat') {
+          const su = gateAccess.scopedUser;
+          if (su.assignedVacancies === 'specific') {
+            const allowed = su.assignedItemNumbers || [];
+            activeVacancies = activeVacancies.filter(v => allowed.includes(v.itemNumber));
+          } else if (su.assignedVacancies === 'assignment') {
+            activeVacancies = activeVacancies.filter(v => v.assignment === su.assignedAssignment);
+          }
+          // 'all' falls through unfiltered
+        }
+
+        setVacancies(activeVacancies);
+        const uniqueAssignments = [...new Set(
+          activeVacancies.map(v => v.assignment).filter(a => a && a.trim())
+        )].sort();
+        setAssignments(uniqueAssignments);
+        setRaters(ratersData);
+        setPublicationRanges(pubRangesRes);
+      } catch (err) {
+        console.error('Failed to load initial data:', err);
+      } finally {
+        setInitLoading(false);
+      }
+    };
+    fetchInitialData();
+  }, [gateAccess]);
+
+  // ─── Position loader ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!selectedAssignment) {
+      setPositions([]);
+      setSelectedPosition('');
+      setItems([]);
+      setSelectedItem('');
+      setCandidateBoard([]);
+      return;
+    }
+    const filtered = vacancies.filter(v =>
+      v.assignment === selectedAssignment &&
+      (!selectedPublicationRange || v.publicationRangeId === selectedPublicationRange)
+    );
+    const uniquePositions = [...new Set(filtered.map(v => v.position).filter(Boolean))].sort();
+    setPositions(uniquePositions);
+    setSelectedPosition('');
+    setItems([]);
+    setSelectedItem('');
+    setCandidateBoard([]);
+  }, [selectedAssignment, selectedPublicationRange, vacancies]);
+
+  // ─── Item loader ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!selectedPosition) {
+      setItems([]);
+      setSelectedItem('');
+      setCandidateBoard([]);
+      return;
+    }
+    const filtered = vacancies.filter(v =>
+      v.assignment === selectedAssignment &&
+      v.position === selectedPosition &&
+      (!selectedPublicationRange || v.publicationRangeId === selectedPublicationRange)
+    );
+    const uniqueItems = [...new Set(filtered.map(v => v.itemNumber).filter(Boolean))].sort();
+    setItems(uniqueItems);
+    setSelectedItem('');
+    setCandidateBoard([]);
+  }, [selectedPosition, selectedAssignment, selectedPublicationRange, vacancies]);
+
+  // ─── Candidate board loader ───────────────────────────────────────────────────
+  useEffect(() => {
+    setSelectedIds(new Set());
+    setBulkMsg(null);
+    if (!selectedItem) {
+      setCandidateBoard([]);
+      return;
+    }
+    loadCandidateBoard();
+  }, [selectedItem]);
+
+  const loadCandidateBoard = useCallback(async () => {
+    if (!selectedItem) return;
+    const t0 = performance.now();
+    setBoardLoading(true);
+    setSearchQuery('');
+    setFilterRated('all');
+    try {
+      // Fast path: single batch request (2 DB queries instead of 1+N)
+      const { board, salaryGrade: sg, requiredRaters: rr } = await candidatesAPI.getBoardByItem(selectedItem);
+      setBoardSalaryGrade(sg);
+      setBoardRequiredRaters(rr ?? (sg && sg <= 14 ? 2 : 6));
+      const sorted = [...board].sort((a, b) => {
+        if (a.lastRatedAt && b.lastRatedAt) return new Date(b.lastRatedAt) - new Date(a.lastRatedAt);
+        if (a.lastRatedAt) return -1;
+        if (b.lastRatedAt) return 1;
+        return a.name.localeCompare(b.name);
+      });
+      setCandidateBoard(sorted);
+      setBoardLoadTime(Math.round(performance.now() - t0));
+    } catch (batchErr) {
+      console.warn('Batch board endpoint unavailable, falling back to legacy load:', batchErr.message);
+      // Fallback: original N+1 approach so board still loads even if backend not yet deployed
+      try {
+        const allCandidates = await candidatesAPI.getAll();
+        const itemCandidates = allCandidates.filter(
+          c => !c.isArchived && c.itemNumber === selectedItem && c.status === 'long_list'
+        );
+        const enriched = await Promise.all(
+          itemCandidates.map(async (c) => {
+            try {
+              const candidateRatings = await ratingsAPI.getByCandidate(c._id);
+              const itemRatings = candidateRatings.filter(r => r.itemNumber === selectedItem);
+              const uniqueRaterIds = [...new Set(itemRatings.map(r => String(r.raterId?._id || r.raterId)))];
+              // Compute CER score (0-10) matching the modal formula
+              const byType = { basic: [], organizational: [], leadership: [], minimum: [] };
+              itemRatings.forEach(r => { if (r.score > 0 && byType[r.competencyType]) byType[r.competencyType].push(r.score); });
+              const typeAvg = arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+              const basicAvg = typeAvg(byType.basic);
+              const orgAvg   = typeAvg(byType.organizational);
+              const leadAvg  = typeAvg(byType.leadership);
+              const minAvg   = typeAvg(byType.minimum);
+              const psychoSocial = basicAvg * 2;
+              const potential = boardSalaryGrade && boardSalaryGrade >= 18
+                ? ((orgAvg + leadAvg + minAvg) / 3) * 2
+                : ((orgAvg + minAvg) / 2) * 2;
+              const cerScore = (psychoSocial === 0 && potential === 0)
+                ? 0
+                : Math.round(((psychoSocial + potential) / 2) * 100) / 100;
+              const lastRatedAt = itemRatings.length > 0
+                ? itemRatings.reduce((latest, r) => {
+                    const d = new Date(r.interviewDate || r.createdAt || 0);
+                    return d > latest ? d : latest;
+                  }, new Date(0))
+                : null;
+              return { id: c._id, name: c.fullName, cerScore, raterCount: uniqueRaterIds.length, lastRatedAt };
+            } catch {
+              return { id: c._id, name: c.fullName, cerScore: 0, raterCount: 0, lastRatedAt: null };
+            }
+          })
+        );
+        const sorted = enriched.sort((a, b) => {
+          if (a.lastRatedAt && b.lastRatedAt) return new Date(b.lastRatedAt) - new Date(a.lastRatedAt);
+          if (a.lastRatedAt) return -1;
+          if (b.lastRatedAt) return 1;
+          return a.name.localeCompare(b.name);
+        });
+        setCandidateBoard(sorted);
+        setBoardLoadTime(Math.round(performance.now() - t0));
+      } catch (fallbackErr) {
+        console.error('Failed to load candidate board (fallback also failed):', fallbackErr);
+      }
+    } finally {
+      setBoardLoading(false);
+    }
+  }, [selectedItem]);
+
+  // ─── Live metrics — derived from board, zero extra requests ─────────────────
+  const metrics = useMemo(() => {
+    if (!candidateBoard.length) return null;
+    const total = candidateBoard.length;
+    const rated = candidateBoard.filter(c => c.raterCount > 0).length;
+    const fullyRated = boardRequiredRaters
+      ? candidateBoard.filter(c => c.raterCount >= boardRequiredRaters).length
+      : 0;
+    const scores = candidateBoard.filter(c => c.cerScore > 0).map(c => c.cerScore);
+    const avgScore = scores.length
+      ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 100) / 100 : 0;
+    const topScorer = candidateBoard.reduce((top, c) => c.cerScore > (top?.cerScore || 0) ? c : top, null);
+    const recentActivity = [...candidateBoard]
+      .filter(c => c.lastRatedAt)
+      .sort((a, b) => new Date(b.lastRatedAt) - new Date(a.lastRatedAt))[0];
+    return {
+      total, rated, fullyRated, avgScore, topScorer, recentActivity,
+      ratedPct: Math.round((rated / total) * 100),
+      fullyRatedPct: Math.round((fullyRated / total) * 100),
+    };
+  }, [candidateBoard, boardRequiredRaters]);
+
+  // ─── Filtered board ───────────────────────────────────────────────────────────
+  const filteredBoard = useMemo(() => {
+    let list = candidateBoard;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      list = list.filter(c => c.name.toLowerCase().includes(q));
+    }
+    if (filterRated === 'rated')   list = list.filter(c => c.raterCount > 0);
+    if (filterRated === 'unrated') list = list.filter(c => c.raterCount === 0);
+    return list;
+  }, [candidateBoard, searchQuery, filterRated]);
+
+  // ─── Open modal for a candidate ───────────────────────────────────────────────
+  const openCandidateModal = async (candidate) => {
+    setSelectedCandidate(candidate);
+    setModalOpen(true);
+    setModalLoading(true);
+    setModalItemNumber(selectedItem);
+    try {
+      await loadModalData(candidate.id, selectedItem);
+    } finally {
+      setModalLoading(false);
+    }
+  };
+
+  const loadModalData = async (candidateId, overrideItemNumber) => {
+    // overrideItemNumber is used when the notification's item differs from current selectedItem
+    // (React state hasn't flushed yet when this is called from handleNotifClick)
+    const effectiveItem = overrideItemNumber ?? selectedItem;
+
+    // ── FIX: Do NOT touch any state until ALL data is fetched. ──────────────────
+    // The old code spread state updates across multiple await boundaries. When the
+    // background poll triggered a silent refresh, React would re-render between
+    // awaits with partially-reset state — e.g. ratings already cleared but
+    // groupedCompetencies still from the previous load — causing scores to flash
+    // blank until the full load completed.
+    // Solution: fetch everything first, then commit all state in one synchronous
+    // block so React batches it into a single render with no blank intermediate frame.
+
+    const [candidateData, ratingsData, allVacancies] = await Promise.all([
+      candidatesAPI.getById(candidateId),
+      ratingsAPI.getByCandidate(candidateId),
+      vacanciesAPI.getAll()
+    ]);
+
+    const filteredRatings = ratingsData.filter(r => r.itemNumber === effectiveItem);
+
+    const vacancy = allVacancies.find(v =>
+      !v.isArchived &&
+      v.itemNumber === effectiveItem &&
+      (!selectedPublicationRange || String(v.publicationRangeId) === String(selectedPublicationRange))
+    );
+
+    // All item numbers sharing the same position + assignment (for merged display in PDF)
+    const siblingItemNumbers = vacancy
+      ? allVacancies
+          .filter(v => !v.isArchived && v.position === vacancy.position && v.assignment === vacancy.assignment)
+          .map(v => v.itemNumber).filter(Boolean).sort()
+      : [effectiveItem];
+
+    const resolvedSalaryGrade = vacancy?.salaryGrade || boardSalaryGrade || null;
+
+    // Re-fetch raters if missing (e.g. non-admin got stripped _id)
+    let resolvedRaters = raters;
+    if (raters.length === 0 || !raters[0]?._id) {
+      try {
+        resolvedRaters = await usersAPI.getRaters();
+      } catch (e) {
+        console.warn('Could not re-fetch raters:', e.message);
+      }
     }
 
+    let newGroupedCompetencies = { basic: [], organizational: [], leadership: [], minimum: [] };
+    if (vacancy) {
+      newGroupedCompetencies = groupCompetencyData(await competenciesAPI.getByVacancy(vacancy._id));
+    }
+
+    // ── Commit everything in one synchronous block → single React render ────────
+    setModalItemNumber(effectiveItem);
+    setModalAllItemNumbers(siblingItemNumbers);
+    setCandidateDetails(candidateData);
+    setRatings(filteredRatings);
+    setVacancyDetails(vacancy);
+    setSalaryGrade(resolvedSalaryGrade);
+    if (resolvedRaters !== raters) setRaters(resolvedRaters);
+    setGroupedCompetencies(newGroupedCompetencies);
+    setLastRefresh(new Date());
+  };
+
+  const closeModal = () => {
+    setModalOpen(false);
+    setSelectedCandidate(null);
+    setCandidateDetails(null);
+    setRatings([]);
+    setModalItemNumber('');
+    setModalAllItemNumbers([]);
+    setGroupedCompetencies({ basic: [], organizational: [], leadership: [], minimum: [] });
+    setAutoRefresh(false);
+    setTestMode(false);
+    setTestScores({});
+    if (autoRefreshRef.current) clearInterval(autoRefreshRef.current);
+  };
+
+  // ─── Auto-refresh inside modal ────────────────────────────────────────────────
+  useEffect(() => {
+    if (autoRefreshRef.current) clearInterval(autoRefreshRef.current);
+    if (!autoRefresh || !selectedCandidate || !modalOpen) return;
+    autoRefreshRef.current = setInterval(async () => {
+      try {
+        // FIX: pass modalItemNumber explicitly — never let loadModalData fall back
+        // to selectedItem (the dropdown), which may differ when the modal was
+        // opened via a notification click while a different item was selected.
+        await loadModalData(selectedCandidate.id, modalItemNumber || undefined);
+      } catch (err) {
+        console.error('Auto-refresh failed:', err);
+      }
+    }, 30000);
+    return () => { if (autoRefreshRef.current) clearInterval(autoRefreshRef.current); };
+  }, [autoRefresh, selectedCandidate, modalOpen, modalItemNumber]);
+
+  // ─── Score calculation helpers ────────────────────────────────────────────────
+  // Single source of truth lives in makeScorers() (module level) so the on-screen
+  // modal, the single-candidate PDF and the bulk PDF export all score identically.
+  const {
+    getRaterTypeCode, isRaterRequired, getRatingDisplay, calculateRowAverage,
+    calculateCompetencyTypeAverage, calculateFinalScores, shouldShowLeadership,
+  } = makeScorers({ ratings, groupedCompetencies, salaryGrade, modalItemNumber, testMode, testScores });
+
+  // ─── Long Evaluator CSV Export ────────────────────────────────────────────────
+  const [csvExporting, setCsvExporting] = useState(false);
+  const [exportAllCsvExporting, setExportAllCsvExporting] = useState(false);
+
+  const exportToLongEvaluatorCSV = async ({ exportAll = false } = {}) => {
+    if (!exportAll && (!selectedItem || !selectedAssignment || !selectedPosition)) return;
+    if (exportAll) setExportAllCsvExporting(true);
+    else setCsvExporting(true);
+    try {
+      // ── EXPORT ALL MODE: iterate every unique position+assignment group ──────
+      if (exportAll) {
+        // Collect all secretariats once
+        let secretariats = [];
+        try { secretariats = await usersAPI.getSecretariats(); } catch { /* leave empty */ }
+
+        // Rater list
+        const raterList = raters.length > 0 ? raters : (await usersAPI.getRaters().catch(() => []));
+
+        // Fetch all candidates once
+        const allCandidatesData = await candidatesAPI.getAll();
+
+        // Group vacancies by position+assignment to get unique groups
+        const groups = {};
+        vacancies.forEach(v => {
+          const key = `${v.position}||${v.assignment}`;
+          if (!groups[key]) groups[key] = [];
+          groups[key].push(v);
+        });
+
+        const allRows = [];
+        for (const [, groupVacancies] of Object.entries(groups)) {
+          const firstVacancy = groupVacancies[0];
+          const groupPosition = firstVacancy.position;
+          const groupAssignment = firstVacancy.assignment;
+          const allItemNumbers = [...new Set(groupVacancies.map(v => v.itemNumber).filter(Boolean))].sort();
+          const itemCell = allItemNumbers.join(' / ');
+          const sg = firstVacancy.salaryGrade || null;
+
+          const pubRange = publicationRanges.find(pr =>
+            groupVacancies.some(v => String(v.publicationRangeId) === String(pr._id))
+          );
+          const publicationName = pubRange?.name || '';
+
+          const assignedSec = secretariats.find(s => {
+            if (s.assignedVacancies === 'all') return true;
+            if (s.assignedVacancies === 'assignment') return s.assignedAssignment === groupAssignment;
+            if (s.assignedVacancies === 'specific') return allItemNumbers.some(n => (s.assignedItemNumbers || []).includes(n));
+            return false;
+          });
+          const secretariatName = assignedSec?.name || '';
+
+          const requiredSG14Types = new Set(['Regular Member', 'End-User']);
+          const allRaterTypes = new Set(['Chairperson', 'Vice-Chairperson', 'Regular Member', 'DENREU', 'Gender and Development', 'End-User']);
+          const requiredTypes = sg && sg <= 14 ? requiredSG14Types : allRaterTypes;
+          const requiredRaterCount = requiredTypes.size;
+
+          let competencyData = [];
+          try { competencyData = await competenciesAPI.getByVacancy(firstVacancy._id); } catch { /* skip */ }
+          const compsByType = { basic: [], organizational: [], leadership: [], minimum: [] };
+          competencyData.forEach(c => {
+            if (compsByType[c.type]) compsByType[c.type].push({ ...c, code: c.name.toUpperCase().replace(/ /g, '_') });
+          });
+
+          const relevantCandidates = allCandidatesData.filter(
+            c => !c.isArchived && allItemNumbers.includes(c.itemNumber) && c.status === 'long_list'
+          );
+
+          const raterIdToType = {};
+          raterList.forEach(r => { raterIdToType[String(r._id)] = r.raterType; });
+
+          // One batched request for every candidate's ratings (was one per candidate → 429s)
+          let ratingsByCandidate = {};
+          try { ratingsByCandidate = await ratingsAPI.getByCandidates(relevantCandidates.map(c => c._id)); } catch { /* skip */ }
+
+          const groupRows = await Promise.all(relevantCandidates.map(async (candidate) => {
+            const candidateItemNum = candidate.itemNumber;
+            const candidateRatings = ratingsByCandidate[String(candidate._id)] || [];
+            const itemRatings = candidateRatings.filter(r => r.itemNumber === candidateItemNum);
+
+            const qualifiedRaterIds = new Set();
+            itemRatings.forEach(r => {
+              if (r.score > 0) {
+                const rid = String(r.raterId?._id || r.raterId);
+                const rType = r.raterId?.raterType || raterIdToType[rid] || '';
+                if (requiredTypes.has(rType)) qualifiedRaterIds.add(rid);
+              }
+            });
+            const raterCount = qualifiedRaterIds.size;
+            const hasAnyRating = raterCount > 0;
+            const isComplete = raterCount >= requiredRaterCount;
+
+            let psychoSocial = '', potential = '';
+            if (hasAnyRating) {
+              if (!isComplete) {
+                psychoSocial = 'INCOMPLETE'; potential = 'INCOMPLETE';
+              } else {
+                const avgForType = (type) => {
+                  const comps = compsByType[type] || [];
+                  if (!comps.length) return 0;
+                  let total = 0, rated = 0;
+                  comps.forEach(comp => {
+                    const raterTypesList = Array.from(requiredTypes);
+                    const validScores = raterTypesList.map(rt => {
+                      const r = itemRatings.find(rating =>
+                        rating.competencyId?.name?.toUpperCase().replace(/ /g, '_') === comp.code &&
+                        (rating.raterId?.raterType || raterIdToType[String(rating.raterId?._id || rating.raterId)]) === rt &&
+                        rating.competencyType === type && rating.score > 0
+                      );
+                      return r ? r.score : null;
+                    }).filter(s => s !== null);
+                    const compAvg = validScores.length > 0 ? validScores.reduce((a, b) => a + b, 0) / validScores.length : 0;
+                    if (compAvg > 0) { total += compAvg; rated++; }
+                  });
+                  if (!rated) return 0;
+                  return type === 'minimum' ? total / comps.length : total / 5;
+                };
+                const ps = avgForType('basic') * 2;
+                const pot = sg && sg >= 18
+                  ? ((avgForType('organizational') + avgForType('leadership') + avgForType('minimum')) / 3) * 2
+                  : ((avgForType('organizational') + avgForType('minimum')) / 2) * 2;
+                psychoSocial = ps > 0 ? (Math.round(ps * 100) / 100) : '';
+                potential = pot > 0 ? (Math.round(pot * 100) / 100) : '';
+              }
+            }
+
+            return {
+              code: publicationName, assignedTo: secretariatName,
+              position: groupPosition, item: itemCell, salaryGrade: sg || '',
+              assignment: groupAssignment, fullName: candidate.fullName,
+              email: '', phone: '', preAssessment: '',
+              link1: candidate.personalDataSheet || '',
+              link2: candidate.workExperienceSheet || '',
+              pds: candidate.personalDataSheet ? `=HYPERLINK("${candidate.personalDataSheet}","PDS")` : '',
+              wes: candidate.workExperienceSheet ? `=HYPERLINK("${candidate.workExperienceSheet}","WES")` : '',
+              examNumber: '', interview: hasAnyRating ? 'YES' : 'NO',
+              jktScore: '', psycho: psychoSocial, potential: potential,
+            };
+          }));
+          allRows.push(...groupRows);
+        }
+
+        allRows.sort((a, b) => {
+          const posComp = a.position.localeCompare(b.position);
+          if (posComp !== 0) return posComp;
+          const assComp = a.assignment.localeCompare(b.assignment);
+          if (assComp !== 0) return assComp;
+          return a.fullName.localeCompare(b.fullName);
+        });
+
+        const headers = [
+          'CODE','ASSIGNED TO','POSITION','ITEM','SALARY GRADE','ASSIGNMENT',
+          'FULL NAME','EMAIL','PHONE NUMBER','PRE-ASSESSMENT','1','2','PDS','WES',
+          'EXAMINEE NUMBER','INTERVIEW','JKT SCORE','PSYCHO','POTENTIAL'
+        ];
+        const escapeCSV = (val) => {
+          const s = String(val ?? '');
+          if (s.includes(',') || s.includes('"') || s.includes('\n')) return `"${s.replace(/"/g, '""')}"`;
+          return s;
+        };
+        const csvLines = [
+          headers.map(escapeCSV).join(','),
+          ...allRows.map(r => [
+            r.code, r.assignedTo, r.position, r.item, r.salaryGrade, r.assignment,
+            r.fullName, r.email, r.phone, r.preAssessment, r.link1, r.link2,
+            r.pds, r.wes, r.examNumber, r.interview, r.jktScore, r.psycho, r.potential
+          ].map(escapeCSV).join(','))
+        ];
+        const csvContent = '\uFEFF' + csvLines.join('\r\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `LONG_EVALUATOR_ALL_${new Date().toISOString().slice(0,10)}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        return;
+      }
+
+      // ── SINGLE-ITEM MODE (original behaviour) ────────────────────────────────
+      // 1. Gather vacancy info — find all sibling item numbers (same position + assignment)
+      const siblingVacancies = vacancies.filter(
+        v => v.position === selectedPosition && v.assignment === selectedAssignment
+      );
+      const allItemNumbers = [...new Set(siblingVacancies.map(v => v.itemNumber).filter(Boolean))].sort();
+      const itemCell = allItemNumbers.join(' / ');
+
+      // Use the vacancy for the selected item for salary grade
+      const refVacancy = vacancies.find(v => v.itemNumber === selectedItem && v.assignment === selectedAssignment);
+      const sg = refVacancy?.salaryGrade || boardSalaryGrade || null;
+
+      // 2. Publication name (CODE column)
+      const pubRange = publicationRanges.find(pr => {
+        if (selectedPublicationRange) return String(pr._id) === String(selectedPublicationRange);
+        return siblingVacancies.some(v => String(v.publicationRangeId) === String(pr._id));
+      });
+      const publicationName = pubRange?.name || '';
+
+      // 3. Secretariat assigned to this item (ASSIGNED TO column)
+      let secretariatName = '';
+      try {
+        const secretariats = await usersAPI.getSecretariats();
+        const assignedSec = secretariats.find(s => {
+          if (s.assignedVacancies === 'all') return true;
+          if (s.assignedVacancies === 'assignment') return s.assignedAssignment === selectedAssignment;
+          if (s.assignedVacancies === 'specific') return (s.assignedItemNumbers || []).includes(selectedItem);
+          return false;
+        });
+        secretariatName = assignedSec?.name || '';
+      } catch { /* leave blank if fetch fails */ }
+
+      // 4. Required rater count for completeness check
+      const requiredSG14Types = new Set(['Regular Member', 'End-User']);
+      const allTypes = new Set(['Chairperson', 'Vice-Chairperson', 'Regular Member', 'DENREU', 'Gender and Development', 'End-User']);
+      const requiredTypes = sg && sg <= 14 ? requiredSG14Types : allTypes;
+      const requiredRaterCount = requiredTypes.size; // 2 for SG≤14, 6 for SG≥15
+
+      // 5. Fetch candidates for just the sibling item numbers, not every
+      // candidate in the system — allItemNumbers is usually only 1-3 items
+      // (same position + assignment within one publication range).
+      const allCandidates = await candidatesAPI.getByItemNumbers(allItemNumbers, false);
+      // Candidates on the long list for any sibling item number
+      const relevantCandidates = allCandidates.filter(
+        c => allItemNumbers.includes(c.itemNumber) && c.status === 'long_list'
+      );
+
+      // 6. Fetch competencies for the vacancy (needed for psycho/potential computation)
+      let competencyData = [];
+      if (refVacancy) {
+        try {
+          competencyData = await competenciesAPI.getByVacancy(refVacancy._id);
+        } catch { /* leave blank if fails */ }
+      }
+      const compsByType = { basic: [], organizational: [], leadership: [], minimum: [] };
+      competencyData.forEach(c => {
+        const type = c.type;
+        if (compsByType[type]) compsByType[type].push({ ...c, code: c.name.toUpperCase().replace(/ /g, '_') });
+      });
+
+      // 7. Rater list (needed to map raterId → raterType)
+      const raterList = raters.length > 0 ? raters : (await usersAPI.getRaters().catch(() => []));
+
+      // 8. For each candidate, fetch ratings and compute scores
+      // One batched request for every candidate's ratings (was one per candidate → 429s)
+      let ratingsByCandidate = {};
+      try {
+        ratingsByCandidate = await ratingsAPI.getByCandidates(relevantCandidates.map(c => c._id));
+      } catch { /* leave empty */ }
+
+      const rows = await Promise.all(relevantCandidates.map(async (candidate) => {
+        // Use the candidate's own itemNumber (they may be under different sibling items)
+        const candidateItemNum = candidate.itemNumber;
+
+        const candidateRatings = ratingsByCandidate[String(candidate._id)] || [];
+        // Filter to the candidate's item number
+        const itemRatings = candidateRatings.filter(r => r.itemNumber === candidateItemNum);
+
+        // Determine which raters have submitted (using rater type from raterList)
+        const raterIdToType = {};
+        raterList.forEach(r => { raterIdToType[String(r._id)] = r.raterType; });
+
+        // Count unique required raters who submitted any score > 0
+        const qualifiedRaterIds = new Set();
+        itemRatings.forEach(r => {
+          if (r.score > 0) {
+            const rid = String(r.raterId?._id || r.raterId);
+            const rType = r.raterId?.raterType || raterIdToType[rid] || '';
+            if (requiredTypes.has(rType)) qualifiedRaterIds.add(rid);
+          }
+        });
+        const raterCount = qualifiedRaterIds.size;
+        const hasAnyRating = raterCount > 0;
+        const isComplete = raterCount >= requiredRaterCount;
+
+        // Compute psychoSocial and potential
+        let psychoSocial = '';
+        let potential = '';
+
+        if (hasAnyRating) {
+          if (!isComplete) {
+            psychoSocial = 'INCOMPLETE';
+            potential = 'INCOMPLETE';
+          } else {
+            // Compute per-competency averages (same formula as calculateFinalScores)
+            const avgForType = (type) => {
+              const comps = compsByType[type] || [];
+              if (!comps.length) return 0;
+              let total = 0, rated = 0;
+              comps.forEach(comp => {
+                const raterTypesList = Array.from(requiredTypes);
+                const validScores = raterTypesList.map(rt => {
+                  const r = itemRatings.find(rating =>
+                    rating.competencyId?.name?.toUpperCase().replace(/ /g, '_') === comp.code &&
+                    (rating.raterId?.raterType || raterIdToType[String(rating.raterId?._id || rating.raterId)]) === rt &&
+                    rating.competencyType === type &&
+                    rating.score > 0
+                  );
+                  return r ? r.score : null;
+                }).filter(s => s !== null);
+                const compAvg = validScores.length > 0
+                  ? validScores.reduce((a, b) => a + b, 0) / validScores.length
+                  : 0;
+                if (compAvg > 0) { total += compAvg; rated++; }
+              });
+              if (!rated) return 0;
+              return type === 'minimum' ? total / comps.length : total / 5;
+            };
+
+            const basicAvg = avgForType('basic');
+            const orgAvg = avgForType('organizational');
+            const leadershipAvg = avgForType('leadership');
+            const minimumAvg = avgForType('minimum');
+
+            const ps = basicAvg * 2;
+            const pot = sg && sg >= 18
+              ? ((orgAvg + leadershipAvg + minimumAvg) / 3) * 2
+              : ((orgAvg + minimumAvg) / 2) * 2;
+
+            psychoSocial = ps > 0 ? (Math.round(ps * 100) / 100) : '';
+            potential = pot > 0 ? (Math.round(pot * 100) / 100) : '';
+          }
+        }
+
+        return {
+          code: publicationName,
+          assignedTo: secretariatName,
+          position: selectedPosition,
+          item: itemCell,
+          salaryGrade: sg || '',
+          assignment: selectedAssignment,
+          fullName: candidate.fullName,
+          email: '',
+          phone: '',
+          preAssessment: '',
+          link1: candidate.personalDataSheet || '',
+          link2: candidate.workExperienceSheet || '',
+          pds: candidate.personalDataSheet ? `=HYPERLINK("${candidate.personalDataSheet}","PDS")` : '',
+          wes: candidate.workExperienceSheet ? `=HYPERLINK("${candidate.workExperienceSheet}","WES")` : '',
+          examNumber: '',
+          interview: hasAnyRating ? 'YES' : 'NO',
+          jktScore: '',
+          psycho: psychoSocial,
+          potential: potential,
+        };
+      }));
+
+      // 9. Sort by full name
+      rows.sort((a, b) => a.fullName.localeCompare(b.fullName));
+
+      // 10. Build CSV
+      const headers = [
+        'CODE','ASSIGNED TO','POSITION','ITEM','SALARY GRADE','ASSIGNMENT',
+        'FULL NAME','EMAIL','PHONE NUMBER','PRE-ASSESSMENT','1','2','PDS','WES',
+        'EXAMINEE NUMBER','INTERVIEW','JKT SCORE','PSYCHO','POTENTIAL'
+      ];
+
+      const escapeCSV = (val) => {
+        const s = String(val ?? '');
+        if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+          return `"${s.replace(/"/g, '""')}"`;
+        }
+        return s;
+      };
+
+      const csvLines = [
+        headers.map(escapeCSV).join(','),
+        ...rows.map(r => [
+          r.code, r.assignedTo, r.position, r.item, r.salaryGrade, r.assignment,
+          r.fullName, r.email, r.phone, r.preAssessment, r.link1, r.link2,
+          r.pds, r.wes, r.examNumber, r.interview, r.jktScore, r.psycho, r.potential
+        ].map(escapeCSV).join(','))
+      ];
+
+      const csvContent = '\uFEFF' + csvLines.join('\r\n'); // BOM for Excel UTF-8
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const safeName = `${selectedPosition}_${selectedAssignment}`.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 60);
+      link.href = url;
+      link.download = `LONG_EVALUATOR_${safeName}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('CSV export failed:', err);
+    } finally {
+      setCsvExporting(false);
+      setExportAllCsvExporting(false);
+    }
+  };
+
+  // ─── PDF Export (single candidate — the open modal) ───────────────────────────
+  const exportToPDF = async () => {
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    await renderInterviewSummaryPDF(doc, {
+      candidateDetails, vacancyDetails, salaryGrade, ratings, groupedCompetencies,
+      modalItemNumber, modalAllItemNumbers, raters, testMode, testScores,
+    });
     doc.save(`Interview_Summary_${candidateDetails?.fullName || 'Report'}.pdf`);
+  };
+
+  // ─── Bulk selection + PDF export ──────────────────────────────────────────────
+  // Select several candidates on the board and export one merged PDF with each
+  // candidate's summary on its own page(s) (own "Page 1 of N" numbering).
+  // Shared data (vacancies, competencies, raters) is fetched ONCE and all ratings
+  // come from one batched request, so exporting 30 candidates costs ~4 requests,
+  // not ~120 — this matters because the API is rate limited per IP.
+  const toggleSelected = (id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const allFilteredSelected = filteredBoard.length > 0 && filteredBoard.every(c => selectedIds.has(c.id));
+  const toggleSelectAllFiltered = () => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (allFilteredSelected) filteredBoard.forEach(c => next.delete(c.id));
+      else filteredBoard.forEach(c => next.add(c.id));
+      return next;
+    });
+  };
+  const clearSelection = () => { setSelectedIds(new Set()); setBulkMsg(null); };
+
+  const exportSelectedToPDF = async () => {
+    const chosen = candidateBoard.filter(c => selectedIds.has(c.id));
+    if (!chosen.length || !selectedItem || bulkExporting) return;
+    setBulkExporting(true);
+    setBulkMsg(null);
+    setBulkProgress({ done: 0, total: chosen.length });
+    try {
+      // 1. Shared data — fetched once for the whole batch
+      const [allVacancies, ratingsByCandidate] = await Promise.all([
+        vacanciesAPI.getAll(),
+        ratingsAPI.getByCandidates(chosen.map(c => c.id)),
+      ]);
+      const vacancy = allVacancies.find(v =>
+        !v.isArchived &&
+        v.itemNumber === selectedItem &&
+        (!selectedPublicationRange || String(v.publicationRangeId) === String(selectedPublicationRange))
+      );
+      if (!vacancy) throw new Error('Could not find the vacancy for this item number.');
+      const siblingItemNumbers = allVacancies
+        .filter(v => !v.isArchived && v.position === vacancy.position && v.assignment === vacancy.assignment)
+        .map(v => v.itemNumber).filter(Boolean).sort();
+      const resolvedSalaryGrade = vacancy.salaryGrade || boardSalaryGrade || null;
+      const grouped = groupCompetencyData(await competenciesAPI.getByVacancy(vacancy._id));
+      let resolvedRaters = raters;
+      if (raters.length === 0 || !raters[0]?._id) {
+        try { resolvedRaters = await usersAPI.getRaters(); } catch (e) { console.warn('Could not re-fetch raters:', e.message); }
+      }
+
+      // 2. One merged PDF, each candidate starting on a fresh page
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      let noRatings = 0;
+      for (let i = 0; i < chosen.length; i++) {
+        const c = chosen[i];
+        const candRatings = (ratingsByCandidate[String(c.id)] || []).filter(r => r.itemNumber === selectedItem);
+        if (candRatings.length === 0) noRatings++;
+        if (i > 0) doc.addPage();
+        await renderInterviewSummaryPDF(doc, {
+          candidateDetails: { fullName: c.name },
+          vacancyDetails: vacancy,
+          salaryGrade: resolvedSalaryGrade,
+          ratings: candRatings,
+          groupedCompetencies: grouped,
+          modalItemNumber: selectedItem,
+          modalAllItemNumbers: siblingItemNumbers,
+          raters: resolvedRaters,
+        });
+        setBulkProgress({ done: i + 1, total: chosen.length });
+      }
+      const safeItem = String(selectedItem).replace(/[^A-Za-z0-9_-]+/g, '_');
+      doc.save(`Interview_Summaries_${safeItem}_${chosen.length}_candidates.pdf`);
+      setBulkMsg({
+        type: 'success',
+        text: `Exported ${chosen.length} summar${chosen.length === 1 ? 'y' : 'ies'}` +
+          (noRatings ? ` (${noRatings} had no ratings yet and show blank scores).` : '.'),
+      });
+    } catch (err) {
+      console.error('Bulk PDF export failed:', err);
+      const status = err?.response?.status;
+      setBulkMsg({
+        type: 'error',
+        text: status === 429
+          ? 'Too many requests right now — wait a minute and try again.'
+          : `Bulk export failed: ${err?.message || 'unknown error'}`,
+      });
+    } finally {
+      setBulkExporting(false);
+    }
   };
 
   // ─── Competency score table renderer ─────────────────────────────────────────
@@ -2169,6 +2326,11 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
                     <option value="rated">Rated only</option>
                     <option value="unrated">Unrated only</option>
                   </select>
+                  <button onClick={toggleSelectAllFiltered} disabled={boardLoading || filteredBoard.length === 0 || bulkExporting}
+                    className="flex items-center gap-1.5 text-xs text-gray-700 hover:text-gray-900 px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 transition-all disabled:opacity-50"
+                    title="Select every candidate currently shown, to export their summaries as one PDF">
+                    {allFilteredSelected ? 'Deselect all' : 'Select all'}
+                  </button>
                   <button onClick={loadCandidateBoard} disabled={boardLoading}
                     className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 px-3 py-1.5 rounded-lg border border-blue-200 hover:bg-blue-50 transition-all disabled:opacity-50">
                     <svg className={`w-3.5 h-3.5 ${boardLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2190,6 +2352,39 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
                 </div>
               )}
             </div>
+
+            {/* Bulk selection action bar */}
+            {(selectedIds.size > 0 || bulkMsg) && (
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-4 px-4 py-2.5 rounded-xl border border-blue-200 bg-blue-50">
+                <div className="text-xs text-blue-900">
+                  {selectedIds.size > 0 && (
+                    <span className="font-semibold">{selectedIds.size} candidate{selectedIds.size !== 1 ? 's' : ''} selected</span>
+                  )}
+                  {bulkExporting && (
+                    <span className="ml-2 text-blue-700">Generating {bulkProgress.done} of {bulkProgress.total}…</span>
+                  )}
+                  {!bulkExporting && bulkMsg && (
+                    <span className={`${selectedIds.size > 0 ? 'ml-2 ' : ''}${bulkMsg.type === 'error' ? 'text-red-700' : 'text-green-700'}`}>
+                      {bulkMsg.text}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {selectedIds.size > 0 && (
+                    <button onClick={clearSelection} disabled={bulkExporting}
+                      className="text-xs text-gray-600 hover:text-gray-900 px-3 py-1.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50">
+                      Clear
+                    </button>
+                  )}
+                  {selectedIds.size > 0 && (
+                    <button onClick={exportSelectedToPDF} disabled={bulkExporting}
+                      className="text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 px-3 py-1.5 rounded-lg disabled:opacity-60">
+                      {bulkExporting ? 'Generating PDF…' : `Export ${selectedIds.size} PDF${selectedIds.size !== 1 ? 's' : ''} (merged)`}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Candidate cards grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -2218,14 +2413,25 @@ const InterviewSummaryGeneratorV2 = ({ user }) => {
                     return (
                       <div
                         key={candidate.id}
-                        className="bg-white rounded-xl border border-gray-100 p-5 hover:border-blue-300 hover:shadow-md transition-all duration-200 cursor-pointer group"
+                        className={`bg-white rounded-xl border p-5 hover:border-blue-300 hover:shadow-md transition-all duration-200 cursor-pointer group ${selectedIds.has(candidate.id) ? 'border-blue-400 ring-1 ring-blue-300' : 'border-gray-100'}`}
                         onClick={() => openCandidateModal(candidate)}
                       >
                         {/* Name + score badge */}
                         <div className="flex items-start justify-between gap-2 mb-3">
-                          <h3 className="text-sm font-semibold text-gray-900 leading-snug group-hover:text-blue-700 transition-colors line-clamp-2">
-                            {candidate.name}
-                          </h3>
+                          <div className="flex items-start gap-2 min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(candidate.id)}
+                              onChange={() => toggleSelected(candidate.id)}
+                              onClick={(e) => e.stopPropagation()}
+                              disabled={bulkExporting}
+                              aria-label={`Select ${candidate.name} for bulk PDF export`}
+                              className="mt-0.5 h-4 w-4 flex-shrink-0 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                            />
+                            <h3 className="text-sm font-semibold text-gray-900 leading-snug group-hover:text-blue-700 transition-colors line-clamp-2">
+                              {candidate.name}
+                            </h3>
+                          </div>
                           <div
                             className="flex-shrink-0 rounded-lg px-2 py-1.5 text-center min-w-[52px]"
                             style={{ background: colors.bg, border: `1px solid ${colors.border}` }}
