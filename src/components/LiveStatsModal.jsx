@@ -303,8 +303,30 @@ const CSS = `
 }
 `;
 
+// One candidate in the "pick candidates" list. Memoized so ticking a box re-renders only that row.
+const PickRow = React.memo(({ c, checked, onToggle, newRoom }) => (
+  <li>
+    <label className="px-5 py-2 flex items-center gap-3 cursor-pointer hover:bg-gray-50">
+      <input type="checkbox" checked={checked} onChange={e => onToggle(c.id, e.target.checked)} />
+      <span className="min-w-0 flex-1">
+        <span className="block font-medium truncate">{c.name}</span>
+        <span className="block text-xs text-gray-500 truncate">Item # {c.itemNumber}, {c.position}</span>
+        {c.assignment && (
+          <span className="block text-xs text-gray-600 truncate">
+            Place: {c.assignment}
+            {newRoom && <span className="ml-1 rounded bg-blue-100 text-blue-800 px-1">new room</span>}
+          </span>
+        )}
+        {c.otherItems?.length > 0 && <span className="block text-xs text-amber-700 truncate">{otherText(c.otherItems)}</span>}
+      </span>
+    </label>
+  </li>
+));
+
+const PICK_PAGE = 100;   // rows drawn at once; the rest sit behind "Show more"
+
 // ─── Rooms & queue manager (admin / secretariat) — a normal scrolling dialog, not part of the broadcast ───
-const QueueManager = ({ data, reload, onClose }) => {
+const QueueManager = ({ data, reload, patch, onClose }) => {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [note, setNote] = useState('');
@@ -313,6 +335,7 @@ const QueueManager = ({ data, reload, onClose }) => {
   const [item, setItem] = useState('all');
   const [search, setSearch] = useState('');
   const [picked, setPicked] = useState({});
+  const [limit, setLimit] = useState(PICK_PAGE);
 
   const rooms = useMemo(() => data?.rooms || [], [data]);
   const allQueue = useMemo(() => data?.queue || [], [data]);
@@ -342,11 +365,38 @@ const QueueManager = ({ data, reload, onClose }) => {
 
   const roomKeys = useMemo(() => new Set(rooms.map(r => sameKey(r.name))), [rooms]);
   const pickedIds = Object.keys(picked).filter(k => picked[k]);
-  const run = async (fn) => {
+  const shown = useMemo(() => available.slice(0, limit), [available, limit]);
+  useEffect(() => { setLimit(PICK_PAGE); }, [item, search]);
+  const toggle = useCallback((id, v) => setPicked(p => ({ ...p, [id]: v })), []);
+
+  // quick = the screen was already updated locally, so don't make the user wait for a full refresh:
+  // reconcile with the server in the background (and also on failure, which undoes the local change).
+  const run = async (fn, quick = false) => {
     setBusy(true); setErr(''); setNote('');
-    try { await fn(); await reload(); }
-    catch (e) { setErr(e?.response?.data?.message || e?.message || 'Something went wrong'); }
+    try { await fn(); if (quick) reload(); else await reload(); }
+    catch (e) {
+      setErr(e?.response?.data?.message || e?.message || 'Something went wrong');
+      if (quick) reload();
+    }
     finally { setBusy(false); }
+  };
+
+  // Show newly queued candidates (and any rooms the server just created) immediately.
+  const applyAdded = (r) => {
+    const info = new Map();
+    (data?.items || []).forEach(it => it.candidates.forEach(c => info.set(c.id, { c, it })));
+    const entries = (r.entries || []).map(e => {
+      const x = info.get(e.candidateId);
+      if (!x) return null;
+      return {
+        id: e.id, candidateId: e.candidateId, name: x.c.name, roomId: e.roomId,
+        itemNumber: x.it.itemNumber, position: x.it.position, assignment: x.it.assignment,
+        otherItems: x.c.otherItems || [], status: x.c.status,
+        rated: x.c.ratedBy.length, required: x.it.requiredTypes.length,
+      };
+    }).filter(Boolean);
+    const newRooms = (r.roomsCreated || []).filter(n => n && n.id);
+    patch(d => ({ ...d, rooms: [...(d.rooms || []), ...newRooms], queue: [...(d.queue || []), ...entries] }));
   };
   const addRoom = () => {
     const name = newRoom.trim();
@@ -365,15 +415,27 @@ const QueueManager = ({ data, reload, onClose }) => {
   const addAuto = () => run(async () => {
     const r = await queueAPI.addAuto(pickedIds);
     setPicked({});
-    setNote(`Added ${r.added}${r.roomsCreated?.length ? `, created ${r.roomsCreated.length === 1 ? 'room' : 'rooms'}: ${r.roomsCreated.join(', ')}` : ''}`);
-  });
-  const addPicked = () => run(async () => { await queueAPI.add(current.id, pickedIds); setPicked({}); });
+    applyAdded(r);
+    const names = (r.roomsCreated || []).map(x => x.name);
+    setNote(`Added ${r.added}${names.length ? `, created ${names.length === 1 ? 'room' : 'rooms'}: ${names.join(', ')}` : ''}`);
+  }, true);
+  const addPicked = () => run(async () => {
+    const r = await queueAPI.add(current.id, pickedIds);
+    setPicked({});
+    applyAdded(r);
+  }, true);
   const move = (i, d) => run(async () => {
     const ids = queue.map(q => q.id); const j = i + d;
     if (j < 0 || j >= ids.length) return;
     [ids[i], ids[j]] = [ids[j], ids[i]];
+    const roomId = current?.id;
+    patch(dt => {   // swap on screen first
+      const byId = new Map((dt.queue || []).map(q => [q.id, q]));
+      let k = 0;
+      return { ...dt, queue: dt.queue.map(q => ((q.roomId || 'none') === roomId ? byId.get(ids[k++]) : q)) };
+    });
     await queueAPI.reorder(ids);
-  });
+  }, true);
   const clearRoom = () => {
     if (isRoom && window.confirm(`Clear the queue for "${current.name}"?`)) run(() => queueAPI.clear(current.id));
   };
@@ -441,7 +503,7 @@ const QueueManager = ({ data, reload, onClose }) => {
                         {rooms.filter(r => r.id !== q.roomId).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                       </select>
                     )}
-                    <button className={btn} disabled={busy} onClick={() => run(() => queueAPI.remove(q.id))} aria-label={`Remove ${q.name}`}>Remove</button>
+                    <button className={btn} disabled={busy} onClick={() => run(async () => { patch(dt => ({ ...dt, queue: dt.queue.filter(x => x.id !== q.id) })); await queueAPI.remove(q.id); }, true)} aria-label={`Remove ${q.name}`}>Remove</button>
                   </li>
                 ))}
               </ol>
@@ -460,27 +522,17 @@ const QueueManager = ({ data, reload, onClose }) => {
                 <>
                   <ul className="flex-1 overflow-y-auto divide-y divide-gray-100">
                     {available.length === 0 && <li className="p-5 text-sm text-gray-500">No more candidates match. Anyone already in a room&apos;s queue is hidden here.</li>}
-                    {available.map(c => (
-                      <li key={c.id}>
-                        <label className="px-5 py-2 flex items-center gap-3 cursor-pointer hover:bg-gray-50">
-                          <input type="checkbox" checked={!!picked[c.id]} onChange={e => setPicked(p => ({ ...p, [c.id]: e.target.checked }))} />
-                          <span className="min-w-0 flex-1">
-                            <span className="block font-medium truncate">{c.name}</span>
-                            <span className="block text-xs text-gray-500 truncate">Item # {c.itemNumber}, {c.position}</span>
-                            {c.assignment && (
-                              <span className="block text-xs text-gray-600 truncate">
-                                Place: {c.assignment}
-                                {!roomKeys.has(sameKey(c.assignment)) && <span className="ml-1 rounded bg-blue-100 text-blue-800 px-1">new room</span>}
-                              </span>
-                            )}
-                            {c.otherItems?.length > 0 && <span className="block text-xs text-amber-700 truncate">{otherText(c.otherItems)}</span>}
-                          </span>
-                        </label>
-                      </li>
+                    {shown.map(c => (
+                      <PickRow key={c.id} c={c} checked={!!picked[c.id]} onToggle={toggle} newRoom={!!c.assignment && !roomKeys.has(sameKey(c.assignment))} />
                     ))}
+                    {available.length > shown.length && (
+                      <li className="p-3 text-center">
+                        <button className={btn} onClick={() => setLimit(l => l + PICK_PAGE)}>Show more ({available.length - shown.length} more — or search by name)</button>
+                      </li>
+                    )}
                   </ul>
                   <div className="px-5 py-3 border-t border-gray-200 flex items-center gap-3">
-                    <button className={btn} disabled={available.length === 0} onClick={() => setPicked(Object.fromEntries(available.map(c => [c.id, true])))}>Select all shown</button>
+                    <button className={btn} disabled={available.length === 0} onClick={() => setPicked(Object.fromEntries(shown.map(c => [c.id, true])))}>Select all shown ({shown.length})</button>
                     <button onClick={addAuto} disabled={busy || pickedIds.length === 0} title="Each candidate goes to the room named after their place of assignment. Missing rooms are created."
                       className={`ml-auto px-4 py-1.5 rounded-lg text-sm font-semibold disabled:opacity-40 ${isRoom ? 'border border-green-600 text-green-700 hover:bg-green-50' : 'bg-green-600 text-white hover:bg-green-700'}`}>
                       Add {pickedIds.length || ''} by place of assignment
@@ -641,13 +693,21 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
   const rootRef = useRef(null);
   const idleTimer = useRef(null);
 
+  const patch = useCallback((fn) => setData(d => (d ? fn(d) : d)), []);
+
+  // Only the most recently STARTED request may update the screen, so a slow poll that began before a
+  // queue change can't land afterwards and wipe it out.
+  const loadSeq = useRef(0);
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
     try {
       const res = await liveStatsAPI.get();
+      if (seq !== loadSeq.current) return;
       setData(res);
       setFetchedAt(Date.now());
       setError(false);
     } catch (err) {
+      if (seq !== loadSeq.current) return;
       console.warn('[LiveStats] refresh failed:', err?.message);
       setError(true);   // keep showing the last good snapshot
     }
@@ -942,7 +1002,7 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
         />
       )}
 
-      {managing && <QueueManager data={data} reload={load} onClose={() => setManaging(false)} />}
+      {managing && <QueueManager data={data} reload={load} patch={patch} onClose={() => setManaging(false)} />}
     </div>
   );
 };

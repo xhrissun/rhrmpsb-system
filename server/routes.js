@@ -4349,7 +4349,20 @@ router.get('/interview-sessions', authMiddleware, async (req, res) => {
 const LIVE_STATS_TTL_MS = 10 * 1000;
 const LIVE_SESSION_ACTIVE_MS = 2 * 60 * 1000;
 const LIVE_ALL_RATER_TYPES = ['Chairperson', 'Vice-Chairperson', 'Regular Member', 'DENREU', 'Gender and Development', 'End-User'];
-let liveStatsCache = { at: 0, data: null, inflight: null };
+let liveStatsCache = { at: 0, data: null, inflight: null, reuseRatings: false };
+// Rooms/queue edits don't change any rating, so the snapshot they trigger reuses the last
+// rating aggregation (the heaviest query) instead of scanning every rating again.
+let ratedGroupsCache = { at: 0, data: null };
+let liveStatsGen = 0;   // bumped by every rooms/queue change
+const getRatedGroups = (itemNumbers) => {
+  const reuse = liveStatsCache.reuseRatings && ratedGroupsCache.data && Date.now() - ratedGroupsCache.at < 60 * 1000;
+  liveStatsCache.reuseRatings = false;
+  if (reuse) return Promise.resolve(ratedGroupsCache.data);
+  return Rating.aggregate([
+    { $match: { itemNumber: { $in: itemNumbers }, score: { $gt: 0 } } },
+    { $group: { _id: { c: '$candidateId', i: '$itemNumber', r: '$raterId' }, at: { $max: '$updatedAt' } } },
+  ]).then(rows => { ratedGroupsCache = { at: Date.now(), data: rows }; return rows; });
+};
 
 const computeLiveStats = async () => {
   const now = Date.now();
@@ -4372,10 +4385,7 @@ const computeLiveStats = async () => {
     User.find({ userType: 'rater' })
       .select('_id name raterType lastSeenAt assignedVacancies assignedAssignment assignedItemNumbers suspendedItemNumbers').lean(),
     // One row per (candidate, item, rater) — never loads individual scores into JS.
-    Rating.aggregate([
-      { $match: { itemNumber: { $in: itemNumbers }, score: { $gt: 0 } } },
-      { $group: { _id: { c: '$candidateId', i: '$itemNumber', r: '$raterId' }, at: { $max: '$updatedAt' } } },
-    ]),
+    getRatedGroups(itemNumbers),
     InterviewSession.find({ timerCompleted: false, updatedAt: { $gte: new Date(now - LIVE_SESSION_ACTIVE_MS) } })
       .select('raterId candidateId itemNumber elapsedMs updatedAt').lean(),
     QueueEntry.find().sort({ order: 1 }).select('_id candidateId roomId order').lean(),
@@ -4593,9 +4603,13 @@ router.get('/live-stats', authMiddleware, async (req, res) => {
     if (liveStatsCache.data && now - liveStatsCache.at < LIVE_STATS_TTL_MS) return res.json(liveStatsCache.data);
     // Collapse simultaneous cache misses into a single computation.
     if (!liveStatsCache.inflight) {
-      liveStatsCache.inflight = computeLiveStats()
-        .then(data => { liveStatsCache.data = data; liveStatsCache.at = Date.now(); return data; })
-        .finally(() => { liveStatsCache.inflight = null; });
+      // A snapshot that STARTED before a rooms/queue change must not be cached or shared after it:
+      // it would show the old queue (e.g. "Queue is empty" right after adding someone).
+      const gen = liveStatsGen;
+      const p = computeLiveStats()
+        .then(data => { if (gen === liveStatsGen) { liveStatsCache.data = data; liveStatsCache.at = Date.now(); } return data; })
+        .finally(() => { if (liveStatsCache.inflight === p) liveStatsCache.inflight = null; });
+      liveStatsCache.inflight = p;
     }
     res.json(await liveStatsCache.inflight);
   } catch (error) {
@@ -4614,7 +4628,11 @@ const requireQueueManager = (req, res, next) => {
   }
   next();
 };
-const dropLiveStatsCache = () => { liveStatsCache.at = 0; liveStatsCache.data = null; };
+// Only the rooms/queue routes call this, and they never change ratings — see getRatedGroups.
+const dropLiveStatsCache = () => {
+  liveStatsGen += 1;
+  liveStatsCache.at = 0; liveStatsCache.data = null; liveStatsCache.inflight = null; liveStatsCache.reuseRatings = true;
+};
 const cleanRoomName = (v) => String(v || '').trim().replace(/\s+/g, ' ').slice(0, 60);
 const dupMessage = (e) => (e?.code === 11000 ? 'A room with that name already exists' : null);
 
@@ -4677,7 +4695,7 @@ router.post('/queue', authMiddleware, requireQueueManager, async (req, res) => {
   try {
     const { roomId } = req.body;
     const autoRoom = req.body.autoRoom === true;
-    const ids = Array.isArray(req.body.candidateIds) ? [...new Set(req.body.candidateIds.map(String))].slice(0, 200) : [];
+    const ids = Array.isArray(req.body.candidateIds) ? [...new Set(req.body.candidateIds.map(String))].slice(0, 1000) : [];
     if (!autoRoom && !mongoose.isValidObjectId(roomId)) return res.status(400).json({ message: 'Choose a room first' });
     if (ids.length === 0 || !ids.every(id => mongoose.isValidObjectId(id))) {
       return res.status(400).json({ message: 'candidateIds must be a non-empty list of candidate ids' });
@@ -4708,6 +4726,7 @@ router.post('/queue', authMiddleware, requireQueueManager, async (req, res) => {
       });
 
       const roomsCreated = [];
+      const entries = [];
       let added = 0;
       for (const [k, g] of groups) {
         let room = roomFor.get(k);
@@ -4715,7 +4734,7 @@ router.post('/queue', authMiddleware, requireQueueManager, async (req, res) => {
           try {
             const doc = await Room.create({ name: g.name, order: nextRoomOrder++ });
             room = { _id: doc._id, name: doc.name };
-            roomsCreated.push(doc.name);
+            roomsCreated.push({ id: String(doc._id), name: doc.name });
           } catch (e) {
             if (e?.code !== 11000) throw e;
             // someone created it a moment ago — use theirs
@@ -4727,11 +4746,12 @@ router.post('/queue', authMiddleware, requireQueueManager, async (req, res) => {
         }
         const last = await QueueEntry.findOne({ roomId: room._id }).sort({ order: -1 }).select('order').lean();
         let order = (last?.order ?? -1) + 1;
-        await QueueEntry.insertMany(g.candidateIds.map(id => ({ roomId: room._id, candidateId: id, order: order++, addedBy: req.user._id })));
+        const docs = await QueueEntry.insertMany(g.candidateIds.map(id => ({ roomId: room._id, candidateId: id, order: order++, addedBy: req.user._id })));
+        docs.forEach(d => entries.push({ id: String(d._id), candidateId: String(d.candidateId), roomId: String(room._id) }));
         added += g.candidateIds.length;
       }
       dropLiveStatsCache();
-      return res.json({ added, roomsCreated });
+      return res.json({ added, roomsCreated, entries });
     }
     const [room, valid, existing, last] = await Promise.all([
       Room.findById(roomId).select('_id').lean(),
@@ -4744,11 +4764,13 @@ router.post('/queue', authMiddleware, requireQueueManager, async (req, res) => {
     const validSet = new Set(valid.map(v => String(v._id)));
     const toAdd = ids.filter(id => validSet.has(id) && !already.has(id));
     let order = (last?.order ?? -1) + 1;
+    let entries = [];
     if (toAdd.length) {
-      await QueueEntry.insertMany(toAdd.map(id => ({ roomId, candidateId: id, order: order++, addedBy: req.user._id })));
+      const docs = await QueueEntry.insertMany(toAdd.map(id => ({ roomId, candidateId: id, order: order++, addedBy: req.user._id })));
+      entries = docs.map(d => ({ id: String(d._id), candidateId: String(d.candidateId), roomId: String(roomId) }));
     }
     dropLiveStatsCache();
-    res.json({ added: toAdd.length });
+    res.json({ added: toAdd.length, entries });
   } catch (error) {
     console.error('[POST /queue]', error);
     res.status(500).json({ message: 'Server error' });
