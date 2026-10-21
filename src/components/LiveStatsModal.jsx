@@ -109,6 +109,9 @@ const speakBrowser = (text) => new Promise((resolve) => {
   } catch { resolve(); }
 });
 let speechChain = Promise.resolve();   // lines are spoken one after another, never over each other
+// The sentence that is spoken (and shown as the caption) for a time warning.
+const alertLine = (d) => `${d.room ? `${sayable(d.room)}. ` : ''}${sayable(d.name)}. ${d.minutes} minutes elapsed.`;
+const fmtAvg = (sec) => (sec == null ? '—' : fmtClock(sec));
 const SLEEP = (ms) => new Promise(r => setTimeout(r, ms));
 const SOUNDS = {
   start:    { type: 'sine',     notes: [[659.25, 0, 0.18], [880, 0.14, 0.3]] },                                   // interview begins
@@ -256,9 +259,10 @@ const CSS = `
 @keyframes ls-ping{0%{box-shadow:0 0 0 0 rgba(98,211,148,.6)}70%,100%{box-shadow:0 0 0 .7em rgba(98,211,148,0)}}
 @keyframes ls-blink{50%{opacity:.25}}
 @media (prefers-reduced-motion:reduce){.ls-root *{animation:none!important}}
-.ls-stats{display:flex;flex-wrap:wrap;gap:.3em 2em;margin-left:auto}
-.ls-stat b{display:block;font-size:1.9em;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
-.ls-stat span{font-size:.85em;color:var(--muted)}
+.ls-stats{display:flex;flex-wrap:wrap;gap:.3em 1.5em;margin-left:auto}
+.ls-stat b{display:block;font-size:1.75em;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
+.ls-stat span{font-size:.8em;color:var(--muted);white-space:nowrap}
+.ls-stat.avg b{color:var(--live)}
 .ls-clock{flex:none;text-align:right;margin-left:1em}
 .ls-clock b{display:block;font-size:1.6em;font-weight:600;line-height:1;font-variant-numeric:tabular-nums}
 .ls-clock span{font-size:.8em;color:var(--muted)}
@@ -276,8 +280,10 @@ const CSS = `
 .ls-room.wide .ls-body{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:minmax(0,1fr)!important;gap:1em}
 .ls-rh.click{cursor:pointer}
 .ls-badge{flex:none;display:inline-grid;place-items:center;min-width:1.5em;height:1.5em;border-radius:.4em;background:var(--edge);color:var(--text);font-size:.85em;font-weight:700;align-self:center}
+.ls-item{color:var(--muted);font-size:.9em;font-weight:600;white-space:nowrap;line-height:1.2}
+.ls-room.dense .ls-item{font-size:.8em}
 .ls-pos{color:var(--pos);font-size:1em;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ls-pos .ls-also{margin-left:.6em}
+.ls-item .ls-also{margin-left:.6em}
 .ls-rh{display:flex;align-items:baseline;gap:.6em;min-width:0}
 .ls-rh h3{margin:0;font-size:1.45em;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ls-rh .st{margin-left:auto;flex:none;font-size:.9em;color:var(--muted)}
@@ -296,10 +302,23 @@ const CSS = `
 .ls-fit.rows{grid-template-columns:minmax(0,1fr);gap:.4em}
 .ls-more{grid-column:1/-1;display:flex;align-items:center;justify-content:center;height:1.8em;color:var(--muted)}
 .ls-empty{margin:auto;text-align:center;color:var(--muted);max-width:28em}
-.ls-card{height:9.2em;overflow:hidden;display:flex;flex-direction:column;gap:.3em;background:var(--card);border:1px solid var(--edge);border-radius:.7em;padding:.6em .8em}
+.ls-card{height:10.4em;overflow:hidden;display:flex;flex-direction:column;gap:.3em;background:var(--card);border:1px solid var(--edge);border-radius:.7em;padding:.6em .8em}
 .ls-top{display:flex;align-items:flex-start;justify-content:space-between;gap:.8em}
 .ls-name{font-size:1.15em;font-weight:650;line-height:1.2;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .ls-card.alarm{border-color:#ef6a6a;animation:ls-alarm .7s ease-in-out 12}
+.ls-bn-wrap{position:absolute;inset:0;z-index:20;display:grid;place-items:center;pointer-events:none;background:radial-gradient(ellipse at center,rgba(0,0,0,.45),rgba(0,0,0,0) 70%);animation:ls-bnbg var(--bn-ms,6s) both}
+.ls-bn{--c:var(--done);width:min(44em,88%);text-align:center;background:var(--panel);border:.2em solid var(--c);border-radius:1.2em;padding:1.1em 1.4em 0;overflow:hidden;font-size:1.35em;box-shadow:0 0 0 0 var(--c),0 1.5em 4em rgba(0,0,0,.55);animation:ls-bnpop var(--bn-ms,6s) both,ls-bnring 1.2s ease-out 4}
+.ls-bn.alarm{--c:#ef6a6a}
+.ls-bn.done{--c:var(--live)}
+.ls-bn-icon{font-size:2.4em;line-height:1;color:var(--c)}
+.ls-bn-head{margin-top:.2em;font-size:1em;font-weight:800;letter-spacing:.12em;color:var(--c)}
+.ls-bn-main{margin-top:.15em;font-size:2em;font-weight:750;line-height:1.1;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.ls-bn-sub{margin-top:.25em;color:var(--muted);font-size:.95em}
+.ls-bn-cap{margin:.9em -1.5em 0;padding:.5em 1.2em;background:rgba(0,0,0,.72);color:#fff;font-size:.9em;line-height:1.3}
+@keyframes ls-bnpop{0%{opacity:0;transform:scale(.6)}6%{opacity:1;transform:scale(1.06)}10%{transform:scale(1)}92%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(.97)}}
+@keyframes ls-bnbg{0%{opacity:0}6%{opacity:1}92%{opacity:1}100%{opacity:0}}
+@keyframes ls-bnring{0%{box-shadow:0 0 0 0 var(--c),0 1.5em 4em rgba(0,0,0,.55)}100%{box-shadow:0 0 0 1.4em transparent,0 1.5em 4em rgba(0,0,0,.55)}}
+.ls-sep{align-self:stretch;width:1px;background:var(--edge);margin:0 -.2em}
 .ls-card.alarm .ls-timer{color:#ef6a6a}
 @keyframes ls-alarm{50%{background:rgba(239,106,106,.35)}}
 .ls-timer{flex:none;font-size:1.7em;font-weight:700;line-height:1;color:var(--live);font-variant-numeric:tabular-nums}
@@ -310,23 +329,25 @@ const CSS = `
 .ls-seat.live::before{content:"";width:.5em;height:.5em;border-radius:50%;background:var(--live);animation:ls-blink 1.2s infinite}
 .ls-with{color:var(--muted);font-size:.85em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ls-also{color:var(--live);font-size:.85em;font-weight:500}
-.ls-row{display:grid;grid-template-columns:1.8em minmax(0,1fr) auto;align-items:center;gap:.5em;height:3.5em;padding:0 .8em 0 .3em;border-radius:.5em;background:var(--card)}
+.ls-row{display:grid;grid-template-columns:1.8em minmax(0,1fr) auto;align-items:center;gap:.5em;height:4.4em;padding:0 .8em 0 .3em;border-radius:.5em;background:var(--card)}
 .ls-row.first{outline:2px solid var(--live)}
 .ls-num{text-align:center;font-size:1.3em;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums}
 .ls-row.first .ls-num{color:var(--live)}
 .ls-rname{font-size:1.2em;font-weight:650;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ls-row .ls-pos{font-size:.9em;font-weight:500}
+.ls-row .ls-item{font-size:.82em}
 .ls-tag{font-size:.85em;color:var(--muted);white-space:nowrap}
 .ls-row.first .ls-tag{color:var(--live);font-weight:700}
 .ls-room.dense{padding:.7em .8em;gap:.5em}
 .ls-room.dense .ls-body{gap:.5em}
-.ls-room.dense .ls-card{height:4.6em;padding:.4em .7em;gap:.15em}
+.ls-room.dense .ls-card{height:5.4em;padding:.4em .7em;gap:.15em}
 .ls-room.dense .ls-name{-webkit-line-clamp:1;font-size:1.1em}
 .ls-room.dense .ls-timer{font-size:1.4em}
 .ls-room.dense .ls-seats,.ls-room.dense .ls-with,.ls-room.dense .ls-also{display:none}
-.ls-room.dense .ls-row{height:2.8em}
+.ls-room.dense .ls-row{height:3.7em}
 .ls-room.dense .ls-rname{font-size:1.1em}
-.ls-room.dense .ls-row .ls-pos{font-size:.85em}
+.ls-room.dense .ls-row .ls-pos{font-size:.8em}
+.ls-room.dense .ls-row .ls-item{font-size:.78em}
 .ls-room.dense .ls-sh{margin-bottom:.3em}
 .ls-room.dense .ls-sec.q{padding-top:.5em}
 .ls-rec{display:flex;align-items:center;gap:.5em;height:2.3em;white-space:nowrap;overflow:hidden}
@@ -631,6 +652,20 @@ const QueueManager = ({ data, reload, patch, onClose }) => {
   );
 };
 
+// Big centre-screen highlight with a caption: a rating came in, a candidate is fully rated, or an
+// interview hit a 5-minute mark. The caption is the same text that is spoken, so it also works muted.
+const CenterBanner = ({ b }) => (
+  <div className="ls-bn-wrap" role="status" aria-live="assertive">
+    <div key={b.id} className={`ls-bn ${b.kind}`}>
+      <div className="ls-bn-icon" aria-hidden="true">{b.icon}</div>
+      <div className="ls-bn-head">{b.head}</div>
+      <div className="ls-bn-main">{b.main}</div>
+      {b.sub && <div className="ls-bn-sub">{b.sub}</div>}
+      <div className="ls-bn-cap">{b.caption}</div>
+    </div>
+  </div>
+);
+
 // Keyboard / mouse cheat sheet. Opens with ? (or H) and from the control bar.
 const ShortcutGuide = ({ onClose, onTest, onTestAlert, alertsOn, voiceState, soundOn, canManageQueue, hasRooms }) => (
   <div className="ls-guide" role="dialog" aria-modal="true" aria-label="Shortcuts" onClick={onClose}>
@@ -690,8 +725,8 @@ const ShortcutGuide = ({ onClose, onTest, onTestAlert, alertsOn, voiceState, sou
 //   • cells too small for the full card switch to a compact card (names + position + timer only).
 // NEED = the room's content size in em (padding included): h = height, w = width.
 const NEED = {
-  full:  { stack: { h: 32, w: 26 }, wide: { h: 20.5, w: 48 } },
-  dense: { stack: { h: 24, w: 21 }, wide: { h: 17, w: 43 } },
+  full:  { stack: { h: 35.5, w: 26 }, wide: { h: 23.5, w: 48 } },
+  dense: { stack: { h: 27.5, w: 21 }, wide: { h: 20.5, w: 43 } },
 };
 const QUEUE_SHOWN = 3;
 const fitCell = (w, h, rootPx) => {
@@ -772,9 +807,9 @@ const RoomPanel = ({ view, fetchedAt, flash, canManageQueue, hasRooms, lay, big,
   const dense = lay.dense;
   // Rows of the stacked layout: the live card gets what it needs, the queue always keeps room for 3 names.
   const qn = Math.min(QUEUE_SHOWN, waiting.length);
-  const rowH = dense ? 2.8 : 3.5;
+  const rowH = dense ? 3.7 : 4.4;
   const qMin = (dense ? 1.5 : 1.8) + qn * rowH + Math.max(0, qn - 1) * 0.4 + 1 + (waiting.length > qn ? 2.3 : 0);   // + the "+N more" line
-  const nMin = (dense ? 1.5 : 1.8) + (dense ? 4.6 : 9.2);
+  const nMin = (dense ? 1.5 : 1.8) + (dense ? 5.4 : 10.4);
   const rows = cards.length === 0
     ? (waiting.length === 0 ? 'auto auto' : 'auto minmax(0,1fr)')
     : waiting.length === 0 ? 'minmax(0,1fr) auto'
@@ -816,7 +851,8 @@ const RoomPanel = ({ view, fetchedAt, flash, canManageQueue, hasRooms, lay, big,
                     <div className="ls-name">{c.name}</div>
                     <div className="ls-timer"><LiveClock baseSeconds={elapsed} fetchedAt={fetchedAt} /></div>
                   </div>
-                  <div className="ls-pos"># {item.itemNumber} · {item.position}{c.otherItems?.length > 0 && <span className="ls-also">{otherText(c.otherItems)}</span>}</div>
+                  <div className="ls-item">Item # {item.itemNumber}{c.otherItems?.length > 0 && <span className="ls-also">{otherText(c.otherItems)}</span>}</div>
+                  <div className="ls-pos">{item.position}</div>
                   <SeatChips cand={c} requiredTypes={item.requiredTypes} />
                   <div className="ls-with">Rating now ({c.interviewing.length}): {c.interviewing.map(r => r.name).join(', ')}</div>
                 </article>
@@ -841,7 +877,8 @@ const RoomPanel = ({ view, fetchedAt, flash, canManageQueue, hasRooms, lay, big,
                   <span className="ls-num">{i + 1}</span>
                   <div style={{ minWidth: 0 }}>
                     <div className="ls-rname">{q.name}</div>
-                    <div className="ls-pos"># {q.itemNumber} · {q.position}{q.otherItems?.length > 0 && <span className="ls-also">{otherText(q.otherItems)}</span>}</div>
+                    <div className="ls-item">Item # {q.itemNumber}{q.otherItems?.length > 0 && <span className="ls-also">{otherText(q.otherItems)}</span>}</div>
+                    <div className="ls-pos">{q.position}</div>
                   </div>
                   <span className="ls-tag">{i === 0 ? 'Next' : q.rated > 0 ? `${q.rated} of ${q.required} rated` : ''}</span>
                 </div>
@@ -869,6 +906,17 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
   const alertsOnRef = useRef(alertsOn);
   alertsOnRef.current = alertsOn;
   const [voiceState, setVoiceState] = useState(kokoro.state);
+  const [banners, setBanners] = useState([]);
+  const bannerId = useRef(0);
+  const addBanner = useCallback((b) => setBanners(q => [...q, { ...b, id: ++bannerId.current }].slice(-6)), []);
+  const curBanner = banners[0];
+  const bannerMs = banners.length > 2 ? 3500 : 6000;
+  useEffect(() => {
+    if (!curBanner) return undefined;
+    const t = setTimeout(() => setBanners(q => q.slice(1)), bannerMs);
+    return () => clearTimeout(t);
+  }, [curBanner?.id, bannerMs]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!isOpen) setBanners([]); }, [isOpen]);
   const [flash, setFlash] = useState(() => new Set());
   const alertState = useRef(new Map());   // candidate id -> last 5-minute mark already announced
   const liveRef = useRef({ views: [], fetchedAt: 0 });
@@ -948,7 +996,7 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
     const real = list.filter(d => !d.test);
     if (real.length) play('warn');
     const lines = list.map(d => {
-      const text = d.test ? 'Interview time alerts are on.' : `${d.room ? `${sayable(d.room)}. ` : ''}${sayable(d.name)}. ${d.minutes} minutes elapsed.`;
+      const text = d.test ? 'Interview time alerts are on.' : alertLine(d);
       return { text, clip: synth(text) };
     });
     speechChain = speechChain.then(async () => {
@@ -1085,22 +1133,31 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
   const spotView = roomViews.length > 1 && spotlight ? roomViews.find(v => v.id === spotlight) : null;
   const toggleSpot = (id) => setSpotlight(cur => (cur === id ? null : id));
 
-  // Sound cues: compare each fresh snapshot with the one before it (the first one after opening is silent).
+  // Sound cues + centre banners: compare each fresh snapshot with the one before it (the first one after opening is silent).
   useEffect(() => {
     if (!isOpen) { prevSnap.current = null; return; }
     if (!data) return;
     const live = new Set(nowCards.map(n => n.key));
     const newest = data.recent?.[0]?.at ? new Date(data.recent[0].at).getTime() : 0;
+    const doneAt = data.completed?.[0]?.at ? new Date(data.completed[0].at).getTime() : 0;
     const complete = data.summary?.complete ?? 0;
     const prev = prevSnap.current;
-    prevSnap.current = { live, newest, complete };
-    if (!prev || !soundOnRef.current) return;
+    prevSnap.current = { live, newest, complete, doneAt };
+    if (!prev) return;
+    (data.recent || []).filter(r => new Date(r.at).getTime() > prev.newest).slice(0, 4).reverse().forEach(r => {
+      const t = TYPE_LABEL[r.raterType] || r.raterType;
+      addBanner({ kind: 'submit', icon: '✓', head: 'RATING SUBMITTED', main: r.candidateName, sub: r.position ? `Item # ${r.itemNumber}: ${r.position}` : '', caption: `${r.raterName} (${t}) submitted a rating for ${r.candidateName}.` });
+    });
+    (data.completed || []).filter(d => new Date(d.at).getTime() > prev.doneAt).slice(0, 2).reverse().forEach(d => {
+      addBanner({ kind: 'done', icon: '★', head: 'ALL RATINGS COMPLETE', main: d.name, sub: d.position ? `Item # ${d.itemNumber}: ${d.position}` : '', caption: `All required raters have submitted for ${d.name}.` });
+    });
+    if (!soundOnRef.current) return;
     const cues = [];
     if (complete > prev.complete) cues.push('complete');
     if ([...live].some(id => !prev.live.has(id))) cues.push('start');
     if (newest > prev.newest && !cues.includes('complete')) cues.push('submit');
     cues.forEach((k, i) => setTimeout(() => play(k), i * 900));
-  }, [isOpen, data, nowCards, play]);
+  }, [isOpen, data, nowCards, play, addBanner]);
 
   // Download / warm up the natural voice as soon as the screen opens (only when alerts are on).
   useEffect(() => {
@@ -1133,10 +1190,11 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
       if (!due.length || !alertsOnRef.current) return;
       setFlash(f => new Set([...f, ...due.map(d => d.key)]));
       setTimeout(() => setFlash(f => { const n = new Set(f); due.forEach(d => n.delete(d.key)); return n; }), 9000);
+      due.forEach(d => addBanner({ kind: 'alarm', icon: '⏰', head: `${d.minutes} MINUTES ELAPSED`, main: d.name, sub: d.room, caption: alertLine(d) }));
       announce(due);
     }, 1000);
     return () => clearInterval(t);
-  }, [isOpen, announce]);
+  }, [isOpen, announce, addBanner]);
 
   if (!isOpen) return null;
   const sum = data?.summary;
@@ -1155,6 +1213,14 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
             <div className="ls-stat"><b>{sum.inProgress}</b><span>In progress</span></div>
             <div className="ls-stat"><b>{sum.notStarted}</b><span>Not started</span></div>
             <div className="ls-stat"><b>{sum.ratersOnline}/{sum.ratersTotal}</b><span>Raters online</span></div>
+            {data.avgTimes && <>
+              <span className="ls-sep" />
+              {[['lastHour', 'Avg · last hour'], ['last8Hours', 'Avg · last 8 hours'], ['allTime', 'Avg · all time']].map(([k, label]) => (
+                <div key={k} className="ls-stat avg" title={`Average interview time per rater, ${data.avgTimes[k].count} sitting${data.avgTimes[k].count === 1 ? '' : 's'}`}>
+                  <b>{fmtAvg(data.avgTimes[k].avgSeconds)}</b><span>{label}{data.avgTimes[k].count ? ` (${data.avgTimes[k].count})` : ''}</span>
+                </div>
+              ))}
+            </>}
           </div>
         )}
         <div className={`ls-clock ${error ? 'err' : ''}`} style={sum ? undefined : { marginLeft: 'auto' }}>
@@ -1228,6 +1294,8 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
         <button onClick={onClose}>Close</button>
       </div>
 
+      {curBanner && <div style={{ display: 'contents', '--bn-ms': `${bannerMs}ms` }}><CenterBanner b={curBanner} /></div>}
+
       {guideOpen && (
         <ShortcutGuide
           onClose={() => setGuideOpen(false)}
@@ -1235,7 +1303,7 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
           soundOn={soundOn}
           alertsOn={alertsOn}
           voiceState={voiceState}
-          onTestAlert={() => { const c = roomViews.flatMap(v => v.cards)[0]; announce([{ name: c ? c.c.name : 'Sample Candidate', room: roomViews.length > 1 ? 'Room A' : '', minutes: 5 }]); }}
+          onTestAlert={() => { const c = roomViews.flatMap(v => v.cards)[0]; const d = { name: c ? c.c.name : 'Sample Candidate', room: roomViews.length > 1 ? 'Room A' : '', minutes: 5 }; addBanner({ kind: 'alarm', icon: '⏰', head: '5 MINUTES ELAPSED', main: d.name, sub: d.room, caption: alertLine(d) }); announce([d]); }}
           canManageQueue={canManageQueue}
           hasRooms={(data?.rooms || []).length > 0}
         />

@@ -4348,6 +4348,7 @@ router.get('/interview-sessions', authMiddleware, async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════
 const LIVE_STATS_TTL_MS = 10 * 1000;
 const LIVE_SESSION_ACTIVE_MS = 2 * 60 * 1000;
+const LIVE_MIN_SITTING_MS = 30 * 1000;   // timer readings under 30 s are ignored (timer not really used)
 const LIVE_ALL_RATER_TYPES = ['Chairperson', 'Vice-Chairperson', 'Regular Member', 'DENREU', 'Gender and Development', 'End-User'];
 let liveStatsCache = { at: 0, data: null, inflight: null, reuseRatings: false };
 // Rooms/queue edits don't change any rating, so the snapshot they trigger reuses the last
@@ -4375,11 +4376,11 @@ const computeLiveStats = async () => {
   const empty = {
     generatedAt: new Date(now).toISOString(),
     summary: { candidates: 0, complete: 0, inProgress: 0, beingRated: 0, notStarted: 0, ratersOnline: 0, ratersTotal: 0 },
-    items: [], raters: [], recent: [], queue: [], rooms: [], completed: [],
+    items: [], raters: [], recent: [], queue: [], rooms: [], completed: [], avgTimes: null,
   };
   if (itemNumbers.length === 0) return empty;
 
-  const [candidates, raters, ratedGroups, sessions, queueEntries, roomDocs, applicantRows] = await Promise.all([
+  const [candidates, raters, ratedGroups, sessions, queueEntries, roomDocs, applicantRows, timedSessions] = await Promise.all([
     Candidate.find({ itemNumber: { $in: itemNumbers }, isArchived: false, status: 'long_list' })
       .select('_id fullName itemNumber').lean(),
     User.find({ userType: 'rater' })
@@ -4393,6 +4394,9 @@ const computeLiveStats = async () => {
     // Everyone still in the running on any active item — used to show "also applied for".
     Candidate.find({ itemNumber: { $in: itemNumbers }, isArchived: false, status: { $ne: 'disqualified' } })
       .select('_id fullName itemNumber').lean(),
+    // Timer readings of every sitting on an active item; matched below with the moment that rater submitted.
+    InterviewSession.find({ itemNumber: { $in: itemNumbers }, elapsedMs: { $gte: LIVE_MIN_SITTING_MS } })
+      .select('raterId candidateId itemNumber elapsedMs').lean(),
   ]);
 
   // Same person = same full name (case/spacing-insensitive), the same rule the Secretariat screen uses.
@@ -4420,6 +4424,22 @@ const computeLiveStats = async () => {
     if (!ratedMap.has(key)) ratedMap.set(key, new Map());
     ratedMap.get(key).set(String(g._id.r), g.at);
   });
+
+  // Average interview time per rater sitting (the timer reading of a sitting that has been SUBMITTED),
+  // windowed by when the rater submitted: last hour, last 8 hours, all time.
+  const avgAcc = { lastHour: { sum: 0, count: 0 }, last8Hours: { sum: 0, count: 0 }, allTime: { sum: 0, count: 0 } };
+  timedSessions.forEach(se => {
+    const at = ratedMap.get(`${se.candidateId}|${se.itemNumber}`)?.get(String(se.raterId));
+    if (!at) return;   // not submitted yet
+    const secs = se.elapsedMs / 1000;
+    const age = now - new Date(at).getTime();
+    const add = (k) => { avgAcc[k].sum += secs; avgAcc[k].count += 1; };
+    add('allTime');
+    if (age <= 8 * 3600 * 1000) add('last8Hours');
+    if (age <= 3600 * 1000) add('lastHour');
+  });
+  const avgTimes = {};
+  Object.keys(avgAcc).forEach(k => { avgTimes[k] = { avgSeconds: avgAcc[k].count ? Math.round(avgAcc[k].sum / avgAcc[k].count) : null, count: avgAcc[k].count }; });
 
   // Active interviews: unfinished, fresh, candidate still long-listed, rater hasn't submitted yet.
   const activeByCand = new Map();   // candidateId|item -> [{rater, elapsedSeconds}]
@@ -4594,7 +4614,7 @@ const computeLiveStats = async () => {
   completed.sort((a, b) => new Date(b.at) - new Date(a.at));
   completed.length = Math.min(completed.length, 40);
 
-  return { generatedAt: new Date(now).toISOString(), summary, items, raters: raterRows, recent, queue, rooms, completed };
+  return { generatedAt: new Date(now).toISOString(), summary, items, raters: raterRows, recent, queue, rooms, completed, avgTimes };
 };
 
 router.get('/live-stats', authMiddleware, async (req, res) => {
