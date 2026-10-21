@@ -689,6 +689,7 @@ const ShortcutGuide = ({ onClose, onTest, onTestAlert, alertsOn, voiceState, sou
         <kbd>1 – 9</kbd><span>Spotlight that room (press again to go back). Number badges are shown beside each room name.</span>
         <kbd>0</kbd><span>Show all rooms</span>
         <kbd>L</kbd><span>Change the room layout: Auto, Grid, Columns, Rows, Focus (only the ones that make sense for the rooms you have)</span>
+        <kbd>Q</kbd><span>Change how each room is arranged: Auto, queue below Now interviewing, or queue beside it</span>
         <kbd>S</kbd><span>Show or hide the Latest submissions panel to give the rooms more space</span>
         <kbd>Click</kbd><span>Click a room&apos;s name to spotlight it</span>
       </div>
@@ -776,7 +777,7 @@ const roomExtras = (view, wEm, dense, wide) => {
   return { head, card, rows, total: head + (wide ? Math.max(Math.max(0, card - 4), rows) : card + rows) };
 };
 
-const fitCell = (w, h, rootPx, views) => {
+const fitCell = (w, h, rootPx, views, inner = 'auto') => {
   const solve = (t, m) => {
     const nd = NEED[t][m];
     let font = Math.min(w / nd.w, h / nd.h);
@@ -786,7 +787,12 @@ const fitCell = (w, h, rootPx, views) => {
     }
     return font;
   };
-  const pick = (t) => { const st = solve(t, 'stack'); const wd = solve(t, 'wide'); return wd > st ? { font: wd, wide: true } : { font: st, wide: false }; };
+  const pick = (t) => {
+    if (inner === 'stack') return { font: solve(t, 'stack'), wide: false };   // queue below "Now interviewing"
+    if (inner === 'wide') return { font: solve(t, 'wide'), wide: true };      // queue beside it
+    const st = solve(t, 'stack'); const wd = solve(t, 'wide');
+    return wd > st ? { font: wd, wide: true } : { font: st, wide: false };
+  };
   const full = { ...pick('full'), dense: false, cellW: w };
   if (full.font >= Math.max(13, rootPx * 0.7)) return full;
   const dense = { ...pick('dense'), dense: true, cellW: w };
@@ -802,10 +808,16 @@ const LAYOUTS = [
   ['rows', 'Rows', 'Rooms stacked top to bottom'],
   ['focus', 'Focus', 'The busiest room big, the others beside it'],
 ];
+// How each room arranges "Now interviewing" and "Up next".
+const INNER = [
+  ['auto', 'Auto', 'Chooses what fits best'],
+  ['stack', 'Queue below', 'Up next sits under Now interviewing'],
+  ['wide', 'Queue beside', 'Up next sits to the right of Now interviewing'],
+];
 const layoutsFor = (n) => (n < 2 ? [] : n === 2 ? LAYOUTS.filter(l => l[0] !== 'grid') : LAYOUTS);
 
 // Measures the room area (and the root text size) whenever the window or zoom changes.
-const RoomsArea = ({ views, spotId, zoom, layout, render }) => {
+const RoomsArea = ({ views, spotId, zoom, layout, inner, render }) => {
   const zoneRef = useRef(null);
   const [box, setBox] = useState({ w: 0, h: 0, root: 16 });
   useLayoutEffect(() => {
@@ -851,8 +863,8 @@ const RoomsArea = ({ views, spotId, zoom, layout, render }) => {
         sideW = (box.w - gap * (sc - 1)) / sc; sideH = (availH * 0.38) / sr;
         style = { gridTemplateColumns: `repeat(${sc}, minmax(0,1fr))`, gridTemplateRows: `minmax(0,62fr) repeat(${sr}, minmax(0,${38 / sr}fr))`, gap };
       }
-      const bigLay = finishLay(fitCell(bigW, bigH, box.root, [spot]), box.root, zoom);
-      const sideLay = finishLay(fitCell(sideW, sideH, box.root, others), box.root, zoom);
+      const bigLay = finishLay(fitCell(bigW, bigH, box.root, [spot], inner), box.root, zoom);
+      const sideLay = finishLay(fitCell(sideW, sideH, box.root, others, inner), box.root, zoom);
       items = [
         { v: spot, lay: bigLay, big: true, style: land ? { gridRow: `1 / span ${sr}` } : { gridColumn: `1 / span ${sc}` } },
         ...others.map(v => ({ v, lay: sideLay, style: undefined })),
@@ -860,7 +872,7 @@ const RoomsArea = ({ views, spotId, zoom, layout, render }) => {
     } else {
       const cellLay = (c) => {
         const r = Math.ceil(n / c);
-        return fitCell((box.w - gap * (c - 1)) / c, (box.h - gap * (r - 1)) / r, box.root, views);
+        return fitCell((box.w - gap * (c - 1)) / c, (box.h - gap * (r - 1)) / r, box.root, views, inner);
       };
       let best = null;
       if (layout === 'columns' || layout === 'rows' || layout === 'grid') {
@@ -990,6 +1002,7 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
   const [isFs, setIsFs] = useState(false);
   const [spotlight, setSpotlight] = useState(null);                       // room id or null
   const [layout, setLayout] = useState(() => readPref('ls_layout', 'auto'));
+  const [inner, setInner] = useState(() => (INNER.some(i => i[0] === readPref('ls_inner', 'auto')) ? readPref('ls_inner', 'auto') : 'auto'));
   const [showSubs, setShowSubs] = useState(() => readPref('ls_subs', 'on') !== 'off');
   const [guideOpen, setGuideOpen] = useState(false);
   const [soundOn, setSoundOn] = useState(() => readPref('ls_sound', 'on') !== 'off');
@@ -1129,6 +1142,12 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
     setSpotlight(null);
   }, []);
   const pickLayout = useCallback((id) => { setLayout(id); savePref('ls_layout', id); setSpotlight(null); }, []);
+  const cycleInner = useCallback(() => setInner(cur => {
+    const next = INNER[(INNER.findIndex(i => i[0] === cur) + 1) % INNER.length][0];
+    savePref('ls_inner', next);
+    return next;
+  }), []);
+  const pickInner = useCallback((id) => { setInner(id); savePref('ls_inner', id); }, []);
   const toggleSubs = useCallback(() => setShowSubs(v => { savePref('ls_subs', v ? 'off' : 'on'); return !v; }), []);
   // Keys: Esc closes (manager first, then spotlight), F fullscreen, 1-9 spotlight a room, 0 all rooms,
   // T theme, + / - text size
@@ -1153,6 +1172,7 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
       else if (e.key === 'v' || e.key === 'V') toggleAlerts();
       else if (e.key === 'l' || e.key === 'L') cycleLayout();
       else if (e.key === 's' || e.key === 'S') toggleSubs();
+      else if (e.key === 'q' || e.key === 'Q') cycleInner();
       else if (e.key === '0') setSpotlight(null);
       else if (/^[1-9]$/.test(e.key)) {
         const id = roomIdsRef.current[Number(e.key) - 1];
@@ -1161,7 +1181,7 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isOpen, onClose, managing, guideOpen, spotlight, toggleFs, cycleTheme, bumpZoom, toggleSound, toggleAlerts, cycleLayout, toggleSubs]);
+  }, [isOpen, onClose, managing, guideOpen, spotlight, toggleFs, cycleTheme, bumpZoom, toggleSound, toggleAlerts, cycleLayout, cycleInner, toggleSubs]);
 
   // Controls and cursor fade away after a few idle seconds so the broadcast stays clean.
   const wake = useCallback(() => {
@@ -1349,6 +1369,7 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
             spotId={spotView ? spotView.id : null}
             zoom={ZOOMS[zoomIdx]}
             layout={effLayout}
+            inner={inner}
             render={({ v, lay, big, style }) => (
               <RoomPanel key={v.id} view={v} lay={lay} big={big} extraStyle={style} index={roomViews.indexOf(v)} numbered={roomViews.length > 1}
                 onSpot={() => toggleSpot(v.id)} fetchedAt={fetchedAt} flash={flash} canManageQueue={canManageQueue} hasRooms={(data.rooms || []).length > 0} />
@@ -1399,6 +1420,12 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
             ))}
           </div>
         )}
+        <div className="ls-ctl-group ls-layouts">
+          <span>Inside rooms</span>
+          {INNER.map(([id, label, tip]) => (
+            <button key={id} className={inner === id ? 'on' : ''} title={tip} aria-pressed={inner === id} onClick={() => pickInner(id)}>{label}</button>
+          ))}
+        </div>
         <button onClick={toggleSubs} aria-pressed={showSubs}>Submissions: {showSubs ? 'Shown' : 'Hidden'}</button>
         <div className="ls-ctl-group">
           <button onClick={() => bumpZoom(-1)} disabled={zoomIdx === 0} aria-label="Smaller text">A−</button>
