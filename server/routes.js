@@ -4362,7 +4362,7 @@ const computeLiveStats = async () => {
   const empty = {
     generatedAt: new Date(now).toISOString(),
     summary: { candidates: 0, complete: 0, inProgress: 0, beingRated: 0, notStarted: 0, ratersOnline: 0, ratersTotal: 0 },
-    items: [], raters: [], recent: [], queue: [], rooms: [],
+    items: [], raters: [], recent: [], queue: [], rooms: [], completed: [],
   };
   if (itemNumbers.length === 0) return empty;
 
@@ -4478,7 +4478,9 @@ const computeLiveStats = async () => {
       : ratedBy.length > 0 ? 'in_progress'
       : 'not_started';
 
-    stateByCand.set(String(c._id), { status, rated: ratedBy.length, required: requiredTypes.length });
+    // When the last required rater submitted = when this candidate's ratings were completed.
+    const completedAt = complete ? ratedBy.reduce((m, r) => (!m || r.at > m ? r.at : m), null) : null;
+    stateByCand.set(String(c._id), { status, rated: ratedBy.length, required: requiredTypes.length, completedAt });
 
     raters.forEach(r => {
       if (inScope(r, v) && requiredTypes.includes(r.raterType)) raterStats[String(r._id)].assigned += 1;
@@ -4555,13 +4557,34 @@ const computeLiveStats = async () => {
     queue.push({
       id: String(e._id), candidateId: String(c._id), name: c.fullName,
       roomId: e.roomId && roomIds.has(String(e.roomId)) ? String(e.roomId) : null,
-      itemNumber: c.itemNumber, position: v?.position || '',
+      itemNumber: c.itemNumber, position: v?.position || '', assignment: v?.assignment || '',
       otherItems: otherItemsFor(c),
       status: st.status, rated: st.rated, required: st.required,
     });
   });
 
-  return { generatedAt: new Date(now).toISOString(), summary, items, raters: raterRows, recent, queue, rooms };
+  // Candidates whose ratings are finished, newest first, each with the room they were queued in
+  // (null if none). The screen shows the latest one per room as "Ratings completed" until the next
+  // candidate in that room is opened. Queue entries are kept after completion, so the room is known.
+  const roomOfCand = {};
+  queueEntries.forEach(e => {
+    roomOfCand[String(e.candidateId)] = e.roomId && roomIds.has(String(e.roomId)) ? String(e.roomId) : null;
+  });
+  const completed = [];
+  candidates.forEach(c => {
+    const st = stateByCand.get(String(c._id));
+    if (!st || st.status !== 'complete' || !st.completedAt) return;
+    const v = vacancyByItem[c.itemNumber];
+    completed.push({
+      candidateId: String(c._id), name: c.fullName, itemNumber: c.itemNumber,
+      position: v?.position || '', assignment: v?.assignment || '',
+      roomId: roomOfCand[String(c._id)] ?? null, at: st.completedAt,
+    });
+  });
+  completed.sort((a, b) => new Date(b.at) - new Date(a.at));
+  completed.length = Math.min(completed.length, 40);
+
+  return { generatedAt: new Date(now).toISOString(), summary, items, raters: raterRows, recent, queue, rooms, completed };
 };
 
 router.get('/live-stats', authMiddleware, async (req, res) => {
@@ -4646,13 +4669,69 @@ router.delete('/rooms/:id', authMiddleware, requireQueueManager, async (req, res
 });
 
 // Body: { roomId, candidateIds: [...] } — appended to the end of that room's queue.
+//
+// With { autoRoom: true } (and no roomId) each candidate goes to the room named after the PLACE OF
+// ASSIGNMENT of the item they applied for — the office the End-User rater represents. A room is
+// created on the spot when none with that name exists yet (names match ignoring case and spacing).
 router.post('/queue', authMiddleware, requireQueueManager, async (req, res) => {
   try {
     const { roomId } = req.body;
+    const autoRoom = req.body.autoRoom === true;
     const ids = Array.isArray(req.body.candidateIds) ? [...new Set(req.body.candidateIds.map(String))].slice(0, 200) : [];
-    if (!mongoose.isValidObjectId(roomId)) return res.status(400).json({ message: 'Choose a room first' });
+    if (!autoRoom && !mongoose.isValidObjectId(roomId)) return res.status(400).json({ message: 'Choose a room first' });
     if (ids.length === 0 || !ids.every(id => mongoose.isValidObjectId(id))) {
       return res.status(400).json({ message: 'candidateIds must be a non-empty list of candidate ids' });
+    }
+
+    if (autoRoom) {
+      const [valid, existing] = await Promise.all([
+        Candidate.find({ _id: { $in: ids }, isArchived: false, status: 'long_list' }).select('_id itemNumber').lean(),
+        QueueEntry.find({ candidateId: { $in: ids } }).select('candidateId').lean(),
+      ]);
+      const already = new Set(existing.map(e => String(e.candidateId)));
+      const fresh = valid.filter(c => !already.has(String(c._id)));
+      const vacs = await Vacancy.find({ itemNumber: { $in: [...new Set(fresh.map(c => c.itemNumber))] }, isArchived: false })
+        .select('itemNumber assignment').lean();
+      const assignmentOf = Object.fromEntries(vacs.map(v => [v.itemNumber, v.assignment]));
+
+      const key = (n) => cleanRoomName(n).toLowerCase();
+      let rooms = await Room.find().select('_id name order').lean();
+      const roomFor = new Map(rooms.map(r => [key(r.name), r]));
+      let nextRoomOrder = rooms.reduce((m, r) => Math.max(m, r.order), -1) + 1;
+
+      const groups = new Map();   // room key -> { name, candidateIds }
+      fresh.forEach(c => {
+        const name = cleanRoomName(assignmentOf[c.itemNumber]) || 'No place of assignment';
+        const k = key(name);
+        if (!groups.has(k)) groups.set(k, { name, candidateIds: [] });
+        groups.get(k).candidateIds.push(String(c._id));
+      });
+
+      const roomsCreated = [];
+      let added = 0;
+      for (const [k, g] of groups) {
+        let room = roomFor.get(k);
+        if (!room) {
+          try {
+            const doc = await Room.create({ name: g.name, order: nextRoomOrder++ });
+            room = { _id: doc._id, name: doc.name };
+            roomsCreated.push(doc.name);
+          } catch (e) {
+            if (e?.code !== 11000) throw e;
+            // someone created it a moment ago — use theirs
+            rooms = await Room.find().select('_id name order').lean();
+            room = rooms.find(r => key(r.name) === k);
+            if (!room) throw e;
+          }
+          roomFor.set(k, room);
+        }
+        const last = await QueueEntry.findOne({ roomId: room._id }).sort({ order: -1 }).select('order').lean();
+        let order = (last?.order ?? -1) + 1;
+        await QueueEntry.insertMany(g.candidateIds.map(id => ({ roomId: room._id, candidateId: id, order: order++, addedBy: req.user._id })));
+        added += g.candidateIds.length;
+      }
+      dropLiveStatsCache();
+      return res.json({ added, roomsCreated });
     }
     const [room, valid, existing, last] = await Promise.all([
       Room.findById(roomId).select('_id').lean(),

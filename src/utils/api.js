@@ -994,6 +994,8 @@ export const queueAPI = {
   renameRoom: async (id, name) => (await api.put(`/rooms/${id}`, { name })).data,
   removeRoom: async (id) => (await api.delete(`/rooms/${id}`)).data,
   add: async (roomId, candidateIds) => (await api.post('/queue', { roomId, candidateIds })).data,
+  // Each candidate goes to the room named after their item's place of assignment (room is created if missing).
+  addAuto: async (candidateIds) => (await api.post('/queue', { autoRoom: true, candidateIds })).data,
   reorder: async (ids) => (await api.put('/queue/order', { ids })).data,
   move: async (id, roomId) => (await api.put(`/queue/${id}/room`, { roomId })).data,
   remove: async (id) => (await api.delete(`/queue/${id}`)).data,
