@@ -1204,13 +1204,27 @@ const RadioRating = ({ competency, competencyType, currentRating, onChange, onIn
 // button: clicking it jumps straight to that candidate in the rating form.
 // Only names + rater types are shown — never scores (CBS independence).
 const PendingRatingsReminder = ({ pending, currentCandidateId, onJump }) => {
-  const [collapsed, setCollapsed] = useState(false);
+  // Minimized by default — the badge + summary in the header is the nudge.
+  const [collapsed, setCollapsed] = useState(true);
+  const [activeTab, setActiveTab] = useState(null); // 'panel' | 'two_rater' | null = auto
   if (!pending || pending.length === 0) return null;
+
+  // Separate full-panel interviews (6 raters) from 2-rater interviews (SG ≤ 14)
+  const counts = {
+    panel: pending.filter(p => p.panelType !== 'two_rater').length,
+    two_rater: pending.filter(p => p.panelType === 'two_rater').length,
+  };
+  const tab = activeTab && counts[activeTab] > 0 ? activeTab : (counts.panel > 0 ? 'panel' : 'two_rater');
+  const visible = pending.filter(p => (tab === 'two_rater') === (p.panelType === 'two_rater'));
+  const TABS = [
+    { id: 'panel', label: 'Panel interview', hint: '6 raters' },
+    { id: 'two_rater', label: '2-rater interview', hint: 'Regular Member + End-User' },
+  ];
 
   // Group by item number so raters see which position each candidate belongs to
   const groups = [];
   const byItem = {};
-  pending.forEach(p => {
+  visible.forEach(p => {
     if (!byItem[p.itemNumber]) {
       byItem[p.itemNumber] = { itemNumber: p.itemNumber, position: p.position, assignment: p.assignment, rows: [] };
       groups.push(byItem[p.itemNumber]);
@@ -1245,7 +1259,9 @@ const PendingRatingsReminder = ({ pending, currentCandidateId, onJump }) => {
               : `You still need to rate ${pending.length} candidates`}
           </span>
           <span className="block text-xs sm:text-sm text-amber-800">
-            Other panel members have already submitted their ratings. Tap a candidate to start rating.
+            {collapsed
+              ? `Panel interview: ${counts.panel} · 2-rater interview: ${counts.two_rater} — tap to expand`
+              : 'Other raters have already submitted their ratings. Tap a candidate to start rating.'}
           </span>
         </span>
         <svg className={`w-5 h-5 text-amber-800 flex-shrink-0 transition-transform ${collapsed ? '' : 'rotate-180'}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -1255,6 +1271,28 @@ const PendingRatingsReminder = ({ pending, currentCandidateId, onJump }) => {
 
       {!collapsed && (
         <div className="p-3 sm:p-4 space-y-4">
+          <div className="flex gap-2 border-b border-amber-200" role="tablist" aria-label="Interview type">
+            {TABS.map(t => (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                aria-selected={tab === t.id}
+                disabled={counts[t.id] === 0}
+                onClick={() => setActiveTab(t.id)}
+                className={`flex-1 -mb-px px-3 py-2 text-sm font-semibold rounded-t-lg border-b-2 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400 ${
+                  tab === t.id
+                    ? 'border-amber-600 text-amber-900 bg-white'
+                    : counts[t.id] === 0
+                      ? 'border-transparent text-gray-400 cursor-not-allowed'
+                      : 'border-transparent text-amber-800 hover:bg-amber-100'
+                }`}
+              >
+                <span className="block">{t.label} <span className={`ml-1 inline-flex min-w-[20px] justify-center rounded-full px-1.5 text-[11px] font-bold ${counts[t.id] ? 'bg-red-600 text-white' : 'bg-gray-200 text-gray-500'}`}>{counts[t.id]}</span></span>
+                <span className="block text-[11px] font-normal text-gray-500">{t.hint}</span>
+              </button>
+            ))}
+          </div>
           {groups.map(g => (
             <div key={g.itemNumber}>
               <div className="flex flex-wrap items-baseline gap-x-2 px-1 mb-2">

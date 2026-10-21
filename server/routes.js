@@ -3684,7 +3684,15 @@ router.post('/ratings/pending-reminders', authMiddleware, async (req, res) => {
       if (ratedBy.length === 0) continue;                  // nobody started yet → nothing to remind about
 
       const ratedTypes = new Set(ratedBy.map(r => r.raterType));
+      // Ratings already complete for my seat: only one rater per rater type may rate a
+      // candidate, so if my type's slot is taken by someone else (or every required slot
+      // is filled) there is nothing left for me to do — don't nag.
+      if (ratedTypes.has(me.raterType)) continue;
+      if (requiredTypes.every(t => ratedTypes.has(t))) continue;
       pending.push({
+        salaryGrade: v.salaryGrade,
+        // 'panel' = full 6-member panel interview (SG ≥ 15); 'two_rater' = SG ≤ 14 (Regular Member + End-User)
+        panelType: v.salaryGrade <= 14 ? 'two_rater' : 'panel',
         candidateId: c._id,
         candidateName: c.fullName,
         itemNumber: c.itemNumber,
