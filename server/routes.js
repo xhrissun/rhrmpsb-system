@@ -4366,7 +4366,7 @@ const computeLiveStats = async () => {
   };
   if (itemNumbers.length === 0) return empty;
 
-  const [candidates, raters, ratedGroups, sessions, queueEntries, roomDocs] = await Promise.all([
+  const [candidates, raters, ratedGroups, sessions, queueEntries, roomDocs, applicantRows] = await Promise.all([
     Candidate.find({ itemNumber: { $in: itemNumbers }, isArchived: false, status: 'long_list' })
       .select('_id fullName itemNumber').lean(),
     User.find({ userType: 'rater' })
@@ -4380,7 +4380,23 @@ const computeLiveStats = async () => {
       .select('raterId candidateId itemNumber elapsedMs updatedAt').lean(),
     QueueEntry.find().sort({ order: 1 }).select('_id candidateId roomId order').lean(),
     Room.find().sort({ order: 1 }).select('_id name').lean(),
+    // Everyone still in the running on any active item — used to show "also applied for".
+    Candidate.find({ itemNumber: { $in: itemNumbers }, isArchived: false, status: { $ne: 'disqualified' } })
+      .select('_id fullName itemNumber').lean(),
   ]);
+
+  // Same person = same full name (case/spacing-insensitive), the same rule the Secretariat screen uses.
+  const nameKey = (n) => String(n || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  const itemsByName = new Map();   // nameKey -> Set(itemNumber)
+  applicantRows.forEach(a => {
+    const k = nameKey(a.fullName);
+    if (!itemsByName.has(k)) itemsByName.set(k, new Set());
+    itemsByName.get(k).add(a.itemNumber);
+  });
+  const otherItemsFor = (c) => [...(itemsByName.get(nameKey(c.fullName)) || [])]
+    .filter(n => n !== c.itemNumber)
+    .sort()
+    .map(n => ({ itemNumber: n, position: vacancyByItem[n]?.position || '' }));
 
   const raterById = {};
   raters.forEach(r => { raterById[String(r._id)] = r; });
@@ -4488,6 +4504,7 @@ const computeLiveStats = async () => {
     item.counts[status === 'complete' ? 'complete' : status === 'being_rated' ? 'beingRated' : status === 'in_progress' ? 'inProgress' : 'notStarted'] += 1;
     item.candidates.push({
       id: String(c._id), name: c.fullName, status, ratedBy, interviewing,
+      otherItems: otherItemsFor(c),
       awaitingTypes: requiredTypes.filter(t => !ratedTypes.has(t)),
     });
   });
@@ -4539,6 +4556,7 @@ const computeLiveStats = async () => {
       id: String(e._id), candidateId: String(c._id), name: c.fullName,
       roomId: e.roomId && roomIds.has(String(e.roomId)) ? String(e.roomId) : null,
       itemNumber: c.itemNumber, position: v?.position || '',
+      otherItems: otherItemsFor(c),
       status: st.status, rated: st.rated, required: st.required,
     });
   });

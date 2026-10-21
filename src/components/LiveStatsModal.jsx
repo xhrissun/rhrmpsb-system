@@ -108,6 +108,9 @@ const FitBox = ({ items, renderItem, moreLabel, className }) => {
   );
 };
 
+// "Also applied: # 123, # 456" — other item numbers this same person applied for.
+const otherText = (list) => (list && list.length ? `Also applied: ${list.map(o => `# ${o.itemNumber}`).join(', ')}` : '');
+
 // One chip per required rater seat: done / interviewing / waiting
 const SeatChips = ({ cand, requiredTypes }) => (
   <div className="ls-seats">
@@ -153,9 +156,12 @@ const CSS = `
 .ls-rh .st{margin-left:auto;flex:none;font-size:.9em;color:var(--muted)}
 .ls-rh .st.live{color:var(--live);font-weight:600}
 .ls-room.dense{grid-template-rows:auto minmax(0,1fr) minmax(0,1fr);gap:.5em;padding:.8em .9em}
-.ls-room.dense .ls-card{height:3.3em;padding:.35em .8em;grid-template-rows:auto}
-.ls-room.dense .ls-sub,.ls-room.dense .ls-with,.ls-room.dense .ls-seats,.ls-room.dense .ls-sh,.ls-room.dense .ls-sum{display:none}
+.ls-room.dense .ls-card{height:4.6em;padding:.35em .8em;grid-template-rows:auto auto;gap:.15em}
+.ls-room.dense .ls-sub,.ls-room.dense .ls-seats,.ls-room.dense .ls-sh,.ls-room.dense .ls-sum{display:none}
+.ls-room.dense .ls-with{font-size:.8em;white-space:nowrap;text-overflow:ellipsis}
 .ls-room.dense .ls-timer{font-size:1.5em}
+.ls-room.dense .ls-row{height:3.1em}
+.ls-room.dense .ls-row .ls-also{display:none}
 .ls-room.dense .ls-sec+.ls-sec{padding-top:.5em}
 .ls-sec{display:flex;flex-direction:column;min-height:0}
 .ls-sec+.ls-sec{border-top:1px solid var(--edge);padding-top:.7em}
@@ -171,7 +177,7 @@ const CSS = `
 .ls-fit.rows{grid-template-columns:minmax(0,1fr);gap:.45em}
 .ls-more{grid-column:1/-1;display:flex;align-items:center;justify-content:center;height:2em;color:var(--muted)}
 .ls-empty{margin:auto;text-align:center;color:var(--muted);max-width:28em}
-.ls-card{height:12.8em;overflow:hidden;display:grid;grid-template-rows:auto auto auto 1fr;gap:.4em;align-content:start;background:var(--card);border:1px solid var(--edge);border-radius:.7em;padding:.8em .9em}
+.ls-card{height:15.5em;overflow:hidden;display:grid;grid-template-rows:auto auto auto auto 1fr;gap:.4em;align-content:start;background:var(--card);border:1px solid var(--edge);border-radius:.7em;padding:.8em .9em}
 .ls-top{display:flex;align-items:flex-start;justify-content:space-between;gap:.8em}
 .ls-name{font-size:1.2em;font-weight:650;line-height:1.15;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .ls-timer{flex:none;font-size:1.9em;font-weight:700;line-height:1;color:var(--live);font-variant-numeric:tabular-nums}
@@ -181,8 +187,9 @@ const CSS = `
 .ls-seat.done{background:var(--done);border-color:var(--done);color:#0d1a16}
 .ls-seat.live{color:var(--live);border-color:var(--live)}
 .ls-seat.live::before{content:"";width:.5em;height:.5em;border-radius:50%;background:var(--live);animation:ls-blink 1.2s infinite}
-.ls-with{color:var(--muted);font-size:.85em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ls-row{display:grid;grid-template-columns:2em minmax(0,1fr) auto;align-items:center;gap:.6em;height:3.1em;padding:0 .8em 0 .4em;border-radius:.5em;background:var(--card)}
+.ls-with{color:var(--muted);font-size:.85em;line-height:1.2;overflow:hidden}
+.ls-also{color:var(--live);font-size:.82em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ls-row{display:grid;grid-template-columns:2em minmax(0,1fr) auto;align-items:center;gap:.6em;height:3.9em;padding:0 .8em 0 .4em;border-radius:.5em;background:var(--card)}
 .ls-row.first{outline:1px solid var(--live)}
 .ls-num{text-align:center;font-size:1.15em;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums}
 .ls-row.first .ls-num{color:var(--live)}
@@ -238,7 +245,7 @@ const QueueManager = ({ data, reload, onClose }) => {
       it.candidates.forEach(c => {
         if (c.status === 'complete' || queued.has(c.id)) return;
         if (q && !c.name.toLowerCase().includes(q)) return;
-        rows.push({ id: c.id, name: c.name, itemNumber: it.itemNumber, position: it.position });
+        rows.push({ id: c.id, name: c.name, itemNumber: it.itemNumber, position: it.position, otherItems: c.otherItems });
       });
     });
     return rows;
@@ -324,6 +331,7 @@ const QueueManager = ({ data, reload, onClose }) => {
                     <div className="min-w-0 flex-1">
                       <div className="font-medium truncate">{q.name}</div>
                       <div className="text-xs text-gray-500 truncate">Item # {q.itemNumber}, {q.position}{q.status === 'being_rated' ? ' — being rated now' : ''}</div>
+                      {q.otherItems?.length > 0 && <div className="text-xs text-amber-700 truncate">{otherText(q.otherItems)}</div>}
                     </div>
                     {isRoom && <>
                       <button className={btn} disabled={busy || i === 0} onClick={() => move(i, -1)} aria-label={`Move ${q.name} up`}>↑</button>
@@ -369,6 +377,7 @@ const QueueManager = ({ data, reload, onClose }) => {
                           <span className="min-w-0 flex-1">
                             <span className="block font-medium truncate">{c.name}</span>
                             <span className="block text-xs text-gray-500 truncate">Item # {c.itemNumber}, {c.position}</span>
+                            {c.otherItems?.length > 0 && <span className="block text-xs text-amber-700 truncate">{otherText(c.otherItems)}</span>}
                           </span>
                         </label>
                       </li>
@@ -418,8 +427,9 @@ const RoomPanel = ({ view, fetchedAt, canManageQueue, hasRooms, dense }) => {
                   <div className="ls-timer"><LiveClock baseSeconds={elapsed} fetchedAt={fetchedAt} /></div>
                 </div>
                 <div className="ls-sub">Item # {item.itemNumber}, {item.position}</div>
+                {c.otherItems?.length > 0 && <div className="ls-also">{otherText(c.otherItems)}</div>}
                 <SeatChips cand={c} requiredTypes={item.requiredTypes} />
-                <div className="ls-with">With {c.interviewing.map(r => r.name).join(', ')}</div>
+                <div className="ls-with">Rating now ({c.interviewing.length}): {c.interviewing.map(r => `${r.name} (${TYPE_LABEL[r.raterType] || r.raterType})`).join(', ')}</div>
               </article>
             )}
           />
@@ -443,6 +453,7 @@ const RoomPanel = ({ view, fetchedAt, canManageQueue, hasRooms, dense }) => {
                 <div style={{ minWidth: 0 }}>
                   <div className="ls-rname">{q.name}</div>
                   <div className="ls-sub">Item # {q.itemNumber}, {q.position}</div>
+                  {q.otherItems?.length > 0 && <div className="ls-also">{otherText(q.otherItems)}</div>}
                 </div>
                 <span className="ls-tag">{i === 0 ? 'Next' : q.rated > 0 ? `${q.rated} of ${q.required} rated` : ''}</span>
               </div>
