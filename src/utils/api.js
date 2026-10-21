@@ -646,6 +646,12 @@ export const ratingsAPI = {
     const response = await api.post('/ratings/by-candidates', { candidateIds });
     return response.data;
   },
+  // Rater reminder: candidates others have rated but I haven't (names only, never scores)
+  getPendingReminders: async (itemNumbers) => {
+    if (!itemNumbers || itemNumbers.length === 0) return { pending: [] };
+    const response = await api.post('/ratings/pending-reminders', { itemNumbers });
+    return response.data;
+  },
   getByRater: async (raterId) => {
     const response = await api.get(`/ratings/rater/${raterId}`);
     return response.data;

@@ -3603,6 +3603,111 @@ router.post('/ratings/by-candidates', authMiddleware, async (req, res) => {
   }
 });
 
+// ── Pending-rating reminders (rater view) ────────────────────────────────────
+// Answers: "for which candidates have OTHER raters already submitted ratings
+// while I have not?" Powers the reminder panel in RaterView.
+//
+// CBS independence: the response exposes WHO has rated (display name + rater
+// type) but NEVER any score, competency or rating value. Raters can therefore
+// be nudged without being able to see or be influenced by anyone's marks.
+//
+// Scope is re-derived server-side from the caller's own assignment settings —
+// the itemNumbers sent by the client are only a hint and are intersected with
+// what this rater is actually allowed to see (active, assigned, not suspended).
+router.post('/ratings/pending-reminders', authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'rater') return res.json({ pending: [] });
+  try {
+    const requested = Array.isArray(req.body.itemNumbers)
+      ? [...new Set(req.body.itemNumbers.filter(Boolean).map(String))].slice(0, 500)
+      : [];
+    if (requested.length === 0) return res.json({ pending: [] });
+
+    const me = req.user;
+    const mode = me.assignedVacancies || 'none';
+    if (mode === 'none') return res.json({ pending: [] });
+    const suspended = new Set((me.suspendedItemNumbers || []).map(String));
+
+    // 1. Active vacancies this rater may actually see
+    const vacancies = await Vacancy.find({ itemNumber: { $in: requested }, isArchived: false })
+      .select('itemNumber position assignment salaryGrade').lean();
+    const allowed = vacancies.filter(v => {
+      if (suspended.has(v.itemNumber)) return false;
+      if (mode === 'all') return true;
+      if (mode === 'assignment') return !!me.assignedAssignment && v.assignment === me.assignedAssignment;
+      if (mode === 'specific') return (me.assignedItemNumbers || []).includes(v.itemNumber);
+      return false;
+    });
+    if (allowed.length === 0) return res.json({ pending: [] });
+    const vacancyByItem = Object.fromEntries(allowed.map(v => [v.itemNumber, v]));
+    const itemNumbers = Object.keys(vacancyByItem);
+
+    // 2. Long-listed candidates, rater roster, and every rating row (ids only)
+    const [candidates, allRaters] = await Promise.all([
+      Candidate.find({ itemNumber: { $in: itemNumbers }, isArchived: false, status: 'long_list' })
+        .select('_id fullName itemNumber').lean(),
+      User.find({ userType: 'rater' }).select('_id name raterType').lean(),
+    ]);
+    if (candidates.length === 0) return res.json({ pending: [] });
+
+    const ratingRows = await Rating.find({
+      candidateId: { $in: candidates.map(c => c._id) },
+      itemNumber: { $in: itemNumbers },
+    }).select('candidateId raterId itemNumber score').lean();
+
+    const raterById = Object.fromEntries(allRaters.map(r => [r._id.toString(), r]));
+    const ALL_TYPES = ['Chairperson', 'Vice-Chairperson', 'Regular Member', 'DENREU', 'Gender and Development', 'End-User'];
+    const myId = me._id.toString();
+
+    // candidateId|itemNumber -> Set(raterId) — only rows with a real score count
+    const ratedMap = new Map();
+    for (const r of ratingRows) {
+      if (!(r.score > 0)) continue;
+      const key = `${r.candidateId}|${r.itemNumber}`;
+      if (!ratedMap.has(key)) ratedMap.set(key, new Set());
+      ratedMap.get(key).add(String(r.raterId));
+    }
+
+    const pending = [];
+    for (const c of candidates) {
+      const v = vacancyByItem[c.itemNumber];
+      if (!v) continue;
+      // Same SG rule as the board endpoint: SG<=14 → only Regular Member + End-User count.
+      const requiredTypes = v.salaryGrade <= 14 ? ['Regular Member', 'End-User'] : ALL_TYPES;
+      if (!requiredTypes.includes(me.raterType)) continue; // my rating wouldn't count here
+      const ratedSet = ratedMap.get(`${c._id}|${c.itemNumber}`) || new Set();
+      if (ratedSet.has(myId)) continue;                    // I already rated this one
+
+      const ratedBy = [...ratedSet]
+        .map(id => raterById[id])
+        .filter(r => r && r.raterType && requiredTypes.includes(r.raterType))
+        .map(r => ({ name: r.name, raterType: r.raterType }));
+      if (ratedBy.length === 0) continue;                  // nobody started yet → nothing to remind about
+
+      const ratedTypes = new Set(ratedBy.map(r => r.raterType));
+      pending.push({
+        candidateId: c._id,
+        candidateName: c.fullName,
+        itemNumber: c.itemNumber,
+        position: v.position,
+        assignment: v.assignment,
+        ratedBy,
+        requiredRaters: requiredTypes.length,
+        awaitingTypes: requiredTypes.filter(t => !ratedTypes.has(t)),
+      });
+    }
+
+    // Most-rated first = most overdue on my side
+    pending.sort((a, b) =>
+      b.ratedBy.length - a.ratedBy.length ||
+      a.itemNumber.localeCompare(b.itemNumber) ||
+      a.candidateName.localeCompare(b.candidateName));
+    res.json({ pending });
+  } catch (error) {
+    console.error('[POST /ratings/pending-reminders]', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 router.get('/ratings/rater/:raterId', authMiddleware, async (req, res) => {
   // F-02 FIX: A rater may only fetch their own ratings.
   // Admins may fetch any rater's ratings (for reporting / audit).

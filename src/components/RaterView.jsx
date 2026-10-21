@@ -1198,6 +1198,124 @@ const RadioRating = ({ competency, competencyType, currentRating, onChange, onIn
   );
 };
 
+// ─── Pending-rating reminder panel ───────────────────────────────────────────
+// Shown at the top of the rater view. Lists every candidate that other panel
+// members have already rated but the current rater has not. Each row is a
+// button: clicking it jumps straight to that candidate in the rating form.
+// Only names + rater types are shown — never scores (CBS independence).
+const PendingRatingsReminder = ({ pending, currentCandidateId, onJump }) => {
+  const [collapsed, setCollapsed] = useState(false);
+  if (!pending || pending.length === 0) return null;
+
+  // Group by item number so raters see which position each candidate belongs to
+  const groups = [];
+  const byItem = {};
+  pending.forEach(p => {
+    if (!byItem[p.itemNumber]) {
+      byItem[p.itemNumber] = { itemNumber: p.itemNumber, position: p.position, assignment: p.assignment, rows: [] };
+      groups.push(byItem[p.itemNumber]);
+    }
+    byItem[p.itemNumber].rows.push(p);
+  });
+
+  return (
+    <div
+      className="mb-6 rounded-xl border-2 border-amber-300 bg-amber-50 shadow-sm overflow-hidden"
+      role="region"
+      aria-label="Candidates awaiting your rating"
+    >
+      <button
+        type="button"
+        onClick={() => setCollapsed(c => !c)}
+        className="w-full flex items-center gap-3 px-4 py-3 text-left bg-amber-100 hover:bg-amber-200 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400"
+        aria-expanded={!collapsed}
+      >
+        <span className="relative flex h-9 w-9 items-center justify-center rounded-full bg-amber-500 text-white flex-shrink-0">
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0a3 3 0 11-6 0m6 0H9" />
+          </svg>
+          <span className="absolute -top-1 -right-1 flex h-5 min-w-[20px] px-1 items-center justify-center rounded-full bg-red-600 text-white text-[11px] font-bold">
+            {pending.length}
+          </span>
+        </span>
+        <span className="flex-1 min-w-0">
+          <span className="block text-base font-bold text-amber-900">
+            {pending.length === 1
+              ? 'You still need to rate 1 candidate'
+              : `You still need to rate ${pending.length} candidates`}
+          </span>
+          <span className="block text-xs sm:text-sm text-amber-800">
+            Other panel members have already submitted their ratings. Tap a candidate to start rating.
+          </span>
+        </span>
+        <svg className={`w-5 h-5 text-amber-800 flex-shrink-0 transition-transform ${collapsed ? '' : 'rotate-180'}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {!collapsed && (
+        <div className="p-3 sm:p-4 space-y-4">
+          {groups.map(g => (
+            <div key={g.itemNumber}>
+              <div className="flex flex-wrap items-baseline gap-x-2 px-1 mb-2">
+                <span className="text-xs font-bold uppercase tracking-wide text-amber-900">Item # {g.itemNumber}</span>
+                <span className="text-sm font-semibold text-gray-800">{g.position}</span>
+                <span className="text-xs text-gray-500">{g.assignment}</span>
+              </div>
+              <div className="space-y-2">
+                {g.rows.map(row => {
+                  const isOpen = String(row.candidateId) === String(currentCandidateId);
+                  const done = row.ratedBy.length;
+                  const pct = Math.round((done / row.requiredRaters) * 100);
+                  return (
+                    <button
+                      key={`${row.itemNumber}-${row.candidateId}`}
+                      type="button"
+                      onClick={() => onJump(row)}
+                      className={`group w-full text-left rounded-lg border bg-white px-3 py-3 transition-all focus:outline-none focus:ring-2 focus:ring-amber-400 hover:border-amber-400 hover:shadow-md ${isOpen ? 'border-green-400 ring-1 ring-green-300' : 'border-gray-200'}`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-base font-bold text-gray-900 truncate">{row.candidateName}</div>
+                          <div className="text-xs text-gray-500">
+                            {done} of {row.requiredRaters} raters done
+                            {isOpen && <span className="ml-2 font-semibold text-green-700">• Currently open</span>}
+                          </div>
+                        </div>
+                        <span className="flex-shrink-0 inline-flex items-center gap-1 rounded-full bg-amber-500 group-hover:bg-amber-600 text-white text-xs sm:text-sm font-semibold px-3 py-1.5">
+                          {isOpen ? 'Go to form' : 'Rate now'}
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+                        </span>
+                      </div>
+
+                      <div className="mt-2 h-1.5 w-full rounded-full bg-gray-200 overflow-hidden">
+                        <div className="h-full rounded-full bg-green-500" style={{ width: `${pct}%` }} />
+                      </div>
+
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {row.ratedBy.map(r => (
+                          <span key={r.raterType + r.name} className="inline-flex items-center gap-1 rounded-full bg-green-100 text-green-800 text-[11px] sm:text-xs font-medium px-2 py-0.5" title={`${r.name} (${r.raterType}) has rated`}>
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                            {r.name} · {r.raterType}
+                          </span>
+                        ))}
+                        <span className="inline-flex items-center gap-1 rounded-full bg-red-100 text-red-700 text-[11px] sm:text-xs font-semibold px-2 py-0.5">
+                          <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
+                          You haven&apos;t rated yet
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ─── Main RaterView ───────────────────────────────────────────────────────────
 
 const RaterView = ({ user }) => {
@@ -1287,7 +1405,7 @@ const RaterView = ({ user }) => {
   // Handle page refresh/back warning
   useEffect(() => {
     const handleBeforeUnload = (event) => {
-      if (Object.keys(ratings).length > 0) {
+      if (countUnsavedRatings() > 0) {
         event.preventDefault();
         setIsExitConfirmModalOpen(true);
         event.returnValue = '';
@@ -1295,7 +1413,7 @@ const RaterView = ({ user }) => {
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [ratings]);
+  }, [ratings, countUnsavedRatings]);
 
   useEffect(() => {
     loadInitialData();
@@ -1408,6 +1526,7 @@ const RaterView = ({ user }) => {
         setSelectedCandidate('');
         setCandidateDetails(null);
         setRatings({});
+        savedRatingsRef.current = {};
       } else {
         loadCandidateDetails();
         checkRaterTypeConflict();
@@ -1525,6 +1644,117 @@ const RaterView = ({ user }) => {
     return () => window.removeEventListener('auth:sessionExpired', handleExpired);
   }, []);
 
+  // ── Pending-rating reminders ─────────────────────────────────────────────
+  // Candidates that other raters have already rated but this rater hasn't.
+  const [pendingReminders, setPendingReminders] = useState([]);
+  const pendingJumpRef = useRef(null);       // { candidateId, itemNumber } waiting for its item to load
+  const scrollAfterJumpRef = useRef(false);  // scroll to the rating form once details arrive
+
+  // ── Unsaved-ratings guard ────────────────────────────────────────────────
+  // `ratings` also holds ratings loaded from the server, so "unsaved" means
+  // "differs from the last snapshot that matches the database". The snapshot
+  // is refreshed on load, submit and delete.
+  const savedRatingsRef = useRef({});
+  const [pendingNav, setPendingNav] = useState(null); // { action } awaiting the rater's decision
+
+  const countUnsavedRatings = useCallback(() => {
+    const saved = savedRatingsRef.current || {};
+    const keys = new Set([...Object.keys(ratings), ...Object.keys(saved)]);
+    let n = 0;
+    keys.forEach(k => { if (ratings[k] !== saved[k]) n += 1; });
+    return n;
+  }, [ratings]);
+
+  // Run `action` now, or ask first if leaving the open candidate would lose work.
+  const guardNavigation = (action) => {
+    if (selectedCandidate && countUnsavedRatings() > 0) {
+      setPendingNav({ action });
+    } else {
+      action();
+    }
+  };
+
+  const loadPendingReminders = useCallback(async () => {
+    if (!vacancies.length) { setPendingReminders([]); return; }
+    try {
+      const res = await ratingsAPI.getPendingReminders([...new Set(vacancies.map(v => v.itemNumber))]);
+      setPendingReminders(res?.pending || []);
+    } catch (err) {
+      // Non-critical: a failed reminder lookup must never block rating.
+      console.warn('[RaterView] pending reminders failed (non-critical):', err?.message);
+    }
+  }, [vacancies]);
+
+  // Load on entry, then keep fresh: every 60 s, and whenever the tab regains focus.
+  useEffect(() => {
+    loadPendingReminders();
+    const interval = setInterval(loadPendingReminders, 60000);
+    const onVisible = () => { if (document.visibilityState === 'visible') loadPendingReminders(); };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', loadPendingReminders);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', loadPendingReminders);
+    };
+  }, [loadPendingReminders]);
+
+  // Refresh right after a candidate is rated/reset so the reminder clears immediately.
+  useEffect(() => { loadPendingReminders(); }, [selectedCandidate]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const pendingByCandidate = useMemo(() => {
+    const m = {};
+    pendingReminders.forEach(p => { m[String(p.candidateId)] = p; });
+    return m;
+  }, [pendingReminders]);
+
+  const scrollToRatingForm = () => {
+    requestAnimationFrame(() => {
+      document.getElementById('rater-candidate-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
+  // Click on a reminder row: select assignment → position → item → candidate.
+  const performJump = (row) => {
+    const v = vacancies.find(x => x.itemNumber === row.itemNumber);
+    if (!v) return;
+    const candidateId = String(row.candidateId);
+    if (selectedItemNumber === row.itemNumber) {
+      if (selectedCandidate === candidateId) { scrollToRatingForm(); return; }
+      scrollAfterJumpRef.current = true;
+      setSelectedCandidate(candidateId);
+      return;
+    }
+    // Different item: the candidate list must load first, otherwise the
+    // "candidate not in list" guard would clear the selection.
+    scrollAfterJumpRef.current = true;
+    pendingJumpRef.current = { candidateId, itemNumber: row.itemNumber };
+    setSelectedCandidate('');
+    setSelectedAssignment(v.assignment);
+    setSelectedPosition(v.position);
+    setSelectedItemNumber(v.itemNumber);
+  };
+
+  const handleJumpToPending = (row) => guardNavigation(() => performJump(row));
+
+  // Complete a cross-item jump once the target item's candidates have loaded.
+  useEffect(() => {
+    const p = pendingJumpRef.current;
+    if (!p || selectedItemNumber !== p.itemNumber) return;
+    if (candidates.some(c => String(c._id) === p.candidateId)) {
+      pendingJumpRef.current = null;
+      setSelectedCandidate(p.candidateId);
+    }
+  }, [candidates, selectedItemNumber]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Scroll to the rating form once the jumped-to candidate's details are ready.
+  useEffect(() => {
+    if (candidateDetails && scrollAfterJumpRef.current) {
+      scrollAfterJumpRef.current = false;
+      scrollToRatingForm();
+    }
+  }, [candidateDetails]);
+
   const filterVacanciesByAssignment = useCallback((allVacancies, user) => {
     switch (user.assignedVacancies) {
       case 'none':
@@ -1635,6 +1865,7 @@ const RaterView = ({ user }) => {
         }
       });
       setRatings(ratingsMap);
+      savedRatingsRef.current = { ...ratingsMap };
 
       // If this candidate already has ratings from this rater (e.g. returning after submission),
       // make sure a finished session record exists so the timer shows "Finished" instead of
@@ -1674,6 +1905,7 @@ const RaterView = ({ user }) => {
     } catch (error) {
       console.error('Failed to load existing ratings:', error);
       setRatings({});
+      savedRatingsRef.current = {};
     }
   };
 
@@ -1688,6 +1920,7 @@ const RaterView = ({ user }) => {
         setConflictingRater(result.existingRater);
         setIsRaterTypeConflictModalOpen(true);
         setRatings({});
+        savedRatingsRef.current = {};
       } else {
         loadExistingRatings();
       }
@@ -2010,9 +2243,11 @@ const RaterView = ({ user }) => {
       } catch (sessionErr) {
         console.warn('[InterviewTimer] session finish-save failed (non-critical):', sessionErr);
       }
+      savedRatingsRef.current = { ...ratings };
       setIsConfirmModalOpen(false);
       setSuccessModalType(isUpdateSubmission ? 'update' : 'submit');
       setIsSuccessModalOpen(true);
+      loadPendingReminders();
     } catch (error) {
       console.error('Failed to submit ratings:', error);
       showToast('Failed to submit ratings. Please try again.', 'error');
@@ -2033,6 +2268,8 @@ const RaterView = ({ user }) => {
         try {
           await ratingsAPI.resetRatings(selectedCandidate, user._id, selectedItemNumber);
           setRatings({});
+          savedRatingsRef.current = {};
+          loadPendingReminders();
           // Reset the session so the timer starts fresh on next visit — not "Finished"
           try {
             await interviewSessionsAPI.upsert({
@@ -2279,6 +2516,12 @@ const RaterView = ({ user }) => {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
         <div className="w-full">
+          <PendingRatingsReminder
+            pending={pendingReminders}
+            currentCandidateId={selectedCandidate}
+            onJump={handleJumpToPending}
+          />
+
           <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6 shadow-sm">
             <h2 className="text-xl font-semibold text-gray-900 mb-4 text-center">PLEASE SELECT A POSITION AND CANDIDATE</h2>
             
@@ -2287,7 +2530,7 @@ const RaterView = ({ user }) => {
                 <label className="block text-lg font-semibold text-gray-700 mb-2">Assignment</label>
                 <select
                   value={selectedAssignment}
-                  onChange={(e) => setSelectedAssignment(e.target.value)}
+                  onChange={(e) => { const v = e.target.value; guardNavigation(() => setSelectedAssignment(v)); }}
                   className="w-full px-4 py-4 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-lg"
                 >
                   <option value="">Select Assignment</option>
@@ -2301,7 +2544,7 @@ const RaterView = ({ user }) => {
                 <label className="block text-lg font-semibold text-gray-700 mb-2">Position</label>
                 <select
                   value={selectedPosition}
-                  onChange={(e) => setSelectedPosition(e.target.value)}
+                  onChange={(e) => { const v = e.target.value; guardNavigation(() => setSelectedPosition(v)); }}
                   className="w-full px-4 py-4 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:bg-gray-100 text-lg"
                   disabled={!selectedAssignment}
                 >
@@ -2316,7 +2559,7 @@ const RaterView = ({ user }) => {
                 <label className="block text-lg font-semibold text-gray-700 mb-2">Item Number</label>
                 <select
                   value={selectedItemNumber}
-                  onChange={(e) => setSelectedItemNumber(e.target.value)}
+                  onChange={(e) => { const v = e.target.value; guardNavigation(() => setSelectedItemNumber(v)); }}
                   className="w-full px-4 py-4 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:bg-gray-100 text-lg"
                   disabled={!selectedPosition}
                 >
@@ -2331,14 +2574,16 @@ const RaterView = ({ user }) => {
                 <label className="block text-lg font-semibold text-gray-700 mb-2">Candidate</label>
                 <select
                   value={selectedCandidate}
-                  onChange={(e) => setSelectedCandidate(e.target.value)}
+                  onChange={(e) => { const v = e.target.value; guardNavigation(() => setSelectedCandidate(v)); }}
                   className="w-full px-4 py-4 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:bg-gray-100 text-lg"
                   disabled={!selectedItemNumber}
                 >
                   <option value="">Select Candidate</option>
                   {candidates.map(candidate => (
                     <option key={candidate._id} value={candidate._id}>
-                      {candidate.fullName}
+                      {pendingByCandidate[String(candidate._id)]
+                        ? `⏳ ${candidate.fullName} — awaiting your rating`
+                        : candidate.fullName}
                     </option>
                   ))}
                 </select>
@@ -2365,7 +2610,7 @@ const RaterView = ({ user }) => {
           )}
 
           {!isCheckingRaterType && candidateDetails && vacancyDetails && (
-            <div className={`sticky top-12 z-30 bg-gray-100 rounded-xl border border-green-200 overflow-hidden mb-6 shadow-lg transition-all duration-300 ${isModalMinimized ? 'max-h-84' : 'max-h-full'}`}>
+            <div id="rater-candidate-panel" className={`scroll-mt-14 sticky top-12 z-30 bg-gray-100 rounded-xl border border-green-200 overflow-hidden mb-6 shadow-lg transition-all duration-300 ${isModalMinimized ? 'max-h-84' : 'max-h-full'}`}>
               <div className="bg-gradient-to-r from-green-800 to-green-600 px-4 py-3 flex justify-between items-center">
                 <div className="text-center flex-1">
                   <h3 className="text-2xl md:text-3xl font-bold text-white">{candidateDetails.fullName}</h3>
@@ -2677,6 +2922,42 @@ const RaterView = ({ user }) => {
                     {successModalType === 'submit' ? `The ratings for ${candidateDetails?.fullName} have been submitted.` : successModalType === 'update' ? `The ratings for ${candidateDetails?.fullName} have been updated.` : successModalType === 'delete' ? `All ratings for ${candidateDetails?.fullName} have been deleted from the database.` : `All ratings for ${candidateDetails?.fullName} have been cleared on this page.`}
                   </p>
                   <button onClick={() => { setIsSuccessModalOpen(false); setSuccessModalType('submit'); if (successModalType === 'submit' || successModalType === 'update' || successModalType === 'delete') { setSelectedCandidate(''); setCandidateDetails(null); setRatings({}); } }} className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg font-semibold">Close</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {pendingNav && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" role="alertdialog" aria-modal="true" aria-labelledby="unsaved-title">
+              <div className="bg-white rounded-2xl p-6 sm:p-8 max-w-xl w-full shadow-2xl">
+                <div className="flex items-start gap-4">
+                  <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600">
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z" />
+                    </svg>
+                  </div>
+                  <div className="min-w-0">
+                    <h3 id="unsaved-title" className="text-xl font-bold text-gray-900">Unsaved ratings</h3>
+                    <p className="mt-2 text-base text-gray-600">
+                      You have <strong>{countUnsavedRatings()}</strong> unsaved rating{countUnsavedRatings() !== 1 ? 's' : ''} for{' '}
+                      <strong>{candidateDetails?.fullName || 'this candidate'}</strong>. If you switch now, they will be lost.
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-6 flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
+                  <button
+                    onClick={() => { const { action } = pendingNav; setPendingNav(null); savedRatingsRef.current = { ...ratings }; action(); }}
+                    className="px-5 py-3 border border-red-300 text-red-700 rounded-lg hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-400 font-semibold"
+                  >
+                    Discard and switch
+                  </button>
+                  <button
+                    onClick={() => setPendingNav(null)}
+                    autoFocus
+                    className="px-5 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 font-semibold"
+                  >
+                    Stay and keep rating
+                  </button>
                 </div>
               </div>
             </div>
