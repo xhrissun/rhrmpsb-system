@@ -833,6 +833,55 @@ function SkeletonBlock({ width = '100%', height = 16, radius = 8, style = {} }) 
   );
 }
 
+// ── Skeletons used while a candidate / item / reminders load ─────────────────
+// They mirror the final layout so the page doesn't jump or look frozen.
+function ReminderSkeleton() {
+  return (
+    <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 flex items-center gap-3" aria-hidden="true" style={{ animation: 'rater-fade-in 0.3s ease both' }}>
+      <SkeletonBlock width={36} height={36} radius={18} />
+      <div className="flex-1">
+        <SkeletonBlock width="55%" height={14} style={{ marginBottom: 8 }} />
+        <SkeletonBlock width="80%" height={10} />
+      </div>
+    </div>
+  );
+}
+
+function CandidateHeaderSkeleton() {
+  return (
+    <div className="sticky top-12 z-30 bg-gray-100 rounded-xl border border-green-200 overflow-hidden mb-6 shadow-lg" role="status" aria-label="Loading candidate" style={{ animation: 'rater-fade-in 0.3s ease both' }}>
+      <div className="bg-gradient-to-r from-green-800 to-green-600 px-4 py-4 flex flex-col items-center gap-2">
+        <SkeletonBlock width="45%" height={28} radius={8} style={{ opacity: 0.55 }} />
+        <SkeletonBlock width="30%" height={18} radius={6} style={{ opacity: 0.45 }} />
+        <SkeletonBlock width="55%" height={14} radius={6} style={{ opacity: 0.4 }} />
+      </div>
+      <div className="p-4 bg-blue-50 border-t border-blue-100 flex justify-center">
+        <SkeletonBlock width="50%" height={14} />
+      </div>
+    </div>
+  );
+}
+
+function CompetencyListSkeleton({ rows = 4 }) {
+  return (
+    <div className="space-y-4" role="status" aria-label="Loading competencies">
+      <div className="flex flex-col items-center gap-2 mb-2">
+        <SkeletonBlock width="60%" height={24} />
+        <SkeletonBlock width={140} height={18} radius={9} />
+      </div>
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="rounded-xl border border-gray-200 p-4 md:p-6" style={{ animation: `rater-fade-in 0.35s ease ${i * 0.06}s both` }}>
+          <SkeletonBlock width="70%" height={18} style={{ marginBottom: 14 }} />
+          <SkeletonBlock width="90%" height={12} style={{ marginBottom: 20 }} />
+          <div className="flex justify-center gap-3 md:gap-8">
+            {[0, 1, 2, 3, 4].map(n => <SkeletonBlock key={n} width={56} height={56} radius={28} />)}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function RaterLoadingScreen({ pdfStatus, pdfProgress = 0, pdfMsg = '', onSkip }) {
   const steps = [
     { id: 'vacancies', label: 'Loading vacancies',   icon: '📋' },
@@ -1377,6 +1426,12 @@ const RaterView = ({ user }) => {
   });
   const [ratings, setRatings] = useState({});
   const [loading, setLoading] = useState(true);
+  const [remindersLoaded, setRemindersLoaded] = useState(false);
+  const [itemLoading, setItemLoading] = useState(false);       // candidates + competencies for the chosen item
+  const [ratingsLoading, setRatingsLoading] = useState(false); // this rater's saved ratings for the chosen candidate
+  // ── Quick-rate tool ──
+  const [bulkOnlyUnrated, setBulkOnlyUnrated] = useState(true);
+  const [bulkUndo, setBulkUndo] = useState(null);              // ratings snapshot taken before the last quick-rate
   // ✅ Track PDF pre-parse progress for the loading screen
   const [pdfStatus, setPdfStatus] = useState('idle'); // idle | parsing | done | error | unavailable
   const [pdfProgress, setPdfProgress] = useState(0);
@@ -1454,6 +1509,7 @@ const RaterView = ({ user }) => {
     const vacancy = vacancies.find(v => v.itemNumber === selectedItemNumber);
     // Set vacancy details immediately (synchronous — no network needed)
     setVacancyDetails(vacancy || null);
+    setItemLoading(true);
 
     try {
       const [candidatesRes, competenciesRes] = await Promise.all([
@@ -1479,6 +1535,8 @@ const RaterView = ({ user }) => {
       setCandidates([]);
       setCompetencies([]);
       setGroupedCompetencies({ basic: [], organizational: [], leadership: [], minimum: [] });
+    } finally {
+      setItemLoading(false);
     }
   }, [vacancies, selectedItemNumber]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1714,13 +1772,15 @@ const RaterView = ({ user }) => {
   }, [ratings, countUnsavedRatings]);
 
   const loadPendingReminders = useCallback(async () => {
-    if (!vacancies.length) { setPendingReminders([]); return; }
+    if (!vacancies.length) { setPendingReminders([]); setRemindersLoaded(true); return; }
     try {
       const res = await ratingsAPI.getPendingReminders([...new Set(vacancies.map(v => v.itemNumber))]);
       setPendingReminders(res?.pending || []);
     } catch (err) {
       // Non-critical: a failed reminder lookup must never block rating.
       console.warn('[RaterView] pending reminders failed (non-critical):', err?.message);
+    } finally {
+      setRemindersLoaded(true);
     }
   }, [vacancies]);
 
@@ -1739,7 +1799,7 @@ const RaterView = ({ user }) => {
   }, [loadPendingReminders]);
 
   // Refresh right after a candidate is rated/reset so the reminder clears immediately.
-  useEffect(() => { loadPendingReminders(); }, [selectedCandidate]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { loadPendingReminders(); setBulkUndo(null); }, [selectedCandidate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pendingByCandidate = useMemo(() => {
     const m = {};
@@ -1951,6 +2011,7 @@ const RaterView = ({ user }) => {
   const checkRaterTypeConflict = async () => {
     if (!selectedCandidate || !selectedItemNumber || !user.raterType) return;
     setIsCheckingRaterType(true);
+    setRatingsLoading(true);
     try {
       const result = await ratingsAPI.checkExistingByRaterType(
         selectedCandidate, selectedItemNumber, user.raterType
@@ -1961,12 +2022,13 @@ const RaterView = ({ user }) => {
         setRatings({});
         savedRatingsRef.current = {};
       } else {
-        loadExistingRatings();
+        await loadExistingRatings();
       }
     } catch (error) {
       console.error('Failed to check rater type conflict:', error);
       showToast('Failed to verify rating permissions. Please try again.', 'error');
     } finally {
+      setRatingsLoading(false);
       setIsCheckingRaterType(false);
     }
   };
@@ -1975,7 +2037,33 @@ const RaterView = ({ user }) => {
     scrollPositionRef.current = window.scrollY;
     const key = `${competencyType}_${competencyId}`;
     setRatings(prev => ({ ...prev, [key]: parseInt(score) }));
+    setBulkUndo(null);
     requestAnimationFrame(() => { window.scrollTo(0, scrollPositionRef.current); });
+  };
+
+  // ── Quick-rate: set every visible competency to the same score (1–5) ─────
+  // Leadership is included only when it applies to this item (SG ≥ 18).
+  // By default only unrated competencies are filled so existing marks survive;
+  // the previous state is kept so the rater can undo with one tap.
+  const handleBulkRate = (score) => {
+    scrollPositionRef.current = window.scrollY;
+    const types = ['basic', 'organizational', 'minimum', ...(shouldShowLeadership() ? ['leadership'] : [])];
+    setBulkUndo({ ...ratings });
+    setRatings(prev => {
+      const next = { ...prev };
+      types.forEach(t => (groupedCompetencies[t] || []).forEach(c => {
+        const k = `${t}_${c._id}`;
+        if (!bulkOnlyUnrated || next[k] === undefined) next[k] = score;
+      }));
+      return next;
+    });
+    requestAnimationFrame(() => { window.scrollTo(0, scrollPositionRef.current); });
+  };
+
+  const handleUndoBulkRate = () => {
+    if (!bulkUndo) return;
+    setRatings(bulkUndo);
+    setBulkUndo(null);
   };
 
   // ── Copy Ratings from Another Item ───────────────────────────────────────
@@ -2555,6 +2643,7 @@ const RaterView = ({ user }) => {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
         <div className="w-full">
+          {!remindersLoaded && vacancies.length > 0 && <ReminderSkeleton />}
           <PendingRatingsReminder
             pending={pendingReminders}
             currentCandidateId={selectedCandidate}
@@ -2629,7 +2718,12 @@ const RaterView = ({ user }) => {
               </div>
             </div>
 
-            {selectedItemNumber && (
+            {selectedItemNumber && itemLoading && (
+              <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex justify-center" role="status" aria-label="Loading candidates">
+                <SkeletonBlock width="45%" height={20} radius={10} />
+              </div>
+            )}
+            {selectedItemNumber && !itemLoading && (
               <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-center">
                 <p className="text-base text-blue-800">
                   <span className="font-medium">{candidates.length}</span> long-listed candidate{candidates.length !== 1 ? 's' : ''} available
@@ -2639,16 +2733,11 @@ const RaterView = ({ user }) => {
             )}
           </div>
 
-          {isCheckingRaterType && selectedCandidate && (
-            <div className="bg-white rounded-xl border border-gray-200 p-8 mb-6 shadow-sm">
-              <div className="flex items-center justify-center space-y-4 flex-col">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-                <p className="text-gray-600">Verifying rating permissions...</p>
-              </div>
-            </div>
+          {selectedCandidate && (isCheckingRaterType || String(candidateDetails?._id) !== String(selectedCandidate)) && (
+            <CandidateHeaderSkeleton />
           )}
 
-          {!isCheckingRaterType && candidateDetails && vacancyDetails && (
+          {!isCheckingRaterType && candidateDetails && vacancyDetails && String(candidateDetails._id) === String(selectedCandidate) && (
             <div id="rater-candidate-panel" className={`scroll-mt-14 sticky top-12 z-30 bg-gray-100 rounded-xl border border-green-200 overflow-hidden mb-6 shadow-lg transition-all duration-300 ${isModalMinimized ? 'max-h-84' : 'max-h-full'}`}>
               <div className="bg-gradient-to-r from-green-800 to-green-600 px-4 py-3 flex justify-between items-center">
                 <div className="text-center flex-1">
@@ -3448,13 +3537,46 @@ const RaterView = ({ user }) => {
                       Copy from Another Item
                     </button>
                   </div>
+
+                  {/* ── Quick-rate tool ── */}
+                  <div className="mt-4 mx-auto max-w-xl rounded-xl bg-gray-700/60 border border-gray-600 px-4 py-3">
+                    <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
+                      <span className="text-sm font-semibold text-gray-100">Quick rate — set all to:</span>
+                      <div className="flex gap-2">
+                        {RATING_SCALE.map(({ value, label }) => (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => handleBulkRate(value)}
+                            disabled={ratingsLoading || itemLoading}
+                            title={`Set ${bulkOnlyUnrated ? 'all unrated competencies' : 'every competency'} to ${value} (${label})`}
+                            className="h-9 w-9 rounded-full bg-white text-gray-800 text-base font-bold hover:bg-blue-500 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          >
+                            {value}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
+                      <label className="inline-flex items-center gap-2 text-xs sm:text-sm text-gray-200 cursor-pointer select-none">
+                        <input type="checkbox" checked={bulkOnlyUnrated} onChange={e => setBulkOnlyUnrated(e.target.checked)} className="h-4 w-4 rounded" />
+                        Only fill unrated (keep my existing marks)
+                      </label>
+                      {bulkUndo && (
+                        <button type="button" onClick={handleUndoBulkRate} className="text-xs sm:text-sm font-semibold text-amber-300 hover:text-amber-200 underline underline-offset-2 focus:outline-none">
+                          Undo last quick rate
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
 
               <div className="p-6">
                 {/* Sentinel observed by IntersectionObserver to start the timer */}
                 <div ref={competencySentinelRef} style={{ height: 0 }} />
-                {groupedCompetencies.basic.length > 0 && (
+                {(ratingsLoading || itemLoading) && <CompetencyListSkeleton />}
+                {!(ratingsLoading || itemLoading) && groupedCompetencies.basic.length > 0 && (
                   <div className="mb-10">
                     <div className="text-center mb-0">
                       <h3 className="text-2xl font-bold mb-2 text-gray-900">PSYCHO-SOCIAL ATTRIBUTES AND PERSONALITY TRAITS</h3>
