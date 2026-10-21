@@ -6,7 +6,7 @@ import crypto from 'crypto';
 import mongoose from 'mongoose';
 import { parse } from 'csv-parse/sync';
 import rateLimit from 'express-rate-limit';
-import { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, InterviewSession, PDFCache, SystemSettings, AiEvaluationLog, AiEvaluationJob, ChatMessage, ChatRead, prepareCandidateResponse } from './models.js';
+import { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, InterviewSession, PDFCache, SystemSettings, AiEvaluationLog, AiEvaluationJob, ChatMessage, ChatRead, QueueEntry, Room, prepareCandidateResponse } from './models.js';
 import { broadcastChatMessage, notifyMention } from './lib/socket.js';
 
 import { evaluateCandidateWithAI } from './lib/aiEvaluation.js';
@@ -4362,11 +4362,11 @@ const computeLiveStats = async () => {
   const empty = {
     generatedAt: new Date(now).toISOString(),
     summary: { candidates: 0, complete: 0, inProgress: 0, beingRated: 0, notStarted: 0, ratersOnline: 0, ratersTotal: 0 },
-    items: [], raters: [], recent: [],
+    items: [], raters: [], recent: [], queue: [], rooms: [],
   };
   if (itemNumbers.length === 0) return empty;
 
-  const [candidates, raters, ratedGroups, sessions] = await Promise.all([
+  const [candidates, raters, ratedGroups, sessions, queueEntries, roomDocs] = await Promise.all([
     Candidate.find({ itemNumber: { $in: itemNumbers }, isArchived: false, status: 'long_list' })
       .select('_id fullName itemNumber').lean(),
     User.find({ userType: 'rater' })
@@ -4378,6 +4378,8 @@ const computeLiveStats = async () => {
     ]),
     InterviewSession.find({ timerCompleted: false, updatedAt: { $gte: new Date(now - LIVE_SESSION_ACTIVE_MS) } })
       .select('raterId candidateId itemNumber elapsedMs updatedAt').lean(),
+    QueueEntry.find().sort({ order: 1 }).select('_id candidateId roomId order').lean(),
+    Room.find().sort({ order: 1 }).select('_id name').lean(),
   ]);
 
   const raterById = {};
@@ -4426,6 +4428,7 @@ const computeLiveStats = async () => {
 
   const summary = { candidates: 0, complete: 0, inProgress: 0, beingRated: 0, notStarted: 0, ratersOnline: 0, ratersTotal: raters.length };
   const itemMap = {};
+  const stateByCand = new Map();   // candidateId -> { status, rated, required }
 
   candidates.forEach(c => {
     const v = vacancyByItem[c.itemNumber];
@@ -4458,6 +4461,8 @@ const computeLiveStats = async () => {
       : interviewing.length > 0 ? 'being_rated'
       : ratedBy.length > 0 ? 'in_progress'
       : 'not_started';
+
+    stateByCand.set(String(c._id), { status, rated: ratedBy.length, required: requiredTypes.length });
 
     raters.forEach(r => {
       if (inScope(r, v) && requiredTypes.includes(r.raterType)) raterStats[String(r._id)].assigned += 1;
@@ -4519,7 +4524,26 @@ const computeLiveStats = async () => {
       at: g.at,
     }));
 
-  return { generatedAt: new Date(now).toISOString(), summary, items, raters: raterRows, recent };
+  // Interview queue: ordered, skipping anyone who is complete or no longer long-listed.
+  // `id` is the queue-entry id (used by the manage actions); `status` lets the screen
+  // move a candidate from "Up next" to "Now interviewing" on its own.
+  const rooms = roomDocs.map(r => ({ id: String(r._id), name: r.name }));
+  const roomIds = new Set(rooms.map(r => r.id));
+  const queue = [];
+  queueEntries.forEach(e => {
+    const c = candById[String(e.candidateId)];
+    const st = stateByCand.get(String(e.candidateId));
+    if (!c || !st || st.status === 'complete') return;
+    const v = vacancyByItem[c.itemNumber];
+    queue.push({
+      id: String(e._id), candidateId: String(c._id), name: c.fullName,
+      roomId: e.roomId && roomIds.has(String(e.roomId)) ? String(e.roomId) : null,
+      itemNumber: c.itemNumber, position: v?.position || '',
+      status: st.status, rated: st.rated, required: st.required,
+    });
+  });
+
+  return { generatedAt: new Date(now).toISOString(), summary, items, raters: raterRows, recent, queue, rooms };
 };
 
 router.get('/live-stats', authMiddleware, async (req, res) => {
@@ -4535,6 +4559,166 @@ router.get('/live-stats', authMiddleware, async (req, res) => {
     res.json(await liveStatsCache.inflight);
   } catch (error) {
     console.error('[GET /live-stats]', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ── Rooms + per-room interview queues (admin / secretariat) ──────────────────
+// Reads come through GET /live-stats (`rooms` and `queue`). Every write drops the
+// live-stats cache so the next poll — and the refresh the client does right after
+// a change — sees the new state immediately instead of up to 10 s later.
+const requireQueueManager = (req, res, next) => {
+  if (req.user.userType !== 'admin' && req.user.userType !== 'secretariat') {
+    return res.status(403).json({ message: 'Access denied' });
+  }
+  next();
+};
+const dropLiveStatsCache = () => { liveStatsCache.at = 0; liveStatsCache.data = null; };
+const cleanRoomName = (v) => String(v || '').trim().replace(/\s+/g, ' ').slice(0, 60);
+const dupMessage = (e) => (e?.code === 11000 ? 'A room with that name already exists' : null);
+
+router.post('/rooms', authMiddleware, requireQueueManager, async (req, res) => {
+  try {
+    const name = cleanRoomName(req.body.name);
+    if (!name) return res.status(400).json({ message: 'Room name is required' });
+    const last = await Room.findOne().sort({ order: -1 }).select('order').lean();
+    const room = await Room.create({ name, order: (last?.order ?? -1) + 1 });
+    dropLiveStatsCache();
+    res.json({ id: String(room._id), name: room.name });
+  } catch (error) {
+    const dup = dupMessage(error);
+    if (dup) return res.status(409).json({ message: dup });
+    console.error('[POST /rooms]', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+router.put('/rooms/:id', authMiddleware, requireQueueManager, async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid id' });
+    const name = cleanRoomName(req.body.name);
+    if (!name) return res.status(400).json({ message: 'Room name is required' });
+    const room = await Room.findByIdAndUpdate(req.params.id, { name }, { new: true });
+    if (!room) return res.status(404).json({ message: 'Room not found' });
+    dropLiveStatsCache();
+    res.json({ id: String(room._id), name: room.name });
+  } catch (error) {
+    const dup = dupMessage(error);
+    if (dup) return res.status(409).json({ message: dup });
+    console.error('[PUT /rooms/:id]', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Deleting a room never loses anyone: its queued candidates become "no room assigned"
+// and can be moved to another room from the manager.
+router.delete('/rooms/:id', authMiddleware, requireQueueManager, async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid id' });
+    await Promise.all([
+      Room.deleteOne({ _id: req.params.id }),
+      QueueEntry.updateMany({ roomId: req.params.id }, { $set: { roomId: null } }),
+    ]);
+    dropLiveStatsCache();
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('[DELETE /rooms/:id]', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Body: { roomId, candidateIds: [...] } — appended to the end of that room's queue.
+router.post('/queue', authMiddleware, requireQueueManager, async (req, res) => {
+  try {
+    const { roomId } = req.body;
+    const ids = Array.isArray(req.body.candidateIds) ? [...new Set(req.body.candidateIds.map(String))].slice(0, 200) : [];
+    if (!mongoose.isValidObjectId(roomId)) return res.status(400).json({ message: 'Choose a room first' });
+    if (ids.length === 0 || !ids.every(id => mongoose.isValidObjectId(id))) {
+      return res.status(400).json({ message: 'candidateIds must be a non-empty list of candidate ids' });
+    }
+    const [room, valid, existing, last] = await Promise.all([
+      Room.findById(roomId).select('_id').lean(),
+      Candidate.find({ _id: { $in: ids }, isArchived: false, status: 'long_list' }).select('_id').lean(),
+      QueueEntry.find({ candidateId: { $in: ids } }).select('candidateId').lean(),
+      QueueEntry.findOne({ roomId }).sort({ order: -1 }).select('order').lean(),
+    ]);
+    if (!room) return res.status(404).json({ message: 'Room not found' });
+    const already = new Set(existing.map(e => String(e.candidateId)));
+    const validSet = new Set(valid.map(v => String(v._id)));
+    const toAdd = ids.filter(id => validSet.has(id) && !already.has(id));
+    let order = (last?.order ?? -1) + 1;
+    if (toAdd.length) {
+      await QueueEntry.insertMany(toAdd.map(id => ({ roomId, candidateId: id, order: order++, addedBy: req.user._id })));
+    }
+    dropLiveStatsCache();
+    res.json({ added: toAdd.length });
+  } catch (error) {
+    console.error('[POST /queue]', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Body: { ids: [queueEntryId, ...] } — the desired order of ONE room's queue.
+router.put('/queue/order', authMiddleware, requireQueueManager, async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body.ids) ? req.body.ids.map(String) : [];
+    if (ids.length === 0 || !ids.every(id => mongoose.isValidObjectId(id))) {
+      return res.status(400).json({ message: 'ids must be a non-empty list of queue entry ids' });
+    }
+    await QueueEntry.bulkWrite(ids.map((id, i) => ({ updateOne: { filter: { _id: id }, update: { $set: { order: i } } } })));
+    dropLiveStatsCache();
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('[PUT /queue/order]', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Move one queued candidate to the end of another room's queue.
+router.put('/queue/:id/room', authMiddleware, requireQueueManager, async (req, res) => {
+  try {
+    const { roomId } = req.body;
+    if (!mongoose.isValidObjectId(req.params.id) || !mongoose.isValidObjectId(roomId)) {
+      return res.status(400).json({ message: 'Invalid id' });
+    }
+    const [room, last] = await Promise.all([
+      Room.findById(roomId).select('_id').lean(),
+      QueueEntry.findOne({ roomId }).sort({ order: -1 }).select('order').lean(),
+    ]);
+    if (!room) return res.status(404).json({ message: 'Room not found' });
+    await QueueEntry.updateOne({ _id: req.params.id }, { $set: { roomId, order: (last?.order ?? -1) + 1 } });
+    dropLiveStatsCache();
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('[PUT /queue/:id/room]', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+router.delete('/queue/:id', authMiddleware, requireQueueManager, async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid id' });
+    await QueueEntry.deleteOne({ _id: req.params.id });
+    dropLiveStatsCache();
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('[DELETE /queue/:id]', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Clears one room's queue (?roomId=...) or, with no roomId, every queue.
+router.delete('/queue', authMiddleware, requireQueueManager, async (req, res) => {
+  try {
+    const filter = req.query.roomId
+      ? (mongoose.isValidObjectId(req.query.roomId) ? { roomId: req.query.roomId } : null)
+      : {};
+    if (!filter) return res.status(400).json({ message: 'Invalid roomId' });
+    const result = await QueueEntry.deleteMany(filter);
+    dropLiveStatsCache();
+    res.json({ removed: result.deletedCount });
+  } catch (error) {
+    console.error('[DELETE /queue]', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

@@ -1508,7 +1508,11 @@ const Dashboard = ({ user, onLogout }) => {
 
       <main className="p-6">{renderContent()}</main>
 
-      <LiveStatsModal isOpen={liveStatsOpen} onClose={() => setLiveStatsOpen(false)} />
+      <LiveStatsModal
+        isOpen={liveStatsOpen}
+        onClose={() => setLiveStatsOpen(false)}
+        canManageQueue={user.userType === USER_TYPES.ADMIN || user.userType === USER_TYPES.SECRETARIAT}
+      />
 
       <CreatorProfileModal isOpen={creatorModalOpen} onClose={() => setCreatorModalOpen(false)} />
 

@@ -765,6 +765,24 @@ const chatReadSchema = new mongoose.Schema({
 });
 chatReadSchema.index({ userId: 1, conversationKey: 1 }, { unique: true });
 
+// ── Interview queue ──────────────────────────────────────────────────────────
+// One row per queued candidate, ordered by `order` (lower = sooner). Entries
+// are never deleted when a candidate finishes: the live-stats snapshot simply
+// skips candidates that are complete / no longer long-listed.
+// A candidate sits in exactly one room's queue (unique candidateId). roomId is null
+// only for entries created before rooms existed or whose room was deleted.
+const roomSchema = new mongoose.Schema({
+  name:  { type: String, required: true, trim: true, maxlength: 60, unique: true },
+  order: { type: Number, required: true },
+}, { timestamps: true });
+
+const queueEntrySchema = new mongoose.Schema({
+  roomId:      { type: mongoose.Schema.Types.ObjectId, ref: 'Room', default: null, index: true },
+  candidateId: { type: mongoose.Schema.Types.ObjectId, ref: 'Candidate', required: true, unique: true },
+  order:       { type: Number, required: true, index: true },
+  addedBy:     { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+}, { timestamps: true });
+
 // ── Create models ─────────────────────────────────────────────────────────────
 const User            = mongoose.model('User',             userSchema);
 const Vacancy         = mongoose.model('Vacancy',          vacancySchema);
@@ -781,5 +799,7 @@ const AiEvaluationLog = mongoose.model('AiEvaluationLog',  aiEvaluationLogSchema
 const AiEvaluationJob = mongoose.model('AiEvaluationJob',  aiEvaluationJobSchema);
 const ChatMessage     = mongoose.model('ChatMessage',      chatMessageSchema);
 const ChatRead        = mongoose.model('ChatRead',         chatReadSchema);
+const QueueEntry      = mongoose.model('QueueEntry',       queueEntrySchema);
+const Room            = mongoose.model('Room',             roomSchema);
 
-export { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, NotificationLog, InterviewSession, PDFCache, SystemSettings, AiEvaluationLog, AiEvaluationJob, ChatMessage, ChatRead };
+export { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, NotificationLog, InterviewSession, PDFCache, SystemSettings, AiEvaluationLog, AiEvaluationJob, ChatMessage, ChatRead, QueueEntry, Room };

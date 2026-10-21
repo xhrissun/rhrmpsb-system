@@ -987,3 +987,15 @@ export const liveStatsAPI = {
     return response.data;
   },
 };
+
+// Rooms and per-room interview queues (admin / secretariat). Both are read from liveStatsAPI.get().
+export const queueAPI = {
+  addRoom: async (name) => (await api.post('/rooms', { name })).data,
+  renameRoom: async (id, name) => (await api.put(`/rooms/${id}`, { name })).data,
+  removeRoom: async (id) => (await api.delete(`/rooms/${id}`)).data,
+  add: async (roomId, candidateIds) => (await api.post('/queue', { roomId, candidateIds })).data,
+  reorder: async (ids) => (await api.put('/queue/order', { ids })).data,
+  move: async (id, roomId) => (await api.put(`/queue/${id}/room`, { roomId })).data,
+  remove: async (id) => (await api.delete(`/queue/${id}`)).data,
+  clear: async (roomId) => (await api.delete('/queue', { params: roomId ? { roomId } : {} })).data,
+};
