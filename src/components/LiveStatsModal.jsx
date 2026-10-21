@@ -20,7 +20,7 @@ import { liveStatsAPI, queueAPI } from '../utils/api';
 const POLL_MS = 15000;
 const IDLE_HIDE_MS = 3000;
 const THEMES = [['dark', 'Dark'], ['contrast', 'High contrast'], ['light', 'Light']];
-const ZOOMS = [0.9, 1, 1.15, 1.3, 1.5];
+const ZOOMS = [0.85, 1, 1.15];   // 1 = largest text that still fits every room (3 queued names always visible)
 const readPref = (key, fallback) => { try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; } };
 const savePref = (key, val) => { try { localStorage.setItem(key, String(val)); } catch { /* private mode — ignore */ } };
 
@@ -50,9 +50,21 @@ const timeAgo = (iso) => {
 
 // ─── Sound effects: tiny synthesized chimes (no audio files). Browsers only let a page make sound
 // after the user has clicked or pressed a key once, so the AudioContext is woken on every gesture.
+// Every ALERT_EVERY_SEC of interview time a card gets a warning: alarm tone + spoken name and minutes elapsed.
+const ALERT_EVERY_SEC = 300;
+const speak = (text) => {
+  try {
+    const ss = window.speechSynthesis;
+    if (!ss || typeof SpeechSynthesisUtterance === 'undefined') return;
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 0.95; u.volume = 1;
+    ss.speak(u);
+  } catch { /* speech not available — the alarm tone still plays */ }
+};
 const SOUNDS = {
   start:    { type: 'sine',     notes: [[659.25, 0, 0.18], [880, 0.14, 0.3]] },                                   // interview begins
   submit:   { type: 'triangle', notes: [[987.77, 0, 0.4]] },                                                     // a rating came in
+  warn:     { type: 'square',   notes: [[880, 0, 0.16], [660, 0.22, 0.16], [880, 0.44, 0.16], [660, 0.66, 0.16], [880, 0.88, 0.3]] }, // 5-minute warning
   complete: { type: 'sine',     notes: [[523.25, 0, 0.16], [659.25, 0.13, 0.16], [783.99, 0.26, 0.16], [1046.5, 0.39, 0.5]] }, // candidate fully rated
 };
 const useSound = () => {
@@ -139,7 +151,7 @@ const FitBox = ({ items, renderItem, moreLabel, className }) => {
     if (kids.every(k => bottomOf(k) <= limit)) { setChip(true); setCap(kids.length); return; }
     // Not everything fits: keep what fits above a "+N more" line (2em tall + the grid gap).
     const cs = getComputedStyle(el);
-    const reserve = parseFloat(cs.fontSize) * 2 + (parseFloat(cs.rowGap) || 0);
+    const reserve = parseFloat(cs.fontSize) * 1.8 + (parseFloat(cs.rowGap) || 0);
     // Everything in the FIRST row always stays (it may clip a little, but never drops a card that sits
     // beside another); later rows are kept only while they fully fit above the "+N more" line.
     const firstTop = kids[0] ? kids[0].offsetTop : 0;
@@ -179,93 +191,113 @@ const SeatChips = ({ cand, requiredTypes }) => (
 );
 
 const CSS = `
-.ls-root{position:fixed;inset:0;z-index:70;display:flex;flex-direction:column;gap:1.1em;padding:1.3em 1.8em 1.5em;overflow:hidden;
+.ls-root{position:fixed;inset:0;z-index:70;display:flex;flex-direction:column;gap:.9em;padding:1em 1.4em 1.1em;overflow:hidden;
   --bg:#0d1a16;--panel:#142620;--card:#0f201a;--edge:#24403a;--text:#eef4ef;--muted:#8aa597;--live:#f4c04e;--done:#62d394;
   --pos:#9fe3bd;--seat-off:#6f8a7c;--on-accent:#0d1a16;--btn:#1d3a30;--btn-h:#27493d;
   background:var(--bg);color:var(--text);font-family:"Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif;
-  font-size:calc(clamp(11px,min(1.12vw,2.05vh),30px) * var(--zoom,1));line-height:1.25}
+  font-size:clamp(13px,min(1.25vw,2.2vh),32px);line-height:1.25}
 .ls-root[data-theme="contrast"]{--bg:#000;--panel:#050807;--card:#000;--edge:#6b7d73;--text:#fff;--muted:#d3dfd8;--live:#ffd43b;--done:#4ade80;--pos:#7dffb0;--seat-off:#c3d2c9;--on-accent:#000;--btn:#1f2a25;--btn-h:#2e3d36}
 .ls-root[data-theme="light"]{--bg:#f3f6f4;--panel:#fff;--card:#edf2ee;--edge:#b9c8bf;--text:#0e1f17;--muted:#46604f;--live:#b45309;--done:#15803d;--pos:#14532d;--seat-off:#5b7366;--on-accent:#fff;--btn:#dfe9e3;--btn-h:#cddbd2}
 .ls-root *{box-sizing:border-box}
 .ls-root.idle{cursor:none}
-.ls-head{display:flex;align-items:center;gap:1.1em;flex:none}
-.ls-title{margin:0;font-size:1.9em;font-weight:700;letter-spacing:-.01em}
+.ls-head{display:flex;align-items:center;flex-wrap:wrap;gap:.4em 1.1em;flex:none}
+.ls-title{margin:0;font-size:1.7em;font-weight:700;letter-spacing:-.01em}
 .ls-dot{width:.8em;height:.8em;border-radius:50%;background:var(--done);animation:ls-ping 2s infinite}
 .ls-dot.err{background:#ef6a6a;animation:none}
 @keyframes ls-ping{0%{box-shadow:0 0 0 0 rgba(98,211,148,.6)}70%,100%{box-shadow:0 0 0 .7em rgba(98,211,148,0)}}
 @keyframes ls-blink{50%{opacity:.25}}
 @media (prefers-reduced-motion:reduce){.ls-root *{animation:none!important}}
-.ls-stats{display:flex;gap:2.2em;margin-left:auto}
-.ls-stat b{display:block;font-size:2em;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
-.ls-stat span{font-size:.8em;color:var(--muted)}
-.ls-clock{flex:none;text-align:right;margin-left:1.2em}
+.ls-stats{display:flex;flex-wrap:wrap;gap:.3em 2em;margin-left:auto}
+.ls-stat b{display:block;font-size:1.9em;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
+.ls-stat span{font-size:.85em;color:var(--muted)}
+.ls-clock{flex:none;text-align:right;margin-left:1em}
 .ls-clock b{display:block;font-size:1.6em;font-weight:600;line-height:1;font-variant-numeric:tabular-nums}
 .ls-clock span{font-size:.8em;color:var(--muted)}
 .ls-clock.err span{color:#ef9a9a}
-.ls-main{flex:1;min-height:0;display:grid;grid-template-rows:minmax(0,1fr) 10.5em;gap:1.2em}
-.ls-rooms{min-height:0;display:grid;gap:1.2em;grid-template-columns:repeat(var(--cols),minmax(0,1fr));grid-template-rows:repeat(var(--rows),minmax(0,1fr))}
-.ls-room{display:grid;grid-template-rows:auto minmax(0,1.25fr) minmax(0,1fr);gap:.7em;min-height:0;min-width:0;background:var(--panel);border:1px solid var(--edge);border-radius:.8em;padding:1em 1.1em}
-.ls-room.busy{border-color:rgba(244,192,78,.45)}
-.ls-room.big{font-size:1.2em;border-color:var(--live)}
-.ls-rooms.spot{grid-template-columns:minmax(0,3fr) minmax(0,1fr);grid-template-rows:minmax(0,1fr)}
-.ls-side{min-height:0;display:grid;gap:1.2em;grid-template-rows:repeat(var(--srows),minmax(0,1fr))}
+.ls-main{flex:1;min-height:0;display:grid;gap:1em;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) minmax(8.5em,24%)}
+@media (min-aspect-ratio:4/3){
+  .ls-main{grid-template-columns:minmax(0,1fr) clamp(19em,27%,36em);grid-template-rows:minmax(0,1fr)}
+}
+.ls-zone{position:relative;min-height:0;min-width:0}
+.ls-rooms{position:absolute;inset:0;display:grid}
+.ls-room{display:grid;grid-template-rows:auto minmax(0,1fr);gap:.6em;min-height:0;min-width:0;overflow:hidden;background:var(--panel);border:1px solid var(--edge);border-radius:.8em;padding:.9em 1em}
+.ls-room.busy{border-color:rgba(244,192,78,.5)}
+.ls-room.big{border-color:var(--live)}
+.ls-body{display:grid;gap:.6em;min-height:0}
+.ls-room.wide .ls-body{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:minmax(0,1fr)!important;gap:1em}
 .ls-rh.click{cursor:pointer}
 .ls-badge{flex:none;display:inline-grid;place-items:center;min-width:1.5em;height:1.5em;border-radius:.4em;background:var(--edge);color:var(--text);font-size:.85em;font-weight:700;align-self:center}
-.ls-pos{color:var(--pos);font-size:1.1em;font-weight:650;line-height:1.2;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-.ls-room.noq:not(.dense){grid-template-rows:auto minmax(0,1fr) auto}
-.ls-rh{display:flex;align-items:baseline;gap:.7em;min-width:0}
+.ls-pos{color:var(--pos);font-size:1em;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ls-pos .ls-also{margin-left:.6em}
+.ls-rh{display:flex;align-items:baseline;gap:.6em;min-width:0}
 .ls-rh h3{margin:0;font-size:1.45em;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ls-rh .st{margin-left:auto;flex:none;font-size:.9em;color:var(--muted)}
 .ls-rh .st.live{color:var(--live);font-weight:600}
-.ls-room.dense{grid-template-rows:auto minmax(0,1fr) minmax(0,1fr);gap:.5em;padding:.8em .9em}
-.ls-room.dense .ls-card{height:5.4em;padding:.35em .8em;gap:.1em}
-.ls-room.dense .ls-pos{display:block;white-space:nowrap;text-overflow:ellipsis;font-size:.95em}
-.ls-room.dense .ls-sub,.ls-room.dense .ls-seats,.ls-room.dense .ls-sh,.ls-room.dense .ls-sum{display:none}
-.ls-room.dense .ls-with{font-size:.8em;white-space:nowrap;text-overflow:ellipsis}
-.ls-room.dense .ls-timer{font-size:1.5em}
-.ls-room.dense .ls-row{height:3.5em}
-.ls-room.dense .ls-also{display:none}
-.ls-room.dense .ls-sec+.ls-sec{padding-top:.5em}
-.ls-sec{display:flex;flex-direction:column;min-height:0}
-.ls-sec+.ls-sec{border-top:1px solid var(--edge);padding-top:.7em}
-.ls-sh{flex:none;margin:0 0 .5em;font-size:.95em;font-weight:600;color:var(--muted)}
-.ls-sh span{font-variant-numeric:tabular-nums;margin-left:.4em}
-.ls-panel{display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--panel);border:1px solid var(--edge);border-radius:.8em;padding:1em 1.1em}
-.ls-ph{display:flex;align-items:baseline;gap:.6em;margin-bottom:.8em;flex:none}
+.ls-sec{display:flex;flex-direction:column;min-height:0;min-width:0}
+.ls-sec.q{border-top:1px solid var(--edge);padding-top:.6em}
+.ls-room.wide .ls-sec.q{border-top:0;padding-top:0;border-left:1px solid var(--edge);padding-left:1em}
+.ls-sh{flex:none;margin:0 0 .4em;font-size:.95em;font-weight:600;color:var(--muted)}
+.ls-sh span{font-variant-numeric:tabular-nums;margin-left:.4em;color:var(--text)}
+.ls-panel{display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--panel);border:1px solid var(--edge);border-radius:.8em;padding:.8em 1em;font-size:calc(1em * var(--zoom,1))}
+.ls-ph{display:flex;align-items:baseline;gap:.6em;margin-bottom:.6em;flex:none}
 .ls-ph h3{margin:0;font-size:1.25em;font-weight:650}
-.ls-ph span{color:var(--muted);font-variant-numeric:tabular-nums}
-.ls-fit{position:relative;flex:1;min-height:0;overflow:hidden;display:grid;align-content:start;gap:.7em}
-.ls-fit.cards{grid-template-columns:repeat(auto-fill,minmax(19em,1fr))}
-.ls-fit.cols{grid-template-columns:repeat(auto-fill,minmax(30em,1fr));gap:.45em 1.6em}
-.ls-fit.rows{grid-template-columns:minmax(0,1fr);gap:.45em}
-.ls-more{grid-column:1/-1;display:flex;align-items:center;justify-content:center;height:2em;color:var(--muted)}
+.ls-fit{position:relative;flex:1;min-height:0;overflow:hidden;display:grid;align-content:start;gap:.4em}
+.ls-fit.cards{grid-template-columns:repeat(auto-fill,minmax(17em,1fr));gap:.5em}
+.ls-fit.cols{grid-template-columns:repeat(auto-fill,minmax(26em,1fr));gap:.3em 1.6em}
+.ls-fit.rows{grid-template-columns:minmax(0,1fr);gap:.4em}
+.ls-more{grid-column:1/-1;display:flex;align-items:center;justify-content:center;height:1.8em;color:var(--muted)}
 .ls-empty{margin:auto;text-align:center;color:var(--muted);max-width:28em}
-.ls-card{height:16.5em;overflow:hidden;display:flex;flex-direction:column;gap:.35em;background:var(--card);border:1px solid var(--edge);border-radius:.7em;padding:.8em .9em}
+.ls-card{height:9.2em;overflow:hidden;display:flex;flex-direction:column;gap:.3em;background:var(--card);border:1px solid var(--edge);border-radius:.7em;padding:.6em .8em}
 .ls-top{display:flex;align-items:flex-start;justify-content:space-between;gap:.8em}
-.ls-name{font-size:1.2em;font-weight:650;line-height:1.15;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-.ls-timer{flex:none;font-size:1.9em;font-weight:700;line-height:1;color:var(--live);font-variant-numeric:tabular-nums}
-.ls-sub{color:var(--muted);font-size:.9em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ls-seats{display:flex;flex-wrap:wrap;gap:.3em}
-.ls-seat{display:inline-flex;align-items:center;gap:.3em;border:1px solid var(--edge);border-radius:99em;padding:.05em .6em;font-size:.8em;font-weight:600;color:var(--seat-off)}
+.ls-name{font-size:1.15em;font-weight:650;line-height:1.2;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.ls-card.alarm{border-color:#ef6a6a;animation:ls-alarm .7s ease-in-out 12}
+.ls-card.alarm .ls-timer{color:#ef6a6a}
+@keyframes ls-alarm{50%{background:rgba(239,106,106,.35)}}
+.ls-timer{flex:none;font-size:1.7em;font-weight:700;line-height:1;color:var(--live);font-variant-numeric:tabular-nums}
+.ls-seats{display:flex;flex-wrap:nowrap;overflow:hidden;gap:.25em}
+.ls-seat{display:inline-flex;align-items:center;gap:.3em;border:1px solid var(--edge);border-radius:99em;padding:.02em .5em;font-size:.72em;font-weight:600;color:var(--seat-off);white-space:nowrap}
 .ls-seat.done{background:var(--done);border-color:var(--done);color:var(--on-accent)}
 .ls-seat.live{color:var(--live);border-color:var(--live)}
 .ls-seat.live::before{content:"";width:.5em;height:.5em;border-radius:50%;background:var(--live);animation:ls-blink 1.2s infinite}
-.ls-with{color:var(--muted);font-size:.85em;line-height:1.2;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
-.ls-also{color:var(--live);font-size:.82em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ls-row{display:grid;grid-template-columns:2em minmax(0,1fr) auto;align-items:center;gap:.6em;height:5.6em;padding:0 .8em 0 .4em;border-radius:.5em;background:var(--card)}
-.ls-row.first{outline:1px solid var(--live)}
-.ls-num{text-align:center;font-size:1.15em;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums}
+.ls-with{color:var(--muted);font-size:.85em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ls-also{color:var(--live);font-size:.85em;font-weight:500}
+.ls-row{display:grid;grid-template-columns:1.8em minmax(0,1fr) auto;align-items:center;gap:.5em;height:3.5em;padding:0 .8em 0 .3em;border-radius:.5em;background:var(--card)}
+.ls-row.first{outline:2px solid var(--live)}
+.ls-num{text-align:center;font-size:1.3em;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums}
 .ls-row.first .ls-num{color:var(--live)}
-.ls-row .ls-pos{display:block;white-space:nowrap;text-overflow:ellipsis;font-size:.98em}
-.ls-rname{font-size:1.1em;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ls-rname{font-size:1.2em;font-weight:650;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ls-row .ls-pos{font-size:.9em;font-weight:500}
 .ls-tag{font-size:.85em;color:var(--muted);white-space:nowrap}
-.ls-row.first .ls-tag{color:var(--live);font-weight:600}
-.ls-rec{display:flex;align-items:center;gap:.5em;height:2.1em;white-space:nowrap;overflow:hidden}
-.ls-rec i{font-style:normal;color:var(--done)}
+.ls-row.first .ls-tag{color:var(--live);font-weight:700}
+.ls-room.dense{padding:.7em .8em;gap:.5em}
+.ls-room.dense .ls-body{gap:.5em}
+.ls-room.dense .ls-card{height:4.6em;padding:.4em .7em;gap:.15em}
+.ls-room.dense .ls-name{-webkit-line-clamp:1;font-size:1.1em}
+.ls-room.dense .ls-timer{font-size:1.4em}
+.ls-room.dense .ls-seats,.ls-room.dense .ls-with,.ls-room.dense .ls-also{display:none}
+.ls-room.dense .ls-row{height:2.8em}
+.ls-room.dense .ls-rname{font-size:1.1em}
+.ls-room.dense .ls-row .ls-pos{font-size:.85em}
+.ls-room.dense .ls-sh{margin-bottom:.3em}
+.ls-room.dense .ls-sec.q{padding-top:.5em}
+.ls-rec{display:flex;align-items:center;gap:.5em;height:2.3em;white-space:nowrap;overflow:hidden}
+.ls-rec i{font-style:normal;color:var(--done);flex:none}
+.ls-rec .m{display:flex;align-items:baseline;gap:.5em;min-width:0;flex:1}
+.ls-rec .l1{display:flex;gap:.5em;align-items:baseline;flex:none}
+.ls-rec .l2{min-width:0;overflow:hidden;text-overflow:ellipsis;flex:1}
 .ls-rec em{font-style:normal;color:var(--muted);font-size:.85em}
-.ls-rec .who{font-weight:600}
-.ls-rec .cand{overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
-.ls-rec .ago{margin-left:auto;color:var(--muted);font-size:.85em}
+.ls-rec .who{font-weight:650}
+.ls-rec .ago{flex:none;color:var(--muted);font-size:.85em}
+@media (min-aspect-ratio:4/3){
+  .ls-fit.subs{grid-template-columns:minmax(0,1fr)}
+  .ls-rec{height:3.6em;align-items:center;gap:.6em}
+  .ls-rec .m{display:block}
+  .ls-rec .l1,.ls-rec .l2{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ls-rec .l1{display:flex;gap:.5em;align-items:baseline}
+  .ls-rec .l1 .who{overflow:hidden;text-overflow:ellipsis}
+  .ls-rec .l2{color:var(--muted);font-size:.92em}
+  .ls-rec{border-bottom:1px solid var(--edge);padding-bottom:.1em}
+}
 .ls-controls{position:fixed;right:1.2em;bottom:1.2em;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:.5em;max-width:calc(100vw - 2.4em);opacity:0;pointer-events:none;transition:opacity .25s}
 .ls-controls.show,.ls-controls:focus-within{opacity:1;pointer-events:auto}
 .ls-controls button{font:inherit;font-size:.9em;color:var(--text);background:var(--btn);border:1px solid var(--edge);border-radius:.5em;padding:.5em .9em;cursor:pointer}
@@ -297,10 +329,7 @@ const CSS = `
 .ls-room.dense .ls-done-n{font-size:1.2em}
 .ls-center{margin:auto;text-align:center;color:var(--muted);font-size:1.2em}
 .ls-center button{font:inherit;color:var(--text);text-decoration:underline;background:none;border:0;cursor:pointer}
-@media (max-aspect-ratio:1/1){
-  .ls-rooms{grid-template-columns:minmax(0,1fr)!important;grid-template-rows:repeat(var(--n),minmax(0,1fr))!important}
-  .ls-stats{gap:1.2em}
-}
+@media (max-aspect-ratio:1/1){ .ls-stats{gap:.3em 1.2em} }
 `;
 
 // One candidate in the "pick candidates" list. Memoized so ticking a box re-renders only that row.
@@ -554,7 +583,7 @@ const QueueManager = ({ data, reload, patch, onClose }) => {
 };
 
 // Keyboard / mouse cheat sheet. Opens with ? (or H) and from the control bar.
-const ShortcutGuide = ({ onClose, onTest, soundOn, canManageQueue, hasRooms }) => (
+const ShortcutGuide = ({ onClose, onTest, onTestAlert, alertsOn, soundOn, canManageQueue, hasRooms }) => (
   <div className="ls-guide" role="dialog" aria-modal="true" aria-label="Shortcuts" onClick={onClose}>
     <div className="ls-guide-box" onClick={e => e.stopPropagation()}>
       <h2>Shortcuts</h2>
@@ -584,6 +613,13 @@ const ShortcutGuide = ({ onClose, onTest, soundOn, canManageQueue, hasRooms }) =
         <button onClick={() => onTest('submit')}>▶ Rating submitted</button>
         <button onClick={() => onTest('complete')}>▶ Candidate fully rated</button>
       </div>
+      <h3>Interview time alerts</h3>
+      <div className="ls-keys">
+        <kbd>V</kbd><span>Spoken warning every 5 minutes of an interview: {alertsOn ? 'on, press to turn off' : 'off, press to turn on'}</span>
+      </div>
+      <div className="ls-snd" style={{ marginTop: '.6em' }}>
+        <button onClick={onTestAlert}>▶ Test 5-minute warning</button>
+      </div>
       <p style={{ marginTop: '.6em', marginBottom: 0 }}>If you hear nothing, click anywhere on the screen once. Browsers block sound until then.</p>
 
       <h3>Other</h3>
@@ -597,78 +633,173 @@ const ShortcutGuide = ({ onClose, onTest, soundOn, canManageQueue, hasRooms }) =
   </div>
 );
 
-// One room on the broadcast: what is happening now, and who is lined up next.
-const RoomPanel = ({ view, fetchedAt, canManageQueue, hasRooms, dense, big, index, numbered, onSpot }) => {
-  const { name, cards, waiting } = view;
+// ─── Auto layout ─────────────────────────────────────────────────────────────
+// Each room is given a text size (px) that makes ITS content just fit the space it gets, so:
+//   • one room fills the screen with big text; many rooms shrink evenly, never clip;
+//   • a room always has space for the live interview card AND the next 3 in the queue;
+//   • wide cells put "Now" and "Up next" side by side, tall cells stack them;
+//   • cells too small for the full card switch to a compact card (names + position + timer only).
+// NEED = the room's content size in em (padding included): h = height, w = width.
+const NEED = {
+  full:  { stack: { h: 32, w: 26 }, wide: { h: 20.5, w: 48 } },
+  dense: { stack: { h: 24, w: 21 }, wide: { h: 17, w: 43 } },
+};
+const QUEUE_SHOWN = 3;
+const fitCell = (w, h, rootPx) => {
+  const f = (t, m) => Math.min(w / NEED[t][m].w, h / NEED[t][m].h);
+  const pick = (t) => { const st = f(t, 'stack'); const wd = f(t, 'wide'); return wd > st ? { font: wd, wide: true } : { font: st, wide: false }; };
+  const full = { ...pick('full'), dense: false };
+  if (full.font >= Math.max(13, rootPx * 0.7)) return full;
+  const dense = { ...pick('dense'), dense: true };
+  return dense.font > full.font ? dense : full;
+};
+const finishLay = (lay, rootPx, zoom) => ({ ...lay, font: Math.max(9, Math.min(lay.font * (lay.dense ? 1 : zoom), rootPx * 1.5)) });
+
+// Measures the room area (and the root text size) whenever the window or zoom changes.
+const RoomsArea = ({ views, spotId, zoom, render }) => {
+  const zoneRef = useRef(null);
+  const [box, setBox] = useState({ w: 0, h: 0, root: 16 });
+  useLayoutEffect(() => {
+    const el = zoneRef.current;
+    if (!el) return undefined;
+    const upd = () => {
+      const root = parseFloat(getComputedStyle(el).fontSize) || 16;
+      setBox(b => (b.w === el.clientWidth && b.h === el.clientHeight && b.root === root ? b : { w: el.clientWidth, h: el.clientHeight, root }));
+    };
+    upd();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(upd) : null;
+    ro?.observe(el);
+    window.addEventListener('resize', upd);
+    return () => { ro?.disconnect(); window.removeEventListener('resize', upd); };
+  }, []);
+
+  const n = views.length;
+  const gap = box.root * 0.9;
+  const spot = n > 1 && spotId ? views.find(v => v.id === spotId) : null;
+  let style; let items;
+
+  if (box.w > 0 && n > 0) {
+    if (spot) {
+      const others = views.filter(v => v !== spot);
+      const k = others.length;
+      const land = box.w >= box.h;
+      const bigW = land ? (box.w - gap) * 0.7 : box.w;
+      const bigH = land ? box.h : (box.h - gap) * 0.62;
+      const sideW = land ? box.w - gap - bigW : (box.w - gap * (k - 1)) / k;
+      const sideH = land ? (box.h - gap * (k - 1)) / k : box.h - gap - bigH;
+      style = land
+        ? { gridTemplateColumns: 'minmax(0,7fr) minmax(0,3fr)', gridTemplateRows: `repeat(${k}, minmax(0,1fr))`, gap }
+        : { gridTemplateColumns: `repeat(${k}, minmax(0,1fr))`, gridTemplateRows: 'minmax(0,62fr) minmax(0,38fr)', gap };
+      const bigLay = finishLay(fitCell(bigW, bigH, box.root), box.root, zoom);
+      const sideLay = finishLay(fitCell(sideW, sideH, box.root), box.root, zoom);
+      items = [
+        { v: spot, lay: bigLay, big: true, style: land ? { gridRow: `1 / span ${k}` } : { gridColumn: `1 / span ${k}` } },
+        ...others.map(v => ({ v, lay: sideLay, style: undefined })),
+      ];
+    } else {
+      // Try every column count and keep the one that gives the biggest text.
+      let best = null;
+      for (let c = 1; c <= n; c += 1) {
+        const r = Math.ceil(n / c);
+        const lay = fitCell((box.w - gap * (c - 1)) / c, (box.h - gap * (r - 1)) / r, box.root);
+        if (!best || lay.font > best.lay.font * 1.02) best = { c, r, lay };
+      }
+      const lay = finishLay(best.lay, box.root, zoom);
+      style = { gridTemplateColumns: `repeat(${best.c}, minmax(0,1fr))`, gridTemplateRows: `repeat(${best.r}, minmax(0,1fr))`, gap };
+      const spare = best.c * best.r - n;   // empty cells in the last row: the last room stretches over them
+      items = views.map((v, i) => ({ v, lay, style: i === n - 1 && spare > 0 ? { gridColumn: `span ${spare + 1}` } : undefined }));
+    }
+  }
   return (
-    <section className={`ls-room ${cards.length ? 'busy' : ''} ${dense ? 'dense' : ''} ${big ? 'big' : ''} ${waiting.length === 0 ? 'noq' : ''}`}>
+    <div className="ls-zone" ref={zoneRef}>
+      <div className="ls-rooms" style={style}>{items && items.map(it => render(it))}</div>
+    </div>
+  );
+};
+
+// One room on the broadcast: what is happening now, and who is lined up next.
+const RoomPanel = ({ view, fetchedAt, flash, canManageQueue, hasRooms, lay, big, extraStyle, index, numbered, onSpot }) => {
+  const { name, cards, waiting } = view;
+  const dense = lay.dense;
+  // Rows of the stacked layout: the live card gets what it needs, the queue always keeps room for 3 names.
+  const qn = Math.min(QUEUE_SHOWN, waiting.length);
+  const rowH = dense ? 2.8 : 3.5;
+  const qMin = (dense ? 1.5 : 1.8) + qn * rowH + Math.max(0, qn - 1) * 0.4 + 1 + (waiting.length > qn ? 2.3 : 0);   // + the "+N more" line
+  const nMin = (dense ? 1.5 : 1.8) + (dense ? 4.6 : 9.2);
+  const rows = cards.length === 0
+    ? (waiting.length === 0 ? 'auto auto' : 'auto minmax(0,1fr)')
+    : waiting.length === 0 ? 'minmax(0,1fr) auto'
+      : `minmax(${nMin}em,${Math.min(cards.length, 3)}fr) minmax(${qMin}em,${dense ? 1 : 1.1}fr)`;
+  return (
+    <section
+      className={`ls-room ${cards.length ? 'busy' : ''} ${dense ? 'dense' : ''} ${lay.wide ? 'wide' : ''} ${big ? 'big' : ''}`}
+      style={{ fontSize: `${lay.font}px`, ...extraStyle }}
+    >
       <div className={`ls-rh ${numbered ? 'click' : ''}`} onClick={numbered ? onSpot : undefined} title={numbered ? (big ? 'Click to show all rooms' : `Click (or press ${index + 1}) to spotlight this room`) : undefined}>
         {numbered && <span className="ls-badge">{index + 1}</span>}
         <h3>{name}</h3>
         {view.auto && <span className="ls-auto" title="Created automatically from the place of assignment">auto</span>}
-        <span className={`st ${cards.length ? 'live' : ''}`}>{cards.length ? 'Live' : 'Free'}{dense && waiting.length > 0 && `, ${waiting.length} waiting`}</span>
+        <span className={`st ${cards.length ? 'live' : ''}`}>{cards.length ? 'Live' : 'Free'}{waiting.length > 0 && `, ${waiting.length} waiting`}</span>
       </div>
 
-      <div className="ls-sec">
-        <h4 className="ls-sh">Now interviewing</h4>
-        {cards.length === 0 ? (
-          <div className="ls-empty">
-            {view.done ? (
-              <div className="ls-done">
-                <div className="ls-done-t">✓ Ratings completed</div>
-                <div className="ls-done-n">{view.done.name}</div>
-                {view.done.position && <div className="ls-done-p">{view.done.position}</div>}
-                <div className="ls-done-s">Item # {view.done.itemNumber} · finished {timeAgo(view.done.at)}</div>
-              </div>
-            ) : waiting[0] ? <>Next up: <strong style={{ color: 'var(--text)' }}>{waiting[0].name}</strong></> : 'No interview is running.'}
-          </div>
-        ) : (
-          <FitBox
-            className="cards"
-            items={cards}
-            moreLabel="more interviews"
-            renderItem={({ key, c, item, elapsed }) => (
-              <article key={key} className="ls-card">
-                <div className="ls-top">
-                  <div className="ls-name">{c.name}</div>
-                  <div className="ls-timer"><LiveClock baseSeconds={elapsed} fetchedAt={fetchedAt} /></div>
+      <div className="ls-body" style={lay.wide ? undefined : { gridTemplateRows: rows }}>
+        <div className="ls-sec">
+          <h4 className="ls-sh">Now interviewing</h4>
+          {cards.length === 0 ? (
+            <div className="ls-empty">
+              {view.done ? (
+                <div className="ls-done">
+                  <div className="ls-done-t">✓ Ratings completed</div>
+                  <div className="ls-done-n">{view.done.name}</div>
+                  {view.done.position && <div className="ls-done-p">{view.done.position}</div>}
+                  <div className="ls-done-s">Item # {view.done.itemNumber} · finished {timeAgo(view.done.at)}</div>
                 </div>
-                <div className="ls-pos">{item.position}</div>
-                <div className="ls-sub">Item # {item.itemNumber}</div>
-                {c.otherItems?.length > 0 && <div className="ls-also">{otherText(c.otherItems)}</div>}
-                <SeatChips cand={c} requiredTypes={item.requiredTypes} />
-                <div className="ls-with">Rating now ({c.interviewing.length}): {c.interviewing.map(r => r.name).join(', ')}</div>
-              </article>
-            )}
-          />
-        )}
-      </div>
+              ) : waiting[0] ? <>Next up: <strong style={{ color: 'var(--text)' }}>{waiting[0].name}</strong></> : 'No interview is running.'}
+            </div>
+          ) : (
+            <FitBox
+              className="cards"
+              items={cards}
+              moreLabel="more interviews"
+              renderItem={({ key, c, item, elapsed }) => (
+                <article key={key} className={`ls-card ${flash && flash.has(key) ? 'alarm' : ''}`}>
+                  <div className="ls-top">
+                    <div className="ls-name">{c.name}</div>
+                    <div className="ls-timer"><LiveClock baseSeconds={elapsed} fetchedAt={fetchedAt} /></div>
+                  </div>
+                  <div className="ls-pos"># {item.itemNumber} · {item.position}{c.otherItems?.length > 0 && <span className="ls-also">{otherText(c.otherItems)}</span>}</div>
+                  <SeatChips cand={c} requiredTypes={item.requiredTypes} />
+                  <div className="ls-with">Rating now ({c.interviewing.length}): {c.interviewing.map(r => r.name).join(', ')}</div>
+                </article>
+              )}
+            />
+          )}
+        </div>
 
-      <div className="ls-sec">
-        <h4 className="ls-sh">Up next<span>{waiting.length}</span></h4>
-        {waiting.length === 0 ? (
-          <div className="ls-empty">
-            Queue is empty.{canManageQueue && !hasRooms && ' Add a room in Manage queue to start lining people up.'}
-          </div>
-        ) : (
-          <FitBox
-            className="rows"
-            items={waiting}
-            moreLabel="more in the queue"
-            renderItem={(q, i) => (
-              <div key={q.id} className={`ls-row ${i === 0 ? 'first' : ''}`}>
-                <span className="ls-num">{i + 1}</span>
-                <div style={{ minWidth: 0 }}>
-                  <div className="ls-rname">{q.name}</div>
-                  <div className="ls-pos">{q.position}</div>
-                  <div className="ls-sub">Item # {q.itemNumber}</div>
-                  {q.otherItems?.length > 0 && <div className="ls-also">{otherText(q.otherItems)}</div>}
+        <div className="ls-sec q">
+          <h4 className="ls-sh">Up next<span>{waiting.length}</span></h4>
+          {waiting.length === 0 ? (
+            <div className="ls-empty">
+              Queue is empty.{canManageQueue && !hasRooms && ' Add a room in Manage queue to start lining people up.'}
+            </div>
+          ) : (
+            <FitBox
+              className="rows"
+              items={waiting}
+              moreLabel="more in the queue"
+              renderItem={(q, i) => (
+                <div key={q.id} className={`ls-row ${i === 0 ? 'first' : ''}`}>
+                  <span className="ls-num">{i + 1}</span>
+                  <div style={{ minWidth: 0 }}>
+                    <div className="ls-rname">{q.name}</div>
+                    <div className="ls-pos"># {q.itemNumber} · {q.position}{q.otherItems?.length > 0 && <span className="ls-also">{otherText(q.otherItems)}</span>}</div>
+                  </div>
+                  <span className="ls-tag">{i === 0 ? 'Next' : q.rated > 0 ? `${q.rated} of ${q.required} rated` : ''}</span>
                 </div>
-                <span className="ls-tag">{i === 0 ? 'Next' : q.rated > 0 ? `${q.rated} of ${q.required} rated` : ''}</span>
-              </div>
-            )}
-          />
-        )}
+              )}
+            />
+          )}
+        </div>
       </div>
     </section>
   );
@@ -685,6 +816,12 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
   const [guideOpen, setGuideOpen] = useState(false);
   const [soundOn, setSoundOn] = useState(() => readPref('ls_sound', 'on') !== 'off');
   const { ensure: wakeSound, play } = useSound();
+  const [alertsOn, setAlertsOn] = useState(() => readPref('ls_alerts', 'on') !== 'off');
+  const alertsOnRef = useRef(alertsOn);
+  alertsOnRef.current = alertsOn;
+  const [flash, setFlash] = useState(() => new Set());
+  const alertState = useRef(new Map());   // candidate id -> last 5-minute mark already announced
+  const liveRef = useRef({ views: [], fetchedAt: 0 });
   const soundOnRef = useRef(soundOn);
   soundOnRef.current = soundOn;
   const prevSnap = useRef(null);
@@ -754,12 +891,25 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
     savePref('ls_zoom', next);
     return next;
   }), []);
+  // Alarm tone, then each name and how long they have been in: "Room A. Juan Reyes. 10 minutes elapsed."
+  const announce = useCallback((list) => {
+    wakeSound();
+    const real = list.filter(d => !d.test);
+    if (real.length) play('warn');
+    setTimeout(() => list.forEach(d => speak(d.test ? 'Interview time alerts are on.' : `${d.room ? `${d.room}. ` : ''}${d.name}. ${d.minutes} minutes elapsed.`)), real.length ? 1300 : 0);
+  }, [wakeSound, play]);
   const toggleSound = useCallback(() => {
     const next = !soundOnRef.current;
     setSoundOn(next);
     savePref('ls_sound', next ? 'on' : 'off');
     if (next) { wakeSound(); setTimeout(() => play('submit'), 60); }
   }, [wakeSound, play]);
+  const toggleAlerts = useCallback(() => {
+    const next = !alertsOnRef.current;
+    setAlertsOn(next);
+    savePref('ls_alerts', next ? 'on' : 'off');
+    if (next) { wakeSound(); setTimeout(() => announce([{ name: 'Alerts are on', minutes: 0, test: true }]), 60); }
+  }, [wakeSound, announce]);
   const toggleFs = useCallback(() => {
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     else rootRef.current?.requestFullscreen?.().catch(() => {});
@@ -786,6 +936,7 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
       else if (e.key === '-' || e.key === '_') bumpZoom(-1);
       else if (e.key === '?' || e.key === 'h' || e.key === 'H') setGuideOpen(g => !g);
       else if (e.key === 'm' || e.key === 'M') toggleSound();
+      else if (e.key === 'v' || e.key === 'V') toggleAlerts();
       else if (e.key === '0') setSpotlight(null);
       else if (/^[1-9]$/.test(e.key)) {
         const id = roomIdsRef.current[Number(e.key) - 1];
@@ -794,7 +945,7 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isOpen, onClose, managing, guideOpen, spotlight, toggleFs, cycleTheme, bumpZoom, toggleSound]);
+  }, [isOpen, onClose, managing, guideOpen, spotlight, toggleFs, cycleTheme, bumpZoom, toggleSound, toggleAlerts]);
 
   // Controls and cursor fade away after a few idle seconds so the broadcast stays clean.
   const wake = useCallback(() => {
@@ -869,12 +1020,6 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
     return views;
   }, [data, nowCards]);
 
-  const grid = useMemo(() => {
-    const n = roomViews.length;
-    const rows = n <= 4 ? 1 : n <= 8 ? 2 : 3;
-    return { n, rows, cols: Math.ceil(n / rows), dense: rows > 1 };
-  }, [roomViews]);
-
   roomIdsRef.current = roomViews.map(v => v.id);
   const spotView = roomViews.length > 1 && spotlight ? roomViews.find(v => v.id === spotlight) : null;
   const toggleSpot = (id) => setSpotlight(cur => (cur === id ? null : id));
@@ -896,11 +1041,38 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
     cues.forEach((k, i) => setTimeout(() => play(k), i * 900));
   }, [isOpen, data, nowCards, play]);
 
+  // 5-minute interview warnings: checked every second against the live clock shown on each card.
+  liveRef.current = { views: roomViews, fetchedAt };
+  useEffect(() => {
+    if (!isOpen) { alertState.current.clear(); return undefined; }
+    const t = setInterval(() => {
+      const { views, fetchedAt: at } = liveRef.current;
+      if (!at) return;
+      const seen = new Set(); const due = [];
+      views.forEach(v => v.cards.forEach(n => {
+        const sec = n.elapsed + (Date.now() - at) / 1000;
+        const m = Math.floor(sec / ALERT_EVERY_SEC);
+        seen.add(n.key);
+        let last = alertState.current.get(n.key);
+        // Already past a mark when first seen (screen opened mid-interview): stay quiet, unless it just passed.
+        if (last === undefined) last = (m >= 1 && sec - m * ALERT_EVERY_SEC < 20) ? m - 1 : m;
+        if (m > last) due.push({ key: n.key, name: n.c.name, room: views.length > 1 ? v.name : '', minutes: Math.round((m * ALERT_EVERY_SEC) / 60) });
+        alertState.current.set(n.key, Math.max(m, last));
+      }));
+      [...alertState.current.keys()].forEach(k => { if (!seen.has(k)) alertState.current.delete(k); });
+      if (!due.length || !alertsOnRef.current) return;
+      setFlash(f => new Set([...f, ...due.map(d => d.key)]));
+      setTimeout(() => setFlash(f => { const n = new Set(f); due.forEach(d => n.delete(d.key)); return n; }), 9000);
+      announce(due);
+    }, 1000);
+    return () => clearInterval(t);
+  }, [isOpen, announce]);
+
   if (!isOpen) return null;
   const sum = data?.summary;
 
   return (
-    <div ref={rootRef} className={`ls-root ${controlsShown ? '' : 'idle'}`} data-theme={theme} style={{ '--zoom': ZOOMS[zoomIdx] }} onMouseMove={wake} onTouchStart={wake} onPointerDown={wakeSound} onKeyDown={wakeSound} role="dialog" aria-modal="true" aria-label="Live stats">
+    <div ref={rootRef} className={`ls-root ${controlsShown ? '' : 'idle'}`} data-theme={theme} onMouseMove={wake} onTouchStart={wake} onPointerDown={wakeSound} onKeyDown={wakeSound} role="dialog" aria-modal="true" aria-label="Live stats">
       <style>{CSS}</style>
 
       <header className="ls-head">
@@ -927,41 +1099,32 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
         </div>
       ) : (
         <main className="ls-main" key={`${zoomIdx}-${theme}`}>
-          {spotView ? (
-            <div className="ls-rooms spot" style={{ '--srows': roomViews.length - 1 }}>
-              <RoomPanel view={spotView} index={roomViews.indexOf(spotView)} numbered big onSpot={() => toggleSpot(spotView.id)}
-                fetchedAt={fetchedAt} canManageQueue={canManageQueue} hasRooms={(data.rooms || []).length > 0} dense={false} />
-              <div className="ls-side">
-                {roomViews.filter(v => v.id !== spotView.id).map(v => (
-                  <RoomPanel key={v.id} view={v} index={roomViews.indexOf(v)} numbered onSpot={() => toggleSpot(v.id)}
-                    fetchedAt={fetchedAt} canManageQueue={canManageQueue} hasRooms={(data.rooms || []).length > 0} dense />
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="ls-rooms" style={{ '--cols': grid.cols, '--rows': grid.rows, '--n': grid.n }}>
-              {roomViews.map((v, i) => (
-                <RoomPanel key={v.id} view={v} index={i} numbered={roomViews.length > 1} onSpot={() => toggleSpot(v.id)}
-                  fetchedAt={fetchedAt} canManageQueue={canManageQueue} hasRooms={(data.rooms || []).length > 0} dense={grid.dense} />
-              ))}
-            </div>
-          )}
+          <RoomsArea
+            views={roomViews}
+            spotId={spotView ? spotView.id : null}
+            zoom={ZOOMS[zoomIdx]}
+            render={({ v, lay, big, style }) => (
+              <RoomPanel key={v.id} view={v} lay={lay} big={big} extraStyle={style} index={roomViews.indexOf(v)} numbered={roomViews.length > 1}
+                onSpot={() => toggleSpot(v.id)} fetchedAt={fetchedAt} flash={flash} canManageQueue={canManageQueue} hasRooms={(data.rooms || []).length > 0} />
+            )}
+          />
 
-          <section className="ls-panel">
+          <section className="ls-panel" style={{ '--zoom': ZOOMS[zoomIdx] }}>
             <div className="ls-ph"><h3>Latest submissions</h3></div>
             {recent.length === 0 ? (
               <div className="ls-empty">No ratings submitted yet.</div>
             ) : (
               <FitBox
-                className="cols"
+                className="cols subs"
                 items={recent}
                 moreLabel="earlier"
                 renderItem={(r, i) => (
                   <div key={i} className="ls-rec">
                     <i>✓</i>
-                    <span className="who">{r.raterName}</span>
-                    <em>{TYPE_LABEL[r.raterType] || r.raterType}</em>
-                    <span className="cand">rated {r.candidateName}</span>
+                    <div className="m">
+                      <div className="l1"><span className="who">{r.raterName}</span><em>{TYPE_LABEL[r.raterType] || r.raterType}</em></div>
+                      <div className="l2">rated {r.candidateName}</div>
+                    </div>
                     <span className="ago">{timeAgo(r.at)}</span>
                   </div>
                 )}
@@ -988,6 +1151,7 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
         </div>
         <button onClick={cycleTheme}>Theme: {THEMES.find(t => t[0] === theme)?.[1]}</button>
         <button onClick={toggleSound} aria-pressed={soundOn}>Sound: {soundOn ? 'On' : 'Off'}</button>
+        <button onClick={toggleAlerts} aria-pressed={alertsOn}>5-min alerts: {alertsOn ? 'On' : 'Off'}</button>
         <button onClick={() => setGuideOpen(true)}>Shortcuts (?)</button>
         {canManageQueue && <button onClick={() => setManaging(true)}>Manage queue</button>}
         <button onClick={toggleFs}>{isFs ? 'Exit full screen' : 'Full screen (F)'}</button>
@@ -999,6 +1163,8 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
           onClose={() => setGuideOpen(false)}
           onTest={(k) => { wakeSound(); setTimeout(() => play(k), 60); }}
           soundOn={soundOn}
+          alertsOn={alertsOn}
+          onTestAlert={() => { const c = roomViews.flatMap(v => v.cards)[0]; announce([{ name: c ? c.c.name : 'Sample Candidate', room: roomViews.length > 1 ? 'Room A' : '', minutes: 5 }]); }}
           canManageQueue={canManageQueue}
           hasRooms={(data?.rooms || []).length > 0}
         />
