@@ -92,10 +92,14 @@ const FitBox = ({ items, renderItem, moreLabel, className }) => {
     // Not everything fits: keep what fits above a "+N more" line (2em tall + the grid gap).
     const cs = getComputedStyle(el);
     const reserve = parseFloat(cs.fontSize) * 2 + (parseFloat(cs.rowGap) || 0);
+    // Everything in the FIRST row always stays (it may clip a little, but never drops a card that sits
+    // beside another); later rows are kept only while they fully fit above the "+N more" line.
+    const firstTop = kids[0] ? kids[0].offsetTop : 0;
     let n = 0;
-    for (const k of kids) { if (bottomOf(k) + reserve <= limit) n += 1; else break; }
-    setChip(n >= 1);
-    setCap(Math.max(1, n));   // never show only "+N more" — at least one entry, even if it must clip
+    for (const k of kids) { if (k.offsetTop === firstTop || bottomOf(k) + reserve <= limit) n += 1; else break; }
+    n = Math.max(1, n);
+    setChip(kids.slice(0, n).every(k => bottomOf(k) + reserve <= limit));
+    setCap(n);
   }, [cap, items]);
 
   const shown = cap === null ? items : items.slice(0, cap);
@@ -151,6 +155,7 @@ const CSS = `
 .ls-rooms{min-height:0;display:grid;gap:1.2em;grid-template-columns:repeat(var(--cols),minmax(0,1fr));grid-template-rows:repeat(var(--rows),minmax(0,1fr))}
 .ls-room{display:grid;grid-template-rows:auto minmax(0,1.25fr) minmax(0,1fr);gap:.7em;min-height:0;min-width:0;background:var(--panel);border:1px solid var(--edge);border-radius:.8em;padding:1em 1.1em}
 .ls-room.busy{border-color:rgba(244,192,78,.45)}
+.ls-room.noq:not(.dense){grid-template-rows:auto minmax(0,1fr) auto}
 .ls-rh{display:flex;align-items:baseline;gap:.7em;min-width:0}
 .ls-rh h3{margin:0;font-size:1.45em;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ls-rh .st{margin-left:auto;flex:none;font-size:.9em;color:var(--muted)}
@@ -177,7 +182,7 @@ const CSS = `
 .ls-fit.rows{grid-template-columns:minmax(0,1fr);gap:.45em}
 .ls-more{grid-column:1/-1;display:flex;align-items:center;justify-content:center;height:2em;color:var(--muted)}
 .ls-empty{margin:auto;text-align:center;color:var(--muted);max-width:28em}
-.ls-card{height:15.5em;overflow:hidden;display:grid;grid-template-rows:auto auto auto auto 1fr;gap:.4em;align-content:start;background:var(--card);border:1px solid var(--edge);border-radius:.7em;padding:.8em .9em}
+.ls-card{height:14.2em;overflow:hidden;display:grid;grid-template-rows:auto auto auto auto 1fr;gap:.4em;align-content:start;background:var(--card);border:1px solid var(--edge);border-radius:.7em;padding:.8em .9em}
 .ls-top{display:flex;align-items:flex-start;justify-content:space-between;gap:.8em}
 .ls-name{font-size:1.2em;font-weight:650;line-height:1.15;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .ls-timer{flex:none;font-size:1.9em;font-weight:700;line-height:1;color:var(--live);font-variant-numeric:tabular-nums}
@@ -187,7 +192,7 @@ const CSS = `
 .ls-seat.done{background:var(--done);border-color:var(--done);color:#0d1a16}
 .ls-seat.live{color:var(--live);border-color:var(--live)}
 .ls-seat.live::before{content:"";width:.5em;height:.5em;border-radius:50%;background:var(--live);animation:ls-blink 1.2s infinite}
-.ls-with{color:var(--muted);font-size:.85em;line-height:1.2;overflow:hidden}
+.ls-with{color:var(--muted);font-size:.85em;line-height:1.2;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
 .ls-also{color:var(--live);font-size:.82em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ls-row{display:grid;grid-template-columns:2em minmax(0,1fr) auto;align-items:center;gap:.6em;height:3.9em;padding:0 .8em 0 .4em;border-radius:.5em;background:var(--card)}
 .ls-row.first{outline:1px solid var(--live)}
@@ -403,7 +408,7 @@ const QueueManager = ({ data, reload, onClose }) => {
 const RoomPanel = ({ view, fetchedAt, canManageQueue, hasRooms, dense }) => {
   const { name, cards, waiting } = view;
   return (
-    <section className={`ls-room ${cards.length ? 'busy' : ''} ${dense ? 'dense' : ''}`}>
+    <section className={`ls-room ${cards.length ? 'busy' : ''} ${dense ? 'dense' : ''} ${waiting.length === 0 ? 'noq' : ''}`}>
       <div className="ls-rh">
         <h3>{name}</h3>
         <span className={`st ${cards.length ? 'live' : ''}`}>{cards.length ? 'Live' : 'Free'}{dense && waiting.length > 0 && `, ${waiting.length} waiting`}</span>
@@ -429,7 +434,7 @@ const RoomPanel = ({ view, fetchedAt, canManageQueue, hasRooms, dense }) => {
                 <div className="ls-sub">Item # {item.itemNumber}, {item.position}</div>
                 {c.otherItems?.length > 0 && <div className="ls-also">{otherText(c.otherItems)}</div>}
                 <SeatChips cand={c} requiredTypes={item.requiredTypes} />
-                <div className="ls-with">Rating now ({c.interviewing.length}): {c.interviewing.map(r => `${r.name} (${TYPE_LABEL[r.raterType] || r.raterType})`).join(', ')}</div>
+                <div className="ls-with">Rating now ({c.interviewing.length}): {c.interviewing.map(r => r.name).join(', ')}</div>
               </article>
             )}
           />
