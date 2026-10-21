@@ -1398,22 +1398,11 @@ const RaterView = ({ user }) => {
   }, []);
 
   const activeRatingRef = useRef(null);
+  // Snapshot of ratings as last persisted — used to detect genuinely unsaved changes
+  const savedRatingsRef = useRef({});
   const scrollPositionRef = useRef(0);
 
   const { showToast } = useToast();
-
-  // Handle page refresh/back warning
-  useEffect(() => {
-    const handleBeforeUnload = (event) => {
-      if (countUnsavedRatings() > 0) {
-        event.preventDefault();
-        setIsExitConfirmModalOpen(true);
-        event.returnValue = '';
-      }
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [ratings, countUnsavedRatings]);
 
   useEffect(() => {
     loadInitialData();
@@ -1654,7 +1643,6 @@ const RaterView = ({ user }) => {
   // `ratings` also holds ratings loaded from the server, so "unsaved" means
   // "differs from the last snapshot that matches the database". The snapshot
   // is refreshed on load, submit and delete.
-  const savedRatingsRef = useRef({});
   const [pendingNav, setPendingNav] = useState(null); // { action } awaiting the rater's decision
 
   const countUnsavedRatings = useCallback(() => {
@@ -1673,6 +1661,19 @@ const RaterView = ({ user }) => {
       action();
     }
   };
+
+  // Handle page refresh/back warning
+  useEffect(() => {
+    const handleBeforeUnload = (event) => {
+      if (countUnsavedRatings() > 0) {
+        event.preventDefault();
+        setIsExitConfirmModalOpen(true);
+        event.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [ratings, countUnsavedRatings]);
 
   const loadPendingReminders = useCallback(async () => {
     if (!vacancies.length) { setPendingReminders([]); return; }
