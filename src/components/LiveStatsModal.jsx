@@ -845,6 +845,8 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
       if (!autoRooms.has(k)) autoRooms.set(k, { id: `auto:${k}`, name: n.item.assignment, auto: true, cards: [], waiting: [] });
       autoRooms.get(k).cards.push(n);
     });
+    queue.filter(q => q.status !== 'being_rated').forEach(q => { (map.get(q.roomId) || loose).waiting.push(q); });
+
     // Latest finished candidate per room ("Ratings completed"). The list is newest first, so the first
     // match wins. It only shows while the room has no live interview, so opening the next candidate
     // replaces it. A finished candidate nobody queued only opens an "auto" panel for 15 minutes, so
