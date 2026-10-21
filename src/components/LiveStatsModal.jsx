@@ -225,7 +225,7 @@ const FitBox = ({ items, renderItem, moreLabel, className }) => {
 };
 
 // "Also applied: # 123, # 456" — other item numbers this same person applied for.
-const otherText = (list) => (list && list.length ? `Also applied: ${list.map(o => `# ${o.itemNumber}`).join(', ')}` : '');
+const otherText = (list) => (list && list.length ? `Also applied: ${list.map(o => `#\u00a0${o.itemNumber}`).join(', ')}` : '');
 
 // One chip per required rater seat: done / interviewing / waiting
 const SeatChips = ({ cand, requiredTypes }) => (
@@ -271,6 +271,9 @@ const CSS = `
 @media (min-aspect-ratio:4/3){
   .ls-main{grid-template-columns:minmax(0,1fr) clamp(19em,27%,36em);grid-template-rows:minmax(0,1fr)}
 }
+.ls-main.nosub{grid-template-columns:minmax(0,1fr)!important;grid-template-rows:minmax(0,1fr)!important}
+.ls-layouts{display:flex;flex-wrap:wrap;gap:.25em;align-items:center}
+.ls-layouts>span{color:var(--muted);font-size:.85em;margin-right:.2em}
 .ls-zone{position:relative;min-height:0;min-width:0}
 .ls-rooms{position:absolute;inset:0;display:grid}
 .ls-room{display:grid;grid-template-rows:auto minmax(0,1fr);gap:.6em;min-height:0;min-width:0;overflow:hidden;background:var(--panel);border:1px solid var(--edge);border-radius:.8em;padding:.9em 1em}
@@ -280,12 +283,12 @@ const CSS = `
 .ls-room.wide .ls-body{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:minmax(0,1fr)!important;gap:1em}
 .ls-rh.click{cursor:pointer}
 .ls-badge{flex:none;display:inline-grid;place-items:center;min-width:1.5em;height:1.5em;border-radius:.4em;background:var(--edge);color:var(--text);font-size:.85em;font-weight:700;align-self:center}
-.ls-item{color:var(--muted);font-size:.9em;font-weight:600;white-space:nowrap;line-height:1.2}
+.ls-item{color:var(--muted);font-size:.9em;font-weight:600;line-height:1.2;overflow-wrap:anywhere}
 .ls-room.dense .ls-item{font-size:.8em}
-.ls-pos{color:var(--pos);font-size:1em;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ls-item .ls-also{margin-left:.6em}
+.ls-pos{color:var(--pos);font-size:1em;font-weight:600;overflow-wrap:anywhere}
+.ls-item .ls-also{display:block;margin-top:.1em}
 .ls-rh{display:flex;align-items:baseline;gap:.6em;min-width:0}
-.ls-rh h3{margin:0;font-size:1.45em;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ls-rh h3{margin:0;min-width:0;font-size:1.45em;font-weight:700;line-height:1.2;overflow-wrap:anywhere}
 .ls-rh .st{margin-left:auto;flex:none;font-size:.9em;color:var(--muted)}
 .ls-rh .st.live{color:var(--live);font-weight:600}
 .ls-sec{display:flex;flex-direction:column;min-height:0;min-width:0}
@@ -302,9 +305,9 @@ const CSS = `
 .ls-fit.rows{grid-template-columns:minmax(0,1fr);gap:.4em}
 .ls-more{grid-column:1/-1;display:flex;align-items:center;justify-content:center;height:1.8em;color:var(--muted)}
 .ls-empty{margin:auto;text-align:center;color:var(--muted);max-width:28em}
-.ls-card{height:10.4em;overflow:hidden;display:flex;flex-direction:column;gap:.3em;background:var(--card);border:1px solid var(--edge);border-radius:.7em;padding:.6em .8em}
+.ls-card{min-height:10.4em;display:flex;flex-direction:column;gap:.3em;background:var(--card);border:1px solid var(--edge);border-radius:.7em;padding:.6em .8em}
 .ls-top{display:flex;align-items:flex-start;justify-content:space-between;gap:.8em}
-.ls-name{font-size:1.15em;font-weight:650;line-height:1.2;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.ls-name{flex:1;min-width:0;font-size:1.15em;font-weight:650;line-height:1.2;overflow-wrap:anywhere}
 .ls-card.alarm{border-color:#ef6a6a;animation:ls-alarm .7s ease-in-out 12}
 .ls-bn-wrap{position:absolute;inset:0;z-index:20;display:grid;place-items:center;pointer-events:none;background:radial-gradient(ellipse at center,rgba(0,0,0,.45),rgba(0,0,0,0) 70%);animation:ls-bnbg var(--bn-ms,6s) both}
 .ls-bn{--c:var(--done);width:min(44em,88%);text-align:center;background:var(--panel);border:.2em solid var(--c);border-radius:1.2em;padding:1.1em 1.4em 0;overflow:hidden;font-size:1.35em;box-shadow:0 0 0 0 var(--c),0 1.5em 4em rgba(0,0,0,.55);animation:ls-bnpop var(--bn-ms,6s) both,ls-bnring 1.2s ease-out 4}
@@ -312,8 +315,8 @@ const CSS = `
 .ls-bn.done{--c:var(--live)}
 .ls-bn-icon{font-size:2.4em;line-height:1;color:var(--c)}
 .ls-bn-head{margin-top:.2em;font-size:1em;font-weight:800;letter-spacing:.12em;color:var(--c)}
-.ls-bn-main{margin-top:.15em;font-size:2em;font-weight:750;line-height:1.1;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-.ls-bn-sub{margin-top:.25em;color:var(--muted);font-size:.95em}
+.ls-bn-main{margin-top:.15em;font-size:2em;font-weight:750;line-height:1.1;overflow-wrap:anywhere}
+.ls-bn-sub{margin-top:.25em;color:var(--muted);font-size:.95em;overflow-wrap:anywhere}
 .ls-bn-cap{margin:.9em -1.5em 0;padding:.5em 1.2em;background:rgba(0,0,0,.72);color:#fff;font-size:.9em;line-height:1.3}
 @keyframes ls-bnpop{0%{opacity:0;transform:scale(.6)}6%{opacity:1;transform:scale(1.06)}10%{transform:scale(1)}92%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(.97)}}
 @keyframes ls-bnbg{0%{opacity:0}6%{opacity:1}92%{opacity:1}100%{opacity:0}}
@@ -322,49 +325,49 @@ const CSS = `
 .ls-card.alarm .ls-timer{color:#ef6a6a}
 @keyframes ls-alarm{50%{background:rgba(239,106,106,.35)}}
 .ls-timer{flex:none;font-size:1.7em;font-weight:700;line-height:1;color:var(--live);font-variant-numeric:tabular-nums}
-.ls-seats{display:flex;flex-wrap:nowrap;overflow:hidden;gap:.25em}
+.ls-seats{display:flex;flex-wrap:wrap;gap:.25em}
 .ls-seat{display:inline-flex;align-items:center;gap:.3em;border:1px solid var(--edge);border-radius:99em;padding:.02em .5em;font-size:.72em;font-weight:600;color:var(--seat-off);white-space:nowrap}
 .ls-seat.done{background:var(--done);border-color:var(--done);color:var(--on-accent)}
 .ls-seat.live{color:var(--live);border-color:var(--live)}
 .ls-seat.live::before{content:"";width:.5em;height:.5em;border-radius:50%;background:var(--live);animation:ls-blink 1.2s infinite}
-.ls-with{color:var(--muted);font-size:.85em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ls-also{color:var(--live);font-size:.85em;font-weight:500}
-.ls-row{display:grid;grid-template-columns:1.8em minmax(0,1fr) auto;align-items:center;gap:.5em;height:4.4em;padding:0 .8em 0 .3em;border-radius:.5em;background:var(--card)}
+.ls-with{color:var(--muted);font-size:.85em;overflow-wrap:anywhere}
+.ls-also{color:var(--live);font-size:.85em;font-weight:500;overflow-wrap:anywhere}
+.ls-row{display:grid;grid-template-columns:1.8em minmax(0,1fr) auto;align-items:center;gap:.5em;min-height:4.4em;padding:.3em .8em .3em .3em;border-radius:.5em;background:var(--card)}
 .ls-row.first{outline:2px solid var(--live)}
 .ls-num{text-align:center;font-size:1.3em;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums}
 .ls-row.first .ls-num{color:var(--live)}
-.ls-rname{font-size:1.2em;font-weight:650;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ls-rname{font-size:1.2em;font-weight:650;line-height:1.2;overflow-wrap:anywhere}
 .ls-row .ls-pos{font-size:.9em;font-weight:500}
 .ls-row .ls-item{font-size:.82em}
 .ls-tag{font-size:.85em;color:var(--muted);white-space:nowrap}
 .ls-row.first .ls-tag{color:var(--live);font-weight:700}
 .ls-room.dense{padding:.7em .8em;gap:.5em}
 .ls-room.dense .ls-body{gap:.5em}
-.ls-room.dense .ls-card{height:5.4em;padding:.4em .7em;gap:.15em}
+.ls-room.dense .ls-card{min-height:5.4em;padding:.4em .7em;gap:.15em}
 .ls-room.dense .ls-name{-webkit-line-clamp:1;font-size:1.1em}
 .ls-room.dense .ls-timer{font-size:1.4em}
-.ls-room.dense .ls-seats,.ls-room.dense .ls-with,.ls-room.dense .ls-also{display:none}
-.ls-room.dense .ls-row{height:3.7em}
+.ls-room.dense .ls-seats,.ls-room.dense .ls-with{display:none}
+.ls-room.dense .ls-also{font-size:.9em}
+.ls-room.dense .ls-row{min-height:3.7em;padding-top:.2em;padding-bottom:.2em}
 .ls-room.dense .ls-rname{font-size:1.1em}
 .ls-room.dense .ls-row .ls-pos{font-size:.8em}
 .ls-room.dense .ls-row .ls-item{font-size:.78em}
 .ls-room.dense .ls-sh{margin-bottom:.3em}
 .ls-room.dense .ls-sec.q{padding-top:.5em}
-.ls-rec{display:flex;align-items:center;gap:.5em;height:2.3em;white-space:nowrap;overflow:hidden}
+.ls-rec{display:flex;align-items:center;gap:.5em;min-height:2.3em}
 .ls-rec i{font-style:normal;color:var(--done);flex:none}
-.ls-rec .m{display:flex;align-items:baseline;gap:.5em;min-width:0;flex:1}
-.ls-rec .l1{display:flex;gap:.5em;align-items:baseline;flex:none}
-.ls-rec .l2{min-width:0;overflow:hidden;text-overflow:ellipsis;flex:1}
+.ls-rec .m{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 .5em;min-width:0;flex:1}
+.ls-rec .l1{display:flex;flex-wrap:wrap;gap:0 .5em;align-items:baseline;min-width:0;overflow-wrap:anywhere}
+.ls-rec .l2{min-width:0;overflow-wrap:anywhere;flex:1}
 .ls-rec em{font-style:normal;color:var(--muted);font-size:.85em}
 .ls-rec .who{font-weight:650}
 .ls-rec .ago{flex:none;color:var(--muted);font-size:.85em}
 @media (min-aspect-ratio:4/3){
   .ls-fit.subs{grid-template-columns:minmax(0,1fr)}
-  .ls-rec{height:3.6em;align-items:center;gap:.6em}
+  .ls-rec{min-height:3.6em;align-items:center;gap:.6em;padding:.2em 0}
   .ls-rec .m{display:block}
-  .ls-rec .l1,.ls-rec .l2{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .ls-rec .l1{display:flex;gap:.5em;align-items:baseline}
-  .ls-rec .l1 .who{overflow:hidden;text-overflow:ellipsis}
+  .ls-rec .l1,.ls-rec .l2{display:block;overflow-wrap:anywhere}
+  .ls-rec .l1{display:flex;flex-wrap:wrap;gap:0 .5em;align-items:baseline}
   .ls-rec .l2{color:var(--muted);font-size:.92em}
   .ls-rec{border-bottom:1px solid var(--edge);padding-bottom:.1em}
 }
@@ -392,9 +395,9 @@ const CSS = `
 .ls-guide-box>button{margin-top:1.2em}
 .ls-done{margin:auto;display:flex;flex-direction:column;align-items:center;text-align:center;gap:.2em;max-width:100%;padding:0 .5em}
 .ls-done-t{color:var(--done);font-size:1.15em;font-weight:700;letter-spacing:.02em}
-.ls-done-n{font-size:1.5em;font-weight:700;line-height:1.15;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-.ls-done-p{color:var(--pos);font-weight:600;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-.ls-done-s{color:var(--muted);font-size:.85em}
+.ls-done-n{font-size:1.5em;font-weight:700;line-height:1.15;overflow-wrap:anywhere}
+.ls-done-p{color:var(--pos);font-weight:600;overflow-wrap:anywhere}
+.ls-done-s{color:var(--muted);font-size:.85em;overflow-wrap:anywhere}
 .ls-room.dense .ls-done-s{display:none}
 .ls-room.dense .ls-done-n{font-size:1.2em}
 .ls-center{margin:auto;text-align:center;color:var(--muted);font-size:1.2em}
@@ -408,15 +411,15 @@ const PickRow = React.memo(({ c, checked, onToggle, newRoom }) => (
     <label className="px-5 py-2 flex items-center gap-3 cursor-pointer hover:bg-gray-50">
       <input type="checkbox" checked={checked} onChange={e => onToggle(c.id, e.target.checked)} />
       <span className="min-w-0 flex-1">
-        <span className="block font-medium truncate">{c.name}</span>
-        <span className="block text-xs text-gray-500 truncate">Item # {c.itemNumber}, {c.position}</span>
+        <span className="block font-medium break-words">{c.name}</span>
+        <span className="block text-xs text-gray-500 break-words">Item # {c.itemNumber}, {c.position}</span>
         {c.assignment && (
-          <span className="block text-xs text-gray-600 truncate">
+          <span className="block text-xs text-gray-600 break-words">
             Place: {c.assignment}
             {newRoom && <span className="ml-1 rounded bg-blue-100 text-blue-800 px-1">new room</span>}
           </span>
         )}
-        {c.otherItems?.length > 0 && <span className="block text-xs text-amber-700 truncate">{otherText(c.otherItems)}</span>}
+        {c.otherItems?.length > 0 && <span className="block text-xs text-amber-700 break-words">{otherText(c.otherItems)}</span>}
       </span>
     </label>
   </li>
@@ -571,7 +574,7 @@ const QueueManager = ({ data, reload, patch, onClose }) => {
           <div className="flex-1 min-h-0 grid md:grid-cols-2 divide-x divide-gray-200">
             <div className="flex flex-col min-h-0">
               <div className="px-5 py-2 flex items-center gap-2 bg-gray-50 border-b border-gray-100">
-                <h3 className="font-semibold flex-1 truncate">{current ? `${current.name} queue (${queue.length})` : 'Rooms'}</h3>
+                <h3 className="font-semibold flex-1 break-words">{current ? `${current.name} queue (${queue.length})` : 'Rooms'}</h3>
                 {isRoom && <button className={btn} disabled={busy} onClick={renameRoom}>Rename</button>}
                 {isRoom && <button className={btn} disabled={busy} onClick={deleteRoom}>Delete room</button>}
                 {isRoom && <button className={btn} disabled={busy || queue.length === 0} onClick={clearRoom}>Clear</button>}
@@ -582,9 +585,9 @@ const QueueManager = ({ data, reload, patch, onClose }) => {
                   <li key={q.id} className="px-5 py-2 flex items-center gap-2">
                     <span className="w-6 text-sm font-bold text-gray-400 tabular-nums">{i + 1}</span>
                     <div className="min-w-0 flex-1">
-                      <div className="font-medium truncate">{q.name}</div>
-                      <div className="text-xs text-gray-500 truncate">Item # {q.itemNumber}, {q.position}{q.status === 'being_rated' ? ' — being rated now' : ''}</div>
-                      {q.otherItems?.length > 0 && <div className="text-xs text-amber-700 truncate">{otherText(q.otherItems)}</div>}
+                      <div className="font-medium break-words">{q.name}</div>
+                      <div className="text-xs text-gray-500 break-words">Item # {q.itemNumber}, {q.position}{q.status === 'being_rated' ? ' — being rated now' : ''}</div>
+                      {q.otherItems?.length > 0 && <div className="text-xs text-amber-700 break-words">{otherText(q.otherItems)}</div>}
                     </div>
                     {isRoom && <>
                       <button className={btn} disabled={busy || i === 0} onClick={() => move(i, -1)} aria-label={`Move ${q.name} up`}>↑</button>
@@ -685,6 +688,8 @@ const ShortcutGuide = ({ onClose, onTest, onTestAlert, alertsOn, voiceState, sou
       <div className="ls-keys">
         <kbd>1 – 9</kbd><span>Spotlight that room (press again to go back). Number badges are shown beside each room name.</span>
         <kbd>0</kbd><span>Show all rooms</span>
+        <kbd>L</kbd><span>Change the room layout: Auto, Grid, Columns, Rows, Focus (only the ones that make sense for the rooms you have)</span>
+        <kbd>S</kbd><span>Show or hide the Latest submissions panel to give the rooms more space</span>
         <kbd>Click</kbd><span>Click a room&apos;s name to spotlight it</span>
       </div>
 
@@ -729,18 +734,78 @@ const NEED = {
   dense: { stack: { h: 27.5, w: 21 }, wide: { h: 20.5, w: 43 } },
 };
 const QUEUE_SHOWN = 3;
-const fitCell = (w, h, rootPx) => {
-  const f = (t, m) => Math.min(w / NEED[t][m].w, h / NEED[t][m].h);
-  const pick = (t) => { const st = f(t, 'stack'); const wd = f(t, 'wide'); return wd > st ? { font: wd, wide: true } : { font: st, wide: false }; };
-  const full = { ...pick('full'), dense: false };
+
+// Text is never cut off: long names, positions and "Also applied" lists wrap onto more lines.
+// These helpers estimate how many extra lines that costs, so the text size is chosen to leave room for them.
+const CH = 0.52;   // average character width in em (a little generous on purpose)
+const nLines = (len, fontEm, widthEm) => (len > 0 ? Math.max(1, Math.ceil((len * CH * fontEm) / Math.max(4, widthEm))) : 0);
+const cardExtra = (n, colW, dense) => {
+  const c = n.c; const item = n.item;
+  const nameFz = dense ? 1.1 : 1.15;
+  const top = Math.max(nLines(String(c.name || '').length, nameFz, colW - (dense ? 5.2 : 6.2)) * nameFz * 1.2, dense ? 1.4 : 1.7);
+  const itemFz = dense ? 0.8 : 0.9;
+  const also = nLines(otherText(c.otherItems).length, itemFz * 0.9, colW) * itemFz * 0.9 * 1.2;
+  const pos = nLines(String(item.position || '').length, 1, colW) * 1.25;
+  let seats = 0; let withH = 0;
+  if (!dense) {
+    const chips = (item.requiredTypes || []).reduce((a, t) => a + (String(TYPE_LABEL[t] || t).length * CH + 1.8) * 0.72 + 0.25, 0);
+    seats = Math.max(1, Math.ceil(chips / colW)) * 1.1;
+    withH = nLines(`Rating now (${c.interviewing.length}): ${c.interviewing.map(r => r.name).join(', ')}`.length, 0.85, colW) * 0.85 * 1.25;
+  }
+  const content = top + itemFz * 1.2 + also + pos + seats + withH + 1.5 + 1.3;
+  return Math.max(0, content - (dense ? 5.4 : 10.4));
+};
+const rowExtra = (q, colW, dense) => {
+  const txtW = colW - 10;
+  const nameFz = dense ? 1.1 : 1.2;
+  const itemFz = dense ? 0.78 : 0.82;
+  const posFz = dense ? 0.8 : 0.9;
+  const content = nLines(String(q.name || '').length, nameFz, txtW) * nameFz * 1.2
+    + itemFz * 1.2
+    + nLines(otherText(q.otherItems).length, itemFz * 0.9, txtW) * itemFz * 0.9 * 1.2
+    + nLines(String(q.position || '').length, posFz, txtW) * posFz * 1.25
+    + 0.6;
+  return Math.max(0, content - (dense ? 3.7 : 4.4));
+};
+// Extra height (em) a room needs for wrapped text. wEm = the room's width in em.
+const roomExtras = (view, wEm, dense, wide) => {
+  const colW = wide ? (wEm - 5) / 2 : wEm - 2;
+  const head = Math.max(0, nLines(String(view.name || '').length, 1.45, wEm - 12) - 1) * 1.45 * 1.2;
+  const card = view.cards.length ? cardExtra(view.cards[0], colW, dense) : 0;
+  const rows = view.waiting.slice(0, QUEUE_SHOWN).reduce((a, q) => a + rowExtra(q, colW, dense), 0);
+  return { head, card, rows, total: head + (wide ? Math.max(Math.max(0, card - 4), rows) : card + rows) };
+};
+
+const fitCell = (w, h, rootPx, views) => {
+  const solve = (t, m) => {
+    const nd = NEED[t][m];
+    let font = Math.min(w / nd.w, h / nd.h);
+    for (let i = 0; i < 3; i += 1) {
+      const ex = views.reduce((a, v) => Math.max(a, roomExtras(v, w / font, t === 'dense', m === 'wide').total), 0);
+      font = Math.min(w / nd.w, h / (nd.h + ex));
+    }
+    return font;
+  };
+  const pick = (t) => { const st = solve(t, 'stack'); const wd = solve(t, 'wide'); return wd > st ? { font: wd, wide: true } : { font: st, wide: false }; };
+  const full = { ...pick('full'), dense: false, cellW: w };
   if (full.font >= Math.max(13, rootPx * 0.7)) return full;
-  const dense = { ...pick('dense'), dense: true };
+  const dense = { ...pick('dense'), dense: true, cellW: w };
   return dense.font > full.font ? dense : full;
 };
 const finishLay = (lay, rootPx, zoom) => ({ ...lay, font: Math.max(9, Math.min(lay.font * (lay.dense ? 1 : zoom), rootPx * 1.5)) });
 
+// Layouts the viewer can pick from. They adapt to how many rooms exist right now.
+const LAYOUTS = [
+  ['auto', 'Auto', 'Picks whatever gives the biggest text'],
+  ['grid', 'Grid', 'Rooms in an even grid'],
+  ['columns', 'Columns', 'Rooms side by side'],
+  ['rows', 'Rows', 'Rooms stacked top to bottom'],
+  ['focus', 'Focus', 'The busiest room big, the others beside it'],
+];
+const layoutsFor = (n) => (n < 2 ? [] : n === 2 ? LAYOUTS.filter(l => l[0] !== 'grid') : LAYOUTS);
+
 // Measures the room area (and the root text size) whenever the window or zoom changes.
-const RoomsArea = ({ views, spotId, zoom, render }) => {
+const RoomsArea = ({ views, spotId, zoom, layout, render }) => {
   const zoneRef = useRef(null);
   const [box, setBox] = useState({ w: 0, h: 0, root: 16 });
   useLayoutEffect(() => {
@@ -759,7 +824,11 @@ const RoomsArea = ({ views, spotId, zoom, render }) => {
 
   const n = views.length;
   const gap = box.root * 0.9;
-  const spot = n > 1 && spotId ? views.find(v => v.id === spotId) : null;
+  // A spotlight picked by the viewer always wins; the Focus layout spotlights the busiest room by itself.
+  let spot = n > 1 && spotId ? views.find(v => v.id === spotId) : null;
+  if (!spot && n > 1 && layout === 'focus') {
+    spot = views.reduce((best, v) => ((v.cards.length * 1000 + v.waiting.length) > (best.cards.length * 1000 + best.waiting.length) ? v : best), views[0]);
+  }
   let style; let items;
 
   if (box.w > 0 && n > 0) {
@@ -767,26 +836,46 @@ const RoomsArea = ({ views, spotId, zoom, render }) => {
       const others = views.filter(v => v !== spot);
       const k = others.length;
       const land = box.w >= box.h;
-      const bigW = land ? (box.w - gap) * 0.7 : box.w;
-      const bigH = land ? box.h : (box.h - gap) * 0.62;
-      const sideW = land ? box.w - gap - bigW : (box.w - gap * (k - 1)) / k;
-      const sideH = land ? (box.h - gap * (k - 1)) / k : box.h - gap - bigH;
-      style = land
-        ? { gridTemplateColumns: 'minmax(0,7fr) minmax(0,3fr)', gridTemplateRows: `repeat(${k}, minmax(0,1fr))`, gap }
-        : { gridTemplateColumns: `repeat(${k}, minmax(0,1fr))`, gridTemplateRows: 'minmax(0,62fr) minmax(0,38fr)', gap };
-      const bigLay = finishLay(fitCell(bigW, bigH, box.root), box.root, zoom);
-      const sideLay = finishLay(fitCell(sideW, sideH, box.root), box.root, zoom);
+      // Many other rooms: the side strip gets a second column (or row) so they don't become slivers.
+      let sc; let sr; let bigW; let bigH; let sideW; let sideH;
+      if (land) {
+        sc = k > 4 ? 2 : 1; sr = Math.ceil(k / sc);
+        const availW = box.w - gap * sc;
+        bigW = availW * 0.7; bigH = box.h;
+        sideW = (availW * 0.3) / sc; sideH = (box.h - gap * (sr - 1)) / sr;
+        style = { gridTemplateColumns: `minmax(0,7fr) repeat(${sc}, minmax(0,${3 / sc}fr))`, gridTemplateRows: `repeat(${sr}, minmax(0,1fr))`, gap };
+      } else {
+        sr = k > 4 ? 2 : 1; sc = Math.ceil(k / sr);
+        const availH = box.h - gap * sr;
+        bigW = box.w; bigH = availH * 0.62;
+        sideW = (box.w - gap * (sc - 1)) / sc; sideH = (availH * 0.38) / sr;
+        style = { gridTemplateColumns: `repeat(${sc}, minmax(0,1fr))`, gridTemplateRows: `minmax(0,62fr) repeat(${sr}, minmax(0,${38 / sr}fr))`, gap };
+      }
+      const bigLay = finishLay(fitCell(bigW, bigH, box.root, [spot]), box.root, zoom);
+      const sideLay = finishLay(fitCell(sideW, sideH, box.root, others), box.root, zoom);
       items = [
-        { v: spot, lay: bigLay, big: true, style: land ? { gridRow: `1 / span ${k}` } : { gridColumn: `1 / span ${k}` } },
+        { v: spot, lay: bigLay, big: true, style: land ? { gridRow: `1 / span ${sr}` } : { gridColumn: `1 / span ${sc}` } },
         ...others.map(v => ({ v, lay: sideLay, style: undefined })),
       ];
     } else {
-      // Try every column count and keep the one that gives the biggest text.
-      let best = null;
-      for (let c = 1; c <= n; c += 1) {
+      const cellLay = (c) => {
         const r = Math.ceil(n / c);
-        const lay = fitCell((box.w - gap * (c - 1)) / c, (box.h - gap * (r - 1)) / r, box.root);
-        if (!best || lay.font > best.lay.font * 1.02) best = { c, r, lay };
+        return fitCell((box.w - gap * (c - 1)) / c, (box.h - gap * (r - 1)) / r, box.root, views);
+      };
+      let best = null;
+      if (layout === 'columns' || layout === 'rows' || layout === 'grid') {
+        // Fixed shapes that still follow the room count: up to 4 in one line, more wrap onto extra lines.
+        let c;
+        if (layout === 'columns') { const r = Math.ceil(n / 4); c = Math.ceil(n / r); }
+        else if (layout === 'rows') c = Math.ceil(n / 4);
+        else c = Math.min(n, Math.max(1, Math.round(Math.sqrt((n * box.w) / box.h))));
+        best = { c, r: Math.ceil(n / c), lay: cellLay(c) };
+      } else {
+        // Auto: try every column count and keep the one that gives the biggest text.
+        for (let c = 1; c <= n; c += 1) {
+          const lay = cellLay(c);
+          if (!best || lay.font > best.lay.font * 1.02) best = { c, r: Math.ceil(n / c), lay };
+        }
       }
       const lay = finishLay(best.lay, box.root, zoom);
       style = { gridTemplateColumns: `repeat(${best.c}, minmax(0,1fr))`, gridTemplateRows: `repeat(${best.r}, minmax(0,1fr))`, gap };
@@ -808,8 +897,9 @@ const RoomPanel = ({ view, fetchedAt, flash, canManageQueue, hasRooms, lay, big,
   // Rows of the stacked layout: the live card gets what it needs, the queue always keeps room for 3 names.
   const qn = Math.min(QUEUE_SHOWN, waiting.length);
   const rowH = dense ? 3.7 : 4.4;
-  const qMin = (dense ? 1.5 : 1.8) + qn * rowH + Math.max(0, qn - 1) * 0.4 + 1 + (waiting.length > qn ? 2.3 : 0);   // + the "+N more" line
-  const nMin = (dense ? 1.5 : 1.8) + (dense ? 5.4 : 10.4);
+  const ex = roomExtras(view, lay.cellW / lay.font, dense, lay.wide);   // extra height for text that wraps
+  const qMin = (dense ? 1.5 : 1.8) + qn * rowH + ex.rows + Math.max(0, qn - 1) * 0.4 + 1 + (waiting.length > qn ? 2.3 : 0);   // + the "+N more" line
+  const nMin = (dense ? 1.5 : 1.8) + (dense ? 5.4 : 10.4) + ex.card;
   const rows = cards.length === 0
     ? (waiting.length === 0 ? 'auto auto' : 'auto minmax(0,1fr)')
     : waiting.length === 0 ? 'minmax(0,1fr) auto'
@@ -899,6 +989,8 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
   const [controlsShown, setControlsShown] = useState(true);
   const [isFs, setIsFs] = useState(false);
   const [spotlight, setSpotlight] = useState(null);                       // room id or null
+  const [layout, setLayout] = useState(() => readPref('ls_layout', 'auto'));
+  const [showSubs, setShowSubs] = useState(() => readPref('ls_subs', 'on') !== 'off');
   const [guideOpen, setGuideOpen] = useState(false);
   const [soundOn, setSoundOn] = useState(() => readPref('ls_sound', 'on') !== 'off');
   const { ensure: wakeSound, play } = useSound();
@@ -1025,6 +1117,19 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
   }, []);
 
   const roomIdsRef = useRef([]);
+  const cycleLayout = useCallback(() => {
+    const avail = layoutsFor(roomIdsRef.current.length);
+    if (!avail.length) return;
+    setLayout(cur => {
+      const i = avail.findIndex(l => l[0] === cur);
+      const next = avail[(i + 1) % avail.length][0];
+      savePref('ls_layout', next);
+      return next;
+    });
+    setSpotlight(null);
+  }, []);
+  const pickLayout = useCallback((id) => { setLayout(id); savePref('ls_layout', id); setSpotlight(null); }, []);
+  const toggleSubs = useCallback(() => setShowSubs(v => { savePref('ls_subs', v ? 'off' : 'on'); return !v; }), []);
   // Keys: Esc closes (manager first, then spotlight), F fullscreen, 1-9 spotlight a room, 0 all rooms,
   // T theme, + / - text size
   useEffect(() => {
@@ -1046,6 +1151,8 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
       else if (e.key === '?' || e.key === 'h' || e.key === 'H') setGuideOpen(g => !g);
       else if (e.key === 'm' || e.key === 'M') toggleSound();
       else if (e.key === 'v' || e.key === 'V') toggleAlerts();
+      else if (e.key === 'l' || e.key === 'L') cycleLayout();
+      else if (e.key === 's' || e.key === 'S') toggleSubs();
       else if (e.key === '0') setSpotlight(null);
       else if (/^[1-9]$/.test(e.key)) {
         const id = roomIdsRef.current[Number(e.key) - 1];
@@ -1054,7 +1161,7 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isOpen, onClose, managing, guideOpen, spotlight, toggleFs, cycleTheme, bumpZoom, toggleSound, toggleAlerts]);
+  }, [isOpen, onClose, managing, guideOpen, spotlight, toggleFs, cycleTheme, bumpZoom, toggleSound, toggleAlerts, cycleLayout, toggleSubs]);
 
   // Controls and cursor fade away after a few idle seconds so the broadcast stays clean.
   const wake = useCallback(() => {
@@ -1132,6 +1239,8 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
   roomIdsRef.current = roomViews.map(v => v.id);
   const spotView = roomViews.length > 1 && spotlight ? roomViews.find(v => v.id === spotlight) : null;
   const toggleSpot = (id) => setSpotlight(cur => (cur === id ? null : id));
+  const availLayouts = layoutsFor(roomViews.length);
+  const effLayout = availLayouts.some(l => l[0] === layout) ? layout : 'auto';
 
   // Sound cues + centre banners: compare each fresh snapshot with the one before it (the first one after opening is silent).
   useEffect(() => {
@@ -1234,18 +1343,19 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
           {error ? <>Couldn&apos;t load live stats. <button onClick={load}>Try again</button></> : 'Loading live stats…'}
         </div>
       ) : (
-        <main className="ls-main" key={`${zoomIdx}-${theme}`}>
+        <main className={`ls-main ${showSubs ? '' : 'nosub'}`} key={`${zoomIdx}-${theme}`}>
           <RoomsArea
             views={roomViews}
             spotId={spotView ? spotView.id : null}
             zoom={ZOOMS[zoomIdx]}
+            layout={effLayout}
             render={({ v, lay, big, style }) => (
               <RoomPanel key={v.id} view={v} lay={lay} big={big} extraStyle={style} index={roomViews.indexOf(v)} numbered={roomViews.length > 1}
                 onSpot={() => toggleSpot(v.id)} fetchedAt={fetchedAt} flash={flash} canManageQueue={canManageQueue} hasRooms={(data.rooms || []).length > 0} />
             )}
           />
 
-          <section className="ls-panel" style={{ '--zoom': ZOOMS[zoomIdx] }}>
+          {showSubs && <section className="ls-panel" style={{ '--zoom': ZOOMS[zoomIdx] }}>
             <div className="ls-ph"><h3>Latest submissions</h3></div>
             {recent.length === 0 ? (
               <div className="ls-empty">No ratings submitted yet.</div>
@@ -1266,7 +1376,7 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
                 )}
               />
             )}
-          </section>
+          </section>}
         </main>
       )}
 
@@ -1281,6 +1391,15 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
             ))}
           </div>
         )}
+        {availLayouts.length > 0 && (
+          <div className="ls-ctl-group ls-layouts">
+            <span>Layout</span>
+            {availLayouts.map(([id, label, tip]) => (
+              <button key={id} className={effLayout === id ? 'on' : ''} title={tip} aria-pressed={effLayout === id} onClick={() => pickLayout(id)}>{label}</button>
+            ))}
+          </div>
+        )}
+        <button onClick={toggleSubs} aria-pressed={showSubs}>Submissions: {showSubs ? 'Shown' : 'Hidden'}</button>
         <div className="ls-ctl-group">
           <button onClick={() => bumpZoom(-1)} disabled={zoomIdx === 0} aria-label="Smaller text">A−</button>
           <button onClick={() => bumpZoom(1)} disabled={zoomIdx === ZOOMS.length - 1} aria-label="Larger text">A+</button>
