@@ -52,15 +52,64 @@ const timeAgo = (iso) => {
 // after the user has clicked or pressed a key once, so the AudioContext is woken on every gesture.
 // Every ALERT_EVERY_SEC of interview time a card gets a warning: alarm tone + spoken name and minutes elapsed.
 const ALERT_EVERY_SEC = 300;
-const speak = (text) => {
+// ─── Voice ───────────────────────────────────────────────────────────────────
+// Natural voice: Kokoro-82M (open source neural TTS) running inside the browser via kokoro-js. The model
+// (~90 MB) downloads once from Hugging Face, is cached by the browser, and then works offline. Until it is
+// ready (or if it can't load) the browser's built-in voice is used, so a warning is never lost.
+const KOKORO_MODEL = 'onnx-community/Kokoro-82M-v1.0-ONNX';
+const KOKORO_VOICE = 'af_heart';
+let kokoro = { state: 'idle', promise: null, failedAt: 0 };   // idle | loading | ready | failed
+const loadKokoro = () => {
+  if (kokoro.state === 'ready' || kokoro.state === 'loading') return kokoro.promise;
+  if (kokoro.state === 'failed' && Date.now() - kokoro.failedAt < 60000) return kokoro.promise;
+  kokoro.state = 'loading';
+  kokoro.promise = (async () => {
+    const { KokoroTTS } = await import('kokoro-js');
+    return KokoroTTS.from_pretrained(KOKORO_MODEL, { dtype: 'q8', device: 'wasm' });
+  })()
+    .then(t => { kokoro.state = 'ready'; return t; })
+    .catch(err => { console.warn('[LiveStats] natural voice unavailable, using browser voice:', err?.message); kokoro.state = 'failed'; kokoro.failedAt = Date.now(); return null; });
+  return kokoro.promise;
+};
+
+// Make names easier to pronounce: "Ma." → Maria, "Jr." → Junior, hyphens → spaces, drop stray periods.
+const sayable = (t) => String(t || '')
+  .replace(/\bMa\.\s*/g, 'Maria ').replace(/\bJr\.?/gi, 'Junior').replace(/\bSr\.?/gi, 'Senior')
+  .replace(/[-_/]+/g, ' ').replace(/\.(?=\s|$)/g, '').replace(/\s+/g, ' ').trim();
+
+const clipCache = new Map();   // text -> { data, sr }, so a repeat of the same line is instant
+const synth = async (text) => {
+  if (kokoro.state !== 'ready') return null;
+  try {
+    if (clipCache.has(text)) return clipCache.get(text);
+    const tts = await kokoro.promise;
+    const a = await tts.generate(text, { voice: KOKORO_VOICE, speed: 0.95 });
+    const clip = { data: a.audio, sr: a.sampling_rate };
+    clipCache.set(text, clip);
+    return clip;
+  } catch (err) { console.warn('[LiveStats] voice synthesis failed:', err?.message); return null; }
+};
+const playClip = (ctx, clip) => new Promise((resolve) => {
+  try {
+    const buf = ctx.createBuffer(1, clip.data.length, clip.sr);
+    buf.copyToChannel(clip.data, 0);
+    const src = ctx.createBufferSource();
+    src.buffer = buf; src.connect(ctx.destination);
+    src.onended = resolve; src.start();
+  } catch { resolve(); }
+});
+const speakBrowser = (text) => new Promise((resolve) => {
   try {
     const ss = window.speechSynthesis;
-    if (!ss || typeof SpeechSynthesisUtterance === 'undefined') return;
+    if (!ss || typeof SpeechSynthesisUtterance === 'undefined') { resolve(); return; }
     const u = new SpeechSynthesisUtterance(text);
-    u.rate = 0.95; u.volume = 1;
+    u.rate = 0.95; u.volume = 1; u.onend = resolve; u.onerror = resolve;
     ss.speak(u);
-  } catch { /* speech not available — the alarm tone still plays */ }
-};
+    setTimeout(resolve, 15000);
+  } catch { resolve(); }
+});
+let speechChain = Promise.resolve();   // lines are spoken one after another, never over each other
+const SLEEP = (ms) => new Promise(r => setTimeout(r, ms));
 const SOUNDS = {
   start:    { type: 'sine',     notes: [[659.25, 0, 0.18], [880, 0.14, 0.3]] },                                   // interview begins
   submit:   { type: 'triangle', notes: [[987.77, 0, 0.4]] },                                                     // a rating came in
@@ -583,7 +632,7 @@ const QueueManager = ({ data, reload, patch, onClose }) => {
 };
 
 // Keyboard / mouse cheat sheet. Opens with ? (or H) and from the control bar.
-const ShortcutGuide = ({ onClose, onTest, onTestAlert, alertsOn, soundOn, canManageQueue, hasRooms }) => (
+const ShortcutGuide = ({ onClose, onTest, onTestAlert, alertsOn, voiceState, soundOn, canManageQueue, hasRooms }) => (
   <div className="ls-guide" role="dialog" aria-modal="true" aria-label="Shortcuts" onClick={onClose}>
     <div className="ls-guide-box" onClick={e => e.stopPropagation()}>
       <h2>Shortcuts</h2>
@@ -615,7 +664,7 @@ const ShortcutGuide = ({ onClose, onTest, onTestAlert, alertsOn, soundOn, canMan
       </div>
       <h3>Interview time alerts</h3>
       <div className="ls-keys">
-        <kbd>V</kbd><span>Spoken warning every 5 minutes of an interview: {alertsOn ? 'on, press to turn off' : 'off, press to turn on'}</span>
+        <kbd>V</kbd><span>Spoken warning every 5 minutes of an interview: {alertsOn ? 'on, press to turn off' : 'off, press to turn on'}. Voice: {voiceState === 'ready' ? 'natural (Kokoro)' : voiceState === 'loading' ? 'natural voice is downloading, browser voice until then' : 'browser voice'}</span>
       </div>
       <div className="ls-snd" style={{ marginTop: '.6em' }}>
         <button onClick={onTestAlert}>▶ Test 5-minute warning</button>
@@ -819,6 +868,7 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
   const [alertsOn, setAlertsOn] = useState(() => readPref('ls_alerts', 'on') !== 'off');
   const alertsOnRef = useRef(alertsOn);
   alertsOnRef.current = alertsOn;
+  const [voiceState, setVoiceState] = useState(kokoro.state);
   const [flash, setFlash] = useState(() => new Set());
   const alertState = useRef(new Map());   // candidate id -> last 5-minute mark already announced
   const liveRef = useRef({ views: [], fetchedAt: 0 });
@@ -892,11 +942,22 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
     return next;
   }), []);
   // Alarm tone, then each name and how long they have been in: "Room A. Juan Reyes. 10 minutes elapsed."
+  // Synthesis starts right away, while the alarm is still sounding, so the voice follows without a gap.
   const announce = useCallback((list) => {
-    wakeSound();
+    const ctx = wakeSound();
     const real = list.filter(d => !d.test);
     if (real.length) play('warn');
-    setTimeout(() => list.forEach(d => speak(d.test ? 'Interview time alerts are on.' : `${d.room ? `${d.room}. ` : ''}${d.name}. ${d.minutes} minutes elapsed.`)), real.length ? 1300 : 0);
+    const lines = list.map(d => {
+      const text = d.test ? 'Interview time alerts are on.' : `${d.room ? `${sayable(d.room)}. ` : ''}${sayable(d.name)}. ${d.minutes} minutes elapsed.`;
+      return { text, clip: synth(text) };
+    });
+    speechChain = speechChain.then(async () => {
+      if (real.length) await SLEEP(1300);
+      for (const l of lines) {
+        const clip = await l.clip;
+        if (clip && ctx) await playClip(ctx, clip); else await speakBrowser(l.text);
+      }
+    }).catch(() => {});
   }, [wakeSound, play]);
   const toggleSound = useCallback(() => {
     const next = !soundOnRef.current;
@@ -1041,6 +1102,15 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
     cues.forEach((k, i) => setTimeout(() => play(k), i * 900));
   }, [isOpen, data, nowCards, play]);
 
+  // Download / warm up the natural voice as soon as the screen opens (only when alerts are on).
+  useEffect(() => {
+    if (!isOpen || !alertsOn) return;
+    setVoiceState(kokoro.state);
+    const p = loadKokoro();
+    setVoiceState(kokoro.state);
+    p.then(() => setVoiceState(kokoro.state));
+  }, [isOpen, alertsOn]);
+
   // 5-minute interview warnings: checked every second against the live clock shown on each card.
   liveRef.current = { views: roomViews, fetchedAt };
   useEffect(() => {
@@ -1151,7 +1221,7 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
         </div>
         <button onClick={cycleTheme}>Theme: {THEMES.find(t => t[0] === theme)?.[1]}</button>
         <button onClick={toggleSound} aria-pressed={soundOn}>Sound: {soundOn ? 'On' : 'Off'}</button>
-        <button onClick={toggleAlerts} aria-pressed={alertsOn}>5-min alerts: {alertsOn ? 'On' : 'Off'}</button>
+        <button onClick={toggleAlerts} aria-pressed={alertsOn}>5-min alerts: {alertsOn ? 'On' : 'Off'}{alertsOn && voiceState === 'loading' ? ' (voice loading…)' : ''}</button>
         <button onClick={() => setGuideOpen(true)}>Shortcuts (?)</button>
         {canManageQueue && <button onClick={() => setManaging(true)}>Manage queue</button>}
         <button onClick={toggleFs}>{isFs ? 'Exit full screen' : 'Full screen (F)'}</button>
@@ -1164,6 +1234,7 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
           onTest={(k) => { wakeSound(); setTimeout(() => play(k), 60); }}
           soundOn={soundOn}
           alertsOn={alertsOn}
+          voiceState={voiceState}
           onTestAlert={() => { const c = roomViews.flatMap(v => v.cards)[0]; announce([{ name: c ? c.c.name : 'Sample Candidate', room: roomViews.length > 1 ? 'Room A' : '', minutes: 5 }]); }}
           canManageQueue={canManageQueue}
           hasRooms={(data?.rooms || []).length > 0}
