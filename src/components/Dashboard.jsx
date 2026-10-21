@@ -4,6 +4,7 @@ import SecretariatView from './SecretariatView';
 import AdminView from './AdminView';
 import InterviewSummaryGeneratorV2 from './InterviewSummaryGeneratorV2';
 import TrustedDevicesModal from './TrustedDevicesModal';
+import LiveStatsModal from './LiveStatsModal';
 import { USER_TYPES } from '../utils/constants';
 import { usersAPI } from '../utils/api';
 
@@ -1363,6 +1364,7 @@ const Dashboard = ({ user, onLogout }) => {
   const [trustedDevicesModalOpen, setTrustedDevicesModalOpen] = useState(false);
   const [logoutConfirmModalOpen, setLogoutConfirmModalOpen] = useState(false);
   const [starBEIGuideOpen, setStarBEIGuideOpen] = useState(false);
+  const [liveStatsOpen, setLiveStatsOpen] = useState(false);
 
   useEffect(() => {
     if (user.userType === USER_TYPES.ADMIN) fetchUsers();
@@ -1448,6 +1450,18 @@ const Dashboard = ({ user, onLogout }) => {
           {(user.userType === USER_TYPES.SECRETARIAT || user.userType === USER_TYPES.ADMIN) && (
             <OnlineUsersDropdown />
           )}
+          {/* Live Stats — available to every user type */}
+          <button
+            onClick={() => setLiveStatsOpen(true)}
+            className="navbar-button bg-indigo-600 text-white hover:bg-indigo-700 flex items-center gap-1.5"
+            title="Live view: who is being rated and who has submitted"
+          >
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-300 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
+            </span>
+            Live Stats
+          </button>
           <button onClick={() => setCreatorModalOpen(true)} className="navbar-button bg-blue-600 text-white hover:bg-blue-700" title="About the Developer">
             About
           </button>
@@ -1493,6 +1507,8 @@ const Dashboard = ({ user, onLogout }) => {
       )}
 
       <main className="p-6">{renderContent()}</main>
+
+      <LiveStatsModal isOpen={liveStatsOpen} onClose={() => setLiveStatsOpen(false)} />
 
       <CreatorProfileModal isOpen={creatorModalOpen} onClose={() => setCreatorModalOpen(false)} />
 

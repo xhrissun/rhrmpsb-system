@@ -980,3 +980,10 @@ export const settingsAPI = {
 };
 
 export default api;
+// Read-only live snapshot (names + status only, never scores) for every user type
+export const liveStatsAPI = {
+  get: async () => {
+    const response = await api.get('/live-stats');
+    return response.data;
+  },
+};

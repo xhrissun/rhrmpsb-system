@@ -4331,6 +4331,215 @@ router.get('/interview-sessions', authMiddleware, async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// LIVE STATS  (GET /live-stats)
+// A read-only, system-wide snapshot for the "Live Stats" page in the navbar:
+// who is being rated right now, who has submitted, and how far each item is.
+//
+// Visible to EVERY authenticated user type. It deliberately exposes only
+// names, rater types, timestamps and status — NEVER scores, competency
+// ratings or notes — so it cannot influence anyone's independent marks.
+//
+// "Being rated now" = an unfinished interview-timer session whose autosave
+// (every ~30 s while the timer runs) landed in the last 2 minutes and for which
+// that rater has not yet submitted ratings.
+//
+// The result is identical for every viewer, so it is cached for 10 s: a room of
+// people polling every 15 s costs the database one computation, not one each.
+// ═══════════════════════════════════════════════════════════════════════════
+const LIVE_STATS_TTL_MS = 10 * 1000;
+const LIVE_SESSION_ACTIVE_MS = 2 * 60 * 1000;
+const LIVE_ALL_RATER_TYPES = ['Chairperson', 'Vice-Chairperson', 'Regular Member', 'DENREU', 'Gender and Development', 'End-User'];
+let liveStatsCache = { at: 0, data: null, inflight: null };
+
+const computeLiveStats = async () => {
+  const now = Date.now();
+  const vacancies = await Vacancy.find({ isArchived: false })
+    .select('itemNumber position assignment salaryGrade').lean();
+  const vacancyByItem = {};
+  vacancies.forEach(v => { vacancyByItem[v.itemNumber] = v; });
+  const itemNumbers = Object.keys(vacancyByItem);
+
+  const empty = {
+    generatedAt: new Date(now).toISOString(),
+    summary: { candidates: 0, complete: 0, inProgress: 0, beingRated: 0, notStarted: 0, ratersOnline: 0, ratersTotal: 0 },
+    items: [], raters: [], recent: [],
+  };
+  if (itemNumbers.length === 0) return empty;
+
+  const [candidates, raters, ratedGroups, sessions] = await Promise.all([
+    Candidate.find({ itemNumber: { $in: itemNumbers }, isArchived: false, status: 'long_list' })
+      .select('_id fullName itemNumber').lean(),
+    User.find({ userType: 'rater' })
+      .select('_id name raterType lastSeenAt assignedVacancies assignedAssignment assignedItemNumbers suspendedItemNumbers').lean(),
+    // One row per (candidate, item, rater) — never loads individual scores into JS.
+    Rating.aggregate([
+      { $match: { itemNumber: { $in: itemNumbers }, score: { $gt: 0 } } },
+      { $group: { _id: { c: '$candidateId', i: '$itemNumber', r: '$raterId' }, at: { $max: '$updatedAt' } } },
+    ]),
+    InterviewSession.find({ timerCompleted: false, updatedAt: { $gte: new Date(now - LIVE_SESSION_ACTIVE_MS) } })
+      .select('raterId candidateId itemNumber elapsedMs updatedAt').lean(),
+  ]);
+
+  const raterById = {};
+  raters.forEach(r => { raterById[String(r._id)] = r; });
+  const candById = {};
+  candidates.forEach(c => { candById[String(c._id)] = c; });
+
+  // candidateId|item -> Map(raterId -> last rated at)
+  const ratedMap = new Map();
+  ratedGroups.forEach(g => {
+    const key = `${g._id.c}|${g._id.i}`;
+    if (!ratedMap.has(key)) ratedMap.set(key, new Map());
+    ratedMap.get(key).set(String(g._id.r), g.at);
+  });
+
+  // Active interviews: unfinished, fresh, candidate still long-listed, rater hasn't submitted yet.
+  const activeByCand = new Map();   // candidateId|item -> [{rater, elapsedSeconds}]
+  const currentByRater = new Map(); // raterId -> most recent active interview
+  sessions
+    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
+    .forEach(se => {
+      const rater = raterById[String(se.raterId)];
+      const cand = candById[String(se.candidateId)];
+      if (!rater || !cand || cand.itemNumber !== se.itemNumber) return;
+      const key = `${se.candidateId}|${se.itemNumber}`;
+      if (ratedMap.get(key)?.has(String(se.raterId))) return;
+      const entry = { rater, elapsedSeconds: Math.floor((se.elapsedMs || 0) / 1000), cand, itemNumber: se.itemNumber };
+      if (!activeByCand.has(key)) activeByCand.set(key, []);
+      activeByCand.get(key).push(entry);
+      if (!currentByRater.has(String(se.raterId))) currentByRater.set(String(se.raterId), entry);
+    });
+
+  const inScope = (rater, v) => {
+    if ((rater.suspendedItemNumbers || []).includes(v.itemNumber)) return false;
+    switch (rater.assignedVacancies) {
+      case 'all': return true;
+      case 'assignment': return !!rater.assignedAssignment && v.assignment === rater.assignedAssignment;
+      case 'specific': return (rater.assignedItemNumbers || []).includes(v.itemNumber);
+      default: return false;
+    }
+  };
+  const requiredFor = (v) => (v.salaryGrade <= 14 ? ['Regular Member', 'End-User'] : LIVE_ALL_RATER_TYPES);
+
+  const raterStats = {};
+  raters.forEach(r => { raterStats[String(r._id)] = { submitted: 0, assigned: 0, lastAt: null }; });
+
+  const summary = { candidates: 0, complete: 0, inProgress: 0, beingRated: 0, notStarted: 0, ratersOnline: 0, ratersTotal: raters.length };
+  const itemMap = {};
+
+  candidates.forEach(c => {
+    const v = vacancyByItem[c.itemNumber];
+    if (!v) return;
+    const requiredTypes = requiredFor(v);
+    const key = `${c._id}|${c.itemNumber}`;
+    const ratedForCand = ratedMap.get(key) || new Map();
+
+    const ratedBy = [];
+    const ratedTypes = new Set();
+    ratedForCand.forEach((at, raterId) => {
+      const r = raterById[raterId];
+      if (!r) return;
+      if (raterStats[raterId]) {
+        raterStats[raterId].submitted += 1;
+        if (!raterStats[raterId].lastAt || at > raterStats[raterId].lastAt) raterStats[raterId].lastAt = at;
+      }
+      if (requiredTypes.includes(r.raterType)) {
+        ratedTypes.add(r.raterType);
+        ratedBy.push({ name: r.name, raterType: r.raterType, at });
+      }
+    });
+
+    const interviewing = (activeByCand.get(key) || [])
+      .filter(e => requiredTypes.includes(e.rater.raterType) && !ratedTypes.has(e.rater.raterType))
+      .map(e => ({ name: e.rater.name, raterType: e.rater.raterType, elapsedSeconds: e.elapsedSeconds }));
+
+    const complete = requiredTypes.every(t => ratedTypes.has(t));
+    const status = complete ? 'complete'
+      : interviewing.length > 0 ? 'being_rated'
+      : ratedBy.length > 0 ? 'in_progress'
+      : 'not_started';
+
+    raters.forEach(r => {
+      if (inScope(r, v) && requiredTypes.includes(r.raterType)) raterStats[String(r._id)].assigned += 1;
+    });
+
+    summary.candidates += 1;
+    if (status === 'complete') summary.complete += 1;
+    else if (status === 'being_rated') summary.beingRated += 1;
+    else if (status === 'in_progress') summary.inProgress += 1;
+    else summary.notStarted += 1;
+
+    if (!itemMap[c.itemNumber]) {
+      itemMap[c.itemNumber] = {
+        itemNumber: v.itemNumber, position: v.position, assignment: v.assignment, salaryGrade: v.salaryGrade,
+        panelType: v.salaryGrade <= 14 ? 'two_rater' : 'panel',
+        requiredTypes,
+        counts: { total: 0, complete: 0, beingRated: 0, inProgress: 0, notStarted: 0 },
+        candidates: [],
+      };
+    }
+    const item = itemMap[c.itemNumber];
+    item.counts.total += 1;
+    item.counts[status === 'complete' ? 'complete' : status === 'being_rated' ? 'beingRated' : status === 'in_progress' ? 'inProgress' : 'notStarted'] += 1;
+    item.candidates.push({
+      id: String(c._id), name: c.fullName, status, ratedBy, interviewing,
+      awaitingTypes: requiredTypes.filter(t => !ratedTypes.has(t)),
+    });
+  });
+
+  const items = Object.values(itemMap).sort((a, b) =>
+    a.assignment.localeCompare(b.assignment) || a.position.localeCompare(b.position) || a.itemNumber.localeCompare(b.itemNumber));
+  items.forEach(i => i.candidates.sort((a, b) => a.name.localeCompare(b.name)));
+
+  const onlineSince = now - 3 * 60 * 1000;
+  const raterRows = raters.map(r => {
+    const st = raterStats[String(r._id)];
+    const cur = currentByRater.get(String(r._id));
+    const online = !!r.lastSeenAt && new Date(r.lastSeenAt).getTime() >= onlineSince;
+    if (online) summary.ratersOnline += 1;
+    return {
+      id: String(r._id), name: r.name, raterType: r.raterType || '', online,
+      submitted: st.submitted, assigned: st.assigned, lastSubmittedAt: st.lastAt,
+      current: cur ? { candidateName: cur.cand.fullName, itemNumber: cur.itemNumber,
+        position: vacancyByItem[cur.itemNumber]?.position || '', elapsedSeconds: cur.elapsedSeconds } : null,
+    };
+  }).sort((a, b) => (b.online - a.online) || a.name.localeCompare(b.name));
+
+  // Latest submissions feed (one line per rater × candidate)
+  const recent = ratedGroups
+    .filter(g => raterById[String(g._id.r)] && candById[String(g._id.c)])
+    .sort((a, b) => new Date(b.at) - new Date(a.at))
+    .slice(0, 12)
+    .map(g => ({
+      candidateName: candById[String(g._id.c)].fullName,
+      itemNumber: g._id.i,
+      position: vacancyByItem[g._id.i]?.position || '',
+      raterName: raterById[String(g._id.r)].name,
+      raterType: raterById[String(g._id.r)].raterType || '',
+      at: g.at,
+    }));
+
+  return { generatedAt: new Date(now).toISOString(), summary, items, raters: raterRows, recent };
+};
+
+router.get('/live-stats', authMiddleware, async (req, res) => {
+  try {
+    const now = Date.now();
+    if (liveStatsCache.data && now - liveStatsCache.at < LIVE_STATS_TTL_MS) return res.json(liveStatsCache.data);
+    // Collapse simultaneous cache misses into a single computation.
+    if (!liveStatsCache.inflight) {
+      liveStatsCache.inflight = computeLiveStats()
+        .then(data => { liveStatsCache.data = data; liveStatsCache.at = Date.now(); return data; })
+        .finally(() => { liveStatsCache.inflight = null; });
+    }
+    res.json(await liveStatsCache.inflight);
+  } catch (error) {
+    console.error('[GET /live-stats]', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // PDF CACHE ROUTES
 // Allows server-side persistence of parsed PDF competency data.
 // GET  /pdf-cache/competencies          — retrieve cached parsed data

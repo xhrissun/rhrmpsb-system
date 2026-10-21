@@ -1172,7 +1172,7 @@ function RaterLoadingScreen({ pdfStatus, pdfProgress = 0, pdfMsg = '', onSkip })
 
 // ─── RadioRating Component (module scope — must NOT be inside RaterView)
 // Defining inside RaterView creates a new function identity each render → React error #300.
-const RadioRating = ({ competency, competencyType, currentRating, onChange, onInfoClick }) => {
+const RadioRating = ({ competency, competencyType, currentRating, onChange, onClear, onInfoClick }) => {
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-6 md:p-8 mb-4 shadow-sm hover:shadow-md transition-shadow">
       <div className="text-center mb-6">
@@ -1226,6 +1226,9 @@ const RadioRating = ({ competency, competencyType, currentRating, onChange, onIn
                   value={value}
                   checked={currentRating === value}
                   onChange={() => onChange(competencyType, competency._id, value)}
+                  // A radio that is already checked never fires onChange, so a
+                  // second tap on the selected score is caught here and clears it.
+                  onClick={() => { if (currentRating === value && onClear) onClear(competencyType, competency._id); }}
                   className="sr-only"
                 />
                 <div className={`absolute inset-0 flex items-center justify-center text-xl md:text-3xl lg:text-4xl font-bold ${
@@ -1243,6 +1246,9 @@ const RadioRating = ({ competency, competencyType, currentRating, onChange, onIn
           ))}
         </div>
       </div>
+      {currentRating ? (
+        <p className="text-center text-xs text-gray-400 mt-4">Tap {currentRating} again to clear this rating</p>
+      ) : null}
     </div>
   );
 };
@@ -1432,6 +1438,11 @@ const RaterView = ({ user }) => {
   // ── Quick-rate tool ──
   const [bulkOnlyUnrated, setBulkOnlyUnrated] = useState(true);
   const [bulkUndo, setBulkUndo] = useState(null);              // ratings snapshot taken before the last quick-rate
+  // Ratings this rater already gave the SAME person under another item number
+  // (same position). When present we suggest copying them instead of quick-rate.
+  const [copyAvail, setCopyAvail] = useState({ key: '', checking: false, sources: [] });
+  const copyCheckedKeyRef = useRef('');
+  const myRatingsRef = useRef({ at: 0, data: null });       // short cache of getByRater — avoids refetching per candidate
   // ✅ Track PDF pre-parse progress for the loading screen
   const [pdfStatus, setPdfStatus] = useState('idle'); // idle | parsing | done | error | unavailable
   const [pdfProgress, setPdfProgress] = useState(0);
@@ -1836,6 +1847,35 @@ const RaterView = ({ user }) => {
 
   const handleJumpToPending = (row) => guardNavigation(() => performJump(row));
 
+  // Detect, once the candidate is fully loaded, whether the rater already rated
+  // this person under another item. Drives "suggest copy instead of quick rate".
+  // (computeCopySources is declared further down; it is only CALLED here, after
+  // render, and is deliberately not listed in the deps array.)
+  useEffect(() => {
+    const key = selectedCandidate && selectedItemNumber ? `${selectedCandidate}|${selectedItemNumber}` : '';
+    if (!key) { copyCheckedKeyRef.current = ''; setCopyAvail({ key: '', checking: false, sources: [] }); return undefined; }
+    const ready = !!candidateDetails && String(candidateDetails._id) === String(selectedCandidate)
+      && vacancyDetails?.itemNumber === selectedItemNumber
+      && competencies.length > 0 && !ratingsLoading && !itemLoading;
+    if (!ready) {
+      // Already resolved for this exact candidate+item? Keep that answer through
+      // transient reloads instead of flashing back to "checking".
+      if (copyCheckedKeyRef.current === key) return undefined;
+      setCopyAvail(prev => (prev.key === key && prev.checking ? prev : { key, checking: true, sources: [] }));
+      return undefined;
+    }
+    if (copyCheckedKeyRef.current === key) return undefined;
+    let cancelled = false;
+    (async () => {
+      let sources = [];
+      try { sources = await computeCopySources(); } catch (err) { console.warn('[RaterView] copy-source check failed (non-critical):', err?.message); }
+      if (cancelled) return;
+      copyCheckedKeyRef.current = key;
+      setCopyAvail({ key, checking: false, sources });
+    })();
+    return () => { cancelled = true; };
+  }, [selectedCandidate, selectedItemNumber, candidateDetails, vacancyDetails, competencies, ratingsLoading, itemLoading]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Complete a cross-item jump once the target item's candidates have loaded.
   useEffect(() => {
     const p = pendingJumpRef.current;
@@ -2041,6 +2081,15 @@ const RaterView = ({ user }) => {
     requestAnimationFrame(() => { window.scrollTo(0, scrollPositionRef.current); });
   };
 
+  // Tapping the already-selected score clears that competency again.
+  const handleClearRating = (competencyType, competencyId) => {
+    scrollPositionRef.current = window.scrollY;
+    const key = `${competencyType}_${competencyId}`;
+    setRatings(prev => { const next = { ...prev }; delete next[key]; return next; });
+    setBulkUndo(null);
+    requestAnimationFrame(() => { window.scrollTo(0, scrollPositionRef.current); });
+  };
+
   // ── Quick-rate: set every visible competency to the same score (1–5) ─────
   // Leadership is included only when it applies to this item (SG ≥ 18).
   // By default only unrated competencies are filled so existing marks survive;
@@ -2067,98 +2116,81 @@ const RaterView = ({ user }) => {
   };
 
   // ── Copy Ratings from Another Item ───────────────────────────────────────
+  // All of this rater's submitted ratings, cached briefly (cleared on submit/reset).
+  const getMyRatingsCached = async () => {
+    const c = myRatingsRef.current;
+    if (c.data && Date.now() - c.at < 30000) return c.data;
+    const data = await ratingsAPI.getByRater(user._id);
+    myRatingsRef.current = { at: Date.now(), data };
+    return data;
+  };
+
+  // Finds this rater's ratings for the same person under OTHER item numbers.
+  // Each candidate document is scoped to ONE itemNumber ("Juan" under Item A and
+  // Item B are two candidateIds), so we match by the rater's own ratings + the
+  // candidate's full name, same position, and at least one matching competency.
+  const computeCopySources = async () => {
+    const currentName = candidateDetails?.fullName?.trim().toUpperCase();
+    if (!currentName) return [];
+
+    const allMyRatings = await getMyRatingsCached();
+    const myRatings = allMyRatings.filter(r => {
+      const rName = (r.candidateId?.fullName ?? '').trim().toUpperCase();
+      return rName === currentName && r.itemNumber !== selectedItemNumber;
+    });
+    if (myRatings.length === 0) return [];
+
+    const byItem = {};
+    myRatings.forEach(r => {
+      if (!byItem[r.itemNumber]) byItem[r.itemNumber] = [];
+      byItem[r.itemNumber].push(r);
+    });
+
+    const normalize = (name) => name.trim().toUpperCase()
+      .replace(/^\([A-Z]+\)\s*-\s*/i, '')   // strip level prefix e.g. (ADV) -
+      .replace(/\s+/g, ' ');
+
+    const currentPosition = (vacancyDetails?.position ?? '').trim().toUpperCase();
+    const currentCompNames = new Set([
+      ...groupedCompetencies.basic,
+      ...groupedCompetencies.organizational,
+      ...groupedCompetencies.leadership,
+      ...groupedCompetencies.minimum,
+    ].map(c => normalize(c.name)));
+
+    const sources = Object.entries(byItem).map(([itemNumber, itemRatings]) => {
+      const nameToScore = {};
+      itemRatings.forEach(r => {
+        const cname = r.competencyId?.name;
+        if (cname) nameToScore[normalize(cname)] = r.score;
+      });
+      const matchCount = [...currentCompNames].filter(n => nameToScore[n] !== undefined).length;
+      const vacancy = vacancies.find(v => v.itemNumber === itemNumber);
+      return {
+        itemNumber,
+        position: vacancy?.position || itemNumber,
+        assignment: vacancy?.assignment || '',
+        matchCount,
+        totalSource: itemRatings.length,
+        nameToScore,
+      };
+    });
+
+    return sources
+      .filter(sx => sx.matchCount > 0 && sx.position.trim().toUpperCase() === currentPosition)
+      .sort((a, b) => b.matchCount - a.matchCount);
+  };
+
   const handleOpenCopyRatings = async () => {
-    setCopyRatingsLoading(true);
     setIsCopyRatingsModalOpen(true);
+    // Already worked out in the background for this candidate → open instantly.
+    if (copyAvail.key === `${selectedCandidate}|${selectedItemNumber}` && !copyAvail.checking) {
+      setCopyRatingsSources(copyAvail.sources);
+      return;
+    }
+    setCopyRatingsLoading(true);
     try {
-      // ── ROOT CAUSE FIX ────────────────────────────────────────────────────
-      // Each candidate document is scoped to ONE itemNumber. "Juan dela Cruz"
-      // under Item A and Item B are TWO separate candidateId values.
-      // getByCandidate(selectedCandidate) only returns ratings for THIS item's
-      // candidate doc — ratings from other items are stored under different
-      // candidateIds and are invisible to that query.
-      //
-      // Solution: query by RATER to get ALL ratings this rater has ever
-      // submitted, then match by candidateId.fullName to find the same person
-      // rated under a different item number.
-      // ─────────────────────────────────────────────────────────────────────
-
-      // Step 1: get the current candidate's name
-      const currentName = candidateDetails?.fullName?.trim().toUpperCase();
-      if (!currentName) { setCopyRatingsSources([]); return; }
-
-      // Step 2: get ALL ratings this rater has ever submitted (across all candidates)
-      const allMyRatings = await ratingsAPI.getByRater(user._id);
-
-      // Step 3: keep only ratings where:
-      //   - candidateId.fullName matches (same person)
-      //   - itemNumber is different from the currently selected item
-      const myRatings = allMyRatings.filter(r => {
-        const rName = (r.candidateId?.fullName ?? '').trim().toUpperCase();
-        return rName === currentName && r.itemNumber !== selectedItemNumber;
-      });
-
-      if (myRatings.length === 0) { setCopyRatingsSources([]); return; }
-
-      // Group by item number
-      const byItem = {};
-      myRatings.forEach(r => {
-        if (!byItem[r.itemNumber]) byItem[r.itemNumber] = [];
-        byItem[r.itemNumber].push(r);
-      });
-
-      // For each source item, build a name→score map and count how many
-      // competencies match the current item's competencies
-      const normalize = (name) => name.trim().toUpperCase()
-        .replace(/^\([A-Z]+\)\s*-\s*/i, '')   // strip level prefix e.g. (ADV) -
-        .replace(/\s+/g, ' ');
-
-      const currentPosition = (vacancyDetails?.position ?? '').trim().toUpperCase();
-
-      const currentCompNames = new Set([
-        ...groupedCompetencies.basic,
-        ...groupedCompetencies.organizational,
-        ...groupedCompetencies.leadership,
-        ...groupedCompetencies.minimum,
-      ].map(c => normalize(c.name)));
-
-      const sources = await Promise.all(
-        Object.entries(byItem).map(async ([itemNumber, itemRatings]) => {
-          // Build competencyId → score map from source ratings
-          const idToScore = {};
-          itemRatings.forEach(r => {
-            const cid = r.competencyId?._id || r.competencyId;
-            if (cid) idToScore[cid.toString()] = r.score;
-          });
-
-          // Build name→score map using competencyId name
-          const nameToScore = {};
-          itemRatings.forEach(r => {
-            const cname = r.competencyId?.name;
-            if (cname) nameToScore[normalize(cname)] = r.score;
-          });
-
-          // Count matching competencies
-          const matchCount = [...currentCompNames].filter(n => nameToScore[n] !== undefined).length;
-
-          // Lookup vacancy info for display
-          const vacancy = vacancies.find(v => v.itemNumber === itemNumber);
-
-          return {
-            itemNumber,
-            position: vacancy?.position || itemNumber,
-            assignment: vacancy?.assignment || '',
-            matchCount,
-            totalSource: itemRatings.length,
-            nameToScore,
-          };
-        })
-      );
-
-      // Only show items with the same position AND at least 1 matching competency
-      setCopyRatingsSources(sources
-        .filter(s => s.matchCount > 0 && s.position.trim().toUpperCase() === currentPosition)
-        .sort((a, b) => b.matchCount - a.matchCount));
+      setCopyRatingsSources(await computeCopySources());
     } catch (err) {
       console.error('Failed to load copy sources:', err);
       showToast('Failed to load ratings from other items.', 'error');
@@ -2371,6 +2403,7 @@ const RaterView = ({ user }) => {
         console.warn('[InterviewTimer] session finish-save failed (non-critical):', sessionErr);
       }
       savedRatingsRef.current = { ...ratings };
+      myRatingsRef.current = { at: 0, data: null };
       setIsConfirmModalOpen(false);
       setSuccessModalType(isUpdateSubmission ? 'update' : 'submit');
       setIsSuccessModalOpen(true);
@@ -2396,6 +2429,7 @@ const RaterView = ({ user }) => {
           await ratingsAPI.resetRatings(selectedCandidate, user._id, selectedItemNumber);
           setRatings({});
           savedRatingsRef.current = {};
+          myRatingsRef.current = { at: 0, data: null };
           loadPendingReminders();
           // Reset the session so the timer starts fresh on next visit — not "Finished"
           try {
@@ -2515,6 +2549,10 @@ const RaterView = ({ user }) => {
 
   const currentScores = calculateCurrentScores();
   const allRated = areAllCompetenciesRated();
+  // Copy-from-another-item suggestion replaces quick-rate when it applies.
+  const copyKeyNow = `${selectedCandidate}|${selectedItemNumber}`;
+  const copyChecking = copyAvail.key !== copyKeyNow || copyAvail.checking;
+  const hasCopySources = !copyChecking && copyAvail.sources.length > 0;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -3538,7 +3576,31 @@ const RaterView = ({ user }) => {
                     </button>
                   </div>
 
-                  {/* ── Quick-rate tool ── */}
+                  {/* ── Quick-rate tool — or, if this person was already rated under another item, a copy suggestion ── */}
+                  {copyChecking ? (
+                    <div className="mt-4 mx-auto max-w-xl rounded-xl bg-gray-700/60 border border-gray-600 px-4 py-3 flex flex-col items-center gap-2" role="status" aria-label="Checking for ratings on other items">
+                      <SkeletonBlock width="55%" height={14} />
+                      <SkeletonBlock width="40%" height={36} radius={18} />
+                    </div>
+                  ) : hasCopySources ? (
+                    <div className="mt-4 mx-auto max-w-xl rounded-xl bg-blue-500/20 border border-blue-300/60 px-4 py-3 text-center">
+                      <p className="text-sm font-semibold text-blue-50">
+                        💡 You already rated this candidate under Item # {copyAvail.sources[0].itemNumber}
+                        {copyAvail.sources.length > 1 ? ` (and ${copyAvail.sources.length - 1} other item${copyAvail.sources.length > 2 ? 's' : ''})` : ''}.
+                      </p>
+                      <p className="text-xs text-blue-100 mt-1">
+                        {copyAvail.sources[0].matchCount} matching competenc{copyAvail.sources[0].matchCount === 1 ? 'y' : 'ies'} can be copied — use that instead of rating from scratch.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleOpenCopyRatings}
+                        className="mt-3 inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold bg-white text-blue-800 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                      >
+                        <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                        Copy from Another Item
+                      </button>
+                    </div>
+                  ) : (
                   <div className="mt-4 mx-auto max-w-xl rounded-xl bg-gray-700/60 border border-gray-600 px-4 py-3">
                     <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
                       <span className="text-sm font-semibold text-gray-100">Quick rate — set all to:</span>
@@ -3569,6 +3631,7 @@ const RaterView = ({ user }) => {
                       )}
                     </div>
                   </div>
+                  )}
                 </div>
               </div>
 
@@ -3585,7 +3648,7 @@ const RaterView = ({ user }) => {
                     </div>
                     <div className="space-y-4 mt-4">
                       {groupedCompetencies.basic.map(competency => (
-                        <RadioRating key={competency._id} competency={competency} competencyType="basic" currentRating={ratings[`basic_${competency._id}`]} onChange={handleRatingChange} onInfoClick={handleOpenCompetencyModal} />
+                        <RadioRating key={competency._id} competency={competency} competencyType="basic" currentRating={ratings[`basic_${competency._id}`]} onChange={handleRatingChange} onClear={handleClearRating} onInfoClick={handleOpenCompetencyModal} />
                       ))}
                     </div>
                   </div>
@@ -3600,7 +3663,7 @@ const RaterView = ({ user }) => {
                     </div>
                     <div className="space-y-4 mt-4">
                       {groupedCompetencies.organizational.map(competency => (
-                        <RadioRating key={competency._id} competency={competency} competencyType="organizational" currentRating={ratings[`organizational_${competency._id}`]} onChange={handleRatingChange} onInfoClick={handleOpenCompetencyModal} />
+                        <RadioRating key={competency._id} competency={competency} competencyType="organizational" currentRating={ratings[`organizational_${competency._id}`]} onChange={handleRatingChange} onClear={handleClearRating} onInfoClick={handleOpenCompetencyModal} />
                       ))}
                     </div>
                   </div>
@@ -3615,7 +3678,7 @@ const RaterView = ({ user }) => {
                     </div>
                     <div className="space-y-4 mt-4">
                       {groupedCompetencies.leadership.map(competency => (
-                        <RadioRating key={competency._id} competency={competency} competencyType="leadership" currentRating={ratings[`leadership_${competency._id}`]} onChange={handleRatingChange} onInfoClick={handleOpenCompetencyModal} />
+                        <RadioRating key={competency._id} competency={competency} competencyType="leadership" currentRating={ratings[`leadership_${competency._id}`]} onChange={handleRatingChange} onClear={handleClearRating} onInfoClick={handleOpenCompetencyModal} />
                       ))}
                     </div>
                   </div>
@@ -3640,7 +3703,7 @@ const RaterView = ({ user }) => {
                     </div>
                     <div className="space-y-4 mt-4">
                       {groupedCompetencies.minimum.map(competency => (
-                        <RadioRating key={competency._id} competency={competency} competencyType="minimum" currentRating={ratings[`minimum_${competency._id}`]} onChange={handleRatingChange} onInfoClick={handleOpenCompetencyModal} />
+                        <RadioRating key={competency._id} competency={competency} competencyType="minimum" currentRating={ratings[`minimum_${competency._id}`]} onChange={handleRatingChange} onClear={handleClearRating} onInfoClick={handleOpenCompetencyModal} />
                       ))}
                     </div>
                   </div>
