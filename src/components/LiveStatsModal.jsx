@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect, useContext, createContext } from 'react';
 import { liveStatsAPI, queueAPI } from '../utils/api';
 
 // ─── Live Stats — broadcast screen ───────────────────────────────────────────
@@ -227,6 +227,27 @@ const FitBox = ({ items, renderItem, moreLabel, className }) => {
 // "Also applied: # 123, # 456" — other item numbers this same person applied for.
 const otherText = (list) => (list && list.length ? `Also applied: ${list.map(o => `#\u00a0${o.itemNumber}`).join(', ')}` : '');
 
+// "Also applied" is collapsible: a one-line summary that opens into the full wrapped list.
+// Which ones are open is decided by the parent (a global default plus per-person flips).
+const AlsoCtx = createContext({ isOpen: () => false, toggle: () => {} });
+const AlsoApplied = ({ id, list }) => {
+  const { isOpen, toggle } = useContext(AlsoCtx);
+  if (!list || !list.length) return null;
+  const open = isOpen(id);
+  return (
+    <button
+      type="button"
+      className={`ls-also ${open ? 'open' : ''}`}
+      aria-expanded={open}
+      title={open ? 'Click to collapse' : otherText(list)}
+      onClick={(e) => { e.stopPropagation(); toggle(id); }}
+    >
+      <span className="ls-caret" aria-hidden="true">{open ? '▾' : '▸'}</span>
+      {open ? otherText(list) : `Also applied (${list.length})`}
+    </button>
+  );
+};
+
 // One chip per required rater seat: done / interviewing / waiting
 const SeatChips = ({ cand, requiredTypes }) => (
   <div className="ls-seats">
@@ -286,7 +307,6 @@ const CSS = `
 .ls-item{color:var(--muted);font-size:.9em;font-weight:600;line-height:1.2;overflow-wrap:anywhere}
 .ls-room.dense .ls-item{font-size:.8em}
 .ls-pos{color:var(--pos);font-size:1em;font-weight:600;overflow-wrap:anywhere}
-.ls-item .ls-also{display:block;margin-top:.1em}
 .ls-rh{display:flex;align-items:baseline;gap:.6em;min-width:0}
 .ls-rh h3{margin:0;min-width:0;font-size:1.45em;font-weight:700;line-height:1.2;overflow-wrap:anywhere}
 .ls-rh .st{margin-left:auto;flex:none;font-size:.9em;color:var(--muted)}
@@ -331,7 +351,10 @@ const CSS = `
 .ls-seat.live{color:var(--live);border-color:var(--live)}
 .ls-seat.live::before{content:"";width:.5em;height:.5em;border-radius:50%;background:var(--live);animation:ls-blink 1.2s infinite}
 .ls-with{color:var(--muted);font-size:.85em;overflow-wrap:anywhere}
-.ls-also{color:var(--live);font-size:.85em;font-weight:500;overflow-wrap:anywhere}
+.ls-also{display:block;margin:.1em 0 0;padding:0;border:0;background:none;font:inherit;text-align:left;color:var(--live);font-size:.85em;font-weight:500;line-height:1.2;overflow-wrap:anywhere;cursor:pointer}
+.ls-also:hover{text-decoration:underline}
+.ls-also:focus-visible{outline:2px solid var(--live);outline-offset:2px;border-radius:.2em}
+.ls-caret{display:inline-block;width:1em}
 .ls-row{display:grid;grid-template-columns:1.8em minmax(0,1fr) auto;align-items:center;gap:.5em;min-height:4.4em;padding:.3em .8em .3em .3em;border-radius:.5em;background:var(--card)}
 .ls-row.first{outline:2px solid var(--live)}
 .ls-num{text-align:center;font-size:1.3em;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums}
@@ -690,6 +713,7 @@ const ShortcutGuide = ({ onClose, onTest, onTestAlert, alertsOn, voiceState, sou
         <kbd>0</kbd><span>Show all rooms</span>
         <kbd>L</kbd><span>Change the room layout: Auto, Grid, Columns, Rows, Focus (only the ones that make sense for the rooms you have)</span>
         <kbd>Q</kbd><span>Change how each room is arranged: Auto, queue below Now interviewing, or queue beside it</span>
+        <kbd>A</kbd><span>Open or collapse every “Also applied” list. Click a person’s “Also applied” line to flip just theirs.</span>
         <kbd>S</kbd><span>Show or hide the Latest submissions panel to give the rooms more space</span>
         <kbd>Click</kbd><span>Click a room&apos;s name to spotlight it</span>
       </div>
@@ -740,12 +764,13 @@ const QUEUE_SHOWN = 3;
 // These helpers estimate how many extra lines that costs, so the text size is chosen to leave room for them.
 const CH = 0.52;   // average character width in em (a little generous on purpose)
 const nLines = (len, fontEm, widthEm) => (len > 0 ? Math.max(1, Math.ceil((len * CH * fontEm) / Math.max(4, widthEm))) : 0);
-const cardExtra = (n, colW, dense) => {
+const alsoLines = (list, open, fz, w) => (!list || !list.length ? 0 : open ? nLines(otherText(list).length, fz, w) : 1);
+const cardExtra = (n, colW, dense, isOpen) => {
   const c = n.c; const item = n.item;
   const nameFz = dense ? 1.1 : 1.15;
   const top = Math.max(nLines(String(c.name || '').length, nameFz, colW - (dense ? 5.2 : 6.2)) * nameFz * 1.2, dense ? 1.4 : 1.7);
   const itemFz = dense ? 0.8 : 0.9;
-  const also = nLines(otherText(c.otherItems).length, itemFz * 0.9, colW) * itemFz * 0.9 * 1.2;
+  const also = alsoLines(c.otherItems, isOpen(c.id), itemFz * 0.9, colW) * itemFz * 0.9 * 1.2;
   const pos = nLines(String(item.position || '').length, 1, colW) * 1.25;
   let seats = 0; let withH = 0;
   if (!dense) {
@@ -756,33 +781,33 @@ const cardExtra = (n, colW, dense) => {
   const content = top + itemFz * 1.2 + also + pos + seats + withH + 1.5 + 1.3;
   return Math.max(0, content - (dense ? 5.4 : 10.4));
 };
-const rowExtra = (q, colW, dense) => {
+const rowExtra = (q, colW, dense, isOpen) => {
   const txtW = colW - 10;
   const nameFz = dense ? 1.1 : 1.2;
   const itemFz = dense ? 0.78 : 0.82;
   const posFz = dense ? 0.8 : 0.9;
   const content = nLines(String(q.name || '').length, nameFz, txtW) * nameFz * 1.2
     + itemFz * 1.2
-    + nLines(otherText(q.otherItems).length, itemFz * 0.9, txtW) * itemFz * 0.9 * 1.2
+    + alsoLines(q.otherItems, isOpen(q.id), itemFz * 0.9, txtW) * itemFz * 0.9 * 1.2
     + nLines(String(q.position || '').length, posFz, txtW) * posFz * 1.25
     + 0.6;
   return Math.max(0, content - (dense ? 3.7 : 4.4));
 };
 // Extra height (em) a room needs for wrapped text. wEm = the room's width in em.
-const roomExtras = (view, wEm, dense, wide) => {
+const roomExtras = (view, wEm, dense, wide, isOpen = () => false) => {
   const colW = wide ? (wEm - 5) / 2 : wEm - 2;
   const head = Math.max(0, nLines(String(view.name || '').length, 1.45, wEm - 12) - 1) * 1.45 * 1.2;
-  const card = view.cards.length ? cardExtra(view.cards[0], colW, dense) : 0;
-  const rows = view.waiting.slice(0, QUEUE_SHOWN).reduce((a, q) => a + rowExtra(q, colW, dense), 0);
+  const card = view.cards.length ? cardExtra(view.cards[0], colW, dense, isOpen) : 0;
+  const rows = view.waiting.slice(0, QUEUE_SHOWN).reduce((a, q) => a + rowExtra(q, colW, dense, isOpen), 0);
   return { head, card, rows, total: head + (wide ? Math.max(Math.max(0, card - 4), rows) : card + rows) };
 };
 
-const fitCell = (w, h, rootPx, views, inner = 'auto') => {
+const fitCell = (w, h, rootPx, views, inner = 'auto', isOpen = () => false) => {
   const solve = (t, m) => {
     const nd = NEED[t][m];
     let font = Math.min(w / nd.w, h / nd.h);
     for (let i = 0; i < 3; i += 1) {
-      const ex = views.reduce((a, v) => Math.max(a, roomExtras(v, w / font, t === 'dense', m === 'wide').total), 0);
+      const ex = views.reduce((a, v) => Math.max(a, roomExtras(v, w / font, t === 'dense', m === 'wide', isOpen).total), 0);
       font = Math.min(w / nd.w, h / (nd.h + ex));
     }
     return font;
@@ -817,7 +842,7 @@ const INNER = [
 const layoutsFor = (n) => (n < 2 ? [] : n === 2 ? LAYOUTS.filter(l => l[0] !== 'grid') : LAYOUTS);
 
 // Measures the room area (and the root text size) whenever the window or zoom changes.
-const RoomsArea = ({ views, spotId, zoom, layout, inner, render }) => {
+const RoomsArea = ({ views, spotId, zoom, layout, inner, alsoOpen, render }) => {
   const zoneRef = useRef(null);
   const [box, setBox] = useState({ w: 0, h: 0, root: 16 });
   useLayoutEffect(() => {
@@ -863,8 +888,8 @@ const RoomsArea = ({ views, spotId, zoom, layout, inner, render }) => {
         sideW = (box.w - gap * (sc - 1)) / sc; sideH = (availH * 0.38) / sr;
         style = { gridTemplateColumns: `repeat(${sc}, minmax(0,1fr))`, gridTemplateRows: `minmax(0,62fr) repeat(${sr}, minmax(0,${38 / sr}fr))`, gap };
       }
-      const bigLay = finishLay(fitCell(bigW, bigH, box.root, [spot], inner), box.root, zoom);
-      const sideLay = finishLay(fitCell(sideW, sideH, box.root, others, inner), box.root, zoom);
+      const bigLay = finishLay(fitCell(bigW, bigH, box.root, [spot], inner, alsoOpen), box.root, zoom);
+      const sideLay = finishLay(fitCell(sideW, sideH, box.root, others, inner, alsoOpen), box.root, zoom);
       items = [
         { v: spot, lay: bigLay, big: true, style: land ? { gridRow: `1 / span ${sr}` } : { gridColumn: `1 / span ${sc}` } },
         ...others.map(v => ({ v, lay: sideLay, style: undefined })),
@@ -872,7 +897,7 @@ const RoomsArea = ({ views, spotId, zoom, layout, inner, render }) => {
     } else {
       const cellLay = (c) => {
         const r = Math.ceil(n / c);
-        return fitCell((box.w - gap * (c - 1)) / c, (box.h - gap * (r - 1)) / r, box.root, views, inner);
+        return fitCell((box.w - gap * (c - 1)) / c, (box.h - gap * (r - 1)) / r, box.root, views, inner, alsoOpen);
       };
       let best = null;
       if (layout === 'columns' || layout === 'rows' || layout === 'grid') {
@@ -909,7 +934,8 @@ const RoomPanel = ({ view, fetchedAt, flash, canManageQueue, hasRooms, lay, big,
   // Rows of the stacked layout: the live card gets what it needs, the queue always keeps room for 3 names.
   const qn = Math.min(QUEUE_SHOWN, waiting.length);
   const rowH = dense ? 3.7 : 4.4;
-  const ex = roomExtras(view, lay.cellW / lay.font, dense, lay.wide);   // extra height for text that wraps
+  const { isOpen: alsoIsOpen } = useContext(AlsoCtx);
+  const ex = roomExtras(view, lay.cellW / lay.font, dense, lay.wide, alsoIsOpen);   // extra height for text that wraps
   const qMin = (dense ? 1.5 : 1.8) + qn * rowH + ex.rows + Math.max(0, qn - 1) * 0.4 + 1 + (waiting.length > qn ? 2.3 : 0);   // + the "+N more" line
   const nMin = (dense ? 1.5 : 1.8) + (dense ? 5.4 : 10.4) + ex.card;
   const rows = cards.length === 0
@@ -953,7 +979,7 @@ const RoomPanel = ({ view, fetchedAt, flash, canManageQueue, hasRooms, lay, big,
                     <div className="ls-name">{c.name}</div>
                     <div className="ls-timer"><LiveClock baseSeconds={elapsed} fetchedAt={fetchedAt} /></div>
                   </div>
-                  <div className="ls-item">Item # {item.itemNumber}{c.otherItems?.length > 0 && <span className="ls-also">{otherText(c.otherItems)}</span>}</div>
+                  <div className="ls-item">Item # {item.itemNumber}<AlsoApplied id={c.id} list={c.otherItems} /></div>
                   <div className="ls-pos">{item.position}</div>
                   <SeatChips cand={c} requiredTypes={item.requiredTypes} />
                   <div className="ls-with">Rating now ({c.interviewing.length}): {c.interviewing.map(r => r.name).join(', ')}</div>
@@ -979,7 +1005,7 @@ const RoomPanel = ({ view, fetchedAt, flash, canManageQueue, hasRooms, lay, big,
                   <span className="ls-num">{i + 1}</span>
                   <div style={{ minWidth: 0 }}>
                     <div className="ls-rname">{q.name}</div>
-                    <div className="ls-item">Item # {q.itemNumber}{q.otherItems?.length > 0 && <span className="ls-also">{otherText(q.otherItems)}</span>}</div>
+                    <div className="ls-item">Item # {q.itemNumber}<AlsoApplied id={q.id} list={q.otherItems} /></div>
                     <div className="ls-pos">{q.position}</div>
                   </div>
                   <span className="ls-tag">{i === 0 ? 'Next' : q.rated > 0 ? `${q.rated} of ${q.required} rated` : ''}</span>
@@ -1003,6 +1029,8 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
   const [spotlight, setSpotlight] = useState(null);                       // room id or null
   const [layout, setLayout] = useState(() => readPref('ls_layout', 'auto'));
   const [inner, setInner] = useState(() => (INNER.some(i => i[0] === readPref('ls_inner', 'auto')) ? readPref('ls_inner', 'auto') : 'auto'));
+  const [alsoAll, setAlsoAll] = useState(() => readPref('ls_also', 'collapsed') === 'expanded');   // default for everyone
+  const [alsoFlip, setAlsoFlip] = useState(() => new Set());                                          // people flipped away from that default
   const [showSubs, setShowSubs] = useState(() => readPref('ls_subs', 'on') !== 'off');
   const [guideOpen, setGuideOpen] = useState(false);
   const [soundOn, setSoundOn] = useState(() => readPref('ls_sound', 'on') !== 'off');
@@ -1148,6 +1176,10 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
     return next;
   }), []);
   const pickInner = useCallback((id) => { setInner(id); savePref('ls_inner', id); }, []);
+  const alsoOpen = useCallback((id) => alsoAll !== alsoFlip.has(id), [alsoAll, alsoFlip]);
+  const toggleAlso = useCallback((id) => setAlsoFlip(f => { const n = new Set(f); if (n.has(id)) n.delete(id); else n.add(id); return n; }), []);
+  const alsoCtx = useMemo(() => ({ isOpen: alsoOpen, toggle: toggleAlso }), [alsoOpen, toggleAlso]);
+  const toggleAlsoAll = useCallback(() => { setAlsoAll(v => { savePref('ls_also', v ? 'collapsed' : 'expanded'); return !v; }); setAlsoFlip(new Set()); }, []);
   const toggleSubs = useCallback(() => setShowSubs(v => { savePref('ls_subs', v ? 'off' : 'on'); return !v; }), []);
   // Keys: Esc closes (manager first, then spotlight), F fullscreen, 1-9 spotlight a room, 0 all rooms,
   // T theme, + / - text size
@@ -1173,6 +1205,7 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
       else if (e.key === 'l' || e.key === 'L') cycleLayout();
       else if (e.key === 's' || e.key === 'S') toggleSubs();
       else if (e.key === 'q' || e.key === 'Q') cycleInner();
+      else if (e.key === 'a' || e.key === 'A') toggleAlsoAll();
       else if (e.key === '0') setSpotlight(null);
       else if (/^[1-9]$/.test(e.key)) {
         const id = roomIdsRef.current[Number(e.key) - 1];
@@ -1181,7 +1214,7 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isOpen, onClose, managing, guideOpen, spotlight, toggleFs, cycleTheme, bumpZoom, toggleSound, toggleAlerts, cycleLayout, cycleInner, toggleSubs]);
+  }, [isOpen, onClose, managing, guideOpen, spotlight, toggleFs, cycleTheme, bumpZoom, toggleSound, toggleAlerts, cycleLayout, cycleInner, toggleSubs, toggleAlsoAll]);
 
   // Controls and cursor fade away after a few idle seconds so the broadcast stays clean.
   const wake = useCallback(() => {
@@ -1327,6 +1360,9 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
 
   if (!isOpen) return null;
   const sum = data?.summary;
+  // "In progress" = interviews happening right now; "Not started" = candidates waiting in a room's queue.
+  const liveNow = nowCards.length;
+  const inQueue = roomViews.reduce((a, v) => a + v.waiting.length, 0);
 
   return (
     <div ref={rootRef} className={`ls-root ${controlsShown ? '' : 'idle'}`} data-theme={theme} onMouseMove={wake} onTouchStart={wake} onPointerDown={wakeSound} onKeyDown={wakeSound} role="dialog" aria-modal="true" aria-label="Live stats">
@@ -1339,8 +1375,8 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
           <div className="ls-stats">
             <div className="ls-stat"><b>{sum.beingRated}</b><span>Being rated</span></div>
             <div className="ls-stat"><b>{sum.complete}</b><span>Complete of {sum.candidates}</span></div>
-            <div className="ls-stat"><b>{sum.inProgress}</b><span>In progress</span></div>
-            <div className="ls-stat"><b>{sum.notStarted}</b><span>Not started</span></div>
+            <div className="ls-stat"><b>{liveNow}</b><span>In progress</span></div>
+            <div className="ls-stat"><b>{inQueue}</b><span>Not started</span></div>
             <div className="ls-stat"><b>{sum.ratersOnline}/{sum.ratersTotal}</b><span>Raters online</span></div>
             {data.avgTimes && <>
               <span className="ls-sep" />
@@ -1364,17 +1400,20 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
         </div>
       ) : (
         <main className={`ls-main ${showSubs ? '' : 'nosub'}`} key={`${zoomIdx}-${theme}`}>
+          <AlsoCtx.Provider value={alsoCtx}>
           <RoomsArea
             views={roomViews}
             spotId={spotView ? spotView.id : null}
             zoom={ZOOMS[zoomIdx]}
             layout={effLayout}
             inner={inner}
+            alsoOpen={alsoOpen}
             render={({ v, lay, big, style }) => (
               <RoomPanel key={v.id} view={v} lay={lay} big={big} extraStyle={style} index={roomViews.indexOf(v)} numbered={roomViews.length > 1}
                 onSpot={() => toggleSpot(v.id)} fetchedAt={fetchedAt} flash={flash} canManageQueue={canManageQueue} hasRooms={(data.rooms || []).length > 0} />
             )}
           />
+          </AlsoCtx.Provider>
 
           {showSubs && <section className="ls-panel" style={{ '--zoom': ZOOMS[zoomIdx] }}>
             <div className="ls-ph"><h3>Latest submissions</h3></div>
@@ -1426,6 +1465,7 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
             <button key={id} className={inner === id ? 'on' : ''} title={tip} aria-pressed={inner === id} onClick={() => pickInner(id)}>{label}</button>
           ))}
         </div>
+        <button onClick={toggleAlsoAll} aria-pressed={alsoAll} title="Open or collapse every “Also applied” list. Click one to flip just that person.">Also applied: {alsoAll ? 'Expanded' : 'Collapsed'}</button>
         <button onClick={toggleSubs} aria-pressed={showSubs}>Submissions: {showSubs ? 'Shown' : 'Hidden'}</button>
         <div className="ls-ctl-group">
           <button onClick={() => bumpZoom(-1)} disabled={zoomIdx === 0} aria-label="Smaller text">A−</button>
