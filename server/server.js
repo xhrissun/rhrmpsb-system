@@ -6,7 +6,7 @@ import rateLimit from 'express-rate-limit';
 import fileUpload from 'express-fileupload';
 import routes from './routes.js';
 import dotenv from 'dotenv';
-import { initSocket } from './lib/socket.js';
+import { initSocket, getIO } from './lib/socket.js';
 // import { runMigration } from './migration_add_publication_ranges.js';
 
 dotenv.config();
@@ -216,3 +216,12 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`Keep-alive endpoint: /ping`);
   console.log(`Health check endpoint: /health`);
 });
+
+// Set LOG_MEMORY=1 on the host to log memory once a minute; useful for tracking down out-of-memory restarts.
+if (process.env.LOG_MEMORY) {
+  setInterval(() => {
+    const m = process.memoryUsage();
+    const mb = (n) => Math.round(n / 1048576);
+    console.log(`[mem] rss=${mb(m.rss)}MB heap=${mb(m.heapUsed)}/${mb(m.heapTotal)}MB external=${mb(m.external)}MB sockets=${getIO()?.engine?.clientsCount ?? 0}`);
+  }, 60000).unref();
+}

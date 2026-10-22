@@ -4338,12 +4338,16 @@ router.put('/interview-sessions', authMiddleware, async (req, res) => {
         updatedAt: new Date(),
       }
     };
-    const session = await InterviewSession.findOneAndUpdate(filter, update, {
+    // The timer saves every few seconds per rater; only a real change (interview started, resumed after a
+    // gap, or finished) is worth rebuilding the Live Stats snapshot. Plain elapsed-time ticks are not.
+    const before = await InterviewSession.findOneAndUpdate(filter, update, {
       upsert: true,
-      new: true,
+      new: false,
       setDefaultsOnInsert: true,
     });
-    liveChanged({ ratings: false });   // timer started / paused / finished: update the Live Stats screens now
+    const session = before ? { ...before.toObject(), ...update.$set } : await InterviewSession.findOne(filter);
+    const wasLive = before && !before.timerCompleted && Date.now() - new Date(before.updatedAt).getTime() < LIVE_SESSION_ACTIVE_MS;
+    if (!before || !wasLive || before.timerCompleted !== update.$set.timerCompleted) liveChanged({ ratings: false });
     res.json({ message: 'Session saved', session });
   } catch (error) {
     console.error('[PUT /interview-sessions]', error);
@@ -4693,15 +4697,26 @@ const getLiveSnapshot = async () => {
 // liveChanged(). The snapshot is rebuilt once and pushed over the WebSocket to every open Live Stats
 // screen, instead of each screen waiting for its next poll. Pushes are throttled to one per
 // LIVE_PUSH_MIN_MS so a busy session can't flood the server.
-const LIVE_PUSH_MIN_MS = 1000;
+const LIVE_PUSH_MIN_MS = 3000;
 let livePushTimer = null;
 let livePushLast = 0;
+let liveComputing = false;
+let liveDirty = false;
+// One rebuild at a time: if something changes while a snapshot is being built, build once more afterwards
+// (never several heavy rebuilds in parallel, which is what exhausts memory on a small host).
 const pushLiveSnapshot = async () => {
   const io = getIO();
   if (!io || !io.sockets.adapter.rooms.get(LIVE_ROOM)?.size) return;   // nobody is watching
+  if (liveComputing) { liveDirty = true; return; }
+  liveComputing = true;
   try {
     io.to(LIVE_ROOM).emit('livestats:update', await getLiveSnapshot());
-  } catch (err) { console.error('[live-stats push]', err?.message); }
+  } catch (err) {
+    console.error('[live-stats push]', err?.message);
+  } finally {
+    liveComputing = false;
+    if (liveDirty) { liveDirty = false; schedulePush(); }
+  }
 };
 const schedulePush = () => {
   if (livePushTimer) return;

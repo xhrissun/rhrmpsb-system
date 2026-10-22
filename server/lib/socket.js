@@ -27,9 +27,8 @@ export function initSocket(httpServer, corsOptions) {
     // real WebSocket connections, so there's no platform reason to fall
     // back, and polling would defeat the entire point of using sockets
     // for chat in the first place.
-    transports: ['websocket', 'polling'],
-    // Live Stats snapshots are large JSON; compress them on the wire.
-    perMessageDeflate: { threshold: 1024 }
+    transports: ['websocket', 'polling']
+    // perMessageDeflate is deliberately left OFF: per-connection zlib contexts fragment memory badly on a 512 MB host.
   });
 
   // Socket connections authenticate the same way REST requests do — same
