@@ -1828,7 +1828,8 @@ const RaterView = ({ user }) => {
   }, [loadPendingReminders]);
 
   // Refresh right after a candidate is rated/reset so the reminder clears immediately.
-  useEffect(() => { loadPendingReminders(); setBulkUndo(null); }, [selectedCandidate]); // eslint-disable-line react-hooks/exhaustive-deps
+  // (Opening a candidate no longer re-queries the server: submit and reset already force a refresh.)
+  useEffect(() => { setBulkUndo(null); }, [selectedCandidate]);
 
   const pendingByCandidate = useMemo(() => {
     const m = {};
@@ -2006,9 +2007,9 @@ const RaterView = ({ user }) => {
     }
   };
 
-  const loadExistingRatings = async () => {
+  const loadExistingRatings = async (prefetched = null) => {
     try {
-      const existingRatings = await ratingsAPI.getByCandidate(selectedCandidate);
+      const existingRatings = prefetched ?? await ratingsAPI.getByCandidate(selectedCandidate);
       const raterRatings = existingRatings.filter(rating =>
         rating.raterId &&
         (rating.raterId._id ?? rating.raterId).toString() === user._id.toString() &&
@@ -2071,16 +2072,20 @@ const RaterView = ({ user }) => {
     setIsCheckingRaterType(true);
     setRatingsLoading(true);
     try {
-      const result = await ratingsAPI.checkExistingByRaterType(
-        selectedCandidate, selectedItemNumber, user.raterType
-      );
+      // Fire the conflict check and the rater's own ratings together (they used to run one after the
+      // other, adding a full round trip to every candidate open). If the prefetch fails we fall back
+      // to the normal fetch inside loadExistingRatings.
+      const [result, prefetched] = await Promise.all([
+        ratingsAPI.checkExistingByRaterType(selectedCandidate, selectedItemNumber, user.raterType),
+        ratingsAPI.getByCandidate(selectedCandidate).catch(() => null),
+      ]);
       if (result.hasExisting && result.existingRater.id !== user._id) {
         setConflictingRater(result.existingRater);
         setIsRaterTypeConflictModalOpen(true);
         setRatings({});
         savedRatingsRef.current = {};
       } else {
-        await loadExistingRatings();
+        await loadExistingRatings(prefetched);
       }
     } catch (error) {
       console.error('Failed to check rater type conflict:', error);
@@ -2231,7 +2236,11 @@ const RaterView = ({ user }) => {
     setPeerAdaptedFrom({ raterId: peer.raterId, name: peer.name, raterType: peer.raterType, copied });
     setPeerModal(m => ({ ...m, open: false }));
     showToast(`Copied ${copied} rating${copied !== 1 ? 's' : ''} from ${peer.name} (${peer.raterType}). Review and adjust before submitting.`, 'success');
-    requestAnimationFrame(() => { window.scrollTo(0, scrollPositionRef.current); });
+    // Jump straight to the Submit button. Two frames: the first lets the modal unmount and the
+    // copied scores render, the second scrolls once the final layout (and button state) is in place.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      document.getElementById('rater-submit-btn')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }));
   };
 
   const handleUndoPeer = () => {
@@ -2469,6 +2478,8 @@ const RaterView = ({ user }) => {
       setIsConfirmModalOpen(false);
       setSuccessModalType(isUpdateSubmission ? 'update' : 'submit');
       setIsSuccessModalOpen(true);
+      // Drop the just-rated candidate from the reminder panel right away; the server refresh follows.
+      setPendingReminders(prev => prev.filter(p => !(String(p.candidateId) === String(selectedCandidate) && p.itemNumber === selectedItemNumber)));
       loadPendingReminders(true);
     } catch (error) {
       console.error('Failed to submit ratings:', error);
@@ -3836,7 +3847,7 @@ const RaterView = ({ user }) => {
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                       <span>Delete Ratings</span>
                     </button>
-                    <button onClick={handleSubmitRatings} disabled={!allRated || submitting || isCheckingRaterType} className={`px-8 py-3 rounded-lg font-medium focus:outline-none focus:ring-2 focus:ring-offset-2 transition-all flex items-center justify-center space-x-2 ${allRated && !submitting ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white hover:from-green-700 hover:to-emerald-700 focus:ring-green-500 shadow-lg' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}>
+                    <button id="rater-submit-btn" onClick={handleSubmitRatings} disabled={!allRated || submitting || isCheckingRaterType} className={`px-8 py-3 rounded-lg font-medium focus:outline-none focus:ring-2 focus:ring-offset-2 transition-all flex items-center justify-center space-x-2 ${allRated && !submitting ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white hover:from-green-700 hover:to-emerald-700 focus:ring-green-500 shadow-lg' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}>
                       {submitting ? (
                         <><div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div><span>Submitting...</span></>
                       ) : allRated ? (
