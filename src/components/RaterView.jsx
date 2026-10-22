@@ -2143,10 +2143,24 @@ const RaterView = ({ user }) => {
   const getMyRatingsCached = async () => {
     const c = myRatingsRef.current;
     if (c.data && Date.now() - c.at < 30000) return c.data;
-    const data = await ratingsAPI.getByRater(user._id);
-    myRatingsRef.current = { at: Date.now(), data };
-    return data;
+    // Share one in-flight request between the background prefetch and the copy-source check.
+    if (c.promise) return c.promise;
+    const promise = ratingsAPI.getByRater(user._id).then(data => {
+      myRatingsRef.current = { at: Date.now(), data };
+      return data;
+    }).catch(err => {
+      if (myRatingsRef.current.promise === promise) myRatingsRef.current = { at: 0, data: null };
+      throw err;
+    });
+    myRatingsRef.current = { at: 0, data: null, promise };
+    return promise;
   };
+
+  // Warm the rating-history cache the moment a candidate is opened, so the "rated under another item?"
+  // check no longer has to wait for this request after everything else has loaded.
+  useEffect(() => {
+    if (selectedCandidate) getMyRatingsCached().catch(() => {});
+  }, [selectedCandidate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Finds this rater's ratings for the same person under OTHER item numbers.
   // Each candidate document is scoped to ONE itemNumber ("Juan" under Item A and
@@ -3687,12 +3701,9 @@ const RaterView = ({ user }) => {
                   </div>
 
                   {/* ── Quick-rate tool — or, if this person was already rated under another item, a copy suggestion ── */}
-                  {copyChecking ? (
-                    <div className="mt-4 mx-auto max-w-xl rounded-xl bg-gray-700/60 border border-gray-600 px-4 py-3 flex flex-col items-center gap-2" role="status" aria-label="Checking for ratings on other items">
-                      <SkeletonBlock width="55%" height={14} />
-                      <SkeletonBlock width="40%" height={36} radius={18} />
-                    </div>
-                  ) : hasCopySources ? (
+                  {/* The quick-rate tool is always available immediately; the copy suggestion appears above it
+                      as soon as the (background) other-items check finishes, instead of blocking it. */}
+                  {hasCopySources && (
                     <div className="mt-4 mx-auto max-w-xl rounded-xl bg-blue-500/20 border border-blue-300/60 px-4 py-3 text-center">
                       <p className="text-sm font-semibold text-blue-50">
                         💡 You already rated this candidate under Item # {copyAvail.sources[0].itemNumber}
@@ -3710,7 +3721,7 @@ const RaterView = ({ user }) => {
                         Copy from Another Item
                       </button>
                     </div>
-                  ) : (
+                  )}
                   <div className="mt-4 mx-auto max-w-xl rounded-xl bg-gray-700/60 border border-gray-600 px-4 py-3">
                     <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
                       <span className="text-sm font-semibold text-gray-100">Quick rate — set all to:</span>
@@ -3741,7 +3752,6 @@ const RaterView = ({ user }) => {
                       )}
                     </div>
                   </div>
-                  )}
                   {canAdaptPeers && (
                     <div className="mt-3 mx-auto max-w-xl text-center">
                       <button
