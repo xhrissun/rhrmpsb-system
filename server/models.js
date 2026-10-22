@@ -419,7 +419,9 @@ const ratingLogSchema = new mongoose.Schema({
   performedBy:   { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   ipAddress: String,
   userAgent: String,
-  notes: String
+  notes: String,
+  // Set when this score was copied from a colleague's rating and kept as-is (see GET /ratings/peers)
+  adaptedFrom:   { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });
 
 // ── Notification Log Schema ───────────────────────────────────────────────────

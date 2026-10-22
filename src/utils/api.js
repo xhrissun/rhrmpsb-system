@@ -692,6 +692,13 @@ export const ratingsAPI = {
     };
   },
   
+  // Colleagues' ratings for the same candidate + item that this rater may adapt (Chairperson, Vice-Chairperson,
+  // Regular Member and End-User only; the server enforces it).
+  getPeerRatings: async (candidateId, itemNumber) => {
+    const response = await api.get(`/ratings/peers/${candidateId}/${encodeURIComponent(itemNumber)}`);
+    return response.data;
+  },
+
   // NEW: Check if ratings exist for candidate + item number + rater type (prevent duplicates)
   checkExistingByRaterType: async (candidateId, itemNumber, raterType) => {
     const encodedItemNumber = encodeURIComponent(itemNumber);

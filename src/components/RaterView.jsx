@@ -1479,6 +1479,14 @@ const RaterView = ({ user }) => {
 
   // ── Copy Ratings from Another Item ───────────────────────────────────────
   const [isCopyRatingsModalOpen, setIsCopyRatingsModalOpen] = useState(false);
+  // ── Adapt a colleague's ratings (Chairperson / Vice-Chairperson / Regular Member / End-User) ──
+  const [peerModal, setPeerModal] = useState({ open: false, loading: false, error: '', peers: [] });
+  const [peerOnlyUnrated, setPeerOnlyUnrated] = useState(false);
+  const [peerAdaptedFrom, setPeerAdaptedFrom] = useState(null);   // { raterId, name, raterType, copied } until they submit
+  const [peerUndo, setPeerUndo] = useState(null);
+  // Partners: Chairperson <-> Vice-Chairperson, Regular Member <-> End-User (the server enforces it too).
+  const peerPartnerType = { 'Chairperson': 'Vice-Chairperson', 'Vice-Chairperson': 'Chairperson', 'Regular Member': 'End-User', 'End-User': 'Regular Member' }[user?.raterType] || null;
+  const canAdaptPeers = !!peerPartnerType;
   const [copyRatingsSources, setCopyRatingsSources] = useState([]);  // [{itemNumber, position, assignment, matchCount, ratingsMap}]
   const [copyRatingsLoading, setCopyRatingsLoading] = useState(false);
 
@@ -2181,6 +2189,49 @@ const RaterView = ({ user }) => {
       .sort((a, b) => b.matchCount - a.matchCount);
   };
 
+  const handleOpenPeerRatings = async () => {
+    if (!selectedCandidate || !selectedItemNumber) return;
+    setPeerModal({ open: true, loading: true, error: '', peers: [] });
+    try {
+      const peers = await ratingsAPI.getPeerRatings(selectedCandidate, selectedItemNumber);
+      setPeerModal({ open: true, loading: false, error: '', peers });
+    } catch (error) {
+      console.error('Failed to load colleague ratings:', error);
+      setPeerModal({ open: true, loading: false, error: 'Could not load your colleagues\' ratings. Please try again.', peers: [] });
+    }
+  };
+
+  // Copies the colleague's scores into THIS form only. Nothing is saved until the rater reviews and submits.
+  const handleAdaptPeer = (peer) => {
+    const shown = new Set();
+    ['basic', 'organizational', 'minimum', ...(shouldShowLeadership() ? ['leadership'] : [])].forEach(t =>
+      (groupedCompetencies[t] || []).forEach(c => shown.add(`${t}_${c._id}`)));
+    const next = { ...ratings };
+    let copied = 0;
+    peer.ratings.forEach(r => {
+      const k = `${r.competencyType}_${r.competencyId}`;
+      if (!shown.has(k)) return;
+      if (peerOnlyUnrated && next[k] !== undefined) return;
+      next[k] = r.score; copied += 1;
+    });
+    scrollPositionRef.current = window.scrollY;
+    setPeerUndo({ ...ratings });
+    setBulkUndo(null);
+    setRatings(next);
+    setPeerAdaptedFrom({ raterId: peer.raterId, name: peer.name, raterType: peer.raterType, copied });
+    setPeerModal(m => ({ ...m, open: false }));
+    showToast(`Copied ${copied} rating${copied !== 1 ? 's' : ''} from ${peer.name} (${peer.raterType}). Review and adjust before submitting.`, 'success');
+    requestAnimationFrame(() => { window.scrollTo(0, scrollPositionRef.current); });
+  };
+
+  const handleUndoPeer = () => {
+    if (!peerUndo) return;
+    setRatings(peerUndo); setPeerUndo(null); setPeerAdaptedFrom(null);
+  };
+
+  // A different candidate or item starts clean.
+  useEffect(() => { setPeerAdaptedFrom(null); setPeerUndo(null); setPeerModal(m => (m.open ? { ...m, open: false } : m)); }, [selectedCandidate, selectedItemNumber]);
+
   const handleOpenCopyRatings = async () => {
     setIsCopyRatingsModalOpen(true);
     // Already worked out in the background for this candidate → open instantly.
@@ -2388,7 +2439,8 @@ const RaterView = ({ user }) => {
           itemNumber: selectedItemNumber
         };
       });
-      await ratingsAPI.submitRatings({ ratings: ratingsData }, isUpdateSubmission);
+      await ratingsAPI.submitRatings({ ratings: ratingsData, adaptedFrom: peerAdaptedFrom?.raterId || null }, isUpdateSubmission);
+      setPeerAdaptedFrom(null); setPeerUndo(null);
       // Always persist a finished session so re-visiting this candidate shows
       // "Finished" on the timer rather than auto-starting or showing "Paused".
       try {
@@ -3142,6 +3194,43 @@ const RaterView = ({ user }) => {
             </div>
           )}
 
+          {/* ── Adapt a colleague's ratings ── */}
+          {peerModal.open && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true" aria-label="Adapt a colleague's ratings">
+              <div className="bg-white rounded-2xl w-full max-w-lg mx-auto shadow-2xl overflow-hidden">
+                <div className="bg-gray-800 px-6 py-5 flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="text-lg font-bold text-white">Adapt {peerPartnerType}&apos;s ratings</h3>
+                    <p className="text-sm text-gray-300 mt-1 break-words">Copy their ratings into your form. You can review and change every score before you submit.</p>
+                  </div>
+                  <button type="button" onClick={() => setPeerModal(m => ({ ...m, open: false }))} className="text-gray-300 hover:text-white text-2xl leading-none" aria-label="Close">&times;</button>
+                </div>
+                <div className="p-6 space-y-3 max-h-[60vh] overflow-y-auto">
+                  {peerModal.loading && <p className="text-gray-600 text-sm">Loading…</p>}
+                  {peerModal.error && <p className="text-red-600 text-sm break-words">{peerModal.error}</p>}
+                  {!peerModal.loading && !peerModal.error && peerModal.peers.length === 0 && (
+                    <p className="text-gray-600 text-sm">The {peerPartnerType} hasn&apos;t rated this candidate for this item yet.</p>
+                  )}
+                  {peerModal.peers.map(peer => (
+                    <button
+                      key={peer.raterId}
+                      type="button"
+                      onClick={() => handleAdaptPeer(peer)}
+                      className="w-full text-left rounded-xl border border-gray-200 px-4 py-3 hover:border-indigo-400 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                    >
+                      <span className="block font-semibold text-gray-900 break-words">{peer.name}</span>
+                      <span className="block text-sm text-gray-600 break-words">{peer.raterType} · {peer.count} rating{peer.count !== 1 ? 's' : ''}</span>
+                    </button>
+                  ))}
+                  <label className="flex items-center gap-2 text-sm text-gray-700 select-none cursor-pointer pt-1">
+                    <input type="checkbox" checked={peerOnlyUnrated} onChange={e => setPeerOnlyUnrated(e.target.checked)} className="h-4 w-4 rounded" />
+                    Only fill competencies I haven&apos;t rated yet
+                  </label>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ── Copy Ratings from Another Item Modal ── */}
           {isCopyRatingsModalOpen && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -3631,6 +3720,24 @@ const RaterView = ({ user }) => {
                       )}
                     </div>
                   </div>
+                  )}
+                  {canAdaptPeers && (
+                    <div className="mt-3 mx-auto max-w-xl text-center">
+                      <button
+                        type="button"
+                        onClick={handleOpenPeerRatings}
+                        disabled={ratingsLoading || itemLoading}
+                        className="inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold bg-indigo-500 text-white hover:bg-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        Adapt {peerPartnerType}&apos;s ratings
+                      </button>
+                      {peerAdaptedFrom && (
+                        <p className="mt-2 text-xs sm:text-sm text-indigo-100 break-words">
+                          Copied {peerAdaptedFrom.copied} rating{peerAdaptedFrom.copied !== 1 ? 's' : ''} from {peerAdaptedFrom.name} ({peerAdaptedFrom.raterType}). Review each one, change what you disagree with, then submit.{' '}
+                          {peerUndo && <button type="button" onClick={handleUndoPeer} className="font-semibold text-amber-300 hover:text-amber-200 underline underline-offset-2">Undo</button>}
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>

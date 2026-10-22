@@ -3472,10 +3472,44 @@ router.get('/ratings', authMiddleware, async (req, res) => {
   }
 });
 
+// ── Adapting a colleague's ratings ───────────────────────────────────────────
+// Partners may copy each other's ratings for the same candidate + item into their own form, review them,
+// and submit as their own: Chairperson <-> Vice-Chairperson, and Regular Member <-> End-User. Nothing is
+// saved by the copy itself; the normal submit still applies, and kept-as-is scores are marked in the audit log.
+const PEER_PARTNER = {
+  'Chairperson': 'Vice-Chairperson', 'Vice-Chairperson': 'Chairperson',
+  'Regular Member': 'End-User', 'End-User': 'Regular Member',
+};
+router.get('/ratings/peers/:candidateId/:itemNumber', authMiddleware, async (req, res) => {
+  try {
+    const partnerType = PEER_PARTNER[req.user.raterType];
+    if (req.user.userType !== 'rater' || !partnerType)
+      return res.status(403).json({ message: 'Access denied' });
+    const itemNumber = decodeURIComponent(req.params.itemNumber);
+    const peers = await User.find({ userType: 'rater', raterType: partnerType, _id: { $ne: req.user._id } }).select('name raterType');
+    if (!peers.length) return res.json([]);
+    const rows = await Rating.find({ candidateId: req.params.candidateId, itemNumber, raterId: { $in: peers.map(p => p._id) } })
+      .select('raterId competencyId competencyType score');
+    const byRater = new Map();
+    rows.forEach(r => {
+      const k = String(r.raterId);
+      if (!byRater.has(k)) byRater.set(k, []);
+      byRater.get(k).push({ competencyId: String(r.competencyId), competencyType: r.competencyType, score: r.score });
+    });
+    res.json(peers.filter(p => byRater.has(String(p._id))).map(p => ({
+      raterId: String(p._id), name: p.name, raterType: p.raterType,
+      count: byRater.get(String(p._id)).length, ratings: byRater.get(String(p._id)),
+    })));
+  } catch (error) {
+    console.error('[GET /ratings/peers]', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 router.post('/ratings/submit', authMiddleware, async (req, res) => {
   if (req.user.userType !== 'rater') return res.status(403).json({ message: 'Access denied' });
   try {
-    const { ratings, isUpdate = false } = req.body;
+    const { ratings, isUpdate = false, adaptedFrom = null } = req.body;
     if (!ratings || ratings.length === 0) return res.status(400).json({ message: 'No ratings provided' });
     if (ratings.some(r => !r.itemNumber)) return res.status(400).json({ message: 'All ratings must include itemNumber' });
 
@@ -3505,6 +3539,16 @@ router.post('/ratings/submit', authMiddleware, async (req, res) => {
     const existingMap = new Map(
       existingRatings.map(r => [`${r.competencyId}:${r.candidateId}`, r])
     );
+
+    // Scores kept as copied from a colleague are flagged in the audit log (only for the allowed rater types).
+    let adaptedMap = null;
+    if (adaptedFrom && PEER_PARTNER[req.user.raterType] && String(adaptedFrom) !== String(req.user._id)) {
+      const src = await User.findOne({ _id: adaptedFrom, userType: 'rater', raterType: PEER_PARTNER[req.user.raterType] }).select('_id');
+      if (src) {
+        const srcRows = await Rating.find({ candidateId: { $in: candidateIds }, itemNumber: { $in: itemNumbers }, raterId: src._id }).select('competencyId candidateId score');
+        adaptedMap = new Map(srcRows.map(r => [`${r.competencyId}:${r.candidateId}`, r.score]));
+      }
+    }
 
     const bulkOps = [], logEntries = [];
     const submittedAt = new Date();
@@ -3538,7 +3582,8 @@ router.post('/ratings/submit', authMiddleware, async (req, res) => {
         candidateId: ratingData.candidateId, raterId: req.user._id,
         itemNumber: ratingData.itemNumber, competencyId: ratingData.competencyId,
         competencyType: ratingData.competencyType, oldScore: existingRating?.score || null, newScore,
-        performedBy: req.user._id, ipAddress, userAgent
+        performedBy: req.user._id, ipAddress, userAgent,
+        ...(adaptedMap && adaptedMap.get(key) === newScore ? { adaptedFrom } : {})
       });
     }
 
