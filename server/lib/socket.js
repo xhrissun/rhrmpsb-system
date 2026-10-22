@@ -14,6 +14,7 @@ let ioInstance = null;
 // audience, same reasoning: this is Secretariat + Admin coordination,
 // not a rater-facing feature.
 const CHAT_ROOM = 'secretariat-chat';
+export const RATINGS_ROOM = 'ratings-ping';   // every signed-in socket; gets a tiny 'ratings:changed' nudge
 export const LIVE_ROOM = 'livestats';   // everyone watching the Live Stats screen
 function canUseChat(userType) {
   return userType === 'admin' || userType === 'secretariat';
@@ -54,6 +55,7 @@ export function initSocket(httpServer, corsOptions) {
 
   ioInstance.on('connection', (socket) => {
     socket.join(LIVE_ROOM);
+    socket.join(RATINGS_ROOM);
     if (!canUseChat(socket.user.userType)) return;
     socket.join(CHAT_ROOM);
     // A personal room, independent of the shared team-chat room — this is

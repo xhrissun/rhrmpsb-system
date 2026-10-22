@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import usePersistedState from '../utils/usePersistedState';
 import { markBusy, clearBusy } from '../utils/busyTracker';
+import { connectSocket } from '../utils/socket';
 import { vacanciesAPI, candidatesAPI, ratingsAPI, competenciesAPI, authAPI, interviewSessionsAPI, startAuthKeepAlive, stopAuthKeepAlive } from '../utils/api';
 import { calculateRatingScores, formatDate } from '../utils/helpers';
 import { RATING_SCALE, COMPETENCY_TYPES, CANDIDATE_STATUS } from '../utils/constants';
@@ -1259,9 +1260,11 @@ const RadioRating = ({ competency, competencyType, currentRating, onChange, onCl
 // members have already rated but the current rater has not. Each row is a
 // button: clicking it jumps straight to that candidate in the rating form.
 // Only names + rater types are shown — never scores (CBS independence).
-const PendingRatingsReminder = ({ pending, currentCandidateId, onJump }) => {
-  // Minimized by default — the badge + summary in the header is the nudge.
+const PendingRatingsReminder = ({ pending, currentCandidateId, onJump, openSignal = 0 }) => {
+  // Minimized by default, but it pops open whenever new candidates start waiting for this rater
+  // (openSignal changes), so the banner can't be overlooked. The rater can still collapse it.
   const [collapsed, setCollapsed] = useState(true);
+  useEffect(() => { if (openSignal > 0) setCollapsed(false); }, [openSignal]);
   const [activeTab, setActiveTab] = useState(null); // 'panel' | 'two_rater' | null = auto
   if (!pending || pending.length === 0) return null;
 
@@ -1808,14 +1811,32 @@ const RaterView = ({ user }) => {
   // and each lookup is a server-side scan across every rating on the rater's items.
   const remindersInFlightRef = useRef(false);
   const remindersLastRef = useRef(0);
+  const remindersSeenRef = useRef(null);   // candidate ids already announced (null until the first load)
+  const [reminderOpenSignal, setReminderOpenSignal] = useState(0);
+  // No dependency on `vacancies`: the server works out this rater's items itself, so the lookup can run
+  // the moment the page mounts, in parallel with the vacancy list and the PDF preload.
   const loadPendingReminders = useCallback(async (force = false) => {
-    if (!vacancies.length) { setPendingReminders([]); setRemindersLoaded(true); return; }
     if (remindersInFlightRef.current) return;
-    if (force !== true && Date.now() - remindersLastRef.current < 8000) return;
+    if (force !== true && Date.now() - remindersLastRef.current < 3000) return;
     remindersInFlightRef.current = true;
     try {
-      const res = await ratingsAPI.getPendingReminders([...new Set(vacancies.map(v => v.itemNumber))]);
-      setPendingReminders(res?.pending || []);
+      const res = await ratingsAPI.getPendingReminders([]);
+      const list = res?.pending || [];
+      setPendingReminders(list);
+      // Announce candidates that were not waiting before (and everything on the first load).
+      const ids = list.map(p => `${p.itemNumber}|${p.candidateId}`);
+      const seen = remindersSeenRef.current;
+      const fresh = seen ? ids.filter(id => !seen.has(id)) : ids;
+      remindersSeenRef.current = new Set(ids);
+      if (fresh.length > 0) {
+        setReminderOpenSignal(n => n + 1);
+        showToast(
+          fresh.length === 1
+            ? 'A candidate is waiting for your rating. See "You still need to rate" at the top.'
+            : `${fresh.length} candidates are waiting for your rating. See "You still need to rate" at the top.`,
+          'warning', 9000
+        );
+      }
     } catch (err) {
       // Non-critical: a failed reminder lookup must never block rating.
       console.warn('[RaterView] pending reminders failed (non-critical):', err?.message);
@@ -1824,19 +1845,32 @@ const RaterView = ({ user }) => {
       remindersInFlightRef.current = false;
       setRemindersLoaded(true);
     }
-  }, [vacancies]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Load on entry, then keep fresh: every 60 s, and whenever the tab regains focus.
+  // Load on entry, then keep fresh. The server pushes a 'ratings:changed' nudge the moment anyone submits
+  // (a short random delay spreads the re-queries out); polling every 30 s and refreshing on tab focus are
+  // the safety nets if the socket is down.
   useEffect(() => {
-    loadPendingReminders();
-    const interval = setInterval(loadPendingReminders, 60000);
+    loadPendingReminders(true);
+    const interval = setInterval(() => loadPendingReminders(), 30000);
     const onVisible = () => { if (document.visibilityState === 'visible') loadPendingReminders(); };
     document.addEventListener('visibilitychange', onVisible);
-    window.addEventListener('focus', loadPendingReminders);
+    const onFocus = () => loadPendingReminders();
+    window.addEventListener('focus', onFocus);
+
+    let pingTimer = null;
+    const onPing = () => {
+      clearTimeout(pingTimer);
+      pingTimer = setTimeout(() => loadPendingReminders(true), 200 + Math.random() * 1500);
+    };
+    const sock = connectSocket();
+    sock?.on('ratings:changed', onPing);
     return () => {
       clearInterval(interval);
+      clearTimeout(pingTimer);
       document.removeEventListener('visibilitychange', onVisible);
-      window.removeEventListener('focus', loadPendingReminders);
+      window.removeEventListener('focus', onFocus);
+      sock?.off('ratings:changed', onPing);
     };
   }, [loadPendingReminders]);
 
@@ -2783,6 +2817,7 @@ const RaterView = ({ user }) => {
         <div className="w-full">
           {!remindersLoaded && vacancies.length > 0 && <ReminderSkeleton />}
           <PendingRatingsReminder
+            openSignal={reminderOpenSignal}
             pending={pendingReminders}
             currentCandidateId={selectedCandidate}
             onJump={handleJumpToPending}

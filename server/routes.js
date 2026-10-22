@@ -7,7 +7,7 @@ import mongoose from 'mongoose';
 import { parse } from 'csv-parse/sync';
 import rateLimit from 'express-rate-limit';
 import { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, InterviewSession, PDFCache, SystemSettings, AiEvaluationLog, AiEvaluationJob, ChatMessage, ChatRead, QueueEntry, Room, prepareCandidateResponse } from './models.js';
-import { broadcastChatMessage, notifyMention, getIO, LIVE_ROOM } from './lib/socket.js';
+import { broadcastChatMessage, notifyMention, getIO, LIVE_ROOM, RATINGS_ROOM } from './lib/socket.js';
 
 import { evaluateCandidateWithAI } from './lib/aiEvaluation.js';
 import { fetchDriveFile, extractDriveFileId } from './lib/googleDrive.js';
@@ -3681,10 +3681,11 @@ router.post('/ratings/by-candidates', authMiddleware, async (req, res) => {
 router.post('/ratings/pending-reminders', authMiddleware, async (req, res) => {
   if (req.user.userType !== 'rater') return res.json({ pending: [] });
   try {
+    // The client's list is only a hint; with no list the server uses every active item (the assignment
+    // filter below still decides what this rater may actually see).
     const requested = Array.isArray(req.body.itemNumbers)
       ? [...new Set(req.body.itemNumbers.filter(Boolean).map(String))].slice(0, 500)
       : [];
-    if (requested.length === 0) return res.json({ pending: [] });
 
     const me = req.user;
     const mode = me.assignedVacancies || 'none';
@@ -3692,7 +3693,7 @@ router.post('/ratings/pending-reminders', authMiddleware, async (req, res) => {
     const suspended = new Set((me.suspendedItemNumbers || []).map(String));
 
     // 1. Active vacancies this rater may actually see
-    const vacancies = await Vacancy.find({ itemNumber: { $in: requested }, isArchived: false })
+    const vacancies = await Vacancy.find({ ...(requested.length ? { itemNumber: { $in: requested } } : {}), isArchived: false })
       .select('itemNumber position assignment salaryGrade').lean();
     const allowed = vacancies.filter(v => {
       if (suspended.has(v.itemNumber)) return false;
@@ -4748,6 +4749,20 @@ const liveChanged = ({ ratings = true } = {}) => {
   liveStatsCache.at = 0; liveStatsCache.data = null; liveStatsCache.inflight = null;
   if (ratings) ratedGroupsCache.at = 0; else liveStatsCache.reuseRatings = true;
   schedulePush();
+  if (ratings) scheduleRatingsPing();
+};
+
+// Tiny nudge (no payload) telling every open rater screen that scores changed, so the "You still need to
+// rate" banner refreshes within a second or two instead of waiting for its next poll. Debounced so a burst
+// of submissions sends one ping. Raters then re-query their own pending list; nothing about WHO rated or
+// any score travels over the socket.
+let ratingsPingTimer = null;
+const scheduleRatingsPing = () => {
+  if (ratingsPingTimer) return;
+  ratingsPingTimer = setTimeout(() => {
+    ratingsPingTimer = null;
+    getIO()?.to(RATINGS_ROOM).emit('ratings:changed');
+  }, 700);
 };
 
 router.get('/live-stats', authMiddleware, async (req, res) => {

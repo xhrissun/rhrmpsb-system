@@ -14,13 +14,13 @@ export const useToast = () => {
 export const ToastProvider = ({ children }) => {
   const [toasts, setToasts] = useState([]);
 
-  const showToast = (message, type = 'success') => {
-    const id = Date.now();
+  const showToast = (message, type = 'success', duration = 3000) => {
+    const id = Date.now() + Math.random();
     setToasts((prev) => [...prev, { id, message, type }]);
     
     setTimeout(() => {
       setToasts((prev) => prev.filter((toast) => toast.id !== id));
-    }, 3000);
+    }, duration);
   };
 
   const removeToast = (id) => {
@@ -54,7 +54,7 @@ const ToastContainer = ({ toasts, onClose }) => {
 };
 
 const Toast = ({ id, message, type, onClose }) => {
-  const bgColor = type === 'success' ? 'bg-green-500' : 'bg-red-500';
+  const bgColor = type === 'success' ? 'bg-green-500' : type === 'warning' ? 'bg-amber-500' : 'bg-red-500';
   
   return (
     <div className="animate-slide-in-right">

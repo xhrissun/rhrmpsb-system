@@ -647,9 +647,10 @@ export const ratingsAPI = {
     return response.data;
   },
   // Rater reminder: candidates others have rated but I haven't (names only, never scores)
-  getPendingReminders: async (itemNumbers) => {
-    if (!itemNumbers || itemNumbers.length === 0) return { pending: [] };
-    const response = await api.post('/ratings/pending-reminders', { itemNumbers });
+  // itemNumbers is optional: when empty the server works out the rater's own active items, so the
+  // lookup can start the instant the page opens instead of waiting for the vacancy list.
+  getPendingReminders: async (itemNumbers = []) => {
+    const response = await api.post('/ratings/pending-reminders', { itemNumbers: itemNumbers || [] });
     return response.data;
   },
   getByRater: async (raterId) => {
