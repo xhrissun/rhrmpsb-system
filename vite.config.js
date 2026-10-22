@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
+  worker: { format: 'es' },   // the voice runs in a Web Worker so speech synthesis never freezes the screen
   base: '/rhrmpsb-system/',
   build: {
     outDir: 'dist',

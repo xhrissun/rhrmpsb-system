@@ -59,16 +59,31 @@ const ALERT_EVERY_SEC = 300;
 const KOKORO_MODEL = 'onnx-community/Kokoro-82M-v1.0-ONNX';
 const KOKORO_VOICE = 'af_heart';
 let kokoro = { state: 'idle', promise: null, failedAt: 0 };   // idle | loading | ready | failed
+// The model lives in a Web Worker (kokoroWorker.js), so loading and speaking never block the screen.
+let kWorker = null; let kSeq = 0; const kPending = new Map();
+const kFailAll = (err) => { kPending.forEach(p => p.reject(err)); kPending.clear(); try { kWorker?.terminate(); } catch { /* ignore */ } kWorker = null; };
+const kCall = (msg) => new Promise((resolve, reject) => {
+  if (!kWorker) {
+    kWorker = new Worker(new URL('./kokoroWorker.js', import.meta.url), { type: 'module' });
+    kWorker.onmessage = (e) => {
+      const p = kPending.get(e.data.id);
+      if (!p) return;
+      kPending.delete(e.data.id);
+      if (e.data.ok) p.resolve(e.data); else p.reject(new Error(e.data.error));
+    };
+    kWorker.onerror = (e) => kFailAll(new Error(e.message || 'voice worker crashed'));
+  }
+  kSeq += 1;
+  kPending.set(kSeq, { resolve, reject });
+  kWorker.postMessage({ ...msg, id: kSeq });
+});
 const loadKokoro = () => {
   if (kokoro.state === 'ready' || kokoro.state === 'loading') return kokoro.promise;
   if (kokoro.state === 'failed' && Date.now() - kokoro.failedAt < 60000) return kokoro.promise;
   kokoro.state = 'loading';
-  kokoro.promise = (async () => {
-    const { KokoroTTS } = await import('kokoro-js');
-    return KokoroTTS.from_pretrained(KOKORO_MODEL, { dtype: 'q8', device: 'wasm' });
-  })()
-    .then(t => { kokoro.state = 'ready'; return t; })
-    .catch(err => { console.warn('[LiveStats] natural voice unavailable, using browser voice:', err?.message); kokoro.state = 'failed'; kokoro.failedAt = Date.now(); return null; });
+  kokoro.promise = kCall({ type: 'load' })
+    .then(() => { kokoro.state = 'ready'; return true; })
+    .catch(err => { console.warn('[LiveStats] natural voice unavailable, using browser voice:', err?.message); kokoro.state = 'failed'; kokoro.failedAt = Date.now(); kFailAll(err); return null; });
   return kokoro.promise;
 };
 
@@ -77,17 +92,15 @@ const sayable = (t) => String(t || '')
   .replace(/\bMa\.\s*/g, 'Maria ').replace(/\bJr\.?/gi, 'Junior').replace(/\bSr\.?/gi, 'Senior')
   .replace(/[-_/]+/g, ' ').replace(/\.(?=\s|$)/g, '').replace(/\s+/g, ' ').trim();
 
-const clipCache = new Map();   // text -> { data, sr }, so a repeat of the same line is instant
-const synth = async (text) => {
-  if (kokoro.state !== 'ready') return null;
-  try {
-    if (clipCache.has(text)) return clipCache.get(text);
-    const tts = await kokoro.promise;
-    const a = await tts.generate(text, { voice: KOKORO_VOICE, speed: 0.95 });
-    const clip = { data: a.audio, sr: a.sampling_rate };
-    clipCache.set(text, clip);
-    return clip;
-  } catch (err) { console.warn('[LiveStats] voice synthesis failed:', err?.message); return null; }
+const clipCache = new Map();   // text -> Promise<{ data, sr }>, so a repeat (or a line made in advance) is instant
+const synth = (text) => {
+  if (kokoro.state !== 'ready') return Promise.resolve(null);
+  if (!clipCache.has(text)) {
+    clipCache.set(text, kCall({ type: 'say', text, voice: KOKORO_VOICE, speed: 0.95 })
+      .then(r => ({ data: r.data, sr: r.sr }))
+      .catch(err => { console.warn('[LiveStats] voice synthesis failed:', err?.message); clipCache.delete(text); return null; }));
+  }
+  return clipCache.get(text);
 };
 const playClip = (ctx, clip) => new Promise((resolve) => {
   try {
@@ -1334,6 +1347,7 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
   liveRef.current = { views: roomViews, fetchedAt };
   useEffect(() => {
     if (!isOpen) { alertState.current.clear(); return undefined; }
+    const warmed = new Set();   // warnings whose voice line has already been prepared
     const t = setInterval(() => {
       const { views, fetchedAt: at } = liveRef.current;
       if (!at) return;
@@ -1342,6 +1356,12 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
         const sec = n.elapsed + (Date.now() - at) / 1000;
         const m = Math.floor(sec / ALERT_EVERY_SEC);
         seen.add(n.key);
+        // Get the next warning's voice line ready ~45s early, so it plays the instant the warning fires.
+        const nextAt = (m + 1) * ALERT_EVERY_SEC;
+        if (alertsOnRef.current && nextAt - sec < 45 && !warmed.has(`${n.key}:${m + 1}`)) {
+          warmed.add(`${n.key}:${m + 1}`);
+          synth(alertLine({ name: n.c.name, room: views.length > 1 ? v.name : '', minutes: Math.round(nextAt / 60) }));
+        }
         let last = alertState.current.get(n.key);
         // Already past a mark when first seen (screen opened mid-interview): stay quiet, unless it just passed.
         if (last === undefined) last = (m >= 1 && sec - m * ALERT_EVERY_SEC < 20) ? m - 1 : m;
