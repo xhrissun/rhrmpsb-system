@@ -7,7 +7,7 @@ import mongoose from 'mongoose';
 import { parse } from 'csv-parse/sync';
 import rateLimit from 'express-rate-limit';
 import { User, Vacancy, Candidate, Competency, Rating, RatingLog, PublicationRange, InterviewSession, PDFCache, SystemSettings, AiEvaluationLog, AiEvaluationJob, ChatMessage, ChatRead, QueueEntry, Room, prepareCandidateResponse } from './models.js';
-import { broadcastChatMessage, notifyMention } from './lib/socket.js';
+import { broadcastChatMessage, notifyMention, getIO, LIVE_ROOM } from './lib/socket.js';
 
 import { evaluateCandidateWithAI } from './lib/aiEvaluation.js';
 import { fetchDriveFile, extractDriveFileId } from './lib/googleDrive.js';
@@ -3590,6 +3590,7 @@ router.post('/ratings/submit', authMiddleware, async (req, res) => {
     // PERF-01: 2 total DB operations regardless of competency count.
     if (bulkOps.length > 0)    await Rating.bulkWrite(bulkOps, { ordered: false });
     if (logEntries.length > 0) await RatingLog.insertMany(logEntries);
+    liveChanged({ ratings: true });
     res.json({
       message: hasExistingRatings ? 'Ratings updated successfully' : 'Ratings submitted successfully',
       isUpdate: hasExistingRatings, ratingsProcessed: bulkOps.length, changesLogged: logEntries.length
@@ -3820,6 +3821,7 @@ router.delete('/ratings/candidate/:candidateId/rater/:raterId/item/:itemNumber',
       }));
       await RatingLog.insertMany(logEntries);
     }
+    liveChanged({ ratings: true });
     res.json({ message: 'Ratings reset successfully', deletedCount: result.deletedCount });
   } catch (error) {
     console.error('[DELETE /ratings/candidate/:id/rater/:id/item/:id]', error);
@@ -3833,6 +3835,7 @@ router.delete('/ratings/candidate/:candidateId/rater/:raterId', authMiddleware, 
     return res.status(403).json({ message: 'Access denied' });
   try {
     await Rating.deleteMany({ candidateId: req.params.candidateId, raterId: req.params.raterId });
+    liveChanged({ ratings: true });
     res.json({ message: 'Ratings reset successfully' });
   } catch (error) {
     console.error('[DELETE /ratings/candidate/:id/rater/:id]', error);
@@ -3855,6 +3858,7 @@ router.put('/ratings/:id', authMiddleware, async (req, res) => {
     const rating = await Rating.findByIdAndUpdate(
       req.params.id, { score: newScore, submittedAt: new Date() }, { new: true }
     );
+    liveChanged({ ratings: true });
     res.json(rating);
   } catch (error) {
     console.error('[PUT /ratings/:id]', error);
@@ -4339,6 +4343,7 @@ router.put('/interview-sessions', authMiddleware, async (req, res) => {
       new: true,
       setDefaultsOnInsert: true,
     });
+    liveChanged({ ratings: false });   // timer started / paused / finished: update the Live Stats screens now
     res.json({ message: 'Session saved', session });
   } catch (error) {
     console.error('[PUT /interview-sessions]', error);
@@ -4667,21 +4672,53 @@ const computeLiveStats = async () => {
   return { generatedAt: new Date(now).toISOString(), summary, items, raters: raterRows, recent, queue, rooms, completed, avgTimes };
 };
 
+const getLiveSnapshot = async () => {
+  const now = Date.now();
+  if (liveStatsCache.data && now - liveStatsCache.at < LIVE_STATS_TTL_MS) return liveStatsCache.data;
+  // Collapse simultaneous cache misses into a single computation.
+  if (!liveStatsCache.inflight) {
+    // A snapshot that STARTED before a rooms/queue change must not be cached or shared after it:
+    // it would show the old queue (e.g. "Queue is empty" right after adding someone).
+    const gen = liveStatsGen;
+    const p = computeLiveStats()
+      .then(data => { if (gen === liveStatsGen) { liveStatsCache.data = data; liveStatsCache.at = Date.now(); } return data; })
+      .finally(() => { if (liveStatsCache.inflight === p) liveStatsCache.inflight = null; });
+    liveStatsCache.inflight = p;
+  }
+  return liveStatsCache.inflight;
+};
+
+// ── Real-time push ───────────────────────────────────────────────────────────
+// Anything that changes what the Live Stats screen shows (ratings, interview timers, rooms, queue) calls
+// liveChanged(). The snapshot is rebuilt once and pushed over the WebSocket to every open Live Stats
+// screen, instead of each screen waiting for its next poll. Pushes are throttled to one per
+// LIVE_PUSH_MIN_MS so a busy session can't flood the server.
+const LIVE_PUSH_MIN_MS = 1000;
+let livePushTimer = null;
+let livePushLast = 0;
+const pushLiveSnapshot = async () => {
+  const io = getIO();
+  if (!io || !io.sockets.adapter.rooms.get(LIVE_ROOM)?.size) return;   // nobody is watching
+  try {
+    io.to(LIVE_ROOM).emit('livestats:update', await getLiveSnapshot());
+  } catch (err) { console.error('[live-stats push]', err?.message); }
+};
+const schedulePush = () => {
+  if (livePushTimer) return;
+  const wait = Math.max(150, LIVE_PUSH_MIN_MS - (Date.now() - livePushLast));
+  livePushTimer = setTimeout(() => { livePushTimer = null; livePushLast = Date.now(); pushLiveSnapshot(); }, wait);
+};
+// ratings = true when scores changed (re-read them); false for timer/queue-only changes (reuse the last rating scan).
+const liveChanged = ({ ratings = true } = {}) => {
+  liveStatsGen += 1;
+  liveStatsCache.at = 0; liveStatsCache.data = null; liveStatsCache.inflight = null;
+  if (ratings) ratedGroupsCache.at = 0; else liveStatsCache.reuseRatings = true;
+  schedulePush();
+};
+
 router.get('/live-stats', authMiddleware, async (req, res) => {
   try {
-    const now = Date.now();
-    if (liveStatsCache.data && now - liveStatsCache.at < LIVE_STATS_TTL_MS) return res.json(liveStatsCache.data);
-    // Collapse simultaneous cache misses into a single computation.
-    if (!liveStatsCache.inflight) {
-      // A snapshot that STARTED before a rooms/queue change must not be cached or shared after it:
-      // it would show the old queue (e.g. "Queue is empty" right after adding someone).
-      const gen = liveStatsGen;
-      const p = computeLiveStats()
-        .then(data => { if (gen === liveStatsGen) { liveStatsCache.data = data; liveStatsCache.at = Date.now(); } return data; })
-        .finally(() => { if (liveStatsCache.inflight === p) liveStatsCache.inflight = null; });
-      liveStatsCache.inflight = p;
-    }
-    res.json(await liveStatsCache.inflight);
+    res.json(await getLiveSnapshot());
   } catch (error) {
     console.error('[GET /live-stats]', error);
     res.status(500).json({ message: 'Server error' });
@@ -4699,10 +4736,7 @@ const requireQueueManager = (req, res, next) => {
   next();
 };
 // Only the rooms/queue routes call this, and they never change ratings — see getRatedGroups.
-const dropLiveStatsCache = () => {
-  liveStatsGen += 1;
-  liveStatsCache.at = 0; liveStatsCache.data = null; liveStatsCache.inflight = null; liveStatsCache.reuseRatings = true;
-};
+const dropLiveStatsCache = () => liveChanged({ ratings: false });
 const cleanRoomName = (v) => String(v || '').trim().replace(/\s+/g, ' ').slice(0, 60);
 const dupMessage = (e) => (e?.code === 11000 ? 'A room with that name already exists' : null);
 

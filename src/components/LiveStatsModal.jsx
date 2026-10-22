@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect, useContext, createContext } from 'react';
 import { liveStatsAPI, queueAPI } from '../utils/api';
+import { connectSocket, getSocket } from '../utils/socket';
 
 // ─── Live Stats — broadcast screen ───────────────────────────────────────────
 // One fixed, non-scrolling screen meant to be put on a TV / projector / screen
@@ -17,7 +18,8 @@ import { liveStatsAPI, queueAPI } from '../utils/api';
 // on the broadcast until the mouse moves) to create rooms and line candidates up.
 // Rooms and queues are part of the same /live-stats snapshot — no extra requests.
 
-const POLL_MS = 15000;
+const POLL_MS = 15000;          // refresh interval when the live connection is down
+const POLL_LIVE_MS = 30000;     // safety-net refresh while the live connection is up (also catches timers that went stale)
 const IDLE_HIDE_MS = 3000;
 const THEMES = [['dark', 'Dark'], ['contrast', 'High contrast'], ['light', 'Light']];
 const ZOOMS = [0.85, 1, 1.15];   // 1 = largest text that still fits every room (3 queued names always visible)
@@ -1094,15 +1096,54 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
     }
   }, []);
 
-  // Poll while open and visible; refresh immediately when the tab comes back.
+  // Live push: the server sends a fresh snapshot over the WebSocket the moment anything changes
+  // (rating submitted, timer started, queue edited). Polling stays as a slower safety net.
+  const [pushOn, setPushOn] = useState(false);
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    let bound = null;
+    const onUpdate = (snap) => {
+      if (!snap) return;
+      loadSeq.current += 1;                                   // a slower REST refresh must not overwrite this
+      setData(d => (d && d.generatedAt > snap.generatedAt ? d : snap));
+      setFetchedAt(Date.now());
+      setError(false);
+    };
+    const onConnect = () => { setPushOn(true); load(); };      // (re)connected: resync once
+    const onDisconnect = () => setPushOn(false);
+    const unbind = () => {
+      if (!bound) return;
+      bound.off('livestats:update', onUpdate); bound.off('connect', onConnect); bound.off('disconnect', onDisconnect);
+      bound = null;
+    };
+    const bind = () => {
+      const s = getSocket() || connectSocket();                // never open a second connection if one exists
+      if (!s || s === bound) return;
+      unbind();
+      bound = s;
+      s.on('livestats:update', onUpdate); s.on('connect', onConnect); s.on('disconnect', onDisconnect);
+      setPushOn(!!s.connected);
+    };
+    bind();
+    const watch = setInterval(bind, 5000);                     // another screen (chat) may replace the shared socket
+    return () => { clearInterval(watch); unbind(); setPushOn(false); };
+  }, [isOpen, load]);
+
+  // Initial load, and a refresh whenever the tab becomes visible again.
   useEffect(() => {
     if (!isOpen) return undefined;
     load();
-    const interval = setInterval(() => { if (document.visibilityState === 'visible') load(); }, POLL_MS);
     const onVisible = () => { if (document.visibilityState === 'visible') load(); };
     document.addEventListener('visibilitychange', onVisible);
-    return () => { clearInterval(interval); document.removeEventListener('visibilitychange', onVisible); };
+    return () => document.removeEventListener('visibilitychange', onVisible);
   }, [isOpen, load]);
+
+  // Polling while open and visible: fast when there is no live connection, slow when there is.
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const interval = setInterval(() => { if (document.visibilityState === 'visible') load(); }, pushOn ? POLL_LIVE_MS : POLL_MS);
+    return () => clearInterval(interval);
+  }, [isOpen, load, pushOn]);
 
   // Keep the display awake while it is being broadcast.
   useEffect(() => {
@@ -1389,7 +1430,7 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
       <style>{CSS}</style>
 
       <header className="ls-head">
-        <span className={`ls-dot ${error ? 'err' : ''}`} />
+        <span className={`ls-dot ${error ? 'err' : ''}`} title={error ? 'Connection problem — showing the last data' : pushOn ? 'Live: updates arrive instantly' : `Refreshing every ${POLL_MS / 1000} seconds`} />
         <h2 className="ls-title">Live Stats</h2>
         {sum && (
           <div className="ls-stats">

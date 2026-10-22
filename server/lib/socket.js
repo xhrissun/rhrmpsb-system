@@ -14,6 +14,7 @@ let ioInstance = null;
 // audience, same reasoning: this is Secretariat + Admin coordination,
 // not a rater-facing feature.
 const CHAT_ROOM = 'secretariat-chat';
+export const LIVE_ROOM = 'livestats';   // everyone watching the Live Stats screen
 function canUseChat(userType) {
   return userType === 'admin' || userType === 'secretariat';
 }
@@ -26,7 +27,9 @@ export function initSocket(httpServer, corsOptions) {
     // real WebSocket connections, so there's no platform reason to fall
     // back, and polling would defeat the entire point of using sockets
     // for chat in the first place.
-    transports: ['websocket', 'polling']
+    transports: ['websocket', 'polling'],
+    // Live Stats snapshots are large JSON; compress them on the wire.
+    perMessageDeflate: { threshold: 1024 }
   });
 
   // Socket connections authenticate the same way REST requests do — same
@@ -42,7 +45,7 @@ export function initSocket(httpServer, corsOptions) {
       if (decoded.purpose) return next(new Error('Invalid token'));
       const user = await User.findById(decoded.id).select('-password');
       if (!user) return next(new Error('Invalid token'));
-      if (!canUseChat(user.userType)) return next(new Error('Access denied'));
+      // Everyone signed in may connect (Live Stats is open to every user type); chat rooms are joined below only by chat users.
       socket.user = { id: user._id.toString(), name: user.name, userType: user.userType };
       next();
     } catch {
@@ -51,6 +54,8 @@ export function initSocket(httpServer, corsOptions) {
   });
 
   ioInstance.on('connection', (socket) => {
+    socket.join(LIVE_ROOM);
+    if (!canUseChat(socket.user.userType)) return;
     socket.join(CHAT_ROOM);
     // A personal room, independent of the shared team-chat room — this is
     // how a DM reaches exactly its two participants (and nobody else),
