@@ -22,6 +22,7 @@ const POLL_MS = 15000;          // refresh interval when the live connection is 
 const POLL_LIVE_MS = 30000;     // safety-net refresh while the live connection is up (also catches timers that went stale)
 const IDLE_HIDE_MS = 3000;
 const THEMES = [['dark', 'Dark'], ['contrast', 'High contrast'], ['light', 'Light']];
+const ROOM_AUTOCLOSE_MS = 60 * 1000;   // a finished room with an empty queue closes after 1 minute
 const ZOOMS = [0.85, 1, 1.15];   // 1 = largest text that still fits every room (3 queued names always visible)
 const readPref = (key, fallback) => { try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; } };
 const savePref = (key, val) => { try { localStorage.setItem(key, String(val)); } catch { /* private mode — ignore */ } };
@@ -1297,6 +1298,8 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
   // One view per room: its live interviews and its waiting queue. A live candidate belongs to the
   // room whose queue they were lined up in; anyone live or queued without a room lands in a
   // catch-all panel, which only appears when it has something to show.
+  const [closeTick, setCloseTick] = useState(0);
+  const autoCloseInRef = useRef(Infinity);
   const roomViews = useMemo(() => {
     const rooms = data?.rooms || [];
     const queue = data?.queue || [];
@@ -1338,10 +1341,33 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
     map.forEach((v, id) => { v.done = latestFor(d => d.roomId === id || (!d.roomId && idByName.get(sameKey(d.assignment)) === id)); });
     autoRooms.forEach((v, k) => { v.done = latestFor(d => !d.roomId && sameKey(d.assignment) === k); });
     loose.done = latestFor(d => !d.roomId && !sameKey(d.assignment));
-    const views = [...map.values(), ...autoRooms.values()];
+    // Auto-close: a room with nobody interviewing, nobody waiting and its last candidate's ratings
+    // finished more than ROOM_AUTOCLOSE_MS ago drops off the screen. It comes straight back when someone
+    // is queued or interviewed there again. (Rooms that never finished anyone are left alone, so a room
+    // you just created doesn't vanish.) Server time is estimated from the snapshot so a wrong clock on
+    // this screen can't close rooms early or late.
+    const serverNow = (data?.generatedAt ? new Date(data.generatedAt).getTime() : 0) + (Date.now() - (fetchedAt || Date.now()));
+    let soonest = Infinity;
+    const stillOpen = (v) => {
+      if (v.cards.length || v.waiting.length || !v.done) return true;
+      const left = ROOM_AUTOCLOSE_MS - (serverNow - new Date(v.done.at).getTime());
+      if (left > 0) { soonest = Math.min(soonest, left); return true; }
+      return false;
+    };
+    const views = [...map.values(), ...autoRooms.values()].filter(stillOpen);
+    autoCloseInRef.current = soonest;
     if (loose.cards.length || loose.waiting.length || views.length === 0) views.push(loose);
     return views;
-  }, [data, nowCards]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, nowCards, fetchedAt, closeTick]);
+
+  // Re-evaluate right when the next room is due to close (no polling needed).
+  useEffect(() => {
+    const ms = autoCloseInRef.current;
+    if (!isOpen || !Number.isFinite(ms)) return undefined;
+    const t = setTimeout(() => setCloseTick(n => n + 1), ms + 250);
+    return () => clearTimeout(t);
+  }, [roomViews, isOpen]);
 
   roomIdsRef.current = roomViews.map(v => v.id);
   const spotView = roomViews.length > 1 && spotlight ? roomViews.find(v => v.id === spotlight) : null;
