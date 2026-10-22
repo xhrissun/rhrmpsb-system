@@ -155,11 +155,19 @@ const aiEvaluateLimiter = rateLimit({
 const authMiddleware = async (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ message: 'No token provided' });
+  // Only a bad/expired token (or a deleted user) is a 401, because the client signs the person out on
+  // ANY 401. A database hiccup used to land in the same catch-all and came back as 401 too, which logged
+  // active raters out whenever Mongo was slow or the server was under memory pressure. Those now get 503.
+  let decoded;
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    // Purpose-scoped tokens (e.g. the pending-2FA token issued mid-login)
-    // must never be usable as a real session token.
-    if (decoded.purpose) return res.status(401).json({ message: 'Invalid token' });
+    decoded = jwt.verify(token, process.env.JWT_SECRET);
+  } catch {
+    return res.status(401).json({ message: 'Invalid token' });
+  }
+  // Purpose-scoped tokens (e.g. the pending-2FA token issued mid-login)
+  // must never be usable as a real session token.
+  if (decoded.purpose) return res.status(401).json({ message: 'Invalid token' });
+  try {
     req.user = await User.findById(decoded.id).select('-password');
     if (!req.user) return res.status(401).json({ message: 'Invalid token' });
     // ── Sliding expiry: re-issue a fresh token on every authenticated request ──
@@ -168,8 +176,9 @@ const authMiddleware = async (req, res, next) => {
     const freshToken = jwt.sign({ id: req.user._id }, process.env.JWT_SECRET, { expiresIn: '8h' });
     res.setHeader('X-Refresh-Token', freshToken);
     next();
-  } catch {
-    res.status(401).json({ message: 'Invalid token' });
+  } catch (err) {
+    console.error('[authMiddleware] user lookup failed:', err?.message);
+    res.status(503).json({ message: 'Service temporarily unavailable. Please retry.' });
   }
 };
 

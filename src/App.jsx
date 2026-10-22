@@ -25,9 +25,16 @@ function App() {
           setUser(userData);
         } catch (error) {
           console.error('Auth verification failed:', error);
-          localStorage.removeItem('authToken');
-          localStorage.removeItem('user');
-          setUser(null);
+          if (error?.response?.status === 401) {
+            // The server really rejected the session.
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('user');
+            setUser(null);
+          } else {
+            // Network error, Render cold start or a 5xx: that says nothing about the session. Keep the
+            // person signed in with their cached profile instead of throwing them out on a page refresh.
+            try { setUser(JSON.parse(savedUser)); } catch { setUser(null); }
+          }
         }
       }
       setLoading(false);

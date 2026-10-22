@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import usePersistedState from '../utils/usePersistedState';
+import { markBusy, clearBusy } from '../utils/busyTracker';
 import { vacanciesAPI, candidatesAPI, ratingsAPI, competenciesAPI, authAPI, interviewSessionsAPI, startAuthKeepAlive, stopAuthKeepAlive } from '../utils/api';
 import { calculateRatingScores, formatDate } from '../utils/helpers';
 import { RATING_SCALE, COMPETENCY_TYPES, CANDIDATE_STATUS } from '../utils/constants';
@@ -1767,6 +1768,18 @@ const RaterView = ({ user }) => {
     keys.forEach(k => { if (ratings[k] !== saved[k]) n += 1; });
     return n;
   }, [ratings]);
+
+  // ── Don't idle-log-out a rater who is mid-interview ─────────────────────
+  // During an interview the rater mostly listens: no mouse or keyboard input for 20+ minutes is normal,
+  // so the idle monitor was warning and then signing out people who were actively rating. While the
+  // interview timer is running, or ratings are filled in but not submitted, the session counts as busy.
+  const hasUnsavedNow = selectedCandidate ? countUnsavedRatings() > 0 : false;
+  const raterWorking = !!selectedCandidate && (timerRunning || hasUnsavedNow);
+  useEffect(() => {
+    if (!raterWorking) return undefined;
+    markBusy('rater-interview');
+    return () => clearBusy('rater-interview');
+  }, [raterWorking]);
 
   // Run `action` now, or ask first if leaving the open candidate would lose work.
   const guardNavigation = (action) => {
