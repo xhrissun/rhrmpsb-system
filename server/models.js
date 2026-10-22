@@ -516,6 +516,7 @@ candidateSchema.index({ publicationRangeId: 1, isArchived: 1, fullName: 1 });
 competencySchema.index({ isFixed: 1 });
 
 ratingSchema.index({ candidateId: 1 });
+ratingSchema.index({ raterId: 1 }); // GET /ratings/rater/:id and rater-scoped lookups: without this they scan the whole collection
 ratingSchema.index({ itemNumber: 1, raterId: 1, candidateId: 1 }, { unique: true });
 ratingSchema.index({ itemNumber: 1, candidateId: 1 }); // board batch query: fetch all ratings for a set of candidates in one item
 

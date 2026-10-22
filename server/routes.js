@@ -313,6 +313,11 @@ const COMPETENCY_WRITE_ALLOWED = [
 // cache.
 const CANDIDATE_CLIENT_PROJECTION = '-extractedDocumentCache -lastAiEvaluation';
 
+// Rating rows are returned lean (plain objects, no Mongoose hydration) and without the embedded auditLog
+// array, which no screen reads. Hydrated rating docs + two populates per row were the biggest per-request
+// heap cost on the rater screens (every candidate click fetches the rater's full rating history).
+const RATING_CLIENT_PROJECTION = '-auditLog -__v';
+
 
 // ═══════════════════════════════════════════════════════════════════════════
 // AUTH ROUTES
@@ -3486,10 +3491,10 @@ router.get('/ratings/peers/:candidateId/:itemNumber', authMiddleware, async (req
     if (req.user.userType !== 'rater' || !partnerType)
       return res.status(403).json({ message: 'Access denied' });
     const itemNumber = decodeURIComponent(req.params.itemNumber);
-    const peers = await User.find({ userType: 'rater', raterType: partnerType, _id: { $ne: req.user._id } }).select('name raterType');
+    const peers = await User.find({ userType: 'rater', raterType: partnerType, _id: { $ne: req.user._id } }).select('name raterType').lean();
     if (!peers.length) return res.json([]);
     const rows = await Rating.find({ candidateId: req.params.candidateId, itemNumber, raterId: { $in: peers.map(p => p._id) } })
-      .select('raterId competencyId competencyType score');
+      .select('raterId competencyId competencyType score').lean();
     const byRater = new Map();
     rows.forEach(r => {
       const k = String(r.raterId);
@@ -3518,7 +3523,7 @@ router.post('/ratings/submit', authMiddleware, async (req, res) => {
 
     const existingRatings = await Rating.find({
       candidateId: { $in: candidateIds }, raterId: req.user._id, itemNumber: { $in: itemNumbers }
-    });
+    }).select('candidateId competencyId score').lean();
     const hasExistingRatings = existingRatings.length > 0;
     if (hasExistingRatings && !isUpdate) {
       return res.status(409).json({
@@ -3545,7 +3550,7 @@ router.post('/ratings/submit', authMiddleware, async (req, res) => {
     if (adaptedFrom && PEER_PARTNER[req.user.raterType] && String(adaptedFrom) !== String(req.user._id)) {
       const src = await User.findOne({ _id: adaptedFrom, userType: 'rater', raterType: PEER_PARTNER[req.user.raterType] }).select('_id');
       if (src) {
-        const srcRows = await Rating.find({ candidateId: { $in: candidateIds }, itemNumber: { $in: itemNumbers }, raterId: src._id }).select('competencyId candidateId score');
+        const srcRows = await Rating.find({ candidateId: { $in: candidateIds }, itemNumber: { $in: itemNumbers }, raterId: src._id }).select('competencyId candidateId score').lean();
         adaptedMap = new Map(srcRows.map(r => [`${r.competencyId}:${r.candidateId}`, r.score]));
       }
     }
@@ -3610,11 +3615,13 @@ router.get('/ratings/candidate/:candidateId', authMiddleware, async (req, res) =
         candidateId: req.params.candidateId,
         raterId: req.user._id
       })
+        .select(RATING_CLIENT_PROJECTION)
         .populate('competencyId', 'name type')
-        .populate('raterId', 'name raterType position designation');
+        .populate('raterId', 'name raterType position designation')
+        .lean();
       return res.json(ratings);
     }
-    const ratings = await Rating.findByCandidate(req.params.candidateId);
+    const ratings = await Rating.findByCandidate(req.params.candidateId).select(RATING_CLIENT_PROJECTION).lean();
     res.json(ratings);
   } catch (error) {
     console.error('[GET /ratings/candidate/:id]', error);
@@ -3634,8 +3641,10 @@ router.post('/ratings/by-candidates', authMiddleware, async (req, res) => {
     const query = { candidateId: { $in: ids } };
     if (req.user.userType === 'rater') query.raterId = req.user._id;
     const ratings = await Rating.find(query)
+      .select(RATING_CLIENT_PROJECTION)
       .populate('raterId', 'name raterType position designation')
-      .populate('competencyId', 'name type');
+      .populate('competencyId', 'name type')
+      .lean();
     const byCandidate = {};
     ids.forEach(id => { byCandidate[id] = []; });
     ratings.forEach(r => {
@@ -3695,10 +3704,12 @@ router.post('/ratings/pending-reminders', authMiddleware, async (req, res) => {
     ]);
     if (candidates.length === 0) return res.json({ pending: [] });
 
-    const ratingRows = await Rating.find({
-      candidateId: { $in: candidates.map(c => c._id) },
-      itemNumber: { $in: itemNumbers },
-    }).select('candidateId raterId itemNumber score').lean();
+    // One row per (candidate, item, rater) instead of one per competency score:
+    // ~15-20x fewer rows pulled into Node, and this runs for every rater every 60 s.
+    const ratingRows = await Rating.aggregate([
+      { $match: { candidateId: { $in: candidates.map(c => c._id) }, itemNumber: { $in: itemNumbers }, score: { $gt: 0 } } },
+      { $group: { _id: { c: '$candidateId', i: '$itemNumber', r: '$raterId' } } },
+    ]);
 
     const raterById = Object.fromEntries(allRaters.map(r => [r._id.toString(), r]));
     const ALL_TYPES = ['Chairperson', 'Vice-Chairperson', 'Regular Member', 'DENREU', 'Gender and Development', 'End-User'];
@@ -3706,11 +3717,10 @@ router.post('/ratings/pending-reminders', authMiddleware, async (req, res) => {
 
     // candidateId|itemNumber -> Set(raterId) — only rows with a real score count
     const ratedMap = new Map();
-    for (const r of ratingRows) {
-      if (!(r.score > 0)) continue;
-      const key = `${r.candidateId}|${r.itemNumber}`;
+    for (const g of ratingRows) {
+      const key = `${g._id.c}|${g._id.i}`;
       if (!ratedMap.has(key)) ratedMap.set(key, new Set());
-      ratedMap.get(key).add(String(r.raterId));
+      ratedMap.get(key).add(String(g._id.r));
     }
 
     const pending = [];
@@ -3769,7 +3779,7 @@ router.get('/ratings/rater/:raterId', authMiddleware, async (req, res) => {
   const isAdmin = req.user.userType === 'admin';
   if (!isOwner && !isAdmin) return res.status(403).json({ message: 'Access denied' });
   try {
-    const ratings = await Rating.findByRater(req.params.raterId);
+    const ratings = await Rating.findByRater(req.params.raterId).select(RATING_CLIENT_PROJECTION).lean();
     res.json(ratings);
   } catch (error) {
     console.error('[GET /ratings/rater/:id]', error);
@@ -3781,11 +3791,11 @@ router.get('/ratings/check-existing/:candidateId/:itemNumber/:raterType', authMi
   try {
     const { candidateId, itemNumber, raterType } = req.params;
     const decodedItemNumber = decodeURIComponent(itemNumber);
-    const ratersOfType = await User.find({ raterType }).select('_id');
+    const ratersOfType = await User.find({ raterType }).select('_id').lean();
     const raterIds = ratersOfType.map(r => r._id);
     const existingRatings = await Rating.find({
       candidateId, itemNumber: decodedItemNumber, raterId: { $in: raterIds }
-    }).populate('raterId', 'name raterType');
+    }).select('raterId').populate('raterId', 'name raterType').lean();
 
     if (existingRatings.length > 0) {
       const existingRater = existingRatings[0].raterId;

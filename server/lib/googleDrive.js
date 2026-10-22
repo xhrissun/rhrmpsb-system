@@ -19,7 +19,8 @@
 // simply granting a second "reader" (the service account) direct access to
 // the same folder.
 
-import { google } from 'googleapis';
+// googleapis is ~60-100 MB resident once loaded, so it is imported lazily on first Drive use
+// instead of at boot (the server only needs it for AI-evaluation document fetches).
 
 let driveClientPromise = null;
 
@@ -37,12 +38,17 @@ function getServiceAccountCredentials() {
 
 function getDriveClient() {
   if (!driveClientPromise) {
-    const credentials = getServiceAccountCredentials();
-    const auth = new google.auth.GoogleAuth({
-      credentials,
-      scopes: ['https://www.googleapis.com/auth/drive.readonly']
-    });
-    driveClientPromise = Promise.resolve(google.drive({ version: 'v3', auth }));
+    driveClientPromise = (async () => {
+      const credentials = getServiceAccountCredentials();
+      const { google } = await import('googleapis');
+      const auth = new google.auth.GoogleAuth({
+        credentials,
+        scopes: ['https://www.googleapis.com/auth/drive.readonly']
+      });
+      return google.drive({ version: 'v3', auth });
+    })();
+    // A failed init (bad credentials) must not be cached forever.
+    driveClientPromise.catch(() => { driveClientPromise = null; });
   }
   return driveClientPromise;
 }

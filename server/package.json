@@ -5,7 +5,7 @@
   "description": "Backend server for rater system",
   "main": "server.js",
   "scripts": {
-    "start": "node --max-old-space-size=400 server.js",
+    "start": "node --max-old-space-size=300 --max-semi-space-size=8 server.js",
     "dev": "nodemon server.js",
     "build": "echo 'No build step required'"
   },

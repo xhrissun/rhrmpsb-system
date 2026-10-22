@@ -1790,8 +1790,16 @@ const RaterView = ({ user }) => {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [ratings, countUnsavedRatings]);
 
-  const loadPendingReminders = useCallback(async () => {
+  // Guards: never run two lookups at once, and ignore automatic triggers (focus, visibility, candidate
+  // change) that land within 8 s of the last one. focus + visibilitychange both fire on every tab switch,
+  // and each lookup is a server-side scan across every rating on the rater's items.
+  const remindersInFlightRef = useRef(false);
+  const remindersLastRef = useRef(0);
+  const loadPendingReminders = useCallback(async (force = false) => {
     if (!vacancies.length) { setPendingReminders([]); setRemindersLoaded(true); return; }
+    if (remindersInFlightRef.current) return;
+    if (force !== true && Date.now() - remindersLastRef.current < 8000) return;
+    remindersInFlightRef.current = true;
     try {
       const res = await ratingsAPI.getPendingReminders([...new Set(vacancies.map(v => v.itemNumber))]);
       setPendingReminders(res?.pending || []);
@@ -1799,6 +1807,8 @@ const RaterView = ({ user }) => {
       // Non-critical: a failed reminder lookup must never block rating.
       console.warn('[RaterView] pending reminders failed (non-critical):', err?.message);
     } finally {
+      remindersLastRef.current = Date.now();
+      remindersInFlightRef.current = false;
       setRemindersLoaded(true);
     }
   }, [vacancies]);
@@ -2459,7 +2469,7 @@ const RaterView = ({ user }) => {
       setIsConfirmModalOpen(false);
       setSuccessModalType(isUpdateSubmission ? 'update' : 'submit');
       setIsSuccessModalOpen(true);
-      loadPendingReminders();
+      loadPendingReminders(true);
     } catch (error) {
       console.error('Failed to submit ratings:', error);
       showToast('Failed to submit ratings. Please try again.', 'error');
@@ -2482,7 +2492,7 @@ const RaterView = ({ user }) => {
           setRatings({});
           savedRatingsRef.current = {};
           myRatingsRef.current = { at: 0, data: null };
-          loadPendingReminders();
+          loadPendingReminders(true);
           // Reset the session so the timer starts fresh on next visit — not "Finished"
           try {
             await interviewSessionsAPI.upsert({

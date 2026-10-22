@@ -18,7 +18,12 @@ const SOCKET_BASE_URL = import.meta.env.PROD
 let socket = null;
 
 export function connectSocket() {
-  if (socket?.connected) return socket;
+  // Reuse the existing socket while it is connected OR still connecting/reconnecting (socket.active).
+  // The old `connected`-only check opened a SECOND io() instance whenever a caller arrived mid-handshake,
+  // orphaning the first one: it kept reconnecting forever and the server held every orphan as a live
+  // client (each receiving every Live Stats push).
+  if (socket && (socket.connected || socket.active)) return socket;
+  if (socket) { socket.removeAllListeners(); socket.disconnect(); socket = null; }
   const token = localStorage.getItem('authToken');
   if (!token) return null;
 
