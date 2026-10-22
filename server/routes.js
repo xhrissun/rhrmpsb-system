@@ -4614,6 +4614,11 @@ const computeLiveStats = async () => {
   completed.sort((a, b) => new Date(b.at) - new Date(a.at));
   completed.length = Math.min(completed.length, 40);
 
+  // Header counters on the Live Stats screen: "In progress" = interviews happening right now,
+  // "Not started" = candidates waiting in a queue (not the whole long-list).
+  summary.inProgress = summary.beingRated;
+  summary.notStarted = queue.filter(q => q.status !== 'being_rated').length;
+
   return { generatedAt: new Date(now).toISOString(), summary, items, raters: raterRows, recent, queue, rooms, completed, avgTimes };
 };
 
