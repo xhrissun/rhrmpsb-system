@@ -1,3 +1,4 @@
+// src/components/LiveStatsModal.jsx
 import React, { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect, useContext, createContext } from 'react';
 import { liveStatsAPI, queueAPI } from '../utils/api';
 import { connectSocket, getSocket } from '../utils/socket';
@@ -1110,10 +1111,12 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
       setFetchedAt(Date.now());
       setError(false);
     };
-    const onConnect = () => { setPushOn(true); load(); };      // (re)connected: resync once
+    // The server only pushes snapshots to sockets that subscribed; re-subscribe on every (re)connect.
+    const onConnect = () => { bound?.emit('livestats:subscribe'); setPushOn(true); load(); };      // (re)connected: resync once
     const onDisconnect = () => setPushOn(false);
     const unbind = () => {
       if (!bound) return;
+      if (bound.connected) bound.emit('livestats:unsubscribe');
       bound.off('livestats:update', onUpdate); bound.off('connect', onConnect); bound.off('disconnect', onDisconnect);
       bound = null;
     };
@@ -1123,6 +1126,7 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
       unbind();
       bound = s;
       s.on('livestats:update', onUpdate); s.on('connect', onConnect); s.on('disconnect', onDisconnect);
+      if (s.connected) s.emit('livestats:subscribe');
       setPushOn(!!s.connected);
     };
     bind();

@@ -1,3 +1,4 @@
+// server/lib/socket.js
 import { Server } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { User } from '../models.js';
@@ -54,8 +55,14 @@ export function initSocket(httpServer, corsOptions) {
   });
 
   ioInstance.on('connection', (socket) => {
-    socket.join(LIVE_ROOM);
+    // RATINGS_ROOM only gets a payload-free nudge, so every socket can stay in it.
     socket.join(RATINGS_ROOM);
+    // LIVE_ROOM receives the FULL Live Stats snapshot (every item, candidate, rater, queue entry) on every
+    // change. It used to be joined automatically by every connected socket (all raters, chat users), so each
+    // push was multiplied by the whole headcount and burned the Render outbound-bandwidth allowance. A socket
+    // now joins ONLY when its Live Stats screen is open and explicitly asks to.
+    socket.on('livestats:subscribe', () => { socket.join(LIVE_ROOM); });
+    socket.on('livestats:unsubscribe', () => { socket.leave(LIVE_ROOM); });
     if (!canUseChat(socket.user.userType)) return;
     socket.join(CHAT_ROOM);
     // A personal room, independent of the shared team-chat room — this is
