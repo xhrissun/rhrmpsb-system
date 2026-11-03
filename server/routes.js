@@ -4717,10 +4717,11 @@ const getLiveSnapshot = async () => {
 // liveChanged(). The snapshot is rebuilt once and pushed over the WebSocket to every open Live Stats
 // screen, instead of each screen waiting for its next poll. Pushes are throttled to one per
 // LIVE_PUSH_MIN_MS so a busy session can't flood the server.
-const LIVE_PUSH_MIN_MS = 3000;
+const LIVE_PUSH_MIN_MS = 5000;
 let livePushTimer = null;
 let livePushLast = 0;
 let liveComputing = false;
+let lastLivePushSig = '';
 let liveDirty = false;
 // One rebuild at a time: if something changes while a snapshot is being built, build once more afterwards
 // (never several heavy rebuilds in parallel, which is what exhausts memory on a small host).
@@ -4730,7 +4731,17 @@ const pushLiveSnapshot = async () => {
   if (liveComputing) { liveDirty = true; return; }
   liveComputing = true;
   try {
-    io.to(LIVE_ROOM).emit('livestats:update', await getLiveSnapshot());
+    const snap = await getLiveSnapshot();
+    // Bandwidth guard: skip the push when nothing a screen would show has changed since the last one sent.
+    // generatedAt and elapsedSeconds are ignored: they move every rebuild, and the screens tick timers locally
+    // from the last elapsedSeconds, then resync on the 30 s safety poll. Real changes (rating, queue, room,
+    // interview start/finish, online status) alter other fields and still go out.
+    const sig = crypto.createHash('sha1')
+      .update(JSON.stringify(snap, (k, v) => (k === 'generatedAt' || k === 'elapsedSeconds' ? undefined : v)))
+      .digest('hex');
+    if (sig === lastLivePushSig) return;
+    lastLivePushSig = sig;
+    io.to(LIVE_ROOM).emit('livestats:update', snap);
   } catch (err) {
     console.error('[live-stats push]', err?.message);
   } finally {

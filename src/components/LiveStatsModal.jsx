@@ -1130,8 +1130,15 @@ const LiveStatsModal = ({ isOpen, onClose, canManageQueue = false }) => {
       setPushOn(!!s.connected);
     };
     bind();
+    // A hidden tab can't show the pushes, so stop receiving them; resubscribe and resync the moment it is visible.
+    const onVis = () => {
+      if (!bound || !bound.connected) return;
+      if (document.visibilityState === 'hidden') bound.emit('livestats:unsubscribe');
+      else { bound.emit('livestats:subscribe'); load(); }
+    };
+    document.addEventListener('visibilitychange', onVis);
     const watch = setInterval(bind, 5000);                     // another screen (chat) may replace the shared socket
-    return () => { clearInterval(watch); unbind(); setPushOn(false); };
+    return () => { clearInterval(watch); document.removeEventListener('visibilitychange', onVis); unbind(); setPushOn(false); };
   }, [isOpen, load]);
 
   // Initial load, and a refresh whenever the tab becomes visible again.
