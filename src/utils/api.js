@@ -653,23 +653,10 @@ export const ratingsAPI = {
     const response = await api.post('/ratings/pending-reminders', { itemNumbers: itemNumbers || [] });
     return response.data;
   },
-  // Admin / secretariat: CSV of every long-listed candidate with missing rater seats + who still has to rate.
-  exportIncompleteCSV: async () => {
-    const response = await api.get('/ratings/incomplete-export', { responseType: 'blob' });
-    const cd = response.headers['content-disposition'];
-    let filename = `incomplete_ratings_${new Date().toISOString().split('T')[0]}.csv`;
-    const match = cd && cd.match(/filename="(.+)"/);
-    if (match) filename = match[1];
-    const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8;' });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);
-    return { success: true, filename };
+  // Admin / secretariat: everybody's "still need to rate" — incomplete candidates, who rated, who still owes (no scores).
+  getStillNeedToRate: async () => {
+    const response = await api.get('/ratings/still-need-to-rate');
+    return response.data;
   },
   getByRater: async (raterId) => {
     const response = await api.get(`/ratings/rater/${raterId}`);

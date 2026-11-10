@@ -3710,7 +3710,7 @@ router.post('/ratings/pending-reminders', authMiddleware, async (req, res) => {
     const [candidates, allRaters] = await Promise.all([
       Candidate.find({ itemNumber: { $in: itemNumbers }, isArchived: false, status: 'long_list' })
         .select('_id fullName itemNumber').lean(),
-      User.find({ userType: 'rater' }).select('_id name raterType').lean(),
+      User.find({ userType: 'rater' }).select('_id name raterType assignedVacancies assignedAssignment assignedItemNumbers suspendedItemNumbers').lean(),
     ]);
     if (candidates.length === 0) return res.json({ pending: [] });
 
@@ -3767,6 +3767,12 @@ router.post('/ratings/pending-reminders', authMiddleware, async (req, res) => {
         ratedBy,
         requiredRaters: requiredTypes.length,
         awaitingTypes: requiredTypes.filter(t => !ratedTypes.has(t)),
+        // Other raters who still owe a rating on this candidate (never me, never any score).
+        awaitingRaters: requiredTypes
+          .filter(t => !ratedTypes.has(t) && t !== me.raterType)   // my own seat is me
+          .flatMap(t => expectedRatersForSeat(allRaters, t, v, ratedSet)
+            .filter(r => String(r._id) !== myId)
+            .map(r => ({ name: r.name, raterType: t }))),
       });
     }
 
@@ -3782,13 +3788,33 @@ router.post('/ratings/pending-reminders', authMiddleware, async (req, res) => {
   }
 });
 
-// ── Incomplete-ratings export (admin / secretariat) ──────────────────────────
-// One CSV row per (long-listed candidate × required rater seat that has NOT rated yet), naming the
-// rater(s) who still owe a rating. Uses the same completeness rule as Live Stats / pending-reminders:
-// SG <= 14 needs Regular Member + End-User; SG >= 15 needs all six panel seats; one rating set per seat.
-// Raters named per seat: item-specific first, then place-of-assignment, then 'all'-scope as a last resort.
-// Names, seats and status only — never any score.
-router.get('/ratings/incomplete-export', exportLimiter, authMiddleware, async (req, res) => {
+// ── "Still need to rate" helpers (shared by the rater reminder and the admin/secretariat panel) ──
+const raterInScope = (rater, v) => {
+  if ((rater.suspendedItemNumbers || []).includes(v.itemNumber)) return false;
+  switch (rater.assignedVacancies) {
+    case 'all': return true;
+    case 'assignment': return !!rater.assignedAssignment && v.assignment === rater.assignedAssignment;
+    case 'specific': return (rater.assignedItemNumbers || []).includes(v.itemNumber);
+    default: return false;
+  }
+};
+
+// Raters actually expected to fill one seat (rater type) on one item. Narrowest match wins: pinned to this
+// exact item, else pinned to its place of assignment, else blanket 'all'-scope raters as a last resort —
+// otherwise every rater with access to all vacancies would be named on every item.
+const expectedRatersForSeat = (raters, type, v, ratedSet) => {
+  const eligible = raters.filter(r => r.raterType === type && raterInScope(r, v) && !ratedSet.has(String(r._id)));
+  const specific = eligible.filter(r => r.assignedVacancies === 'specific');
+  if (specific.length) return specific;
+  const byAssignment = eligible.filter(r => r.assignedVacancies === 'assignment');
+  return byAssignment.length ? byAssignment : eligible;
+};
+
+// ── Everybody's "still need to rate" (admin / secretariat) ───────────────────
+// Every active long-listed candidate whose ratings are not complete, with who has rated and, per missing
+// seat, which rater(s) still owe a rating. Same completeness rule as Live Stats: SG <= 14 needs Regular
+// Member + End-User; SG >= 15 needs all six seats; one rating set per seat. Names/seats only — never scores.
+router.get('/ratings/still-need-to-rate', authMiddleware, async (req, res) => {
   if (req.user.userType !== 'admin' && req.user.userType !== 'secretariat') {
     return res.status(403).json({ message: 'Access denied' });
   }
@@ -3797,12 +3823,6 @@ router.get('/ratings/incomplete-export', exportLimiter, authMiddleware, async (r
       .select('itemNumber position assignment salaryGrade').lean();
     const vacancyByItem = Object.fromEntries(vacancies.map(v => [v.itemNumber, v]));
     const itemNumbers = Object.keys(vacancyByItem);
-
-    const headers = [
-      'Item Number', 'Position', 'Place of Assignment', 'Salary Grade', 'Panel Type',
-      'Candidate', 'Candidate Status', 'Seats Rated', 'Seats Required',
-      'Missing Rater Seat', 'Rater(s) Who Have Not Rated', 'Rater Email(s)', 'Already Rated By'
-    ];
     const rows = [];
 
     if (itemNumbers.length > 0) {
@@ -3810,80 +3830,52 @@ router.get('/ratings/incomplete-export', exportLimiter, authMiddleware, async (r
         Candidate.find({ itemNumber: { $in: itemNumbers }, isArchived: false, status: 'long_list' })
           .select('_id fullName itemNumber').lean(),
         User.find({ userType: 'rater' })
-          .select('_id name email raterType assignedVacancies assignedAssignment assignedItemNumbers suspendedItemNumbers').lean(),
+          .select('_id name raterType assignedVacancies assignedAssignment assignedItemNumbers suspendedItemNumbers').lean(),
         Rating.aggregate([
           { $match: { itemNumber: { $in: itemNumbers }, score: { $gt: 0 } } },
           { $group: { _id: { c: '$candidateId', i: '$itemNumber', r: '$raterId' } } },
         ]),
       ]);
-
       const raterById = Object.fromEntries(raters.map(r => [String(r._id), r]));
-      const ratedMap = new Map();   // candidateId|item -> Set(raterId)
+      const ratedMap = new Map();
       for (const g of ratedRows) {
         const key = `${g._id.c}|${g._id.i}`;
         if (!ratedMap.has(key)) ratedMap.set(key, new Set());
         ratedMap.get(key).add(String(g._id.r));
       }
 
-      const inScope = (rater, v) => {
-        if ((rater.suspendedItemNumbers || []).includes(v.itemNumber)) return false;
-        switch (rater.assignedVacancies) {
-          case 'all': return true;
-          case 'assignment': return !!rater.assignedAssignment && v.assignment === rater.assignedAssignment;
-          case 'specific': return (rater.assignedItemNumbers || []).includes(v.itemNumber);
-          default: return false;
-        }
-      };
-
-      const sorted = [...candidates].sort((a, b) =>
-        String(vacancyByItem[a.itemNumber]?.assignment || '').localeCompare(String(vacancyByItem[b.itemNumber]?.assignment || '')) ||
-        a.itemNumber.localeCompare(b.itemNumber) || a.fullName.localeCompare(b.fullName));
-
-      for (const c of sorted) {
+      for (const c of candidates) {
         const v = vacancyByItem[c.itemNumber];
         if (!v) continue;
         const requiredTypes = v.salaryGrade <= 14 ? ['Regular Member', 'End-User'] : LIVE_ALL_RATER_TYPES;
         const ratedSet = ratedMap.get(`${c._id}|${c.itemNumber}`) || new Set();
-
-        // Seat is filled once any rater of that type has rated this candidate.
         const ratedBy = [...ratedSet].map(id => raterById[id]).filter(r => r && requiredTypes.includes(r.raterType));
         const filledTypes = new Set(ratedBy.map(r => r.raterType));
         const missingTypes = requiredTypes.filter(t => !filledTypes.has(t));
-        if (missingTypes.length === 0) continue;   // complete — not exported
+        if (missingTypes.length === 0) continue;   // complete
 
-        const ratedByText = ratedBy.map(r => `${r.name} (${r.raterType})`).join('; ');
-        for (const type of missingTypes) {
-          // Name only the raters actually expected for this seat. A rater pinned to this exact item
-          // ('specific') or to this item's place of assignment ('assignment') is the expected one; broad
-          // 'all'-scope raters are named only when no narrower rater exists for the seat. Otherwise every
-          // End-User (or other type) with blanket access to all vacancies would be listed on every item.
-          const eligible = raters.filter(r => r.raterType === type && inScope(r, v) && !ratedSet.has(String(r._id)));
-          const specific = eligible.filter(r => r.assignedVacancies === 'specific');
-          const byAssignment = eligible.filter(r => r.assignedVacancies === 'assignment');
-          const owing = specific.length ? specific : byAssignment.length ? byAssignment : eligible;
-          rows.push([
-            c.itemNumber, v.position, v.assignment, v.salaryGrade,
-            v.salaryGrade <= 14 ? 'Two-rater (SG 14 and below)' : 'Full panel (SG 15 and above)',
-            c.fullName,
-            filledTypes.size === 0 ? 'Not started' : 'In progress',
-            filledTypes.size, requiredTypes.length,
-            type,
-            owing.length ? owing.map(r => r.name).join('; ') : 'No assigned rater for this seat',
-            owing.map(r => r.email).filter(Boolean).join('; '),
-            ratedByText || '—',
-          ]);
-        }
+        rows.push({
+          candidateId: String(c._id), candidateName: c.fullName,
+          itemNumber: c.itemNumber, position: v.position, assignment: v.assignment, salaryGrade: v.salaryGrade,
+          panelType: v.salaryGrade <= 14 ? 'two_rater' : 'panel',
+          requiredRaters: requiredTypes.length,
+          status: filledTypes.size === 0 ? 'not_started' : 'in_progress',
+          ratedBy: ratedBy.map(r => ({ name: r.name, raterType: r.raterType })),
+          awaiting: missingTypes.map(type => ({
+            raterType: type,
+            raters: expectedRatersForSeat(raters, type, v, ratedSet).map(r => ({ id: String(r._id), name: r.name })),
+          })),
+        });
       }
     }
 
-    const csvContent = [headers, ...rows].map(r => r.map(escapeCsvValue).join(',')).join('\n');
-    const filename = `incomplete_ratings_${new Date().toISOString().split('T')[0]}.csv`;
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.send('\ufeff' + csvContent);
+    rows.sort((a, b) =>
+      a.assignment.localeCompare(b.assignment) || a.itemNumber.localeCompare(b.itemNumber) ||
+      a.candidateName.localeCompare(b.candidateName));
+    res.json({ generatedAt: new Date().toISOString(), candidates: rows });
   } catch (error) {
-    console.error('[GET /ratings/incomplete-export]', error);
-    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
+    console.error('[GET /ratings/still-need-to-rate]', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 

@@ -1400,6 +1400,12 @@ const PendingRatingsReminder = ({ pending, currentCandidateId, onJump, openSigna
                           <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
                           You haven&apos;t rated yet
                         </span>
+                        {(row.awaitingRaters || []).map(r => (
+                          <span key={`wait-${r.raterType}-${r.name}`} className="inline-flex items-center gap-1 rounded-full bg-orange-100 text-orange-800 text-[11px] sm:text-xs font-medium px-2 py-0.5" title={`${r.name} (${r.raterType}) still needs to rate`}>
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 2m6-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            {r.name} · {r.raterType}
+                          </span>
+                        ))}
                       </div>
                     </button>
                   );
