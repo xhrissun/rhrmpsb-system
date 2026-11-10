@@ -6,7 +6,8 @@ import InterviewSummaryGeneratorV2 from './InterviewSummaryGeneratorV2';
 import TrustedDevicesModal from './TrustedDevicesModal';
 import LiveStatsModal from './LiveStatsModal';
 import { USER_TYPES } from '../utils/constants';
-import { usersAPI } from '../utils/api';
+import { usersAPI, ratingsAPI } from '../utils/api';
+import { useToast } from '../utils/ToastContext';
 
 // ─── CBS-Aligned Rating Scale (numeric → adjectival) ─────────────────────────
 const CBS_RATING_SCALE = [
@@ -1365,6 +1366,24 @@ const Dashboard = ({ user, onLogout }) => {
   const [logoutConfirmModalOpen, setLogoutConfirmModalOpen] = useState(false);
   const [starBEIGuideOpen, setStarBEIGuideOpen] = useState(false);
   const [liveStatsOpen, setLiveStatsOpen] = useState(false);
+  const { showToast } = useToast();
+  const [exportingIncomplete, setExportingIncomplete] = useState(false);
+
+  // Admin / secretariat: download a CSV of every long-listed candidate whose ratings are incomplete,
+  // with the missing rater seat(s) and the name(s) of whoever has not rated yet.
+  const handleExportIncompleteRatings = async () => {
+    if (exportingIncomplete) return;
+    setExportingIncomplete(true);
+    try {
+      await ratingsAPI.exportIncompleteCSV();
+      showToast('Incomplete ratings CSV downloaded.', 'success');
+    } catch (error) {
+      console.error('Incomplete ratings export error:', error);
+      showToast('Failed to export incomplete ratings. Please try again.', 'error');
+    } finally {
+      setExportingIncomplete(false);
+    }
+  };
 
   useEffect(() => {
     if (user.userType === USER_TYPES.ADMIN) fetchUsers();
@@ -1449,6 +1468,16 @@ const Dashboard = ({ user, onLogout }) => {
           <span className="navbar-welcome">{user.name}</span>
           {(user.userType === USER_TYPES.SECRETARIAT || user.userType === USER_TYPES.ADMIN) && (
             <OnlineUsersDropdown />
+          )}
+          {(user.userType === USER_TYPES.SECRETARIAT || user.userType === USER_TYPES.ADMIN) && (
+            <button
+              onClick={handleExportIncompleteRatings}
+              disabled={exportingIncomplete}
+              className="navbar-button bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-60 disabled:cursor-not-allowed"
+              title="Download a CSV of incomplete ratings and who has not rated yet"
+            >
+              {exportingIncomplete ? 'Exporting…' : '⬇ Incomplete Ratings CSV'}
+            </button>
           )}
           {/* Live Stats — available to every user type */}
           <button

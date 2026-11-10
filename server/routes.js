@@ -3782,6 +3782,103 @@ router.post('/ratings/pending-reminders', authMiddleware, async (req, res) => {
   }
 });
 
+// ── Incomplete-ratings export (admin / secretariat) ──────────────────────────
+// One CSV row per (long-listed candidate × required rater seat that has NOT rated yet), naming the
+// rater(s) who still owe a rating. Uses the same completeness rule as Live Stats / pending-reminders:
+// SG <= 14 needs Regular Member + End-User; SG >= 15 needs all six panel seats; one rating set per seat.
+// Names, seats and status only — never any score.
+router.get('/ratings/incomplete-export', exportLimiter, authMiddleware, async (req, res) => {
+  if (req.user.userType !== 'admin' && req.user.userType !== 'secretariat') {
+    return res.status(403).json({ message: 'Access denied' });
+  }
+  try {
+    const vacancies = await Vacancy.find({ isArchived: false })
+      .select('itemNumber position assignment salaryGrade').lean();
+    const vacancyByItem = Object.fromEntries(vacancies.map(v => [v.itemNumber, v]));
+    const itemNumbers = Object.keys(vacancyByItem);
+
+    const headers = [
+      'Item Number', 'Position', 'Place of Assignment', 'Salary Grade', 'Panel Type',
+      'Candidate', 'Candidate Status', 'Seats Rated', 'Seats Required',
+      'Missing Rater Seat', 'Rater(s) Who Have Not Rated', 'Rater Email(s)', 'Already Rated By'
+    ];
+    const rows = [];
+
+    if (itemNumbers.length > 0) {
+      const [candidates, raters, ratedRows] = await Promise.all([
+        Candidate.find({ itemNumber: { $in: itemNumbers }, isArchived: false, status: 'long_list' })
+          .select('_id fullName itemNumber').lean(),
+        User.find({ userType: 'rater' })
+          .select('_id name email raterType assignedVacancies assignedAssignment assignedItemNumbers suspendedItemNumbers').lean(),
+        Rating.aggregate([
+          { $match: { itemNumber: { $in: itemNumbers }, score: { $gt: 0 } } },
+          { $group: { _id: { c: '$candidateId', i: '$itemNumber', r: '$raterId' } } },
+        ]),
+      ]);
+
+      const raterById = Object.fromEntries(raters.map(r => [String(r._id), r]));
+      const ratedMap = new Map();   // candidateId|item -> Set(raterId)
+      for (const g of ratedRows) {
+        const key = `${g._id.c}|${g._id.i}`;
+        if (!ratedMap.has(key)) ratedMap.set(key, new Set());
+        ratedMap.get(key).add(String(g._id.r));
+      }
+
+      const inScope = (rater, v) => {
+        if ((rater.suspendedItemNumbers || []).includes(v.itemNumber)) return false;
+        switch (rater.assignedVacancies) {
+          case 'all': return true;
+          case 'assignment': return !!rater.assignedAssignment && v.assignment === rater.assignedAssignment;
+          case 'specific': return (rater.assignedItemNumbers || []).includes(v.itemNumber);
+          default: return false;
+        }
+      };
+
+      const sorted = [...candidates].sort((a, b) =>
+        String(vacancyByItem[a.itemNumber]?.assignment || '').localeCompare(String(vacancyByItem[b.itemNumber]?.assignment || '')) ||
+        a.itemNumber.localeCompare(b.itemNumber) || a.fullName.localeCompare(b.fullName));
+
+      for (const c of sorted) {
+        const v = vacancyByItem[c.itemNumber];
+        if (!v) continue;
+        const requiredTypes = v.salaryGrade <= 14 ? ['Regular Member', 'End-User'] : LIVE_ALL_RATER_TYPES;
+        const ratedSet = ratedMap.get(`${c._id}|${c.itemNumber}`) || new Set();
+
+        // Seat is filled once any rater of that type has rated this candidate.
+        const ratedBy = [...ratedSet].map(id => raterById[id]).filter(r => r && requiredTypes.includes(r.raterType));
+        const filledTypes = new Set(ratedBy.map(r => r.raterType));
+        const missingTypes = requiredTypes.filter(t => !filledTypes.has(t));
+        if (missingTypes.length === 0) continue;   // complete — not exported
+
+        const ratedByText = ratedBy.map(r => `${r.name} (${r.raterType})`).join('; ');
+        for (const type of missingTypes) {
+          const owing = raters.filter(r => r.raterType === type && inScope(r, v) && !ratedSet.has(String(r._id)));
+          rows.push([
+            c.itemNumber, v.position, v.assignment, v.salaryGrade,
+            v.salaryGrade <= 14 ? 'Two-rater (SG 14 and below)' : 'Full panel (SG 15 and above)',
+            c.fullName,
+            filledTypes.size === 0 ? 'Not started' : 'In progress',
+            filledTypes.size, requiredTypes.length,
+            type,
+            owing.length ? owing.map(r => r.name).join('; ') : 'No assigned rater for this seat',
+            owing.map(r => r.email).filter(Boolean).join('; '),
+            ratedByText || '—',
+          ]);
+        }
+      }
+    }
+
+    const csvContent = [headers, ...rows].map(r => r.map(escapeCsvValue).join(',')).join('\n');
+    const filename = `incomplete_ratings_${new Date().toISOString().split('T')[0]}.csv`;
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send('\ufeff' + csvContent);
+  } catch (error) {
+    console.error('[GET /ratings/incomplete-export]', error);
+    res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? 'Server error: ' + error.message : 'Server error' });
+  }
+});
+
 router.get('/ratings/rater/:raterId', authMiddleware, async (req, res) => {
   // F-02 FIX: A rater may only fetch their own ratings.
   // Admins may fetch any rater's ratings (for reporting / audit).
