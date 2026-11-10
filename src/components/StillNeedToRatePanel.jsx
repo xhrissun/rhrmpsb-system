@@ -80,6 +80,7 @@ const StillNeedToRatePanel = ({ isOpen, onClose }) => {
   const [loading, setLoading] = useState(false);
   const [view, setView] = useState('candidate');     // 'candidate' | 'position'
   const [panelFilter, setPanelFilter] = useState('all'); // 'all' | 'panel' | 'two_rater'
+  const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'in_progress' | 'not_started'
   const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
@@ -108,6 +109,7 @@ const StillNeedToRatePanel = ({ isOpen, onClose }) => {
     const q = search.trim().toLowerCase();
     return (data?.candidates || []).filter(c => {
       if (panelFilter !== 'all' && c.panelType !== panelFilter) return false;
+      if (statusFilter !== 'all' && c.status !== statusFilter) return false;
       if (!q) return true;
       const hay = [
         c.candidateName, c.itemNumber, c.position, c.assignment,
@@ -116,7 +118,7 @@ const StillNeedToRatePanel = ({ isOpen, onClose }) => {
       ].join(' ').toLowerCase();
       return hay.includes(q);
     });
-  }, [data, panelFilter, search]);
+  }, [data, panelFilter, statusFilter, search]);
 
   // Position view: group by item; tally how many candidates each rater still owes.
   const positions = useMemo(() => {
@@ -143,6 +145,10 @@ const StillNeedToRatePanel = ({ isOpen, onClose }) => {
   if (!isOpen) return null;
 
   const total = data?.candidates?.length ?? 0;
+  const statusCounts = {
+    in_progress: (data?.candidates || []).filter(c => c.status === 'in_progress').length,
+    not_started: (data?.candidates || []).filter(c => c.status === 'not_started').length,
+  };
   const counts = {
     panel: (data?.candidates || []).filter(c => c.panelType !== 'two_rater').length,
     two_rater: (data?.candidates || []).filter(c => c.panelType === 'two_rater').length,
@@ -178,6 +184,12 @@ const StillNeedToRatePanel = ({ isOpen, onClose }) => {
             {[['all', `All (${total})`], ['panel', `Panel (${counts.panel})`], ['two_rater', `2-rater (${counts.two_rater})`]].map(([id, label]) => (
               <button key={id} type="button" aria-pressed={panelFilter === id} onClick={() => setPanelFilter(id)}
                 className={`px-3 py-1.5 text-xs sm:text-sm font-medium ${panelFilter === id ? 'bg-gray-800 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}>{label}</button>
+            ))}
+          </div>
+          <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden" role="group" aria-label="Status">
+            {[['all', 'Any status'], ['in_progress', `In progress (${statusCounts.in_progress})`], ['not_started', `Not started (${statusCounts.not_started})`]].map(([id, label]) => (
+              <button key={id} type="button" aria-pressed={statusFilter === id} onClick={() => setStatusFilter(id)}
+                className={`px-3 py-1.5 text-xs sm:text-sm font-medium ${statusFilter === id ? (id === 'not_started' ? 'bg-red-600 text-white' : id === 'in_progress' ? 'bg-amber-600 text-white' : 'bg-gray-800 text-white') : 'bg-white text-gray-700 hover:bg-gray-50'}`}>{label}</button>
             ))}
           </div>
           <input
