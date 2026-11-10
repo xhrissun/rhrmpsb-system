@@ -5,11 +5,26 @@ import { ratingsAPI } from '../utils/api';
 // ─── "Still need to rate" — everybody's pending ratings (admin / secretariat) ──
 // Same idea as the rater's own "You still need to rate" panel, but across the whole board:
 //   • Candidate view — one card per incomplete candidate: who has rated, who still owes a rating.
+//   • Rater view     — one block per rater: every candidate they still owe a rating on.
 //   • Position view  — one block per item/position: which raters owe ratings (and how many
 //                      candidates each), then the candidates under it.
 // Names, rater types and status only — never scores.
 
 const POLL_MS = 30000;
+
+// Partner seats that may adopt ("adapt") each other's ratings — mirrors PEER_PARTNER on the server.
+const PEER_PARTNER = {
+  'Chairperson': 'Vice-Chairperson', 'Vice-Chairperson': 'Chairperson',
+  'Regular Member': 'End-User', 'End-User': 'Regular Member',
+};
+
+// For one candidate: every still-owing seat whose partner seat has already rated, i.e. who could adopt whose ratings.
+const adoptOptions = (c) => c.awaiting.flatMap(seat => {
+  const partner = PEER_PARTNER[seat.raterType];
+  if (!partner) return [];
+  const source = c.ratedBy.find(r => r.raterType === partner);
+  return source ? [{ seat: seat.raterType, owing: seat.raters, source }] : [];
+});
 
 const DoneIcon = () => (
   <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
@@ -70,6 +85,14 @@ const CandidateCard = ({ c, showPosition }) => {
         {c.ratedBy.map(r => <DonePill key={r.raterType + r.name} r={r} />)}
         <AwaitingPills awaiting={c.awaiting} />
       </div>
+      {adoptOptions(c).map(o => (
+        <div key={o.seat} className="mt-2 flex items-start gap-1.5 rounded-md bg-indigo-50 border border-indigo-100 px-2 py-1 text-[11px] sm:text-xs text-indigo-800">
+          <span aria-hidden="true">💡</span>
+          <span>
+            {o.owing.length ? o.owing.map(r => r.name).join(', ') : `The ${o.seat}`} can adopt <b>{o.source.name}</b>&apos;s ({o.source.raterType}) ratings as a starting point.
+          </span>
+        </div>
+      ))}
     </div>
   );
 };
@@ -105,20 +128,45 @@ const StillNeedToRatePanel = ({ isOpen, onClose }) => {
     return () => { clearInterval(t); window.removeEventListener('keydown', onKey); };
   }, [isOpen, load, onClose]);
 
+  // Panel + status filters only (the Rater view applies the search its own way, below).
+  const scoped = useMemo(() => (data?.candidates || []).filter(c =>
+    (panelFilter === 'all' || c.panelType === panelFilter) &&
+    (statusFilter === 'all' || c.status === statusFilter)
+  ), [data, panelFilter, statusFilter]);
+
   const candidates = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return (data?.candidates || []).filter(c => {
-      if (panelFilter !== 'all' && c.panelType !== panelFilter) return false;
-      if (statusFilter !== 'all' && c.status !== statusFilter) return false;
-      if (!q) return true;
-      const hay = [
-        c.candidateName, c.itemNumber, c.position, c.assignment,
-        ...c.ratedBy.map(r => r.name),
-        ...c.awaiting.flatMap(s => [s.raterType, ...s.raters.map(r => r.name)]),
-      ].join(' ').toLowerCase();
-      return hay.includes(q);
+    if (!q) return scoped;
+    return scoped.filter(c => [
+      c.candidateName, c.itemNumber, c.position, c.assignment,
+      ...c.ratedBy.map(r => r.name),
+      ...c.awaiting.flatMap(s => [s.raterType, ...s.raters.map(r => r.name)]),
+    ].join(' ').toLowerCase().includes(q));
+  }, [scoped, search]);
+
+  // Rater view: who still owes what. A seat nobody is assigned to is grouped as "No assigned rater · <seat>".
+  // Searching a rater's name/seat shows all of that rater's candidates; any other search narrows the candidates.
+  const raterBlocks = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const map = new Map();
+    scoped.forEach(c => {
+      c.awaiting.forEach(seat => {
+        const list = seat.raters.length ? seat.raters : [{ id: `none-${seat.raterType}`, name: 'No assigned rater', unassigned: true }];
+        list.forEach(r => {
+          const key = `${seat.raterType}|${r.id}`;
+          if (!map.has(key)) map.set(key, { key, name: r.name, raterType: seat.raterType, unassigned: !!r.unassigned, rows: [] });
+          map.get(key).rows.push(c);
+        });
+      });
     });
-  }, [data, panelFilter, statusFilter, search]);
+    const blocks = [];
+    map.forEach(b => {
+      const raterMatch = !q || `${b.name} ${b.raterType}`.toLowerCase().includes(q);
+      const rows = raterMatch ? b.rows : b.rows.filter(c => `${c.candidateName} ${c.itemNumber} ${c.position} ${c.assignment}`.toLowerCase().includes(q));
+      if (rows.length) blocks.push({ ...b, rows });
+    });
+    return blocks.sort((a, b) => (a.unassigned - b.unassigned) || (b.rows.length - a.rows.length) || a.name.localeCompare(b.name));
+  }, [scoped, search]);
 
   // Position view: group by item; tally how many candidates each rater still owes.
   const positions = useMemo(() => {
@@ -175,7 +223,7 @@ const StillNeedToRatePanel = ({ isOpen, onClose }) => {
         {/* Controls */}
         <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-amber-200 bg-white">
           <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden" role="tablist" aria-label="View">
-            {[['candidate', 'Candidate view'], ['position', 'Position view']].map(([id, label]) => (
+            {[['candidate', 'Candidate view'], ['position', 'Position view'], ['rater', 'Rater view']].map(([id, label]) => (
               <button key={id} type="button" role="tab" aria-selected={view === id} onClick={() => setView(id)}
                 className={`px-3 py-1.5 text-xs sm:text-sm font-semibold ${view === id ? 'bg-amber-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}>{label}</button>
             ))}
@@ -194,9 +242,18 @@ const StillNeedToRatePanel = ({ isOpen, onClose }) => {
           </div>
           <input
             type="search" value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="Search candidate, position or rater…"
+            placeholder="Search rater, candidate or position…"
             className="flex-1 min-w-[180px] px-3 py-1.5 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-amber-400"
           />
+        </div>
+
+        <div className="flex items-start gap-2 px-4 py-2 border-b border-indigo-100 bg-indigo-50 text-xs sm:text-sm text-indigo-900">
+          <span aria-hidden="true">💡</span>
+          <span>
+            <b>Raters can adopt a colleague&apos;s ratings.</b> Once a Chairperson or Vice-Chairperson, or a Regular Member or End-User,
+            has rated a candidate, their partner can use <b>Adapt … ratings</b> in the rating form to copy those scores,
+            review and change them, then submit. Candidates where this is possible are marked 💡 below.
+          </span>
         </div>
 
         {/* Body */}
@@ -205,10 +262,62 @@ const StillNeedToRatePanel = ({ isOpen, onClose }) => {
             <div className="py-12 text-center text-gray-600">
               {error ? <>Couldn&apos;t load. <button type="button" className="underline" onClick={load}>Try again</button></> : 'Loading…'}
             </div>
-          ) : candidates.length === 0 ? (
+          ) : (view === 'rater' ? raterBlocks.length === 0 : candidates.length === 0) ? (
             <div className="py-12 text-center text-gray-600">
               {total === 0 ? '🎉 Every long-listed candidate has complete ratings.' : 'No matches for your filters.'}
             </div>
+          ) : view === 'rater' ? (
+            raterBlocks.map(b => {
+              // group this rater's candidates by item so it is clear which position each belongs to
+              const byItem = new Map();
+              b.rows.forEach(c => {
+                if (!byItem.has(c.itemNumber)) byItem.set(c.itemNumber, { itemNumber: c.itemNumber, position: c.position, assignment: c.assignment, rows: [] });
+                byItem.get(c.itemNumber).rows.push(c);
+              });
+              return (
+                <div key={b.key} className="rounded-xl border border-amber-200 bg-white overflow-hidden">
+                  <div className="flex flex-wrap items-center gap-2 px-3 py-2 bg-amber-50 border-b border-amber-200">
+                    <span className={b.unassigned
+                      ? 'inline-flex items-center gap-1 rounded-full border border-dashed border-gray-400 bg-gray-50 text-gray-600 text-sm font-semibold px-2.5 py-0.5'
+                      : 'inline-flex items-center gap-1 rounded-full bg-red-100 text-red-700 text-sm font-bold px-2.5 py-0.5'}>
+                      <ClockIcon />{b.name}
+                    </span>
+                    <span className="text-xs font-semibold text-gray-600">{b.raterType}</span>
+                    <span className="ml-auto text-xs font-semibold text-gray-700">
+                      owes {b.rows.length} candidate{b.rows.length === 1 ? '' : 's'}
+                    </span>
+                  </div>
+                  <div className="p-2 sm:p-3 space-y-3">
+                    {[...byItem.values()].map(g => (
+                      <div key={g.itemNumber}>
+                        <div className="flex flex-wrap items-baseline gap-x-2 px-1 mb-1">
+                          <span className="text-[11px] font-bold uppercase tracking-wide text-amber-900">Item # {g.itemNumber}</span>
+                          <span className="text-sm font-semibold text-gray-800">{g.position}</span>
+                          <span className="text-xs text-gray-500">{g.assignment}</span>
+                        </div>
+                        <div className="space-y-1">
+                          {g.rows.map(c => (
+                            <div key={c.candidateId} className="flex items-center justify-between gap-3 rounded-md border border-gray-200 px-3 py-1.5">
+                              <span className="text-sm font-semibold text-gray-900 truncate">{c.candidateName}</span>
+                              <span className="flex items-center gap-2 flex-shrink-0 text-xs text-gray-500">
+                                {(() => {
+                                  const src = !b.unassigned && c.ratedBy.find(r => r.raterType === PEER_PARTNER[b.raterType]);
+                                  return src ? <span className="rounded-full bg-indigo-100 text-indigo-800 font-semibold px-2 py-0.5" title={`${src.name} (${src.raterType}) has rated — ${b.name} can adopt those ratings`}>💡 can adopt {src.name}</span> : null;
+                                })()}
+                                {c.ratedBy.length} of {c.requiredRaters} done
+                                <span className={`font-semibold ${c.status === 'not_started' ? 'text-red-600' : 'text-amber-600'}`}>
+                                  {c.status === 'not_started' ? 'Not started' : 'In progress'}
+                                </span>
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })
           ) : view === 'candidate' ? (
             <div className="space-y-2">
               {candidates.map(c => <CandidateCard key={`${c.itemNumber}-${c.candidateId}`} c={c} showPosition />)}

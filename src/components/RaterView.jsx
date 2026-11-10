@@ -1260,7 +1260,7 @@ const RadioRating = ({ competency, competencyType, currentRating, onChange, onCl
 // members have already rated but the current rater has not. Each row is a
 // button: clicking it jumps straight to that candidate in the rating form.
 // Only names + rater types are shown — never scores (CBS independence).
-const PendingRatingsReminder = ({ pending, currentCandidateId, onJump, openSignal = 0 }) => {
+const PendingRatingsReminder = ({ pending, currentCandidateId, onJump, openSignal = 0, partnerType = null }) => {
   // Minimized by default, but it pops open whenever new candidates start waiting for this rater
   // (openSignal changes), so the banner can't be overlooked. The rater can still collapse it.
   const [collapsed, setCollapsed] = useState(true);
@@ -1352,6 +1352,16 @@ const PendingRatingsReminder = ({ pending, currentCandidateId, onJump, openSigna
               </button>
             ))}
           </div>
+          {partnerType && (
+            <div className="flex items-start gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs sm:text-sm text-indigo-900">
+              <span aria-hidden="true">💡</span>
+              <span>
+                <b>You can adopt a colleague&apos;s ratings.</b> When a {partnerType} has already rated a candidate,
+                open that candidate and tap <b>Adapt {partnerType}&apos;s ratings</b> to copy their scores as a starting point.
+                Review every score, change what you disagree with, then submit.
+              </span>
+            </div>
+          )}
           {groups.map(g => (
             <div key={g.itemNumber}>
               <div className="flex flex-wrap items-baseline gap-x-2 px-1 mb-2">
@@ -1400,6 +1410,11 @@ const PendingRatingsReminder = ({ pending, currentCandidateId, onJump, openSigna
                           <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
                           You haven&apos;t rated yet
                         </span>
+                        {partnerType && row.ratedBy.filter(r => r.raterType === partnerType).map(r => (
+                          <span key={`adapt-${r.name}`} className="inline-flex items-center gap-1 rounded-full bg-indigo-100 text-indigo-800 text-[11px] sm:text-xs font-semibold px-2 py-0.5" title={`${r.name} (${r.raterType}) has rated — you can adapt their ratings`}>
+                            💡 Can adapt {r.name}&apos;s ratings
+                          </span>
+                        ))}
                         {(row.awaitingRaters || []).map(r => (
                           <span key={`wait-${r.raterType}-${r.name}`} className="inline-flex items-center gap-1 rounded-full bg-orange-100 text-orange-800 text-[11px] sm:text-xs font-medium px-2 py-0.5" title={`${r.name} (${r.raterType}) still needs to rate`}>
                             <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 2m6-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
@@ -2825,6 +2840,7 @@ const RaterView = ({ user }) => {
           <PendingRatingsReminder
             openSignal={reminderOpenSignal}
             pending={pendingReminders}
+            partnerType={peerPartnerType}
             currentCandidateId={selectedCandidate}
             onJump={handleJumpToPending}
           />
