@@ -3786,6 +3786,7 @@ router.post('/ratings/pending-reminders', authMiddleware, async (req, res) => {
 // One CSV row per (long-listed candidate × required rater seat that has NOT rated yet), naming the
 // rater(s) who still owe a rating. Uses the same completeness rule as Live Stats / pending-reminders:
 // SG <= 14 needs Regular Member + End-User; SG >= 15 needs all six panel seats; one rating set per seat.
+// Raters named per seat: item-specific first, then place-of-assignment, then 'all'-scope as a last resort.
 // Names, seats and status only — never any score.
 router.get('/ratings/incomplete-export', exportLimiter, authMiddleware, async (req, res) => {
   if (req.user.userType !== 'admin' && req.user.userType !== 'secretariat') {
@@ -3852,7 +3853,14 @@ router.get('/ratings/incomplete-export', exportLimiter, authMiddleware, async (r
 
         const ratedByText = ratedBy.map(r => `${r.name} (${r.raterType})`).join('; ');
         for (const type of missingTypes) {
-          const owing = raters.filter(r => r.raterType === type && inScope(r, v) && !ratedSet.has(String(r._id)));
+          // Name only the raters actually expected for this seat. A rater pinned to this exact item
+          // ('specific') or to this item's place of assignment ('assignment') is the expected one; broad
+          // 'all'-scope raters are named only when no narrower rater exists for the seat. Otherwise every
+          // End-User (or other type) with blanket access to all vacancies would be listed on every item.
+          const eligible = raters.filter(r => r.raterType === type && inScope(r, v) && !ratedSet.has(String(r._id)));
+          const specific = eligible.filter(r => r.assignedVacancies === 'specific');
+          const byAssignment = eligible.filter(r => r.assignedVacancies === 'assignment');
+          const owing = specific.length ? specific : byAssignment.length ? byAssignment : eligible;
           rows.push([
             c.itemNumber, v.position, v.assignment, v.salaryGrade,
             v.salaryGrade <= 14 ? 'Two-rater (SG 14 and below)' : 'Full panel (SG 15 and above)',
