@@ -3776,6 +3776,40 @@ router.post('/ratings/pending-reminders', authMiddleware, async (req, res) => {
       });
     }
 
+    // "Already rated under another item": the same person (full name, case-insensitive) applying for the SAME
+    // position title under a different item number, where I have already submitted ratings. Same matching the
+    // rating form's "Copy from Another Item" uses. Item numbers and positions only — never any score.
+    if (pending.length > 0) {
+      const normName = (n) => String(n || '').replace(/\s+/g, ' ').trim().toUpperCase();
+      const normPos = (n) => String(n || '').trim().toUpperCase();
+      const names = [...new Set(pending.map(p => p.candidateName).filter(Boolean))];
+      const sameNameCands = await Candidate.find({ fullName: { $in: names }, isArchived: false })
+        .collation({ locale: 'en', strength: 2 })
+        .select('_id fullName itemNumber').lean();
+      const others = sameNameCands.filter(c => !pending.some(p => String(p.candidateId) === String(c._id)));
+      if (others.length > 0) {
+        const [myRows, otherVacs] = await Promise.all([
+          Rating.aggregate([
+            { $match: { raterId: me._id, candidateId: { $in: others.map(c => c._id) }, score: { $gt: 0 } } },
+            { $group: { _id: { c: '$candidateId', i: '$itemNumber' } } },
+          ]),
+          Vacancy.find({ itemNumber: { $in: [...new Set(others.map(c => c.itemNumber))] }, isArchived: false })
+            .select('itemNumber position assignment').lean(),
+        ]);
+        const iRated = new Set(myRows.map(g => `${g._id.c}|${g._id.i}`));
+        const vacByItem = Object.fromEntries(otherVacs.map(v => [v.itemNumber, v]));
+        pending.forEach(row => {
+          const mine = others.filter(c =>
+            normName(c.fullName) === normName(row.candidateName) &&
+            c.itemNumber !== row.itemNumber &&
+            iRated.has(`${c._id}|${c.itemNumber}`) &&
+            vacByItem[c.itemNumber] && normPos(vacByItem[c.itemNumber].position) === normPos(row.position));
+          row.ratedOtherItems = mine.map(c => ({ itemNumber: c.itemNumber, assignment: vacByItem[c.itemNumber].assignment || '' }));
+        });
+      }
+      pending.forEach(row => { if (!row.ratedOtherItems) row.ratedOtherItems = []; });
+    }
+
     // Most-rated first = most overdue on my side
     pending.sort((a, b) =>
       b.ratedBy.length - a.ratedBy.length ||

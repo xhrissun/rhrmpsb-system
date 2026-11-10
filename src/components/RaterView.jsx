@@ -1422,6 +1422,17 @@ const PendingRatingsReminder = ({ pending, currentCandidateId, onJump, openSigna
                           </span>
                         ))}
                       </div>
+
+                      {(row.ratedOtherItems || []).length > 0 && (
+                        <div className="mt-2 flex items-start gap-1.5 rounded-md bg-blue-50 border border-blue-200 px-2.5 py-1.5 text-[11px] sm:text-xs text-blue-900">
+                          <span aria-hidden="true">💡</span>
+                          <span>
+                            <b>You already rated this candidate for the same position</b> under Item # {row.ratedOtherItems.map(o => o.itemNumber).join(', # ')}
+                            {row.ratedOtherItems[0].assignment ? ` (${row.ratedOtherItems[0].assignment})` : ''}.
+                            Open the form and tap <b>Copy from Another Item</b> to reuse those ratings instead of rating from scratch.
+                          </span>
+                        </div>
+                      )}
                     </button>
                   );
                 })}
