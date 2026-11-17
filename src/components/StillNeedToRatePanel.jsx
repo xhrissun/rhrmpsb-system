@@ -26,6 +26,59 @@ const adoptOptions = (c) => c.awaiting.flatMap(seat => {
   return source ? [{ seat: seat.raterType, owing: seat.raters, source }] : [];
 });
 
+// ─── CSV export helpers ──────────────────────────────────────────────────────
+const CSV_HEADERS = [
+  'Item #', 'Position', 'Assignment', 'Candidate', 'Interview Type', 'Status',
+  'Raters Done', 'Raters Required', 'Rater Seat', 'Pending Rater', 'Rater Assigned',
+  'Already Rated By', 'Can Adopt Ratings From',
+];
+
+// Quote fields, double embedded quotes, and neutralise spreadsheet formula injection (=, +, -, @).
+const csvCell = (v) => {
+  let t = v == null ? '' : String(v);
+  if (/^[=+\-@\t\r]/.test(t)) t = `'${t}`;
+  return /[",\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+};
+
+const buildCsv = (rows) =>
+  '\uFEFF' + [CSV_HEADERS, ...rows].map(r => r.map(csvCell).join(',')).join('\r\n');
+
+const downloadCsv = (text, filename) => {
+  const blob = new Blob([text], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.style.visibility = 'hidden';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+
+// One CSV row per (candidate × rater who still owes a rating). A seat with nobody assigned gets its own row.
+const csvRowsFor = (c, only) => {
+  const base = [
+    c.itemNumber, c.position, c.assignment, c.candidateName,
+    c.panelType === 'two_rater' ? '2-rater' : 'Panel',
+    c.status === 'not_started' ? 'Not started' : 'In progress',
+    c.ratedBy.length, c.requiredRaters,
+  ];
+  const ratedBy = c.ratedBy.map(r => `${r.name} (${r.raterType})`).join('; ');
+  const out = [];
+  c.awaiting.forEach(seat => {
+    const partner = PEER_PARTNER[seat.raterType];
+    const src = partner ? c.ratedBy.find(r => r.raterType === partner) : null;
+    const adopt = src ? `${src.name} (${src.raterType})` : '';
+    const list = seat.raters.length ? seat.raters : [{ id: null, name: '' }];
+    list.forEach(r => {
+      if (only && !only(seat, r)) return;
+      out.push([...base, seat.raterType, r.name || 'No assigned rater', r.id == null ? 'No' : 'Yes', ratedBy, r.id == null ? '' : adopt]);
+    });
+  });
+  return out;
+};
+
 const DoneIcon = () => (
   <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
 );
@@ -190,6 +243,26 @@ const StillNeedToRatePanel = ({ isOpen, onClose }) => {
     return [...map.values()];
   }, [candidates]);
 
+  // CSV rows for exactly what is on screen: same interview-type / status / search filters and the same view.
+  const exportRows = useMemo(() => {
+    if (view === 'rater') {
+      return raterBlocks.flatMap(b => b.rows.flatMap(c =>
+        csvRowsFor(c, (seat, r) => seat.raterType === b.raterType && (b.unassigned ? r.id == null : `${seat.raterType}|${r.id}` === b.key))
+      ));
+    }
+    return candidates.flatMap(c => csvRowsFor(c));
+  }, [view, raterBlocks, candidates]);
+
+  const handleExport = () => {
+    const stamp = new Date().toISOString().slice(0, 10);
+    const parts = ['still-need-to-rate', view];
+    if (panelFilter !== 'all') parts.push(panelFilter === 'two_rater' ? '2-rater' : 'panel');
+    if (statusFilter !== 'all') parts.push(statusFilter.replace('_', '-'));
+    if (search.trim()) parts.push('search');
+    parts.push(stamp);
+    downloadCsv(buildCsv(exportRows), `${parts.join('_')}.csv`);
+  };
+
   if (!isOpen) return null;
 
   const total = data?.candidates?.length ?? 0;
@@ -245,6 +318,14 @@ const StillNeedToRatePanel = ({ isOpen, onClose }) => {
             placeholder="Search rater, candidate or position…"
             className="flex-1 min-w-[180px] px-3 py-1.5 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-amber-400"
           />
+          <button
+            type="button" onClick={handleExport} disabled={!data || exportRows.length === 0}
+            title={exportRows.length ? 'Download the rows matching the current view and filters' : 'Nothing to export with the current filters'}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4" /></svg>
+            Export CSV{data ? ` (${exportRows.length})` : ''}
+          </button>
         </div>
 
         <div className="flex items-start gap-2 px-4 py-2 border-b border-indigo-100 bg-indigo-50 text-xs sm:text-sm text-indigo-900">
